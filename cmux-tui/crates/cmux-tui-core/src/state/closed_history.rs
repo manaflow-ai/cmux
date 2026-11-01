@@ -27,6 +27,7 @@ use crate::state::prelude::*;
 use crate::state::remote_terminal_tabs_store::RemoteTerminalRecord;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 use crate::user_settings::NewWorkspacePlacement;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "closed.reopen";
 
@@ -44,6 +45,11 @@ pub(crate) struct ReopenRequest {
     /// plans/cmux-next/durable-links-DESIGN.md). Excludes `closed` and
     /// `members`.
     pub(crate) tab: Option<String>,
+    /// A `ws_` id: reopen the newest closed workspace member that had this
+    /// id (a `cmux://workspace/` link to a closed workspace). It reopens as
+    /// a new workspace, like any reopened workspace. Excludes `closed`,
+    /// `members` and `tab`.
+    pub(crate) workspace: Option<String>,
     /// A `pane_` id: where a reopened tab goes when its own pane and
     /// workspace are gone, instead of the session's focused pane.
     pub(crate) fallback_pane: Option<String>,
@@ -55,16 +61,19 @@ impl ReopenRequest {
     fn fingerprint(&self) -> Value {
         let mut fingerprint = serde_json::json!({"operation": OPERATION, "closed": self.closed});
         if let Some(window) = &self.window {
-            fingerprint["window"] = serde_json::json!(window);
+            fingerprint.set("window", serde_json::json!(window));
         }
         if let Some(members) = &self.members {
-            fingerprint["members"] = serde_json::json!(members);
+            fingerprint.set("members", serde_json::json!(members));
         }
         if let Some(tab) = &self.tab {
-            fingerprint["tab"] = serde_json::json!(tab);
+            fingerprint.set("tab", serde_json::json!(tab));
+        }
+        if let Some(workspace) = &self.workspace {
+            fingerprint.set("workspace", serde_json::json!(workspace));
         }
         if let Some(pane) = &self.fallback_pane {
-            fingerprint["fallback_pane"] = serde_json::json!(pane);
+            fingerprint.set("fallback_pane", serde_json::json!(pane));
         }
         fingerprint
     }
@@ -260,6 +269,10 @@ fn commit_reopen(
         changes.extend(crate::state::personal::all_groups(transaction)?);
         changes.extend(crate::state::personal::all_placements(transaction)?);
     }
+    // sidebar-doc-v1: the restored rows move their items back to their old
+    // place in the document (it listed the reopened workspace where it was
+    // created, last).
+    super::sidebar_doc_sync::sync_from_legacy(transaction)?;
     Ok(StateChanges::new(
         serde_json::json!({
             "closed_id": closed_id,
@@ -275,6 +288,21 @@ fn commit_reopen(
     ))
 }
 
+/// Whether closed workspace `closed_key` still has its personal row in this
+/// session, the place [`restore_placement`] gives back on reopen.
+fn place_kept(connection: &rusqlite::Connection, closed_key: &str) -> anyhow::Result<bool> {
+    use rusqlite::{OptionalExtension, params};
+    let local = crate::state::values::local_registry_id(connection)?;
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+            params![local, closed_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
 /// Give the reopened workspace the closed one's personal row: its group,
 /// its place in the personal sidebar order and its theme
 /// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
@@ -284,17 +312,9 @@ pub(super) fn restore_placement(
     reopened_key: &str,
 ) -> anyhow::Result<Vec<Value>> {
     use crate::state::personal_state_store::{placement_id, placement_snapshot};
-    use rusqlite::{OptionalExtension, params};
+    use rusqlite::params;
     let local = crate::state::values::local_registry_id(transaction)?;
-    let kept = transaction
-        .query_row(
-            "SELECT 1 FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
-            params![local, closed_key],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some();
-    if !kept {
+    if !place_kept(transaction, closed_key)? {
         return Ok(Vec::new());
     }
     transaction.execute(
@@ -350,6 +370,27 @@ impl Mux {
             }
             None => None,
         };
+        let by_tab = match &request.workspace {
+            Some(workspace) => {
+                if request.closed.is_some() || request.members.is_some() || by_tab.is_some() {
+                    anyhow::bail!("bad request: workspace excludes closed, members and tab");
+                }
+                let live = self.with_state(|state| {
+                    state.workspaces.iter().any(|open| open.public_id.as_str() == workspace)
+                });
+                let found = if live {
+                    None
+                } else {
+                    self.read_registry_state(|connection| {
+                        crate::state::closed_history_query::group_member_holding_workspace(
+                            connection, workspace,
+                        )
+                    })?
+                };
+                Some(found.ok_or_else(|| state_not_found("workspace", workspace))?)
+            }
+            None => by_tab,
+        };
         let closed_id = match (&by_tab, &request.closed) {
             (Some((closed, _)), _) => closed.clone(),
             (None, Some(closed)) => closed.clone(),
@@ -400,7 +441,7 @@ impl Mux {
                 if tabs.is_empty() {
                     continue;
                 }
-                group["tab_ids"] = serde_json::json!(tabs);
+                group.set("tab_ids", serde_json::json!(tabs));
             }
             self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }
@@ -834,7 +875,7 @@ impl Mux {
                 let (workspace, _) = state.screen_of(landed)?;
                 (record["split"].is_object()
                     && record["workspace_id"].as_str()
-                        == Some(state.workspaces[workspace].public_id.as_str()))
+                        == Some(state.workspaces.get(workspace)?.public_id.as_str()))
                 .then_some(landed)
             })
         };
@@ -1026,10 +1067,18 @@ impl Mux {
             .map_or((TerminalSpawnOptions::new(None, Vec::new()), None, None), |screen| {
                 self.first_terminal_spawn(screen)
             });
-        // Created last, so the row `restore_placement` drops in the reopen
-        // commit moves no other row; the closed row's place comes back.
-        let first = NewWorkspacePlacement::Bottom
-            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, size))?;
+        // A known place (the closed workspace's personal row was kept): created
+        // last, so the row `restore_placement` drops in the reopen commit moves
+        // no other row, and the closed row's place comes back. No known place:
+        // where `workspaces.newPlacement` puts a new workspace (top by default).
+        let known = match record["workspace_key"].as_str() {
+            Some(closed_key) => {
+                self.read_registry_state(|connection| place_kept(connection, closed_key))?
+            }
+            None => false,
+        };
+        let create = || self.new_workspace_with_spawn_as(actor, name, spawn, size);
+        let first = if known { NewWorkspacePlacement::Bottom.scoped(create)? } else { create()? };
         let (workspace, key) = self
             .with_state(|state| {
                 let (index, _) = state.screen_of(state.pane_of(first.id)?)?;

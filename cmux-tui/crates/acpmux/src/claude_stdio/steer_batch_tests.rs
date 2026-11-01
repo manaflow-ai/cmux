@@ -205,9 +205,10 @@ async fn a_withdraw_of_a_batched_message_takes_nothing_back() {
     }
 }
 
-/// The turn's result came while a line's drop was on its way (review 2 of #26707): the result
-/// waits for that unread line, as for any steer; the drop goes through, and the line written in
-/// its place, which Claude Code runs as one more turn, is echoed and its result ends the turn.
+/// The turn's result came while a line's drop was on its way (review 2 of #26707): the turn
+/// ends with Claude Code's, naming both messages for the next turn (`carry.rs`); the drop goes
+/// through, and the line written in its place, which Claude Code runs as a turn of its own, is
+/// echoed and its result ends that next turn.
 #[tokio::test]
 async fn a_result_before_the_drop_answer_still_ends_the_turn() {
     let (t, mut q) = stepping().await;
@@ -215,15 +216,28 @@ async fn a_result_before_the_drop_answer_still_ends_the_turn() {
     write(&t, &mut q, &from(3, "lane-b", "second")).await;
     let result = json!({"type": "result", "subtype": "success", "result": "done", "num_turns": 1, "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}});
     let early = t.inbound(&result).await;
-    assert!(answer(&early, 1).is_none(), "the turn ended with a line unread: {early:?}");
+    let ended = answer(&early, 1).expect("the turn ended with Claude Code's").unwrap();
+    assert_eq!(ended["stopReason"], "end_turn", "{ended}");
+    assert_eq!(ended["_meta"]["claude"]["carried"]["promptIds"], json!(["p2", "p3"]), "{ended}");
+    let next = json!({"sessionId": "acp-1", "prompt": [], "_meta": {"carried": true}});
+    let Outbound::Lines(written) =
+        t.outbound(&Message::request(4, method::SESSION_PROMPT, next)).await
+    else {
+        panic!("the next turn's prompt was answered before its result")
+    };
+    assert!(written.is_empty(), "{written:?}");
     assert!(q.settle(&t).await.is_empty());
     assert_eq!(q.waiting.len(), 1, "{:?}", q.waiting);
     assert!(text_of(&q.waiting[0]).starts_with("2 messages from 2 sessions"));
     let read = t.inbound(&echo(&q.waiting[0])).await;
-    assert_eq!(answer(&read, 2).unwrap().unwrap()["stopReason"], "steered");
-    assert_eq!(answer(&read, 3).unwrap().unwrap()["stopReason"], "steered");
+    let seq = &ended["_meta"]["claude"]["carried"]["seq"];
+    for id in [2, 3] {
+        let steered = answer(&read, id).unwrap().unwrap();
+        assert_eq!(steered["stopReason"], "steered");
+        assert_eq!(&steered["_meta"]["claude"]["carried"], seq, "{steered}");
+    }
     let ended = t.inbound(&result).await;
-    assert_eq!(answer(&ended, 1).unwrap().unwrap()["stopReason"], "end_turn", "{ended:?}");
+    assert_eq!(answer(&ended, 4).unwrap().unwrap()["stopReason"], "end_turn", "{ended:?}");
 }
 
 /// A Claude Code that cannot drop a line: the line stands, the held message goes next, and the

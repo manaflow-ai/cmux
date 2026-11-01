@@ -27,6 +27,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::CallFailure;
+use cmux_json::JsonSet as _;
 
 /// The upstream whose tools need the helper's grants.
 pub(super) const SERVER: &str = "cmux-cua";
@@ -99,7 +100,7 @@ impl SetupCheck {
             Decision::Refuse(result) => Some(result),
             Decision::Wait { mut params, wait } => {
                 if let Some(caller) = self.caller {
-                    params["caller"] = caller;
+                    params.set("caller", caller);
                 }
                 match (self.app)(REQUEST_METHOD, params, wait + REQUEST_SLACK) {
                     Ok(outcome) => answer(&outcome),

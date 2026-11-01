@@ -11,11 +11,15 @@ public nonisolated enum ComputerUseDriver: String, Sendable, Hashable, CaseItera
 /// use other apps. Off, no helper starts and macOS asks for nothing.
 /// `driver` ("legacy" by default) picks the helper: "upstream" starts the
 /// helper v2 (a DEV build embeds a dev helper, com.cmuxterm.cua.dev).
+/// `livePreview` (on by default) shows a small live view of the app an agent
+/// drives at the top right of that agent's chat.
 public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public static let enabledPath = ["computerUse", "enabled"]
     public static let driverPath = ["computerUse", "driver"]
+    public static let livePreviewPath = ["computerUse", "livePreview"]
     public var enabled = false
     public var driver: ComputerUseDriver = .legacy
+    public var livePreview = true
 
     public init() {}
 
@@ -24,6 +28,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         guard var reader = ConfigFieldReader(root, at: ["computerUse"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("enabled") { settings.enabled = value }
         if let value = reader.choice("driver", ComputerUseDriver.self) { settings.driver = value }
+        if let value = reader.bool("livePreview") { settings.livePreview = value }
         diagnostics = reader.diagnostics
         return settings
     }
@@ -57,6 +62,15 @@ nonisolated enum ComputerUseSettingsSchema {
                 ]),
                 default: .string(ComputerUseSettings().driver.rawValue),
                 keywords: ["computer use", "driver", "cua", "upstream", "legacy", "helper"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.livePreviewPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.computerUse.livePreview", "Live Preview in Chat"),
+                help: SettingsText.keyed("settings.computerUse.livePreview.help",
+                                         "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."),
+                summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the app an agent uses in its chat"),
+                kind: .toggle, default: .bool(ComputerUseSettings().livePreview),
+                keywords: ["computer use", "live preview", "preview", "agent activity", "screenshot", "chat"]
             ),
         ]
     }

@@ -18,12 +18,19 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
 
     private let magnifier = NSImageView()
     private let chips = PaletteScopeChipsView()
+    private let tokens = PaletteTokenChipsView()
+    /// Takes out chosen value `index` (a click on its chip).
+    var onRemoveToken: ((Int) -> Void)? {
+        didSet { tokens.onRemove = onRemoveToken }
+    }
     private let breadcrumb = PaletteClickView()
     // Secondary, not tertiary: the path is text you read (4.5:1), not a 3:1 mark.
     private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let keywordHint = PaletteKeywordHintView()
     private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
+    /// The text width the placeholder was last fitted to.
+    private var placeholderWidth: CGFloat = 0
     private var style: PaletteScopeChipStyle = .token
     private var depth = 0
 
@@ -46,7 +53,8 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             guard let self, self.depth > 1 else { return }
             self.onPopTo?(self.depth - 2)
         }
-        [magnifier, chips, breadcrumb, field, keywordHint, spinner].forEach(addSubview)
+        tokens.isHidden = true
+        [magnifier, chips, breadcrumb, tokens, field, keywordHint, spinner].forEach(addSubview)
     }
 
     @available(*, unavailable)
@@ -57,14 +65,17 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     /// `chips` are the levels above the root; `rootTitle` names the root
     /// in the breadcrumb.
     func update(query: String, placeholder: String, chips scopeChips: [PaletteScopeChip], rootTitle: String,
-                style: PaletteScopeChipStyle, keywordHint hint: String?, isLoading: Bool) {
+                style: PaletteScopeChipStyle, keywordHint hint: String?, isLoading: Bool, tokens chosen: [PaletteToken] = []) {
+        tokens.update(tokens: chosen)
         if field.stringValue != query {
             field.stringValue = query
             // Keep a caret at the end instead of a selection.
             field.currentEditor()?.selectedRange = NSRange(location: query.utf16.count, length: 0)
         }
-        if placeholder != self.placeholder || field.placeholderAttributedString == nil {
+        // The placeholder carries its own font, so a text size change redraws it too (#26606).
+        if placeholder != self.placeholder || field.placeholderAttributedString == nil || field.font != Typography.search {
             self.placeholder = placeholder
+            field.font = Typography.search
             applyColors()
         }
         self.style = style
@@ -79,7 +90,6 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         let name = scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder
         field.setAccessibilityLabel(name)
         field.cell?.setAccessibilityLabel(name)
-        field.font = Typography.search
         spinner.spin(isLoading)
         needsLayout = true
     }
@@ -92,9 +102,16 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private func applyColors() {
         performWithTheme {
             magnifier.contentTintColor = Palette.textTertiary
+            // The field scrolls its text, and a scrolling cell clips a placeholder wider than the
+            // field mid-glyph whatever its line break mode, so it is cut to fit here, with an
+            // ellipsis (#26606).
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byTruncatingTail
+            let attributes: [NSAttributedString.Key: Any] = [.font: Typography.search, .foregroundColor: Palette.textTertiary,
+                                                             .paragraphStyle: style]
             field.placeholderAttributedString = NSAttributedString(
-                string: placeholder,
-                attributes: [.font: Typography.search, .foregroundColor: Palette.textTertiary]
+                string: Self.fitted(placeholder, width: placeholderWidth, attributes: attributes),
+                attributes: attributes
             )
         }
     }
@@ -129,6 +146,12 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             chips.frame = NSRect(x: x, y: 0, width: width, height: bounds.height)
             x = chips.frame.maxX + Metrics.space4
         }
+        if !tokens.isHidden {
+            // At most 60% of the bar, so the query always has room to type the next name.
+            let width = min(tokens.fittingWidth, max(0, (bounds.width - x - padding) * 0.6))
+            tokens.frame = NSRect(x: x, y: 0, width: width, height: bounds.height)
+            x = tokens.frame.maxX + Metrics.space4
+        }
         let spinnerSize = Metrics.iconSize + Metrics.space1 * 2
         spinner.frame = NSRect(x: bounds.maxX - padding - spinnerSize, y: (bounds.height - spinnerSize) / 2,
                                width: spinnerSize, height: spinnerSize)
@@ -139,5 +162,31 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             right = keywordHint.frame.minX - Metrics.space4
         }
         field.frame = pixelAligned(NSRect(x: x, y: fieldY, width: max(0, right - x), height: fieldHeight))
+        // Less the field editor's line fragment padding (2 pt a side), which the text draws inside.
+        let textWidth = (field.cell?.titleRect(forBounds: field.bounds).width ?? field.bounds.width) - 4
+        if textWidth != placeholderWidth {
+            placeholderWidth = textWidth
+            applyColors()
+        }
+    }
+
+    /// `text` whole when it fits `width`, else its longest prefix that fits with an ellipsis.
+    static func fitted(_ text: String, width: CGFloat, attributes: [NSAttributedString.Key: Any]) -> String {
+        func fits(_ candidate: String) -> Bool {
+            (candidate as NSString).size(withAttributes: attributes).width <= width
+        }
+        guard width > 0, !fits(text) else { return text }
+        let characters = Array(text)
+        var low = 0
+        var high = characters.count
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if fits(Self.truncated(characters, mid)) { low = mid } else { high = mid - 1 }
+        }
+        return Self.truncated(characters, low)
+    }
+
+    private static func truncated(_ characters: [Character], _ count: Int) -> String {
+        String(characters.prefix(count)).trimmingCharacters(in: .whitespaces) + "…"
     }
 }

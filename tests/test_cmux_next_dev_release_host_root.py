@@ -14,7 +14,10 @@ a descriptor every child inherits. These run it against stub compilers:
 - a wrapper killed with SIGKILL while its compile still runs keeps the root until the compile
   exits, then the next build takes it (no stale lock, no shared tree);
 - a failed tree setup builds per instance and releases the lock;
-- with the cache off or off a mini nothing touches the host root.
+- with the cache off or off a mini nothing touches the host root;
+- auto (the workflow default) compiles a host build singlefile, the first in a new host tree
+  included (it seeds the cache the next landing replays), and every other build whole-module;
+  a mode the variable names wins.
 """
 from __future__ import annotations
 
@@ -58,6 +61,7 @@ root, dd, locked = sys.argv[1:]
 print(json.dumps({"root": root, "dd": dd, "head": subprocess.run(["git", "-C", root, "rev-parse", "HEAD"],
     capture_output=True, text=True).stdout.strip(), "stale": os.path.exists(os.path.join(root, "stale.txt")),
     "locked": locked == "true", "acpmux": os.environ.get("CMUX_NEXT_ACPMUX_BIN", ""),
+    "swift_mode": os.environ.get("CMUX_NEXT_SWIFT_COMPILATION_MODE", ""),
     "tokens": sorted(k for k in ("CMUX_NEXT_DEV_CAS_TOKEN", "CMUX_NEXT_DEV_CAS_GH_TOKEN", "GH_TOKEN") if k in os.environ)}))
 PY
 if [[ -n "${STUB_CAS:-}" ]]; then mkdir -p "$1/CompilationCache.noindex/v1.1" && echo "$STUB_CAS" > "$1/CompilationCache.noindex/v1.1/data"; fi
@@ -294,6 +298,45 @@ class HostRootTests(unittest.TestCase):
         self.assertIn("mode=instance\n", report.read_text())
         self.assertIn("previous_sha=\n", report.read_text())
 
+    def test_auto_compiles_singlefile_on_the_host_cache_and_whole_module_without_it(self):
+        report = self.root / "report.txt"
+        first = self.workspace("runner-2")
+        seen = self.compile(first, CMUX_NEXT_SWIFT_COMPILATION_MODE="auto", CMUX_NEXT_DEV_COMPILE_REPORT=str(report))
+        self.assertEqual(seen["swift_mode"], "singlefile", "a first host build seeds the host cache")
+        self.assertIn("no host cache yet: singlefile, so the fleet seed applies and this build fills the cache -> singlefile", seen["out"])
+        self.assertIn("swift_mode=singlefile\n", report.read_text())
+        seen = self.compile(self.workspace("runner-5", extra="next"), "cmux14-glaeda-5")
+        self.assertEqual(seen["swift_mode"], "singlefile", "unset is auto")
+        self.assertIn("host cache from ", seen["out"])
+        for overrides, why in (({"CMUX_NEXT_COMPILATION_CACHE": "0"}, "compilation cache off"),
+                               ({"CMUX_NEXT_RUNNER": "blacksmith-6vcpu-macos-26"}, "not a mini")):
+            with self.subTest(overrides=overrides):
+                seen = self.compile(first, CMUX_NEXT_SWIFT_COMPILATION_MODE="auto",
+                                    CMUX_NEXT_DEV_COMPILE_REPORT=str(report), **overrides)
+                self.assertEqual(seen["swift_mode"], "wholemodule", seen["out"])
+                self.assertIn(f"cache cold: {why} -> wholemodule", seen["out"])
+                self.assertIn("swift_mode=wholemodule\n", report.read_text())
+
+    def test_auto_compiles_whole_module_while_another_build_holds_the_host_root(self):
+        hold = self.root / "hold"
+        first, first_job = self.start(self.workspace("runner-2"), STUB_HOLD=str(hold))
+        wait_for(hold)
+        seen = self.compile(self.workspace("runner-5"), "cmux14-glaeda-5", CMUX_NEXT_SWIFT_COMPILATION_MODE="auto")
+        self.assertEqual(seen["swift_mode"], "wholemodule", seen["out"])
+        self.assertIn("cache cold: another build holds the host root -> wholemodule", seen["out"])
+        (self.root / "hold.go").touch()
+        self.assertEqual(self.finish(first, first_job)["swift_mode"], "singlefile")
+
+    def test_a_mode_the_variable_names_wins(self):
+        ws = self.workspace("runner-2")
+        self.assertEqual(self.compile(ws, CMUX_NEXT_SWIFT_COMPILATION_MODE="wholemodule")["swift_mode"], "wholemodule")
+        seen = self.compile(ws, CMUX_NEXT_SWIFT_COMPILATION_MODE="singlefile", CMUX_NEXT_RUNNER="blacksmith-6vcpu-macos-26")
+        self.assertEqual(seen["swift_mode"], "singlefile")
+        self.assertIn("set by CMUX_NEXT_SWIFT_COMPILATION_MODE -> singlefile", seen["out"])
+        proc, job = self.start(ws, CMUX_NEXT_SWIFT_COMPILATION_MODE="fast")
+        self.assertIn("unsupported CMUX_NEXT_SWIFT_COMPILATION_MODE 'fast'", self.finish(proc, job, status=2)["out"])
+        self.assertEqual(probe(self.lock), 0)
+
     def test_a_failed_compile_fails_and_releases_the_lock(self):
         proc, job = self.start(self.workspace("runner-2"), STUB_COMPILE_STATUS="65")
         self.finish(proc, job, status=65)
@@ -352,6 +395,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('scripts/cmux-next/compile-dev-release.sh "$archive"', step)
         self.assertNotIn("check-cmux-scheme-compile.sh", step, "the step builds around the host root")
         self.assertIn("CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}", step)
+        # auto: compile-dev-release.sh picks the mode from the build mode; the variable still wins.
+        self.assertIn("CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}", step)
+        # Every reuse key and REF settings line names the same policy as the compile, never a resolved mode.
+        self.assertNotIn("CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile'", text)
 
 
 if __name__ == "__main__":

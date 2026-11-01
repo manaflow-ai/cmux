@@ -2,11 +2,13 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Dragging a pane by its tab bar's empty space onto another pane swaps the two (cx-8bv1j); a drop
 /// back on its own pane does nothing. The tab bar's tabs keep their own drag.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneSwapDragTests {
     final class Panes: LayoutPaneContentProvider {
         var strips: [PaneID: TabStripView] = [:]
@@ -86,7 +88,7 @@ struct PaneSwapDragTests {
 
     @Test func draggingAPaneByItsTabBarOntoAnotherSwapsThem() throws {
         let window = Window()
-        defer { window.window.orderOut(nil) }
+        defer { window.window.closeAfterTest() }
         window.drag(from: try window.emptyStripPoint("p1"), to: try window.center("p2"))
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
     }
@@ -94,7 +96,7 @@ struct PaneSwapDragTests {
     /// The press decides, not where the pan begins: a drag from a tab is the tab's own drag.
     @Test func aDragFromATabSwapsNothing() throws {
         let window = Window()
-        defer { window.window.orderOut(nil) }
+        defer { window.window.closeAfterTest() }
         let strip = try #require(window.provider.strips["p1"])
         let cell = try #require(strip.cells[TabID("p1-tab")])
         let tab = strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip)
@@ -104,7 +106,7 @@ struct PaneSwapDragTests {
 
     @Test func aDropOnItsOwnPaneSwapsNothing() throws {
         let window = Window()
-        defer { window.window.orderOut(nil) }
+        defer { window.window.closeAfterTest() }
         window.drag(from: try window.emptyStripPoint("p2"), to: try window.center("p2"))
         #expect(window.swaps.isEmpty)
     }
@@ -125,7 +127,7 @@ struct PaneSwapDragTests {
         window.contentView = strip
         // Gesture recognizers only see the events of a window on screen.
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.layoutSubtreeIfNeeded()
         let drag = PaneSwapDrag(strip: strip, pane: "p1", layout: { nil }, swap: { _, _ in })
         defer { withExtendedLifetime(drag) {} }
@@ -146,7 +148,7 @@ struct PaneSwapDragTests {
     /// tab bar caret: a pane drag and a tab drag share one preview (drop-zones DESIGN.md).
     @Test func theTargetPanePreviewsItsBody() throws {
         let window = Window()
-        defer { window.window.orderOut(nil) }
+        defer { window.window.closeAfterTest() }
         window.hold(from: try window.emptyStripPoint("p1"), to: try window.center("p2"))
         let shown = window.root.highlight.destinationRect
         let pane = try #require(window.root.frame(of: "p2"))

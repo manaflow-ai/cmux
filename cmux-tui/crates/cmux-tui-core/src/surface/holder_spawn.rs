@@ -2,7 +2,7 @@
 //! one a previous daemon of the session left running.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStringExt;
 
 use cmux_holder::SpawnRequest;
@@ -119,7 +119,9 @@ impl Surface {
         {
             Ok(reservation) => reservation,
             Err(error) => {
-                let _ = service.close(terminal.chan, 0);
+                // The shell stays on the holder for the next start (QUIT P0: a
+                // start never ends a shell a person still has).
+                service.detach(terminal.chan);
                 service.untrack(terminal.chan);
                 return Err(error);
             }
@@ -154,9 +156,10 @@ impl Surface {
             (command, cwd),
         );
         if adopted.is_err() {
-            // No surface shows it, and the startup pass no longer lists it:
-            // end it rather than leave it on the holder for ever.
-            let _ = service.close(terminal.chan, 0);
+            // No surface shows it: leave the shell on the holder, which lists
+            // it to the next start again (QUIT P0: a start never ends a shell
+            // a person still has; the row keeps it, `adopt_from_holder_or_end`).
+            service.detach(terminal.chan);
             service.untrack(terminal.chan);
         }
         adopted.map(Some)
@@ -257,23 +260,9 @@ struct HolderCommand {
 /// the daemon's environment spelled out because the holder passes exactly
 /// these.
 fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
-    let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
-        Some(argv) => {
-            crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
-        }
-        None => crate::shell_integration::integrate_default_shell(
-            vec![platform::default_shell()],
-            opts.extra_env.clone(),
-        ),
-    };
-    let mut env: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
-    env.insert("TERM".into(), opts.term.clone().into());
-    env.insert("COLORTERM".into(), "truecolor".into());
-    for (key, value) in &launch.env {
-        if !crate::login_shell::is_marker(key) {
-            env.insert(key.into(), value.into());
-        }
-    }
+    let launch =
+        crate::shell_integration::shell_launch(opts.command.clone(), opts.extra_env.clone());
+    let env = holder_environment(&launch, opts, std::env::vars_os().collect());
     let env = env
         .into_iter()
         .map(|(key, value)| {
@@ -294,7 +283,31 @@ fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
     HolderCommand { spawn_argv, argv: launch.command, env, cwd }
 }
 
-#[cfg(all(test, target_os = "macos"))]
+/// The holder child's environment: the daemon's own, then the terminal
+/// identity, then the launch's injected values, less
+/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`]. The holder gets
+/// the whole environment spelled out, so the removal happens here rather than
+/// through `PtyCommand::env_remove` as on the other two child paths.
+fn holder_environment(
+    launch: &crate::shell_integration::ShellLaunch,
+    opts: &SurfaceOptions,
+    inherited: BTreeMap<OsString, OsString>,
+) -> BTreeMap<OsString, OsString> {
+    let mut env = inherited;
+    env.insert("TERM".into(), opts.term.clone().into());
+    env.insert("COLORTERM".into(), "truecolor".into());
+    for (key, value) in &launch.env {
+        if !crate::login_shell::is_marker(key) {
+            env.insert(key.into(), value.into());
+        }
+    }
+    for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
+        env.remove(OsStr::new(key));
+    }
+    env
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -303,6 +316,7 @@ mod tests {
     /// `.zprofile`, a utmpx record and "Last login" as its first paint. The
     /// surface still records the shell's own argv, and the marker never
     /// reaches the shell.
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_marked_frontend_shell_starts_through_login_as_on_the_hosted_path() {
         let shell = vec!["/bin/zsh".to_string()];
@@ -327,5 +341,20 @@ mod tests {
             !command.env.iter().any(|entry| entry.starts_with(marker.as_bytes())),
             "the marker reaches the shell"
         );
+    }
+
+    #[test]
+    fn inherited_terminal_version_is_not_kept_for_holder_children() {
+        let launch = crate::shell_integration::ShellLaunch {
+            command: vec!["/bin/zsh".to_string()],
+            env: vec![("TERM_PROGRAM_VERSION".to_string(), "1.3.2".to_string())],
+        };
+        let inherited =
+            BTreeMap::from([(OsString::from("TERM_PROGRAM_VERSION"), OsString::from("1.3.2"))]);
+
+        let environment = holder_environment(&launch, &SurfaceOptions::default(), inherited);
+
+        assert!(!environment.contains_key(OsStr::new("TERM_PROGRAM_VERSION")));
+        assert_eq!(environment.get(OsStr::new("COLORTERM")), Some(&OsString::from("truecolor")));
     }
 }

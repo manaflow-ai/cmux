@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
-import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
+import { ComposerPickers } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
 import { rememberFullAccess } from "./startMode";
@@ -198,10 +198,6 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
   const [effort, setEffort] = useState("medium");
   const [fast, setFast] = useState("off");
-  const [grants, setGrants] = useState<ComposerPermissionGrant[]>([
-    { id: "folder", label: "Trusted cmux-tui", onRemove: () => setGrants((current) => current.slice(1)) },
-    { id: "git-grep", label: "Allow git grep in cmux for this session", onRemove: () => setGrants([]) },
-  ]);
   const snapshot = useMemo<AcpmuxSnapshot>(
     () => ({
       ...initialSnapshot,
@@ -243,7 +239,6 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
         <ComposerPickers
           snapshot={snapshot}
           {...(pickerCatalog ? { pickerCatalog } : {})}
-          permissionAccess={{ grants }}
           onModel={setModel}
           onMode={setMode}
           onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
@@ -273,7 +268,7 @@ const openModel: Play = async (ctx) => {
 const openAccounts: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  await ctx.focus({ role: "menuitem", name: /^Provider/ });
+  await ctx.focus({ role: "menuitem", name: /^Account/ });
   await ctx.press("Enter");
   await ctx.waitFor(() =>
     [...ctx.document.querySelectorAll(".acpmux-quick-menu")].some(
@@ -308,7 +303,10 @@ const modelPressDragRelease: Play = async (ctx) => {
   });
   // Astra may sit under More models in this fixture: drag to the current model's row, which still
   // exercises the button's press-drag-release path and closes the menu.
-  const row = { role: "menuitemradio", name: /GPT-6\.1 Sol/ } as const;
+  // Onto its name: the row's trailing columns hold its effort item, which opens the levels instead.
+  const row = {
+    selector: ".acpmux-quick-model-effort[data-running] > .acpmux-quick-item .acpmux-quick-label",
+  } as const;
   await ctx.pointer.move(row);
   await ctx.pointer.up(row);
   await ctx.waitFor(
@@ -316,20 +314,22 @@ const modelPressDragRelease: Play = async (ctx) => {
   );
 };
 
-/// Opens the model menu's Effort submenu; resolves with its popup.
+// The current model's effort is a side dropdown beside its row (#27948): its effort item opens the
+// model's levels in a submenu of their own.
+const RUNNING_EFFORT = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
+/// The checked level in that dropdown.
+const CHECKED_EFFORT = '.acpmux-quick-effort-menu .acpmux-quick-effort-segment[aria-checked="true"]';
+
+/// Opens the model menu, then the running model's effort dropdown; resolves with the dropdown.
 async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
   await ctx.click(MODEL);
-  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
-  // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
-  await ctx.focus({ role: "menuitem", name: /^Effort/ });
-  await ctx.press("Enter");
+  await ctx.waitFor(() => ctx.document.querySelector(RUNNING_EFFORT) !== null);
+  // A submenu trigger opens on hover or from the keyboard: focus it and press ArrowRight.
+  await ctx.focus({ selector: RUNNING_EFFORT });
+  await ctx.press("ArrowRight");
   let levels: HTMLElement | undefined;
   await ctx.waitFor(() => {
-    // The submenu is the quick menu with no submenu rows of its own.
-    levels = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].find(
-      (menu) => !menu.querySelector(".acpmux-quick-sub") && menu.querySelector('[role="menuitemradio"]') !== null,
-    );
+    levels = ctx.document.querySelector<HTMLElement>(".acpmux-quick-effort-menu") ?? undefined;
     return levels;
   });
   return levels!;
@@ -343,17 +343,28 @@ const openEffort: Play = async (ctx) => {
 const effortFocus: Play = async (ctx) => {
   const trigger = ctx.find(MODEL);
   const levels = await openEffortMenu(ctx);
-  await ctx.waitFor(() => levels.contains(ctx.document.activeElement));
+  const checked = levels.querySelector<HTMLElement>('[aria-checked="true"]')!;
+  await ctx.focus({ selector: CHECKED_EFFORT });
+  await ctx.waitFor(() => ctx.document.activeElement === checked);
   await ctx.press("ArrowDown");
-  await ctx.waitFor(() => levels.querySelector('[role="menuitemradio"][data-highlighted]') !== null);
+  await ctx.waitFor(() => {
+    const highlighted = ctx.document.querySelector(".acpmux-quick-menu [data-highlighted]");
+    return highlighted !== null && highlighted !== checked;
+  });
+  // The first Escape closes the effort dropdown back to its row; the next closes the menu.
   await ctx.press("Escape");
-  await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-effort-menu"));
+  if (ctx.document.querySelector('[role="menu"]')) await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
 };
 
 const effortPick: Play = async (ctx) => {
-  await openEffortMenu(ctx);
-  await ctx.click({ role: "menuitemradio", name: /^High/ });
+  const levels = await openEffortMenu(ctx);
+  const high = [...levels.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment")].find(
+    (segment) => (segment.querySelector(".acpmux-menu-label")?.textContent ?? segment.textContent)?.trim() === "High",
+  );
+  if (!high) throw new Error("the current model's effort control offers no High");
+  await ctx.click({ selector: `.acpmux-quick-menu [aria-label="${high.getAttribute("aria-label")}"]` });
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
   await ctx.waitFor(
     () =>
@@ -386,7 +397,8 @@ const openMode: Play = async (ctx) => {
   const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
     (node) => node.textContent?.trim(),
   );
-  const expected = ["Default", "Full access", "Plan"];
+  // Plan is the separate composer toggle; this menu contains permission modes only.
+  const expected = ["Default", "Full access"];
   if (labels.length !== expected.length || labels.some((label, index) => label !== expected[index]))
     throw new Error(`Permission mode titles are not in menu order: ${labels.join(" | ")}`);
   for (const [index, item] of [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].entries()) {
@@ -408,20 +420,13 @@ const managedMode: Play = async (ctx) => {
     throw new Error("Full access must say it is managed by the organization");
 };
 
-const accessGrants: Play = async (ctx) => {
-  const trigger = ctx.find({ role: "button", name: "Mode" });
-  if (trigger.textContent?.includes("Trusted")) throw new Error("Trust state leaked into the Access trigger");
-  // The allowed rules live in the menu only; the trigger shows no count beside the mode.
-  if (trigger.querySelector(".acpmux-access-grant-count") || /\d/.test(trigger.textContent ?? ""))
-    throw new Error("Access trigger shows an allowed-rule count");
+// The mode menu lists the modes alone (Leo, 2026-10-29): granted access is revoked from the chat
+// menu's Revoke Granted Access (header/grantsMenu.ts), never from this menu.
+const modesOnly: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Mode" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grants") !== null);
-  const grants = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-access-grant")];
-  if (grants.length !== 2) throw new Error(`Expected two allowed rules, found ${grants.length}`);
-  if (!grants.every((row) => row.querySelector(".acpmux-access-grant-remove")))
-    throw new Error("Allowed rules must each have a remove button");
-  await ctx.click({ selector: ".acpmux-access-grant-remove" });
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-access-grant").length === 1);
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"]') !== null);
+  if (ctx.document.querySelector(".acpmux-access-grants, .acpmux-access-grant"))
+    throw new Error("The mode menu shows granted access");
   await ctx.press("Escape");
 };
 
@@ -493,18 +498,18 @@ export default componentEntry<Props>({
       play: modelPressDragRelease,
     },
     "effort-menu": {
-      note: "The model menu's Effort row opens the levels beside it, the current one checked; there is no separate effort chip.",
+      note: "The current model's row carries its effort levels inline, the current one checked; there is no Effort submenu or separate effort chip.",
       props: {},
       play: openEffort,
     },
     "effort-focus": {
-      note: "Arrow navigation moves the highlighted effort; Escape twice closes both menus and restores focus to Model.",
+      note: "From the current effort, arrow navigation moves the highlight; Escape closes the menu and restores focus to Model.",
       props: {},
       play: effortFocus,
     },
     // The id predates the one button; its point stays: a pick of High lands and the button names it.
     "effort-press-drag-release": {
-      note: "Picking High in the Effort submenu closes the menu, and the model button then reads High after the model.",
+      note: "Picking High in the current model's inline effort closes the menu, and the model button then reads High after the model.",
       props: {},
       play: effortPick,
     },
@@ -520,14 +525,21 @@ export default componentEntry<Props>({
       play: openAccounts,
     },
     "claude-effort-up": {
-      note: "Opened from the composer at the window's foot, the Effort submenu grows up from its row, Medium checked (Leo 2026-10-21: it opened downward).",
+      note: "Opened from the composer at the window's foot, the menu grows up with the current model's inline effort, Medium checked (Leo 2026-10-21: the Effort submenu opened downward; #26521 folds it into the row).",
       props: { claude: true },
       play: openEffort,
     },
     "fast-mode": {
-      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked.",
+      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked. The model button then shows a bolt beside the model name (#31287).",
       props: {},
       play: fastMode,
+      checks: {
+        layoutShiftMax: {
+          value: 0.002,
+          reason:
+            "Turning Fast on draws the bolt after the model name on purpose (#31287), so Plan, the mode and the model detail to its right move 16 px: 0.0007 in Chromium.",
+        },
+      },
     },
     "permission-menu": { props: {}, play: openMode },
     "permission-managed": {
@@ -535,10 +547,10 @@ export default componentEntry<Props>({
       props: { managed: true },
       play: managedMode,
     },
-    "access-grants": {
-      note: "Allowed folder and chat rules stay inside Access; the footer shows only a compact count and the menu offers removal.",
+    "modes-only": {
+      note: "The mode menu lists the modes alone: no Granted access section (Leo, 2026-10-29); grants are revoked from the chat menu's Revoke Granted Access.",
       props: {},
-      play: accessGrants,
+      play: modesOnly,
     },
     "permission-focus": {
       note: "The numeric mode shortcut picks Full access; Escape from a reopen returns focus to Mode.",

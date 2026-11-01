@@ -9,14 +9,9 @@ import { createContext, useContext } from "react";
 import { useAvatarPicture } from "./avatars";
 import type { ChiefState } from "./model";
 import type { HomeParticipant } from "./types";
+import { graphemePrefix, initials } from "../../ui/initials";
 
-export function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const graphemes = (word: string) => Array.from(new Intl.Segmenter().segment(word), (part) => part.segment);
-  const letters =
-    words.length > 1 ? [graphemes(words[0]!)[0], graphemes(words[1]!)[0]] : graphemes(words[0] ?? "?").slice(0, 2);
-  return letters.join("").toUpperCase();
-}
+export { initials } from "../../ui/initials";
 
 /** Pictures by participant id (the page's Chief records). */
 export const PicturesContext = createContext<ReadonlyMap<string, string>>(new Map());
@@ -44,7 +39,7 @@ export function Avatar({
       {picture ? (
         <img className="hc-avatar-img" src={picture} alt="" draggable={false} />
       ) : (
-        initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)
+        graphemePrefix(initials(participant?.name ?? "?"), size >= 24 ? 2 : 1)
       )}
       {state && state !== "idle" && <span className={`lg-state-mark ${state}`} />}
     </span>

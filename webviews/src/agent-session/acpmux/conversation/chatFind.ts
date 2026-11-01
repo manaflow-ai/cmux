@@ -7,12 +7,16 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
-import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
+import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
+import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue } from "./mcpCalls";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
-import { shellOutput } from "./toolFailure";
+import { callOutput, shellOutput, toolFailure } from "./toolFailure";
 import { toolResult } from "./toolResult";
 import { stripsEnvelopeImages } from "../toolImages";
+import { foldFind } from "../../../find/fold";
+
+export { foldFind };
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -34,7 +38,9 @@ export type FindMatchesResult = {
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
 
-const SEARCHED_KINDS = new Set(["user", "assistant"]);
+/// Prompts, replies, and another agent's message waiting in the queue (QUEUED_MESSAGE, its text),
+/// which the transcript draws in the group of waiting messages (pendingMessages.ts).
+const SEARCHED_KINDS = new Set(["user", "assistant", "queuedMessage"]);
 
 /** What a tool call or thought draws: a thought's text, or a call's command (else its title) and
  * output. Group and run summaries are not counted, so they are not highlighted (`data-find-skip`). */
@@ -47,17 +53,29 @@ function drawnText(item: AcpmuxActivity): string {
   const call = mcpCall(tool);
   // A finished call's envelope images show in its strip, not its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
-  if (call) return [prettyValue(call.args), prettyOutput(tool.output, strip)].filter(Boolean).join("\n");
+  // A cmux script draws its script, calls, result and logs (McpCallRows.tsx CmuxExecDetails).
+  const failure = call ? toolFailure(tool) : undefined;
+  if (call && isCmuxExec(call) && failure?.kind !== "hook") {
+    const parts = execParts(execView(tool, call.args), cleanText);
+    return execText(parts, parts.rawResponse ? prettyOutput(tool.output, strip) : undefined);
+  }
+  if (call) {
+    const output = failure?.kind === "hook" ? failure.output : tool.output;
+    const result = mcpOutputResult(output, strip, call.tool);
+    const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;
+    return [prettyValue(call.args), text].filter(Boolean).join("\n");
+  }
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
   // without injected context (toolResult.ts), and Markdown as its words, without the marks
   // (messageMenu.ts plainText).
-  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText, strip);
+  const raw = shell ? undefined : callOutput(tool);
+  const result = shell || !raw ? undefined : toolResult(raw, cleanText, strip, tool);
   const output = shell
     ? shellOutput(tool)
     : !result
-      ? tool.output
+      ? raw
       : result.lang === "markdown"
         ? plainText(result.text)
         : result.text;
@@ -78,7 +96,7 @@ const searchableActivityTextCache = new WeakMap<AcpmuxActivity, string>();
 function searchableActivityText(item: AcpmuxActivity): string {
   const cached = searchableActivityTextCache.get(item);
   if (cached !== undefined) return cached;
-  const text = activityText(item).toLocaleLowerCase();
+  const text = foldFind(activityText(item));
   searchableActivityTextCache.set(item, text);
   return text;
 }
@@ -98,7 +116,8 @@ const searchableTextCache = new WeakMap<AcpmuxRow, string | undefined>();
 
 function searchableText(row: AcpmuxRow): string | undefined {
   if (searchableTextCache.has(row)) return searchableTextCache.get(row);
-  const text = rowText(row)?.toLocaleLowerCase();
+  const raw = rowText(row);
+  const text = raw === undefined ? undefined : foldFind(raw);
   searchableTextCache.set(row, text);
   return text;
 }
@@ -109,7 +128,7 @@ export function findMatchesIncremental(
   query: string,
   previous?: FindMatchesCache,
 ): FindMatchesResult {
-  const needle = query.toLocaleLowerCase();
+  const needle = foldFind(query);
   if (!needle) {
     return { matches: [], cache: { needle, rows, matches: [] }, scannedRows: 0 };
   }
@@ -222,10 +241,17 @@ export type FindRevealTarget = {
   /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
    * the running line, WorkingFor.tsx). */
   toolId?: string;
-  /** The message that holds the match in a card of waiting messages (`rowId`, WaitingMessagesCard.tsx). */
-  member?: string;
+  /** The match's own row when `rowId` draws it inside itself (a message in the group of waiting
+   * messages, PendingMessagesCard.tsx): only that one opens. */
+  matchRowId?: string;
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
+
+/// A grouped message keeps its own Find/highlight target even though its outer row scrolls in.
+export const findMemberRowId = (row: AcpmuxRow | undefined, target: string | undefined): string | undefined =>
+  target && (row?.pendingMessages || row?.laneNoticeBatch) && row.id !== target && row.joined?.includes(target)
+    ? target
+    : undefined;
 
 /** Whether `row` draws match row `rowId` itself: the row, its copy in an open fold, or the run
  * that absorbed it (turns.ts `mergeShortNotes`). */
@@ -271,6 +297,33 @@ function registry(): HighlightRegistry | undefined {
   return (globalThis.CSS as unknown as { highlights?: HighlightRegistry } | undefined)?.highlights;
 }
 
+/** The text a highlight searches, in runs: each text node on its own, except that consecutive ones
+ * inside one `data-find-join` element (a tool row's label, its verb in the column apart from its
+ * subject, ToolVerb.tsx) are one run, so a match may span them as it spans the words they draw. */
+function findRuns(walker: TreeWalker): Node[][] {
+  const runs: Node[][] = [];
+  let join: Element | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const owner = node.parentElement?.closest("[data-find-join]") ?? null;
+    if (owner && owner === join) runs[runs.length - 1]!.push(node);
+    else runs.push([node]);
+    join = owner;
+  }
+  return runs;
+}
+
+/** Where offset `at` of a run's joined text lies: its node and the offset in it. An end that falls
+ * on a boundary stays in the node before it; a start moves to the node after it. */
+function nodeAt(nodes: readonly Node[], at: number, end: boolean): [Node, number] {
+  let rest = at;
+  for (const [index, node] of nodes.entries()) {
+    const length = node.textContent?.length ?? 0;
+    if (rest < length || (end && rest === length) || index === nodes.length - 1) return [node, rest];
+    rest -= length;
+  }
+  return [nodes[0]!, 0];
+}
+
 /** Clears the find highlights. */
 export function clearFindHighlights() {
   const highlights = registry();
@@ -287,11 +340,11 @@ export function clearFindHighlights() {
 export function paintFindHighlights(
   root: HTMLElement,
   query: string,
-  active?: { rowId: string; card: boolean; occurrence: number; member?: string },
+  active?: { rowId: string; card: boolean; occurrence: number },
 ): Range | undefined {
   const highlights = registry();
   const Highlight = (globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
-  const needle = query.toLocaleLowerCase();
+  const needle = foldFind(query);
   if (!highlights || !Highlight || !needle) {
     clearFindHighlights();
     return undefined;
@@ -299,31 +352,52 @@ export function paintFindHighlights(
   const all: Range[] = [];
   let current: Range | undefined;
   for (const row of root.querySelectorAll<HTMLElement>("[data-row-id]")) {
-    const ranges: Range[] = [];
+    // Alternate presentations share one indexed value. Prefer Markdown only when its light-DOM
+    // ranges cover every Raw occurrence of this query. Otherwise use Raw for the whole value:
+    // mixing copies by ordinal would misidentify a hidden URL preceding a visible occurrence.
+    const alternatives = new Map<string, { primary: number; fallback: number }>();
+    for (const fallback of row.querySelectorAll<HTMLElement>("[data-find-fallback]")) {
+      alternatives.set(fallback.dataset.findFallback!, { primary: 0, fallback: 0 });
+    }
+    const candidates: { range: Range; pair?: string; kind?: "primary" | "fallback" }[] = [];
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
+      // A member row drawn inside this one (`data-find-member`) counts its own matches, never twice.
       acceptNode: (node) =>
-        node.parentElement?.closest("[data-find-skip]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+        node.parentElement?.closest("[data-find-skip]") ||
+        node.parentElement
+          ?.closest("[data-find-member][data-row-id]")
+          ?.closest("[data-row-id]:not([data-find-member])") === row
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT,
     });
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const text = node.textContent?.toLocaleLowerCase() ?? "";
+    for (const nodes of findRuns(walker)) {
+      // A run's nodes share one presentation (a label's verb and subject sit in one element).
+      const presentation = nodes[0]!.parentElement?.closest<HTMLElement>("[data-find-primary], [data-find-fallback]");
+      const pair = presentation?.dataset.findPrimary ?? presentation?.dataset.findFallback;
+      const kind = presentation?.hasAttribute("data-find-primary") ? "primary" : "fallback";
+      const counts = pair === undefined ? undefined : alternatives.get(pair);
+      const text = foldFind(nodes.map((node) => node.textContent ?? "").join(""));
       for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
         const range = document.createRange();
-        range.setStart(node, at);
-        range.setEnd(node, at + needle.length);
-        ranges.push(range);
+        const [startNode, startAt] = nodeAt(nodes, at, false);
+        const [endNode, endAt] = nodeAt(nodes, at + needle.length, true);
+        range.setStart(startNode, startAt);
+        range.setEnd(endNode, endAt);
+        if (counts) counts[kind]++;
+        candidates.push({ range, pair, kind });
       }
     }
+    const ranges = candidates
+      .filter(({ pair, kind }) => {
+        const counts = pair === undefined ? undefined : alternatives.get(pair);
+        if (!counts) return true;
+        return kind === (counts.primary === counts.fallback ? "primary" : "fallback");
+      })
+      .map(({ range }) => range);
     all.push(...ranges);
     // The row that draws the match (an edit and its edited-files card share an id).
     if (active && row.dataset.rowId === active.rowId && (row.dataset.rowCard === "true") === active.card) {
-      // In a card of waiting messages, the occurrence counts in the message that holds it.
-      const member = active.member
-        ? [...row.querySelectorAll<HTMLElement>("[data-find-member]")].find(
-            (node) => node.dataset.findMember === active.member,
-          )
-        : undefined;
-      const own = member ? ranges.filter((range) => member.contains(range.startContainer)) : ranges;
-      if (own.length) current = own[Math.min(active.occurrence, own.length - 1)];
+      if (ranges.length) current = ranges[Math.min(active.occurrence, ranges.length - 1)];
     }
   }
   highlights.set(FIND_HIGHLIGHT, new Highlight(...all.filter((range) => range !== current)));

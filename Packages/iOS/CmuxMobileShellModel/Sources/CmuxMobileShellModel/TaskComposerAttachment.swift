@@ -12,8 +12,6 @@ public struct TaskComposerAttachment: Identifiable, Equatable, Sendable {
 
     /// Maximum number of staged attachments in one task.
     public static let maximumCount = 10
-    /// Maximum encoded bytes for one staged image.
-    public static let maximumImageBytes = 8 * 1024 * 1024
     /// Maximum raw bytes for one staged file.
     public static let maximumFileBytes = 32 * 1024 * 1024
     /// Maximum raw bytes across one task.

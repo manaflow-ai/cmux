@@ -64,6 +64,8 @@ pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
 mod home_tests;
+#[cfg(test)]
+mod incognito_terminal_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
@@ -73,6 +75,8 @@ pub(crate) mod layout_bulk;
 mod layout_bulk_tests;
 #[cfg(test)]
 mod mixed_order_tests;
+#[cfg(test)]
+mod new_group_top_tests;
 #[cfg(test)]
 mod new_workspace_top_tests;
 pub(crate) mod palette_usage;
@@ -94,6 +98,8 @@ pub(crate) mod projects_ops;
 pub(crate) mod projects_store;
 pub(crate) mod remote_terminal_tabs;
 pub(crate) mod remote_terminal_tabs_store;
+#[cfg(test)]
+mod reopen_place_tests;
 pub(crate) mod room_delete;
 #[cfg(test)]
 mod room_delete_amendment_tests;
@@ -109,6 +115,9 @@ pub(crate) mod sidebar_doc_ops;
 pub(crate) mod sidebar_doc_order;
 pub(crate) mod sidebar_doc_store;
 pub(crate) mod sidebar_doc_sync;
+pub(crate) mod sidebar_doc_workspace_move;
+#[cfg(test)]
+mod sidebar_doc_workspace_move_tests;
 #[cfg(test)]
 mod tab_attention_tests;
 #[cfg(test)]

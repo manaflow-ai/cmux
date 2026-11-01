@@ -2,9 +2,9 @@
 // updates (Hide tabs answers `{ sideTabs }` alone) must keep it, or `/btw` falls back to a chat prompt.
 import { expect, test } from "bun:test";
 
-test("an update that leaves Side sessions out keeps it; only the App's value turns it off", async () => {
+test("the shipped default stays on until the App explicitly turns it off", async () => {
   const { headerState, setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
-  expect(headerState().sideSessions).toBe(false);
+  expect(headerState().sideSessions).toBe(true);
   setHeaderState({ sideTabs: false, sideSessions: true, version: 1 });
   expect(headerState().sideSessions).toBe(true);
   setHeaderState({ sideTabs: true });

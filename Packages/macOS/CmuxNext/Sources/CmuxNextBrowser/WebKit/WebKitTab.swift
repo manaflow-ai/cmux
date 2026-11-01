@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 public import Foundation
@@ -8,7 +9,7 @@ public import WebKit
 /// A browser tab backed by one `WKWebView`.
 @MainActor
 @Observable
-public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
+public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, BrowserCacheBypassingReload {
     public let id: BrowserTabID
     public let profileID: BrowserProfileID
     public let engineKind: BrowserEngineKind = .webkit
@@ -79,6 +80,11 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
     /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var userAgentBeforeEmulation: String?
+    /// The system's memory pressure, read when the web content process ends (``BrowserExitRecovery``);
+    /// a test gives a fixed level.
+    @ObservationIgnored var memoryPressure: () -> MemoryPressureLevel = { KernelMemoryPressureLevel().read() }
+    /// The one automatic reload a memory end of the web content process owes (`WebKitTab+Delegates`).
+    @ObservationIgnored var exitRecovery = BrowserExitRecovery()
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -113,6 +119,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
         WebKitFirstPaintHandler.install(on: self, into: controller)
+        WebKitScrollReportHandler.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
@@ -162,8 +169,11 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
         }
     }
 
-    /// WebKit draws in-view and throttles hidden views itself.
-    public func setContentVisible(_ visible: Bool) {}
+    /// WebKit draws in-view and throttles hidden views itself; a page shown after a memory end
+    /// takes its one automatic reload (`exitRecovery`).
+    public func setContentVisible(_ visible: Bool) {
+        if visible { reloadOwedAfterExit() }
+    }
 
     // MARK: Snapshot, script, find
 

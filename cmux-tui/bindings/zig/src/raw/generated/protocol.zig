@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022";
+pub const ir_sha256 = "ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -424,6 +424,24 @@ pub const ColumnPin = struct {
     edge: []const u8,
     mode: []const u8,
     role: wire.Field([]const u8) = .absent,
+};
+
+pub const ColumnSide = enum {
+    left,
+    right,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+        };
+    }
 };
 
 pub const ConversationChange = struct {
@@ -1855,6 +1873,12 @@ pub const ServerStatsHistogram = struct {
     p99: u64,
 };
 
+pub const ServerStatsHookQueue = struct {
+    queued_events: u64,
+    reset_dropped_events: u64,
+    undeliverable_events: u64,
+};
+
 pub const ServerStatsJournalWriter = struct {
     batch_size: ServerStatsHistogram,
     batches: u64,
@@ -1871,6 +1895,18 @@ pub const ServerStatsJournalWriter = struct {
     terminal_queued: u64,
 };
 
+pub const ServerStatsLockDetail = struct {
+    by_hold_p99: []const ServerStatsLockSiteDetail,
+    by_hold_total: []const ServerStatsLockSiteDetail,
+    contended_acquisitions: u64,
+    hold_us: ServerStatsHistogram,
+    holder: wire.Nullable(ServerStatsLockHolder),
+    last_stall: wire.Nullable(ServerStatsLockStall),
+    sites: u64,
+    stalls: u64,
+    wait_us: ServerStatsHistogram,
+};
+
 pub const ServerStatsLockHolder = struct {
     held_for_us: u64,
     site: []const u8,
@@ -1883,10 +1919,26 @@ pub const ServerStatsLockSite = struct {
     site: []const u8,
 };
 
+pub const ServerStatsLockSiteDetail = struct {
+    acquisitions: u64,
+    hold_max_us: u64,
+    hold_p99_us: u64,
+    hold_total_us: u64,
+    site: []const u8,
+    wait_max_us: u64,
+    wait_p99_us: u64,
+    wait_total_us: u64,
+};
+
 pub const ServerStatsLockStall = struct {
     blocker: wire.Nullable([]const u8),
     waited_us: u64,
     waiter: []const u8,
+};
+
+pub const ServerStatsLocks = struct {
+    registry: ServerStatsLockDetail,
+    state: ServerStatsLockDetail,
 };
 
 pub const ServerStatsRegistryLock = struct {
@@ -1921,7 +1973,9 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    hook_queue: ?ServerStatsHookQueue = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
+    locks: ?ServerStatsLocks = null,
     registry_lock: ServerStatsRegistryLock,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
@@ -1929,6 +1983,8 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "hook_queue",
+        "locks",
         "resource_projection",
         "write_path",
     };
@@ -4376,6 +4432,28 @@ pub fn cloudConversationUnsubscribe(client: anytype, request: CloudConversationU
     );
 }
 
+pub const CloudEnvironmentRequest = struct {
+    access_token: []const u8,
+    action: []const u8,
+    params: wire.Nullable(JsonValue),
+    platform_origin: []const u8,
+};
+
+pub const CloudEnvironmentResult = JsonValue;
+
+pub fn cloudEnvironment(client: anytype, request: CloudEnvironmentRequest) !wire.Decoded(CloudEnvironmentResult) {
+    return client.callTyped(
+        CloudEnvironmentResult,
+        .{
+            .name = "cloud-environment",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-environments-v1",
+        },
+        request,
+    );
+}
+
 pub const CloudHostReplicaClearRequest = struct {
     purge: ?bool = null,
 
@@ -4440,6 +4518,7 @@ pub fn cloudHostReplicaStatus(client: anytype, request: CloudHostReplicaStatusRe
 }
 
 pub const CloudInboxListRequest = struct {
+    cursor: wire.Field([]const u8) = .absent,
     include_archived: ?bool = null,
     limit: wire.Field(u32) = .absent,
 
@@ -5149,6 +5228,7 @@ pub fn conversationRunAppend(client: anytype, request: ConversationRunAppendRequ
 }
 
 pub const ConversationRunsRequest = struct {
+    answers: wire.Field([]const []const u8) = .absent,
     before_started_at: wire.Field(u64) = .absent,
     conversation: []const u8,
     limit: wire.Field(u32) = .absent,
@@ -5168,6 +5248,9 @@ pub fn conversationRuns(client: anytype, request: ConversationRunsRequest) !wire
             .authority = "local-admin",
             .since = 12,
             .capability = "conversation-runs-v1",
+            .fields = &.{
+                .{ .name = "answers", .since = null, .capability = "conversation-run-answers-v1" },
+            },
         },
         request,
     );
@@ -7292,6 +7375,7 @@ pub const NewPaneRightRequest = struct {
     pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    side: wire.Field(ColumnSide) = .absent,
     tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
@@ -7319,6 +7403,7 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
                 .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "side", .since = 12, .capability = "column-left-v1" },
                 .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
@@ -11574,7 +11659,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 286;
+pub const command_count: usize = 287;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11623,6 +11708,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
     .{ .name = "cloud-conversation-typing", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-typing-v1", .stream = null },
     .{ .name = "cloud-conversation-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-environment", .authority = "local-admin", .since = 12, .capability = "cloud-environments-v1", .stream = null },
     .{ .name = "cloud-host-replica-clear", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
     .{ .name = "cloud-host-replica-set", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
     .{ .name = "cloud-host-replica-status", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },

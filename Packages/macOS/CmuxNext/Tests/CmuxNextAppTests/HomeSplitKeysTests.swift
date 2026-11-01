@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextHomeEngine
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -13,7 +14,7 @@ import Testing
 /// tool to and refused ("The agent chat can't be split."). Cmd-D and Cmd-Shift-D there now open the
 /// new pane in a column right of the dock, as New Tab does; the keys around them (focus, equalize,
 /// close) then act on that column like any.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct HomeSplitKeysTests {
     /// Shows the docked Home with its dock alone and focused; returns the window and the home workspace.
     static func showHome(_ services: AppServices, _ connection: DaemonConnection) async throws -> (WindowController, WorkspaceModel) {

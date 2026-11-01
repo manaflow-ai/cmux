@@ -285,14 +285,18 @@ pub(super) fn read_scrollback(
     Ok(json!({ "rows": rows, "start": start, "total": total, "epoch": epoch }))
 }
 
+/// Runs on a wait worker (`connection_wait`), not the connection's
+/// dispatcher; the connection's cancellation and its writer's close end it.
 pub(super) fn wait_for(
     mux: &Arc<Mux>,
+    writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
     surface: SurfaceId,
     pattern: String,
     timeout_ms: u64,
 ) -> anyhow::Result<Value> {
-    let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
+    let cancelled =
+        || cancellation.is_some_and(ConnectionCancellation::is_cancelled) || !writer.is_open();
     if cancelled() {
         anyhow::bail!("connection closed while waiting for pattern");
     }
@@ -314,7 +318,9 @@ pub(super) fn wait_for(
         }
         anyhow::bail!("timeout waiting for pattern");
     }
-    let deadline = start + Duration::from_millis(timeout_ms);
+    let deadline = start
+        .checked_add(Duration::from_millis(timeout_ms))
+        .ok_or_else(|| anyhow::anyhow!("timeout_ms is too large"))?;
     let attach = surface.attach_stream()?;
     // The wait ends on output, the deadline, or the connection
     // closing; it used to wake every 100 ms to check the last.
@@ -322,6 +328,7 @@ pub(super) fn wait_for(
     if let Some(cancellation) = cancellation {
         cancellation.register_interrupt(&interrupt);
     }
+    writer.register_interrupt(&interrupt);
     attach.stream.wake_on(&interrupt);
     if let Some(text) = check()? {
         return Ok(json!({

@@ -19,6 +19,7 @@
 //! the daemon did not name that way is never deleted.
 
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -27,6 +28,8 @@ use std::time::Duration;
 
 /// The `initialize` feature of a daemon that takes `_acpmux/file_put`.
 pub const FEATURE: &str = "filePut";
+
+pub(crate) mod web;
 /// The resumable upload feature advertised by current daemons.
 pub const CHUNKS_FEATURE: &str = "filePutChunks";
 /// `_acpmux/file_put_status`, finish `sha256`, `upload.*` reasons and `upload.diskFull`.
@@ -316,7 +319,7 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
         let owner = parent.join(OWNER);
         crate::agent_tools::write_private(&owner, token.as_bytes())
             .map_err(|e| failed_anyhow("cannot record upload", &owner, &e, None))?;
-        answer["ownerToken"] = json!(token);
+        answer.set("ownerToken", json!(token));
     }
     Ok(answer)
 }
@@ -377,7 +380,12 @@ fn hold(upload: &str) -> std::sync::MutexGuard<'static, ()> {
     let canonical = upload_id(upload).unwrap_or_else(|| upload.to_owned());
     let stripe =
         canonical.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(usize::from(b)));
-    LOCKS[stripe % LOCKS.len()].lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    let [first, ..] = &LOCKS;
+    LOCKS
+        .get(stripe % LOCKS.len())
+        .unwrap_or(first)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The declared `{fileName, size}` of unfinished upload `upload`.
@@ -485,7 +493,7 @@ fn sha256_of(path: &Path) -> std::io::Result<String> {
         if n == 0 {
             break;
         }
-        hash.update(&buf[..n]);
+        hash.update(buf.get(..n).unwrap_or_default());
     }
     Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }

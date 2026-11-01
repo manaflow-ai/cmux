@@ -57,6 +57,20 @@ pub struct Claim {
     stamp_error: Option<String>,
 }
 
+impl Drop for Claim {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            // SAFETY: the descriptor belongs to this claim and remains open
+            // until this drop implementation returns. Explicitly releasing
+            // it makes the lock handoff deterministic before a caller's next
+            // claim, rather than relying on close-time unlock semantics.
+            unsafe { libc::flock(self._lock.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
+
 impl Claim {
     /// Records the end of a recorded pass; the lock goes with `self`. The
     /// error of a stamp that could not be written, at the start or now.
@@ -64,8 +78,8 @@ impl Claim {
         let Some(path) = &self.stamp else { return Ok(()) };
         let end =
             write_stamp(path, Stamp { started_ms: self.started_ms, finished_ms: Some(now_ms) });
-        match self.stamp_error {
-            Some(error) => Err(error),
+        match self.stamp_error.as_ref() {
+            Some(error) => Err(error.clone()),
             None => end,
         }
     }
@@ -138,10 +152,14 @@ fn try_lock(_file: &File) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_FOLDER: AtomicU64 = AtomicU64::new(0);
 
     fn folder(name: &str) -> PathBuf {
+        let serial = NEXT_FOLDER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "care-schedule-{name}-{}-{}",
+            "care-schedule-{name}-{}-{}-{serial}",
             std::process::id(),
             crate::inventory::now_ms()
         ));

@@ -1,6 +1,6 @@
 # Gallery matrix runner
 
-This runner takes a JSON array of cases and captures each case in Chromium and WebKit at device scale 2. A case is one gallery stage: `frame.html` with the gallery's URL contract as its params (`webviews/src/gallery/env.ts`: entry, variant, locale, theme, colorScheme, fontFamily, fontSize, density, scale, width, height, reducedMotion, highContrast). Write a manifest from the gallery registry with `bun webviews/scripts/gallery/manifest.ts` (`--entries`, `--variants`, `--locales en|shipped|all`, `--themes default|pair|sample|all`, `--widths`, `--limit`). The runner waits for the stage's `data-gallery-ready` and renders in UTC. It serves a static gallery directory, writes PNGs and a framework-free `index.html`, and can compare matching PNGs in a baseline directory.
+This runner takes a JSON array of cases and captures each case in Chromium and WebKit at device scale 2. By default each image is cropped to the gallery surface (`[data-gallery-capture]`, falling back to `#root`) with 32 CSS px of context; set `CMUX_GALLERY_CAPTURE_SELECTOR` for a named element. A case is one gallery stage: `frame.html` with the gallery's URL contract as its params (`webviews/src/gallery/env.ts`: entry, variant, locale, theme, colorScheme, fontFamily, fontSize, density, scale, width, height, reducedMotion, highContrast). Write a manifest from the gallery registry with `bun webviews/scripts/gallery/manifest.ts` (`--entries`, `--variants`, `--locales en|shipped|all`, `--themes default|pair|sample|all`, `--widths`, `--limit`). The runner waits for the stage's `data-gallery-ready` and renders in UTC. It serves a static gallery directory, writes PNGs and a framework-free `index.html`, and can compare matching PNGs in a baseline directory.
 
 Install once from this directory:
 
@@ -112,6 +112,28 @@ one kind; a broken state's reason is its kind) is a warning and the shard passes
 state, a crashed render, a missing or cut-short `health.json`, a base render with no whole result,
 and any red on a push still fail.
 
+## Layout shift and geometry gates
+
+Gallery health also judges every state it renders on two more counts, each against a baseline
+file in this folder, and fails the PR that adds a regression (a red the base shares is a warning,
+as for broken states):
+
+- **Layout shift** (`shift-baseline.ts`, `shift-baseline.json`): the state's load plus each play
+  step, scored from the browser's layout-shift entries and from the tracked rows' boxes frame by
+  frame (`webviews/src/gallery/shift.ts`), whichever is larger. A row fails past a quarter again
+  plus 0.0005 (`LIMIT_SLACK`), so a row of 0 fails on any shift past frame-timing noise.
+- **Geometry invariants** (`invariant-baseline.ts`, `invariant-baseline.json`): the design specs'
+  rules read from the DOM after the state settles (`webviews/src/gallery/invariants.ts`): one
+  transcript icon column, icons on their line, gaps on the token scale, menu label columns,
+  `--ds-control-row` row heights and menus no wider than their content. A violation the state's
+  row does not list fails.
+
+A state with no row only warns. A shift or violation must show on every retry to count. Rows only
+go down: download a run's `gallery-health-*` artifacts and run `bun shift-baseline.ts --from <dir>`
+or `bun invariant-baseline.ts --from <dir>`; `--add` writes rows for states that have none.
+Shift rows are written from the worst of the downloaded runs, so a 0 row is a state no run shifted;
+seed from more than one run (several artifacts in one folder) to keep a flaky state off 0.
+
 ## Geometry audit
 
 `geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active
@@ -140,8 +162,12 @@ cmux-ci test --setup webviews --timeout 1800 -- bash -lc '
   cd ../scripts/gallery-matrix
   bun install --frozen-lockfile
   ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+  result=0
   CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" \
-    --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)"
+    --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)" || result=1
+  CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --config geometry-home.json --gallery-dir "$RUNNER_TEMP/gallery" \
+    --output-dir "$RUNNER_TEMP/geometry/home" --expected-sha "$(git rev-parse HEAD)" || result=1
+  exit "$result"
 '
 ```
 
@@ -167,3 +193,41 @@ Run these regressions through the fleet from the repository root:
 cmux-ci test --setup webviews --timeout 600 -- bash -c \
   'cd scripts/gallery-matrix && bun install --frozen-lockfile && bun test geometry.test.ts'
 ```
+
+Geometry rules support repeated row/header containers. Collect each container with a stable ID and
+associate every matching visible child with its nearest measured parent (`containerId`). A global
+`peer-alignment` rule with `axis: x, measure: end` checks one trailing column across every nesting
+depth. `container-center` checks each marker against its own row; `exclusive-parts` rejects a spinner
+and a hover control visible in the same row. `container-peer-alignment` compares actions within each
+header, so repeated headers cannot accidentally compare different vertical positions or hide a
+missing action. Native rules must declare their required evidence source; native view frames do not
+satisfy an `ax-frame` rule.
+
+For mixed text/icon controls, collect both the control rectangles and the visible marker/text
+ranges. `measurement: text-range` records `DOMRange` bounds as `rectSource: text-range`; those bounds
+are **not** a text baseline. Unmeasured glyph baselines stay in `coverageGaps`, which is preserved in
+the JSON report. Invisible elements, including opacity-zero ancestors, are excluded by the browser's
+visibility check; missing required peers fail the rule.
+
+### Home shared columns
+
+`geometry-home.json` checks the mark and label columns across all four inbox
+rows and both review rows in the baseline Home fixture, in light and dark. The
+fixture scrolls `.acpmux-home-area` to its end before freezing animations, so
+the lower rows and their geometry share a visible screenshot. A missing or
+ambiguous scroll target fails the capture.
+
+The contract comes from matching capture `62bab366fc72beb1cc38fb40`: before
+`92c51f49804f48da9f46a86bbebea2bc11cd7f99`, review marks/labels drifted 2/4 CSS px;
+after `80cbb16fd9a98586bcfe29c2e1ee7b90522bb643`, both drifted 0 px. The lint
+allows 0.5 px, with no accepted drift. Unit fixtures replay these measured x
+coordinates with explicitly synthetic box dimensions; fleet captures remain
+the screenshot evidence. The lane-run one-liner above runs both audit
+configurations even if one fails.
+
+Session status also captures `header-action-alignment` in both appearances,
+matching capture `9831817724357efacf50b5ff` at product head
+`7821c60b2bcc18efa9e1f29c08fa95ff80fe4ae0`. Its before Play fails on a 5 px
+DOM Range center difference; the same assertion completes after within 0.5 px.
+The raw sidecar records button boxes, not range coordinates, so range positions
+are collected afresh by the durable collector rather than inferred from boxes.

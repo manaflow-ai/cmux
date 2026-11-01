@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Cmd-P and Cmd-Shift-P read a typed path or web address and put Open and
 /// Ask Agent rows first, above the usual results.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteGoToTests {
     /// A fake disk: these paths exist, folders end in "/".
     private nonisolated static func fakeKind(_ path: String) -> PaletteQueryTargetParser.Kind? {
@@ -153,6 +154,7 @@ struct PaletteGoToTests {
         var sources = PaletteSources(workspaces: Workspaces())
         sources.goTo = source
         let palette = PaletteController(registry: ActionRegistry.standard(), sources: sources, frecencyPersistence: nil)
+        defer { palette.closeForTest() }
         for mode in [PaletteMode.commands, .workspaces] {
             palette.show(mode)
             palette.model.send(.setQuery("github.com/manaflow-ai"))

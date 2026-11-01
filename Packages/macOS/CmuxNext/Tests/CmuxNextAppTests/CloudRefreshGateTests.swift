@@ -18,13 +18,14 @@ struct CloudRefreshGateTests {
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     release = continuation
                 }
+                return true
             }
         }
 
         var iterator = started.stream.makeAsyncIterator()
         _ = await iterator.next()
         let second = Task { @MainActor in
-            await gate.run { reads += 1 }
+            await gate.run { reads += 1; return true }
         }
         await Task.yield()
         #expect(reads == 1)

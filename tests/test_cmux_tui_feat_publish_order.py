@@ -116,7 +116,9 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
         "needs.tree-preflight.outputs.key": KEY,
         "needs.tree-preflight.outputs.daemon_tests": daemon_tests,
         "needs.tree-preflight.outputs.tree_ready": "false",
-        "needs.build-ok.result": "success",
+        "needs.build.result": "success",
+        "needs.build-darwin-fallback.result": "skipped",
+        "needs.darwin-fallback-plan.outputs.recovered": "",
         "needs.publish.result": "success",
     }
     if daemon_result is not None:

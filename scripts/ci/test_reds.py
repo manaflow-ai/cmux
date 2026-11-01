@@ -19,6 +19,10 @@ red was other tests. A job-level comparison hid a real crash. So:
    or a summary counts fewer tests than ran) is the head's own red: an unreadable red fails closed.
 4. No base log, or one that names no failing test while the head's does, excuses nothing.
 
+It reads Swift Testing, XCTest, xcodebuild and xcresult, cargo test, unittest, pytest and `bun test` output (a bun
+failure is `FILE > TEST`; a bun run that printed no closing ` N pass` / ` N fail` counts after its last result was cut
+short). It reads only what the steps printed, never the runner's echo of a step's script (echoed).
+
     test_reds.py classify --head HEAD.log [--base BASE.log] [--job NAME] [--base-name feat-cmux-next] [--json]
 
 prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2 when
@@ -54,6 +58,25 @@ FAILED = (
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
+# Swift Testing emits type suites without quotes and custom suite names in quotes.
+SUITE_FAILED = re.compile(r'✘ Suite ("[^"]+"|\S+) (?:recorded an issue|failed)\b')
+# A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
+# it): `FAILED: <scheme> / <target> / <suite> / <test>()`, named `<suite>.<test>()` like xcodebuild's own
+# `Failing tests:` list (`\t<suite>.<test>()` lines under it, up to a blank line).
+XCRESULT_FAILED = re.compile(r"^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\(.*\))$")
+XCODEBUILD_FAILING = "Failing tests:"
+XCODEBUILD_FAILED = re.compile(r"^\s+(\S+\.\S+\(.*\))$")
+# The runner echoes each step before running it: `##[group]Run <first line>`, the step's script (or nothing for an
+# action), then its `shell:` line and its `with:` / `env:` blocks, then `##[endgroup]`. That is the step's source,
+# not its output: a script that prints, greps or filters test names, or has an `echo "::error::..."` branch, puts
+# them in every run's log, green or red (2026-10-30: cmux#28145 excused because base run 41138142557 echoed the
+# kit step's script). A group is an echo only when it closes before any other group opens and ends in the runner's
+# settings block: from its first `shell:`, `with:` or `env:` line to its `##[endgroup]`, every line is one of those or
+# an indented value under them. A step's own `::group::Run ...` output does not end that way, so it is read.
+ECHO_START = re.compile(r"^(?:﻿)?##\[group\]Run ")
+ECHO_SETTINGS = re.compile(r"^(?:shell: \S.*|with:|env:)$")
+ECHO_VALUE = re.compile(r"^  \S")
+GROUP_EDGE = re.compile(r"^##\[(?:group|endgroup)\]")
 # A line that says the job ran tests at all.
 RAN = re.compile(r"[◇✔✘] (?:Test|Suite) |Test Case '-\[|Test Suite '|^test \S+ \.\.\. |^running \d+ tests?$|"
                  r"^Ran \d+ tests? in |^=+ (?:test session starts|FAILURES)|Executed \d+ tests?")
@@ -78,6 +101,17 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
                           r"(?::? \d+)? +\S")
 SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
+# Such a report is a signal someone sent (a test that kills its own children, `timeout`), not a fault. It is a crash
+# only in a step that failed or never finished: a step that printed no error and was followed by the next step passed,
+# so a kill inside it is that test's own doing, not the job's red (2026-10-31: cmuxterm-hq's
+# scripts/test-reload-cloud-terminate-app.sh kills the children it starts and passes, and every red in its Fleet
+# tests job read as "the test process crashed (signal 9)"). A fault (`Segmentation fault`, a signal code from SwiftPM,
+# an exit status of 128 + N) is a crash wherever it is.
+STEP_ERROR = re.compile(r"^(?:##\[error\]|::error)")
+# Actions may preserve only the shell status when a process dies after printing its test summary.
+# A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
+# Match the runner annotation, never a test name or an assertion quoting the diagnostic.
+PROCESS_EXIT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*Process completed with exit code (\d{1,3})\.?$")
 # A signal or Mach exception named by a tool, the runtime or a crash report: a crash unless a test's own line
 # quotes it.
 SIGNALED = re.compile(r"(?:exited|terminated|killed|died) (?:with|by|on) (?:unexpected )?signal\b|\(signal: \d+|"
@@ -106,6 +140,29 @@ NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests di
 BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
 BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.[cm]?[jt]sx?)(?: |$)")
 BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
+# The shell self-test keeps a Swift crash report and its `signal 5` fixture in source lines.
+SWIFT_TEST_SUMMARY_FIXTURE = re.compile(r"swift-test-summary\.test\.sh:\d+:")
+# `bun test` itself (a raw run, or a file's log inside run-webviews-tests.sh): a header per file (`::group::FILE:` in
+# Actions, which the job log shows as `##[group]FILE:`), a `(pass)` or `(fail) <describe> > <test> [1.23ms]` line per
+# test, the failure's `error:` printed above its line and a timeout note below it, a closing recap of the failures
+# (`N tests failed:`, with no headers) and the ` N pass` / ` N fail` counts that end each run.
+BUN_FILE = re.compile(r"^(?:##\[group\]|::group::)?(\S+\.(?:test|spec)\.[cm]?[jt]sx?):$")
+# A header's path from wherever bun ran (the repo root, the package, `./`): relative to its package, as
+# webviews_test_results.py names it.
+BUN_PACKAGE = re.compile(r"^(?:\./)*(?:\S*?/)?(?:webviews|web)/|^(?:\./)+")
+BUN_ABSOLUTE = re.compile(r"(?<![\w.])/[^\s'\"()]*?/(?:webviews|web)/")
+BUN_RUN = re.compile(r"^bun test v\d")
+BUN_TEST = re.compile(r"^\((pass|fail)\) (.+?)(?: \[[0-9.]+m?s\])?$")
+# A stack frame of the failure: `at <anonymous> (/abs/webviews/test/x.test.ts:12:5)`.
+BUN_AT = re.compile(r"^\s*at .*?\(?(\S+\.[cm]?[jt]sx?):(\d+):\d+\)?$")
+# A failure's headline: `error: ...` (an assertion or a thrown Error), or a native exception bun prints by its class
+# (`TypeError: ...`, `ReferenceError: ...`), kept with that class.
+BUN_ERROR = re.compile(r"^(?:error: (.+)|((?:[A-Z]\w*)?Error(?: \[[\w-]+\])?: .+))$")
+BUN_RULE = re.compile(r"^-{5,}$")  # the rules around an unhandled error
+BUN_TIMED_OUT = re.compile(r"^\s*\^ this test timed out after (\d+)ms")
+BUN_UNHANDLED = re.compile(r"^# Unhandled error between tests")
+BUN_RECAP = re.compile(r"^\d+ tests? failed:$")
+BUN_COUNT = re.compile(r"^\s*\d+ fail$")
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
@@ -114,7 +171,8 @@ UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): \w+ \([\w.]+\)|^\w+ \([\w.]+\)(?: 
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
 XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
-SUITE_ENDED = re.compile(r"^[✔✘] Suite (.+?) (?:passed|failed)\b")
+# Known-issue suites use the same ━ completion marker as their tests and run summary.
+SUITE_ENDED = re.compile(r"^[✔✘━] Suite (.+?) (?:passed|failed)\b")
 # Swift Testing's start line, for naming the test a crash stack runs.
 STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\.")
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
@@ -131,12 +189,13 @@ LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # Plain classes, not dataclasses: consumers load this file with exec or importlib without registering it in
 # sys.modules, where a dataclass's string annotations cannot be resolved.
 class Result:
-    """What one job log says about its tests: ran, failed (names), crashes ("<who> crashed (signal N)") and
-    truncated (why the per-test results are incomplete)."""
+    """What one job log says about its tests: ran, failed (names), messages (a failed name's error, where the log
+    prints one), crashes ("<who> crashed (signal N)") and truncated (why the per-test results are incomplete)."""
 
     def __init__(self):
         self.ran = False
         self.failed: set = set()
+        self.messages: dict = {}
         self.crashes: list = []
         self.truncated: list = []
 
@@ -149,8 +208,71 @@ class Verdict:
         self.own, self.reasons, self.shared = own, reasons, list(shared)
 
 
-def lines_of(log: str) -> list[str]:
+def echoed(lines: list[str]) -> set[int]:
+    """The indexes of LINES (one per line of the log, timestamps and colours removed) that are the runner's echo of a
+    step (ECHO_START): its source, never its output."""
+    found: set[int] = set()
+    at = 0
+    while at < len(lines):
+        if ECHO_START.match(lines[at]):
+            end = next((n for n in range(at + 1, len(lines)) if GROUP_EDGE.match(lines[n])), None)
+            first = None if end is None else next(
+                (n for n in range(at + 1, end) if ECHO_SETTINGS.match(lines[n])), None)
+            if (first is not None and lines[end].startswith("##[endgroup]")
+                    and all(ECHO_SETTINGS.match(lines[n]) or ECHO_VALUE.match(lines[n]) for n in range(first, end))):
+                found.update(range(at, end + 1))
+                at = end + 1
+                continue
+        at += 1
+    return found
+
+
+def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
+    """The indexes of LINES (log_lines) inside a step that passed: from a step's echo (echoed) to the next step's, with
+    no error line between. The last step (no step after it) never passed: it may be the one that died."""
+    skip = echoed(lines) if skip is None else skip
+    starts = [n for n in sorted(skip) if ECHO_START.match(lines[n])]
+    found: set[int] = set()
+    for start, end in zip(starts, starts[1:]):
+        if not any(STEP_ERROR.match(lines[n]) for n in range(start, end) if n not in skip):
+            found.update(range(start, end))
+    return found
+
+
+def log_lines(log: str) -> list[str]:
+    """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
     return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
+
+
+def lines_of(log: str) -> list[str]:
+    """What the job's steps printed: log_lines without the runner's echo of each step's script (echoed)."""
+    lines = log_lines(log)
+    skip = echoed(lines)
+    return [text for n, text in enumerate(lines) if n not in skip]
+
+
+def failed_names(lines: list[str]) -> set[str]:
+    """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
+    xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
+    found: set[str] = set()
+    listing = False
+    for text in lines:
+        if listing:
+            if match := XCODEBUILD_FAILED.match(text):
+                found.add(match.group(1))
+                continue
+            listing = False
+        if text.strip() == XCODEBUILD_FAILING:
+            listing = True
+            continue
+        for pattern in FAILED:
+            if match := pattern.search(text):
+                found.add(match.group(1))
+        if match := SUITE_FAILED.search(text):
+            found.add(match.group(1).strip('"'))
+        if match := XCRESULT_FAILED.match(text):
+            found.add(f"{match.group(1)}.{match.group(2)}")
+    return found
 
 
 def _words(text: str, words: list[str]) -> None:
@@ -261,34 +383,159 @@ def signal_of(text: str) -> str | None:
     return None
 
 
-def read(log: str | None) -> Result:
-    """The tests a job log ran, failed and crashed, and whether its per-test results are whole."""
+def bun_diagnostic(said: list, where: str = "") -> str:
+    """A bun failure's error, compared across runs: its whole assertion block (the `error:` line and the Expected /
+    Received lines under it) as printed, but for the checkout's path and spacing, and the test file's line it failed at.
+    (The runner's own `[1.23ms]` is on the result line, never here.)"""
+    said = " / ".join(" ".join(BUN_ABSOLUTE.sub("", part).split()) for part in said)
+    return f"{said} at {where}" if said and where else said
+
+
+def read_bun(lines: list[str], result: Result) -> None:
+    """`bun test`'s failures into `result`: each named `FILE > TEST` under its file's header (webviews_test_results.py's
+    names), or `TEST` when the recap is all that names it, with its diagnostics (bun_diagnostic, or its timeout; every
+    distinct one when the name fails more than once) as its message. An unhandled error between tests is a failure
+    named by its headline, with its whole block and location as its diagnostic. Each bun invocation is whole only once it prints its ` N fail` count: one that started
+    (`bun test v…`, a file header or a result) and reached the next invocation (`bun test v…`, the wrapper's retry) or
+    the log's end with no count was cut short, wherever it sits in the log."""
+    file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
+    block = False  # reading the assertion block under an `error:` line, up to its stack or annotation
+    run_file = ""  # the file of the run that just ended, for run-webviews-tests.sh's retry
+    diagnostics: dict = {}  # name: its distinct diagnostics
+    added = None  # the diagnostic the last result line added, which its timeout note replaces
+    pending = False  # an unhandled error whose block is being read: recorded when it ends
+
+    def fail(name: str, message: str) -> str | None:
+        result.failed.add(name)
+        result.ran = True
+        if message and message not in diagnostics.setdefault(name, []):
+            diagnostics[name].append(message)
+            return message
+        return None
+
+    def flush() -> None:
+        """Record the unhandled error being read, named by its headline, with its whole block as its diagnostic."""
+        nonlocal pending, said, where, block
+        if pending:
+            headline = bun_diagnostic(said[:1])  # the checkout's path differs from run to run
+            fail(f"{file} > unhandled error: {headline}" if file else f"unhandled error: {headline}",
+                 bun_diagnostic(said, where))
+            pending, said, where, block = False, [], "", False
+
+    def end_run(why: str) -> None:
+        nonlocal open_run
+        if open_run:
+            result.truncated.append(f"a bun test run printed no ` N pass` / ` N fail` summary before {why}")
+        open_run = False
+
+    for text in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
+        if BUN_RUN.match(text) or BUN_FILE.match(text) or text == WEB_RETRY or BUN_TEST.match(text) or \
+                BUN_UNHANDLED.match(text) or BUN_COUNT.match(text):
+            flush()
+        if BUN_RUN.match(text):
+            end_run("the next bun test run started")
+            open_run = result.ran = True  # a started run is tests, whatever the job is named
+        elif BUN_RECAP.match(text):
+            recap, last = True, None
+        elif match := BUN_FILE.match(text):
+            file, said, where, last, recap, open_run = BUN_PACKAGE.sub("", match.group(1)), [], "", None, False, True
+            run_file, block, result.ran = file, False, True
+        elif text == WEB_RETRY and run_file:
+            end_run("the wrapper ran its file again")
+            # run-webviews-tests.sh ran a red file again, alone: only that run counts (webviews_test_results.py).
+            for name in [name for name in result.failed if name.startswith(run_file + " > ")]:
+                result.failed.discard(name)
+                diagnostics.pop(name, None)
+        elif match := BUN_TEST.match(text):
+            result.ran, open_run, last = True, True, None
+            name = match.group(2)
+            added = None
+            if match.group(1) == "fail" and not recap:
+                last = f"{file} > {name}" if file else name
+                added = fail(last, bun_diagnostic(said, where))
+            elif match.group(1) == "fail" and not any(key == name or key.endswith(" > " + name) for key in result.failed):
+                last = name  # failed before its file's header printed
+                fail(last, "")
+            said, where, block = [], "", False
+        elif BUN_UNHANDLED.match(text):
+            unhandled = True
+        elif match := BUN_ERROR.match(text):
+            headline = match.group(1) or match.group(2)
+            if unhandled:
+                said, where, block, pending, unhandled = [headline], "", True, True, False
+            elif not said:
+                said, block = [headline], True
+            else:
+                block = False  # a later error of the same test: the first one names it
+        elif block and (text.lstrip().startswith("at ") or text.startswith(("##[error]", "::error"))
+                        or BUN_RULE.match(text)):
+            block = False  # the stack, GitHub's annotation repeating the block, or an unhandled error's closing rule
+            if (match := BUN_AT.match(text)) and not where and BUN_PACKAGE.sub("", match.group(1)) == file:
+                where = f"{file}:{match.group(2)}"
+        elif block and text.strip():
+            said.append(text.strip())
+        elif (match := BUN_AT.match(text)) and said and not where and BUN_PACKAGE.sub("", match.group(1)) == file:
+            where = f"{file}:{match.group(2)}"
+        elif (match := BUN_TIMED_OUT.match(text)) and last:
+            # A timeout is the test's diagnostic, whatever its run printed before bun stopped it; a repeated failure
+            # of the same name keeps its own.
+            if added is not None:
+                diagnostics[last].remove(added)
+            added = None
+            fail(last, f"timed out after {match.group(1)}ms")
+        elif BUN_COUNT.match(text):
+            if unhandled:
+                fail(f"{file} > unhandled error" if file else "unhandled error", "")
+            file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
+            block = False
+    flush()
+    end_run("the log ended")
+    for name, found in diagnostics.items():
+        if found:
+            # Like web_failures: several diagnostics for one name are all compared, none dropped, in sorted order so
+            # head and base compare whatever order their runs printed them in.
+            result.messages[name] = "\n--- repeated failure ---\n".join(sorted(found))
+
+
+def read(log: str | None, bun: bool = True) -> Result:
+    """The tests a job log ran, failed and crashed, and whether its per-test results are whole. `bun=False` leaves
+    bun's own output to the caller (web_failures parses it itself)."""
     result = Result()
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
-    lines = lines_of(log)
+    every = log_lines(log)
+    skip = echoed(every)
+    passed = passed_steps(every, skip)
+    kept = [n for n in range(len(every)) if n not in skip]
+    lines = [every[n] for n in kept]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
     signals: list[str] = []
     named: list[str] = []
     crashed = False
-    for text in lines:
+    for at, text in enumerate(lines):
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
         if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
             result.ran = True
         if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
             result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
         if BUN_PANIC.match(text):
             crashed = True
-        for pattern in FAILED:
-            if match := pattern.search(text):
-                result.failed.add(match.group(1))
-                result.ran = True
         if match := XCTEST_RESTART.search(text):
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
             crashed = True
-        runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
+        exited = PROCESS_EXIT.match(text)
+        signal_exit = int(exited.group(1)) - 128 if exited else 0
+        if 1 <= signal_exit <= 64:
+            crashed = True
+            signals.append(str(signal_exit))
+        killed = SHELL_SIGNAL.search(text) and kept[at] not in passed
+        runtime = HELPER_KILLED.search(text) or killed or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
             crashed = True
@@ -299,6 +546,9 @@ def read(log: str | None) -> Result:
         if TRUNCATED.search(text) or NO_RESULT.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
+    if names := failed_names([text for text in lines if not SWIFT_TEST_SUMMARY_FIXTURE.search(text)]):
+        result.failed |= names
+        result.ran = True
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
@@ -332,6 +582,8 @@ def read(log: str | None) -> Result:
     running = sum(1 for text in lines if CARGO_RUNNING.match(text))
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
+    if bun:
+        read_bun(lines, result)
     if crashed:
         who = named or crashed_tests(stack, started) or ["the test process"]
         signal = f"signal {signals[0]}" if signals else "no signal named"
@@ -359,13 +611,247 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     reasons = list(head.crashes)
     if head.truncated:
         reasons.append(f"{job or 'the job'}: per-test results are not whole ({head.truncated[0]})")
-    seen = read(base_log).failed if base_log is not None else set()
+    base_result = read(base_log) if base_log is not None else Result()
+    seen = base_result.failed
     new = sorted(head.failed - seen)
+    # A failure whose log prints its error (bun's) fails the same way only with the same error on both sides: an
+    # assertion on the base does not excuse a TypeError on the head. Names with no error printed compare by name.
+    differ = [name for name in sorted(head.failed & seen)
+              if (head.messages.get(name) or base_result.messages.get(name))
+              and head.messages.get(name) != base_result.messages.get(name)]
     if base_log is None and head.failed:
         reasons.append(f"no {base} log to compare {len(head.failed)} failing test(s) with")
     elif new:
+        named = [f"{name} ({head.messages[name]})" if head.messages.get(name) else name for name in new]
+        reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(named)[:600]}")
+    if differ:
+        said = [f"{name} ({head.messages.get(name) or 'no error read'} here; "
+                f"{base_result.messages.get(name) or 'no error read'} on {base})" for name in differ]
+        reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(said)[:600]}")
+    return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
+
+
+
+def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | None:
+    """classify against several base logs (BASES: [(label, log)], newest first): a head failing test is the base's
+    when it fails the same way on any one of them (base_red_excuse.py's window). A crash or a cut-short head run is
+    the head's whatever the bases show, judged as classify judges it against the newest. shared names, for each test,
+    the first base it failed on: `name (label)`."""
+    verdicts = [(label, classify(head_log, log, job, label)) for label, log in bases] or [("", classify(head_log, None, job))]
+    first = verdicts[0][1]
+    head = read(head_log)
+    if first is None or len(verdicts) == 1 or head_log is None or head.crashes or head.truncated:
+        return first
+    on: dict = {}
+    for label, verdict in verdicts:
+        for name in verdict.shared:
+            on.setdefault(name, label)
+    new = sorted(head.failed - on.keys())
+    labels = ", ".join(label for label, _ in verdicts)
+    reasons = [f"{len(new)} failing test(s) pass, do not run or fail differently on each of {labels}: "
+               f"{'; '.join(new)[:600]}"] if new else []
+    return Verdict(bool(new), reasons, [f"{name} ({on[name]})" for name in sorted(on)])
+
+# The webview tests (scripts/ci/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
+# a head shard (`react-apps-check (N)`) and, when red, is replayed on the merge parent by `react-apps-base-check (N)`,
+# while the base's own push runs it in whichever shard it falls in; a per-job comparison never matches those names
+# (2026-10-29: agent-pane-no-capsules, red on the base as `react-apps-check (1)`, charged to a PR as
+# `react-apps-base-check (4)`). So a test is named by its file and its title (webviews_test_results.py's `FILE >
+# TEST`, or `FILE` for a file that failed naming no test), and compared with its error (the bun `error:` line and the
+# test file's line it failed at) against every base job that ran it.
+WEB_FILE = r"(test/\S+?\.[cm]?[jt]sx?)"
+WEB_GROUP = re.compile(r"^##\[group\](FAIL|TIMEOUT) " + WEB_FILE + r"\b")  # a red file's log, run-webviews-tests.sh
+WEB_SUMMARY = re.compile(r"^(FAIL|TIMEOUT) " + WEB_FILE + r" \(limit")  # its line in the run's closing list
+WEB_FAIL = re.compile(r"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
+WEB_ERROR = re.compile(r"^error: (.+)$")
+WEB_AT = re.compile(r"\bat .*?/webviews/" + WEB_FILE + r":(\d+):\d+\)?$")
+WEB_RETRY = "--- retry, alone ---"
+# guards_new_reds.py --label "Webview test": the tests a base replay charged to the change (errors) or found red on
+# the merge parent too (warnings), as GitHub prints the annotations.
+WEB_CHARGED = re.compile(r"^##\[(error|warning)\]" + WEB_FILE + r"(?: > (.+))?$")
+
+
+class WebFailures:
+    """What one webview test job log says: failed ({`FILE > TEST` or `FILE`: error, "" when none was printed}),
+    timed_out and crashed files, and charged/shared (a base replay's guards_new_reds verdicts, by name)."""
+
+    def __init__(self):
+        self.failed: dict = {}
+        self.timed_out: set = set()
+        self.crashed: set = set()
+        self.charged: set = set()
+        self.shared: set = set()
+        self.truncated: list = []
+
+
+def web_failures(log: str | None) -> WebFailures:
+    """The webview tests a job log names as failed, with each one's diagnostic. A retry's alone attempt supplies
+    its failing names and errors, matching webviews_test_results.py; runtime failures remain unconditionally own."""
+    found = WebFailures()
+    if not log:
+        return found
+    current = None  # the red file whose log this is
+    error: list[str] = []
+    where = ""
+    in_stack = False
+    summary = False
+    grouped = False
+    pending: dict[str, int] = {}
+
+    def diagnostic():
+        said = "\n".join(error)
+        return f"{said} at {where}" if said and where else said
+
+    def end_file():
+        if current and error:
+            said = diagnostic()
+            if current in found.failed and found.failed[current] != said:
+                said = "\n--- repeated failure ---\n".join(sorted({found.failed[current], said}))
+            found.failed[current] = said
+
+    texts = lines_of(log)
+    for text in texts:
+        if match := BUN_STARTED.match(text):
+            name = match.group(1)
+            pending[name] = pending.get(name, 0) + 1
+            summary = False
+        elif (match := BUN_RESULT.match(text)) and not WEB_SUMMARY.match(text):
+            name = match.group(2)
+            if pending.get(name, 0):
+                pending[name] -= 1
+        if match := WEB_GROUP.match(text):
+            end_file()
+            current, error, where, in_stack = match.group(2), [], "", False
+            grouped = True
+            if match.group(1) == "TIMEOUT":
+                found.timed_out.add(current)
+            continue
+        if text.startswith("### webviews tests:"):
+            end_file()
+            current = None
+            summary = True
+            continue
+        if match := WEB_SUMMARY.match(text):
+            name = match.group(2)
+            if match.group(1) == "TIMEOUT":
+                found.timed_out.add(name)
+            elif not any(key == name or key.startswith(name + " > ") for key in found.failed):
+                found.failed[name] = ""  # a red file that named no test (it did not load)
+            continue
+        if match := WEB_CHARGED.match(text):
+            (found.charged if match.group(1) == "error" else found.shared).add(
+                match.group(2) + (f" > {match.group(3)}" if match.group(3) else ""))
+            continue
+        if current is None:
+            continue
+        if "... output truncated;" in text:
+            found.truncated.append(f"{current}: its diagnostic was truncated")
+        if text == "##[endgroup]":
+            end_file()
+            current = None
+        elif text == WEB_RETRY:
+            # The base replay runs a file alone. Compare the final alone attempt, as
+            # webviews_test_results.py does, without letting an earlier error overwrite it.
+            found.failed = {key: value for key, value in found.failed.items()
+                            if key != current and not key.startswith(current + " > ")}
+            error, where, in_stack = [], "", False
+        elif match := WEB_ERROR.match(text):
+            error.append(match.group(1).strip())
+            in_stack = False
+        elif (match := WEB_AT.search(text)) and match.group(1) == current and not where:
+            where = f"{match.group(1)}:{match.group(2)}"
+            in_stack = True
+        elif text.lstrip().startswith("at "):
+            in_stack = True
+        elif match := WEB_FAIL.match(text):
+            key = f"{current} > {match.group(1)}"
+            said = diagnostic()
+            if key in found.failed and found.failed[key] != said:
+                # Multiple diagnostics for one title must not silently overwrite a new red.
+                said = "\n--- repeated failure ---\n".join(sorted({found.failed[key], said}))
+            found.failed[key] = said
+            error, where, in_stack = [], "", False
+        elif text.startswith("(pass) "):
+            end_file()  # an unhandled error is not the passing test's diagnostic
+            error, where, in_stack = [], "", False
+        elif error and not in_stack and text.strip():
+            error.append(text.strip())
+    end_file()
+    if (grouped or pending) and not summary:
+        found.truncated.append("its webview run printed no closing summary")
+    unfinished = sorted(name for name, count in pending.items() if count)
+    if unfinished:
+        found.truncated.append("webview files started and never finished: " + "; ".join(unfinished))
+    # Keep the common runtime and cut-short detection; Bun assertion titles can quote
+    # crash words, so result lines are not runtime diagnostics.
+    runtime = read("\n".join(text for text in texts if not WEB_FAIL.match(text)
+                             and not text.startswith("(pass) ")), bun=False)
+    found.crashed.update(runtime.crashes)
+    found.truncated.extend(runtime.truncated)
+
+    return found
+
+
+def merged_web(logs: list) -> WebFailures:
+    out = WebFailures()
+    for log in logs:
+        got = web_failures(log)
+        for key, said in got.failed.items():
+            if key in out.failed and out.failed[key] != said:
+                said = "\n--- repeated failure ---\n".join(sorted({out.failed[key], said}))
+            out.failed[key] = said
+        out.timed_out |= got.timed_out
+        out.crashed |= got.crashed
+        out.charged |= got.charged
+        out.shared |= got.shared
+        out.truncated.extend(got.truncated)
+    return out
+
+
+def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "the base") -> Verdict | None:
+    """A red webview test job (a head shard, or the base replay that charged tests to the change) judged per test
+    against every base job that ran those tests: own unless each test the head is red on fails on the base too with
+    the same error. head_logs: the red job's log first, then the logs of the head's other jobs that ran the same
+    files (where each failure's error is printed); base_logs: the base's red webview test jobs. None when the red job's
+    log names no failing webview test (not a webview test red: the caller judges it as before). A file that timed out
+    or crashed, an unreadable log, or a test whose error is printed on only one side is the head's own."""
+    if not head_logs or any(log is None for log in head_logs):
+        return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no test can be compared with {base}"])
+    red = web_failures(head_logs[0])
+    names = sorted(red.charged) if red.charged else sorted(red.failed)
+    if not names and not red.timed_out and not red.crashed and not red.truncated:
+        return None
+    # A replay's own log holds the merge parent's runs of those files, never the head's: the head's errors come from
+    # the head's other jobs then.
+    head = merged_web([log for log in (head_logs[1:] if red.charged else head_logs) if log is not None])
+    if red.charged:
+        files = {name.split(" > ", 1)[0] for name in red.charged}
+        # Replay annotations need not name an unhandled error that the head emitted
+        # outside a test. Every head diagnostic in the charged files must be compared.
+        names = sorted(set(names) | {name for name in head.failed if name.split(" > ", 1)[0] in files})
+    reasons = sorted(red.crashed | head.crashed)
+    reasons += [f"{name} timed out (a cut-short run is never a base red)"
+                for name in sorted(red.timed_out | head.timed_out)]
+    reasons += sorted(set(red.truncated + head.truncated))
+    if any(log is None for log in base_logs) or not base_logs:
+        reasons.append(f"no readable {base} webview test log to compare {len(names)} failing test(s) with")
+        return Verdict(True, reasons)
+    seen = merged_web(base_logs)
+    new, differ, shared = [], [], []
+    for name in names:
+        if name not in seen.failed:
+            new.append(name)
+            continue
+        mine, theirs = head.failed.get(name, ""), seen.failed[name]
+        if not mine or not theirs or mine != theirs:
+            differ.append(f"{name} ({mine or 'no error read'} here; {theirs or 'no error read'} on {base})")
+            continue
+        shared.append(name)
+    if new:
         reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(new)[:600]}")
-    return Verdict(bool(reasons), reasons, sorted(head.failed & seen))
+    if differ:
+        reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(differ)[:600]}")
+    return Verdict(bool(reasons), reasons, shared)
 
 
 # Gallery health's health.json: a shard's broken states and its states over their ready-time budget.
@@ -374,6 +860,8 @@ GALLERY_KEYS = ("fresh", "known", "slow")
 GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has been )?closed|"
                            r"browser has (?:been )?(?:disconnected|closed)|\bsignal\b|\bSIG[A-Z]+\b", re.I)
 GALLERY_SLOW = "over its ready-time budget"
+# A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
+GALLERY_SHIFT = "past its layout-shift baseline"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -407,6 +895,11 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{state}: {re.sub(r'[0-9]+', '#', reason)}")
     for item in found["slow"]:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
+    for item in found.get("shifted") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
+    for item in found.get("geometry") or []:
+        for violation in item.get("violations") or []:
+            result.failed.add(f"{item.get('state', '')}: breaks {violation.get('key', '')}")
     return result
 
 

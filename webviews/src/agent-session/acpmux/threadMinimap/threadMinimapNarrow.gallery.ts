@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
-import type { PlayContext } from "../../../gallery/play";
+import { threadMinimapGutter } from "./gutter.experiment";
 
 const rows = Array.from({ length: 18 }, (_, index) => [
   user(`Prompt ${index + 1}: check the next part of the plan`, 200 - index * 2),
@@ -12,44 +12,69 @@ const rows = Array.from({ length: 18 }, (_, index) => [
   summary(199.6 - index * 2, { status: "completed" }),
 ]).flat();
 
-/// Gallery-only spacing comparison. The product always renders the chosen 4 px gutter; the two
-/// alternatives move the same rail left after layout so the review can compare the padding loss at
-/// wide, Session Info and narrow widths without adding a setting to the app.
-const withGap = (gap: number) => async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail:not(.acpmux-scrollmap)"));
-  const rail = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__rail:not(.acpmux-scrollmap)");
-  const row = ctx.document.querySelector<HTMLElement>(".acpmux-row");
-  if (!rail || !row) return;
-  const frame = rail.offsetParent?.getBoundingClientRect();
-  if (!frame) return;
-  const target = Math.max(0, row.getBoundingClientRect().left - frame.left - rail.getBoundingClientRect().width - gap);
-  rail.style.left = `${target}px`;
-};
-const gapPlay = withGap(4);
+const rightEdge = { "agentPane.display.rail.side": "right" };
 
+// Three widths show the actual product geometry: the wide inset, the shrunk padding, and the narrowest
+// pane, where the default tight gutter (gutter.experiment.ts) still draws the rail at rest beside the
+// text. The experiment compares it with the earlier edge strip (hidden at rest once it would overlap)
+// and the dimmed overlap (Leo, 2026-11-01: "just shrink its padding more it can even have a dedicated
+// space for more"). No gallery code changes the rail's measured origin or visibility.
 export default agentPaneEntry({
   id: "agent-pane.thread-minimap-narrow",
-  title: "Thread minimap gutter variants",
+  title: "Pane-pinned prompt rail",
   area: "Agent pane",
   height: 640,
-  widths: { narrow: 780, normal: 1040, wide: 1600 },
+  widths: { narrow: 160, normal: 800, wide: 1600 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
+  experiment: {
+    definition: threadMinimapGutter,
+    script: [
+      { name: "hover the pane edge", run: (ctx) => ctx.hover({ selector: ".acpmux-minimap__strip" }) },
+      { name: "hover prompt 4", run: (ctx) => ctx.hover({ selector: '[data-tick="3"]' }) },
+    ],
+  },
   variants: {
-    "gap-4-chosen": {
-      note: "Chosen. The rail keeps its full 36 px look and sits 4 px from the transcript at rest; it sheds its spare gutter first as Session Info narrows the chat.",
-      snapshot: chat(rows, { title: "Thread minimap, 4 px chosen gutter" }),
-      play: gapPlay,
+    resting: {
+      note: "Chosen pane-edge placement: wide (1600), shrunk padding (800), and the tight gutter at 160, where the rail still draws at rest beside the text. The chat column never moves the rail.",
+      snapshot: chat(rows, { title: "Pane-pinned prompt rail" }),
     },
-    "gap-8": {
-      note: "Alternative: an 8 px rail-to-text gutter, compared at wide, Session Info and narrow widths.",
-      snapshot: chat(rows, { title: "Thread minimap, 8 px gutter alternative" }),
-      play: withGap(8),
+    hovered: {
+      note: "The narrow edge strip reveals a full usable rail over the text; its preview starts at the rail's right edge.",
+      snapshot: chat(rows, { title: "Prompt rail revealed by hover" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-minimap__strip" });
+        await ctx.hover({ selector: '[data-tick="0"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
     },
-    "gap-12": {
-      note: "Alternative: a 12 px rail-to-text gutter, kept here to show the extra padding Leo rejected.",
-      snapshot: chat(rows, { title: "Thread minimap, 12 px gutter alternative" }),
-      play: withGap(12),
+    focused: {
+      note: "With eighteen real prompts, Tab and ArrowDown put keyboard focus on the third tick. The base has no outline; the fix shows its inset focus ring at every width.",
+      snapshot: chat(rows, { title: "Prompt rail revealed by keyboard" }),
+      play: async (ctx) => {
+        await ctx.focus({ selector: '[data-tick="0"]' });
+        await ctx.press("Tab");
+        await ctx.waitFor(() => ctx.document.activeElement?.matches('[data-tick="1"]'));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => ctx.document.activeElement?.matches('[data-tick="2"]:focus-visible'));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
+    },
+    // Settings > Agent Chat > Prompt Rail Side, or the rail's right-click menu (railSide.ts).
+    "right-resting": {
+      note: "Moved to the right edge: the same pane-edge inset from that edge, ticks growing toward the text, and the narrow pane's live strip at the right edge.",
+      snapshot: chat(rows, { title: "Prompt rail on the right edge" }),
+      display: rightEdge,
+    },
+    "right-hovered": {
+      note: "On the right edge the preview card opens on the rail's left: card.right == rail.left.",
+      snapshot: chat(rows, { title: "Prompt rail on the right, hovered" }),
+      display: rightEdge,
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-minimap__strip" });
+        await ctx.hover({ selector: '[data-tick="0"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
     },
   },
 });

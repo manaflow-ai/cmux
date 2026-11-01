@@ -259,7 +259,9 @@ extension SidebarDocStore {
         guard isActive else { return nil }
         if let cached = projectionCache, cached.answers(version: version, live: live) { return cached.projection }
         guard let rows = rows(SidebarViewRequest(live: live)) else { return nil }
-        let projection = SidebarDocProjection(rows: rows, records: records, revision: records.revision)
+        // The pending record writes (`shownRecords`), then a Chief dragged in before its echo.
+        let projection = SidebarDocProjection(rows: rows, records: shownRecords.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add)),
+                                              revision: records.revision)
         projectionCache = SidebarDocProjectionCache(version: version, live: live, projection: projection)
         return projection
     }
@@ -269,10 +271,10 @@ extension SidebarDocStore {
     /// place live workspaces it lacks.
     /// `connectedRemotes`: the other machines' sessions connected now. A
     /// placed workspace of one of them that left the live set while its
-    /// machine stayed connected closed there: the client sends `close` for
-    /// it (the home daemon closes its own machine's workspaces itself).
+    /// machine stayed connected closed there: the client removes its placement
+    /// (the home daemon closes its own machine's workspaces itself).
     public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = []) {
-        let previous = shown
+        let previous = lastLiveProjection
         let next = projection(live: live)
         shownVersion = version
         if next != shown { shown = next }
@@ -281,10 +283,18 @@ extension SidebarDocStore {
         let stillConnected = connectedRemotes.intersection(lastConnectedRemotes)
         let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous?.items[$0] != nil }
         (lastLive, lastConnectedRemotes) = (now, connectedRemotes)
+        lastLiveProjection = next
         guard isActive, !closed.isEmpty else { return }
-        let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
-            .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }
-        send(ops: [["op": "close", "refs": refs]], title: Self.moveTitle, undoable: false)
+        // Forward precise item deletions, which the pinned app FFI already supports.
+        // Its legacy `close` operation also prunes ancestors and makes the header blink.
+        let records = shownRecords
+        let ops: [[String: Any]] = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
+            .compactMap { ref in
+                guard let id = previous?.items[ref], let item = records.items[id], item.body.workspace == ref,
+                      let section = records.sections[item.section], !section.keepsClosed else { return nil }
+                return ["op": "item.delete", "id": id]
+            }
+        send(ops: ops, title: Self.moveTitle, undoable: false)
     }
 
     /// The target that puts moved items where `index` (counted without

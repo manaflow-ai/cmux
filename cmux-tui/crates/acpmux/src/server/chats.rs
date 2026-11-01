@@ -16,7 +16,18 @@
 //!   person (`chats/activity.rs`). Every chat value carries `attention`
 //!   (`needsInput`, `failed`, `unread` or null) and `preview` (its live
 //!   session's latest reply, or null).
-//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
+//! - `_acpmux/chats_window {window, ...filter, limit?, topLevel?, exclude?, keys?}` and
+//!   `_acpmux/chats_window_close {window}`: a client's visible window, kept current with row
+//!   diffs (`_acpmux/chats_window_changed`, `chat_windows.rs`). A client that shows a list asks
+//!   for its window instead of mirroring the whole index.
+//! - `_acpmux/chat_projects`: `{ready, enabled, projects: [{harness, path, lastUsedMs}]}`, each
+//!   harness's project folders grouped by acpmux (the app relays them to the cmux daemon).
+//! - `_acpmux/chats_search {query, ...filter, budgetMs?}`: the chats whose
+//!   prompts or answers hold every word of `query`, each with its newest such
+//!   message and a snippet, read now from the harnesses' stores within a time
+//!   budget (`chats/search.rs`).
+//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`), with the chat's
+//!   value as `chat`:
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.
 //! - `_acpmux/chat_transcript {key}`: the chat's past turns, read now from its
@@ -24,6 +35,8 @@
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
 //!   file too large or unreadable, answers invalid params with `data.reason`
 //!   `transcript_unsupported`, `transcript_too_large` or `transcript_unreadable`.
+//! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
+//!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
@@ -43,7 +56,9 @@
 //! the `chats.read` scope, which is never granted by default.
 
 mod offers;
+mod search;
 mod stats;
+mod workspace_purge;
 
 use crate::no_panic::JsonExt;
 use std::path::PathBuf;
@@ -69,6 +84,7 @@ pub(super) async fn route(
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
+    hub.prepare_store_request(m, &params).await;
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
@@ -114,6 +130,10 @@ pub(super) async fn route(
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
         return hub.transfer_request(m, &params).await;
+    }
+    // An incognito workspace's chats, ended and deleted (`workspace_purge.rs`): local only.
+    if m == workspace_purge::METHOD {
+        return workspace_purge::handle(hub, conn.origin, &params).await;
     }
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
@@ -170,6 +190,8 @@ pub(super) async fn route(
             }
             page(hub, service, query).await
         }
+        // The chats whose prompts or answers hold the words (`chats/search.rs`).
+        "_acpmux/chats_search" => search::handle(hub, service, &params).await,
         "_acpmux/chat_roots" => match service {
             Some(service) => blocking(move || Ok(service.roots_view())).await,
             None => Ok(json!({"ready": false, "roots": [], "refused": []})),
@@ -192,8 +214,12 @@ pub(super) async fn route(
                     RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
                 })?;
                 let home = dirs::home_dir().unwrap_or_default();
-                crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
-                    .map_err(RpcError::invalid_params)
+                let mut plan = crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
+                    .map_err(RpcError::invalid_params)?;
+                // The chat itself (title, folder, harness), so a client that opens it holds no
+                // copy of the index to name it.
+                plan.set("chat", crate::chats::chat_value(&chat));
+                Ok(plan)
             })
             .await
         }
@@ -227,6 +253,32 @@ pub(super) async fn route(
                 }))
             })
             .await
+        }
+        // Fork Conversation of a terminal chat whose agent's CLI has no fork (`chat_fork.rs`).
+        "_acpmux/chat_fork" => {
+            let text = |key: &str| {
+                params.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
+            };
+            let harness =
+                text("harness").ok_or_else(|| RpcError::invalid_params("harness is missing"))?;
+            let id = text("agentSessionId")
+                .ok_or_else(|| RpcError::invalid_params("agentSessionId is missing"))?;
+            let cwd = text("cwd")
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| PathBuf::from("/"));
+            let (family, profile) = {
+                let cfg = hub.config.read().await;
+                let (name, profile) =
+                    crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
+                        RpcError::invalid_params(format!(
+                            "no ACP harness runs {harness} here, so its chat cannot fork"
+                        ))
+                    })?;
+                (crate::config::derive_family(name, profile), profile.clone())
+            };
+            let forked = crate::chat_fork::fork(harness, &family, &profile, id, &cwd).await?;
+            Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {
             let service =
@@ -304,6 +356,21 @@ pub(super) async fn route(
             })
             .await
         }
+        "_acpmux/chat_projects" => {
+            let Some(service) = service else {
+                return Ok(json!({"ready": false, "enabled": true, "projects": []}));
+            };
+            let activity = hub.chat_activity();
+            blocking(move || {
+                Ok(match service.projects(&activity) {
+                    Some(projects) => json!({"ready": true, "enabled": true, "projects": projects}),
+                    None => json!({"ready": true, "enabled": false, "projects": []}),
+                })
+            })
+            .await
+        }
+        "_acpmux/chats_window" => super::chat_windows::open(hub, conn, service, &params).await,
+        "_acpmux/chats_window_close" => super::chat_windows::close(conn, &params),
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -425,6 +492,8 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     if rec.dir != "mux" || !changes_activity(&rec.kind) {
         return;
     }
+    // A window shows the chat's activity too: its rows are recomputed.
+    super::chat_windows::activity_changed(conn);
     if !hub.chat_index().is_some_and(|service| service.watches(&conn.id)) {
         return;
     }

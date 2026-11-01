@@ -412,6 +412,37 @@ def test_a_tree_published_with_acpmux_republishes_the_same_completion(tmp_path: 
         raise AssertionError("a completion.json acpmux without a manifest entry was accepted")
 
 
+def test_uploads_run_together_but_source_is_first_and_completion_last(tmp_path: Path) -> None:
+    assets, manifest, source, uploader = _fixture(tmp_path)
+    record = tmp_path / "uploads.jsonl"
+    publisher.publish_tree(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                           endpoint_url="https://r2.example", bucket="cmux-binaries", manifest_file=manifest,
+                           source_file=source, publish_source=True)
+    keys = [json.loads(line)["key"].rsplit("/", 1)[-1] for line in record.read_text().splitlines()]
+    assert keys[0] == "source.json"
+    assert keys[-1] == "completion.json"
+    completions = [i for i, name in enumerate(keys) if name.startswith("completion")]
+    others = [i for i, name in enumerate(keys) if not name.startswith("completion") and name != "source.json"]
+    assert len(others) == 2 * len(publisher.COMPANION_NAMES)
+    assert max(others) < min(completions)
+
+
+def test_a_failed_binary_upload_writes_no_completion(tmp_path: Path) -> None:
+    assets, manifest, source, uploader = _fixture(tmp_path)
+    failing = publisher.COMPANION_NAMES[1]
+    uploader.write_text(uploader.read_text() + f'if value("--key").endswith("/{failing}"): sys.exit(9)\n')
+    try:
+        publisher.publish_tree(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                               endpoint_url="https://r2.example", bucket="cmux-binaries", manifest_file=manifest,
+                               source_file=source)
+    except publisher.PublicationError as error:
+        assert failing in str(error)
+    else:
+        raise AssertionError("a failed binary upload was not raised")
+    keys = [json.loads(line)["key"] for line in (tmp_path / "uploads.jsonl").read_text().splitlines()]
+    assert not [k for k in keys if k.rsplit("/", 1)[-1].startswith("completion")]
+
+
 def main() -> int:
     """Run every test_* function in file order; a `tmp_path` parameter gets its own temporary directory.
 

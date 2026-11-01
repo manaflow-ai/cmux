@@ -378,10 +378,11 @@ pub(super) async fn upload(
         file.seek(std::io::SeekFrom::Start(offset)).await?;
         while offset < size {
             let want = usize::try_from((size - offset).min(buf.len() as u64))?;
-            file.read_exact(&mut buf[..want])
+            let part = buf.get_mut(..want).context("an upload chunk past its buffer")?;
+            file.read_exact(part)
                 .await
                 .with_context(|| format!("{label} changed while it was sent"))?;
-            let data = base64::engine::general_purpose::STANDARD.encode(&buf[..want]);
+            let data = base64::engine::general_purpose::STANDARD.encode(&*part);
             let chunk =
                 json!({"sessionId": chat, "uploadId": one.id, "offset": offset, "data": data});
             match daemon.request(method::MUX_FILE_PUT_CHUNK, chunk).await {

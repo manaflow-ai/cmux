@@ -301,7 +301,11 @@ pub fn host_name() -> String {
         // SAFETY: a writable buffer of the length passed; gethostname writes at most that many bytes.
         let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
         let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-        if rc == 0 { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() }
+        if rc == 0 {
+            String::from_utf8_lossy(buf.get(..end).unwrap_or_default()).into_owned()
+        } else {
+            String::new()
+        }
     };
     #[cfg(not(unix))]
     let name = std::env::var("COMPUTERNAME").unwrap_or_default();
@@ -318,8 +322,9 @@ pub use meter::{Meter, SAMPLE_WAIT};
 #[path = "host_pressure_probe.rs"]
 mod probe;
 pub use probe::{
-    HostProbe, parse_loadavg, parse_meminfo_available, parse_psi_some_avg10, parse_vmstat_pswpout,
-    performance_cores,
+    HostProbe, cpu_busy, parse_loadavg, parse_meminfo_available, parse_meminfo_swap_used,
+    parse_proc_stat_cpu, parse_psi_avg60, parse_psi_some_avg10, parse_vmstat_oom_kill,
+    parse_vmstat_pswpout, performance_cores,
 };
 
 #[cfg(test)]

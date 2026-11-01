@@ -507,10 +507,11 @@ touch it.
   terminal's, or a close kept out of history). Reopen starts a new shell in the recorded cwd with
   the recorded env, seeded with the archived screen; a dim line "<program> was stopped when this
   tab closed" follows only when a program was stopped (coordinator decision). Env: an ALLOWLIST,
-  not a deny-list: only TERM, TERMINFO, COLORTERM, TERM_PROGRAM, TERM_PROGRAM_VERSION,
+  not a deny-list: only TERM, TERMINFO, COLORTERM, TERM_PROGRAM,
   CMUX_SOCKET_PATH, CMUX_BUNDLE_ID and CMUX_TAG, and any key containing TOKEN, KEY, SECRET,
   PASSWORD, AUTH, COOKIE or CREDENTIAL is dropped even when allowlisted (`relaunch_store`,
-  nxdog62). Inherited and user env is not kept. Unix only.
+  nxdog62). TERM_PROGRAM_VERSION left the allowlist with cmux#24804: no terminal child sees it,
+  so a replay must not put it back. Inherited and user env is not kept. Unix only.
   Follow-ups (beads): the 2 GB byte budget across archives; reopen at the archived size (today the
   screen replays into the pane size); the agent resume offer on reopen; non-Unix archives.
 - S4 (Swift): S4.0 repro of today's Cmd-Shift-T failure on cmux-lawrence-2; `history.reopenClosed`

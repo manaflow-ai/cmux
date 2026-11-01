@@ -2072,31 +2072,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "]",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "prevSidebarTab",
@@ -2131,31 +2107,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "[",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "moveWorkspaceUp",
@@ -2262,107 +2214,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "1",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "2",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "3",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "4",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "5",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "6",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "7",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "8",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "9",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "renameWorkspace",
@@ -3151,27 +3003,27 @@
         {
           "id": "newColumn",
           "title": {
-            "en": "New Column",
-            "ar": "عمود جديد",
-            "bs": "Nova kolona",
-            "da": "Ny kolonne",
-            "de": "Neue Spalte",
-            "es": "Nueva columna",
-            "fr": "Nouvelle colonne",
-            "it": "Nuova colonna",
-            "ja": "新しい列",
-            "km": "ជួរឈរថ្មី",
-            "ko": "새 열",
-            "no": "Ny kolonne",
-            "pl": "Nowa kolumna",
-            "pt-BR": "Nova Coluna",
-            "ru": "Новый столбец",
-            "th": "คอลัมน์ใหม่",
-            "tr": "Yeni Sütun",
-            "uk": "Новий стовпець",
-            "vi": "Cột mới",
-            "zh-CN": "新建列",
-            "zh-TW": "新增欄"
+            "en": "New Column Right",
+            "ar": "عمود جديد على اليمين",
+            "bs": "Nova kolona desno",
+            "da": "Ny kolonne til højre",
+            "de": "Neue Spalte rechts",
+            "es": "Nueva columna a la derecha",
+            "fr": "Nouvelle colonne à droite",
+            "it": "Nuova colonna a destra",
+            "ja": "右に新しい列",
+            "km": "ជួរឈរថ្មីខាងស្ដាំ",
+            "ko": "오른쪽에 새 열",
+            "no": "Ny kolonne til høyre",
+            "pl": "Nowa kolumna po prawej",
+            "pt-BR": "Nova Coluna à Direita",
+            "ru": "Новый столбец справа",
+            "th": "คอลัมน์ใหม่ทางขวา",
+            "tr": "Sağa Yeni Sütun",
+            "uk": "Новий стовпець праворуч",
+            "vi": "Cột mới bên phải",
+            "zh-CN": "在右侧新建列",
+            "zh-TW": "在右側新增欄"
           },
           "shortcut": {
             "key": "d",
@@ -4673,17 +4525,6 @@
             {
               "keys": [
                 {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
                   "key": "]",
                   "modifiers": [
                     "shift",
@@ -4729,18 +4570,6 @@
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl",
-                    "shift"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -8496,29 +8325,29 @@
           "aliases": []
         },
         {
-          "id": "palette.forkAgentConversationRight",
+          "id": "palette.forkAgentConversation",
           "title": {
-            "en": "Fork Conversation to the Right",
-            "ar": "تفريع المحادثة إلى اليمين",
-            "bs": "Račvaj razgovor desno",
-            "da": "Fork samtale til højre",
-            "de": "Unterhaltung nach rechts abspalten",
-            "es": "Bifurcar conversación a la derecha",
-            "fr": "Dériver la conversation à droite",
-            "it": "Duplica conversazione a destra",
-            "ja": "会話を右にフォーク",
-            "km": "Fork ការសន្ទនាទៅខាងស្ដាំ",
-            "ko": "대화를 오른쪽으로 포크",
-            "no": "Forgren samtale til høyre",
-            "pl": "Rozwidl rozmowę w prawo",
-            "pt-BR": "Bifurcar Conversa à Direita",
-            "ru": "Форк беседы справа",
-            "th": "Fork บทสนทนาไปทางขวา",
-            "tr": "Konuşmayı Sağa Çatalla",
-            "uk": "Відгалузити розмову праворуч",
-            "vi": "Fork cuộc hội thoại sang phải",
-            "zh-CN": "将对话分叉到右侧",
-            "zh-TW": "將對話分支到右側"
+            "en": "Fork Conversation",
+            "ar": "إنشاء فرع للمحادثة",
+            "bs": "Račvaj razgovor",
+            "da": "Fork samtale",
+            "de": "Unterhaltung verzweigen",
+            "es": "Crear rama de la conversación",
+            "fr": "Créer une branche de la conversation",
+            "it": "Duplica conversazione",
+            "ja": "会話を分岐",
+            "km": "Fork ការសន្ទនា",
+            "ko": "대화 분기",
+            "no": "Forgren samtale",
+            "pl": "Rozwidl rozmowę",
+            "pt-BR": "Bifurcar Conversa",
+            "ru": "Форк беседы",
+            "th": "Fork บทสนทนา",
+            "tr": "Konuşmayı Çatalla",
+            "uk": "Відгалузити розмову",
+            "vi": "Fork cuộc hội thoại",
+            "zh-CN": "创建对话分支",
+            "zh-TW": "建立對話分支"
           },
           "shortcut": {
             "key": "y",

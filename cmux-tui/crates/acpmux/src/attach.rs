@@ -28,7 +28,7 @@
 //! answered from the ledger with the first run's outcome, and its own copy is deleted ([`Saved`]).
 //!
 //! No cap: an inline message is one JSON-RPC message on every hop (CLI, outbox record, peer link,
-//! agent), at most `rpc::MAX_MESSAGE_BYTES` (15 MiB), so the senders go by reference before that.
+//! agent), at most `rpc::MAX_MESSAGE_BYTES` (31 MiB), so the senders go by reference before that.
 //! [`check_wire`] answers a raw protocol sender whose inline request would not fit one message on
 //! the next hop, rather than let a hop drop it.
 
@@ -36,6 +36,7 @@ use crate::client::Client;
 use crate::rpc::{RpcError, method};
 use anyhow::Context;
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -278,7 +279,7 @@ impl Sent {
         let (id, name) = (&self.id, &self.name);
         let mut upload = json!({"uploadId": id, "fileName": name});
         if let Some(token) = &self.owner {
-            upload["owned"] = json!(token);
+            upload.set("owned", json!(token));
         }
         let meta = json!({"acpmux": {"upload": upload}});
         match image_type(&self.head) {
@@ -409,9 +410,10 @@ pub fn receive(
         let sniffed = crate::hub::prompt_images::sniffed_type(&bytes);
         let mime = sniffed.unwrap_or("application/octet-stream");
         saved.push(format!("- {} ({mime}, {})", path.display(), mib(bytes.len())));
-        blocks[index] = match image_type(&bytes) {
+        let Some(block) = blocks.get_mut(index) else { continue };
+        *block = match image_type(&bytes) {
             Some(mime) => json!({"type": "image", "mimeType": mime, "name": name,
-                                 "data": data_of(&blocks[index]).unwrap_or_default()}),
+                                 "data": data_of(block).unwrap_or_default()}),
             None => {
                 json!({"type": "resource_link", "uri": file_uri(&path), "name": name, "mimeType": mime})
             }
@@ -710,7 +712,7 @@ mod tests {
         assert!(!fits_inline(&[INLINE_FILE_BYTES + 1], "big"));
         assert!(!fits_inline(&[1; INLINE_FILES + 1], "many"));
         assert!(!fits_inline(&[3 << 20, 3 << 20, 3 << 20, 3 << 20], "together"));
-        assert!(!fits_inline(&[3 << 20], &"x".repeat(12 << 20)), "with its text");
+        assert!(!fits_inline(&[3 << 20], &"x".repeat(28 << 20)), "with its text");
         // Every message the senders put inline fits one JSON-RPC message.
         let most = [INLINE_TOTAL_BYTES / 4; 4];
         assert!(fits_inline(&most, "t"));
@@ -720,12 +722,14 @@ mod tests {
 
     #[test]
     fn a_message_too_big_for_one_frame_is_refused() {
-        let half = vec![0u8; (10 << 20) / 2];
+        // Two 11 MiB files fit below 31 MiB once encoded; the extra 2 MiB metadata pushes the
+        // complete request over the transport limit.
+        let half = vec![0u8; 11 << 20];
         let mut request = json!({"prompt": [block("a.bin", &half), block("b.bin", &half)]});
         assert!(check_wire(&request).is_ok());
         request["_meta"] = json!({"acpmux": {"promptId": "x".repeat(2 << 20)}});
         let refused = check_wire(&request).unwrap_err();
-        assert!(refused.message.contains("15 MiB"), "{refused}");
+        assert!(refused.message.contains("31 MiB"), "{refused}");
     }
 
     #[tokio::test]

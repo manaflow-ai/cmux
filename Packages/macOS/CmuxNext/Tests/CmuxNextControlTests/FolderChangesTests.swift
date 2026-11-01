@@ -1,4 +1,5 @@
-import CmuxNextWakeups
+import CmuxNextCompat
+@testable import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -24,8 +25,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: parent) }
         let missing = parent.appendingPathComponent("Backgrounds", isDirectory: true)
         let ledger = WakeupLedger()
-        // events() arms the watch before it returns, so the first write needs no head start.
-        var changes = FolderChanges(folders: [missing], ledger: ledger).events().makeAsyncIterator()
+        // events() returns once the watch is registered, so the first write needs no head start.
+        var changes = await FolderChanges(folders: [missing], ledger: ledger).events().makeAsyncIterator()
 
         // The app saves its own file next to the missing folder.
         try Data("{}".utf8).write(to: parent.appendingPathComponent("unsent-prompts.json"), options: .atomic)
@@ -39,4 +40,42 @@ import Testing
         #expect(await changes.next() != nil)
         #expect((ledger.snapshot().first { $0.owner == "FolderChanges" && $0.reason == "change" }?.count ?? 0) >= 2)
     }
+
+    /// events() returns only after the kernel has registered the watches (review of #26320:
+    /// resume() only schedules the registration, and dispatch_source(3) drops events before it
+    /// completes). The watches' queue is held suspended, so no registration handler can run, and
+    /// events() starts synchronously (Task.immediate) up to its first suspension: it must stop there
+    /// rather than return, and a write the moment it returns, once the queue is let go, is seen.
+    @available(macOS 26, *)
+    @Test func eventsReturnsOnlyOnceTheWatchesAreRegistered() async throws {
+        let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("folder-changes-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let queue = DispatchQueue(label: "folder-changes-registration")
+        let steps = Steps()
+        queue.suspend()
+        // Runs on this thread until it first suspends, so events() has made and resumed its watches
+        // (and returned, if it did not wait for their registration) before the next line.
+        let pending = Task.immediate {
+            let stream = await FolderChanges(folders: [folder], ledger: WakeupLedger(), queue: queue).events()
+            steps.append("returned")
+            // Written before the watch loop can have run.
+            try Data([0]).write(to: folder.appendingPathComponent("first.png"))
+            return stream
+        }
+        steps.append("released")
+        queue.resume()
+        var changes = try await pending.value.makeAsyncIterator()
+        #expect(steps.all == ["released", "returned"])
+        #expect(await changes.next() != nil)
+    }
+}
+
+/// What happened, in order, across tasks.
+private final class Steps: Sendable {
+    private let steps = Mutex<[String]>([])
+
+    func append(_ step: String) { steps.withLock { $0.append(step) } }
+    var all: [String] { steps.withLock { $0 } }
 }

@@ -16644,127 +16644,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يربط Mac Screen الآن أجهزة Mac المسجّل دخولها إلى حساب cmux الخاص بك. افتح Mac Screen لرؤيتها."
+            "value": "تربط مشاركة الشاشة الآن أجهزة Mac المسجّل دخولها إلى حساب cmux الخاص بك. افتح مشاركة الشاشة لرؤيتها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen sada povezuje Mac računare prijavljene na vaš cmux račun. Otvorite Mac Screen da ih vidite."
+            "value": "Dijeljenje ekrana sada povezuje Mac računare prijavljene na vaš cmux račun. Otvorite Dijeljenje ekrana da ih vidite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen forbinder nu de Mac-computere, der er logget ind på din cmux-konto. Åbn Mac Screen for at se dem."
+            "value": "Skærmdeling forbinder nu de Mac-computere, der er logget ind på din cmux-konto. Åbn Skærmdeling for at se dem."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen verbindet jetzt die Macs, die bei deinem cmux-Konto angemeldet sind. Öffne Mac Screen, um sie zu sehen."
+            "value": "Bildschirmfreigabe verbindet jetzt die Macs, die bei deinem cmux-Konto angemeldet sind. Öffne Bildschirmfreigabe, um sie zu sehen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen now connects the Macs signed in to your cmux account. Open Mac Screen to see them."
+            "value": "Screen Sharing now connects the Macs signed in to your cmux account. Open Screen Sharing to see them."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen ahora conecta los Mac con sesión iniciada en tu cuenta de cmux. Abre Mac Screen para verlos."
+            "value": "Compartir pantalla ahora conecta los Mac con sesión iniciada en tu cuenta de cmux. Abre Compartir pantalla para verlos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen connecte désormais les Mac connectés à votre compte cmux. Ouvrez Mac Screen pour les voir."
+            "value": "Partage d’écran connecte désormais les Mac connectés à votre compte cmux. Ouvrez Partage d’écran pour les voir."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen ora collega i Mac che hanno eseguito l’accesso al tuo account cmux. Apri Mac Screen per vederli."
+            "value": "Condivisione schermo ora collega i Mac che hanno eseguito l’accesso al tuo account cmux. Apri Condivisione schermo per vederli."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen は、cmux アカウントにサインインしている Mac を接続するようになりました。Mac Screen を開いて確認してください。"
+            "value": "画面共有は、cmux アカウントにサインインしている Mac を接続するようになりました。画面共有を開いて確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ឥឡូវ Mac Screen ភ្ជាប់ Mac ដែលបានចូលគណនី cmux របស់អ្នក។ បើក Mac Screen ដើម្បីមើលពួកវា។"
+            "value": "ឥឡូវ ការចែករំលែកអេក្រង់ ភ្ជាប់ Mac ដែលបានចូលគណនី cmux របស់អ្នក។ បើក ការចែករំលែកអេក្រង់ ដើម្បីមើលពួកវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이제 Mac Screen은 cmux 계정에 로그인된 Mac을 연결합니다. Mac Screen을 열어 확인하십시오."
+            "value": "이제 화면 공유는 cmux 계정에 로그인된 Mac을 연결합니다. 화면 공유를 열어 확인하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen kobler nå sammen Mac-maskinene som er logget på cmux-kontoen din. Åpne Mac Screen for å se dem."
+            "value": "Skjermdeling kobler nå sammen Mac-maskinene som er logget på cmux-kontoen din. Åpne Skjermdeling for å se dem."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen łączy teraz komputery Mac zalogowane na Twoje konto cmux. Otwórz Mac Screen, aby je zobaczyć."
+            "value": "Udostępnianie ekranu łączy teraz komputery Mac zalogowane na Twoje konto cmux. Otwórz Udostępnianie ekranu, aby je zobaczyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agora o Mac Screen conecta os Macs com sessão iniciada na sua conta do cmux. Abra o Mac Screen para vê-los."
+            "value": "Agora o Compartilhamento de Tela conecta os Macs com sessão iniciada na sua conta do cmux. Abra o Compartilhamento de Tela para vê-los."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Теперь Mac Screen соединяет компьютеры Mac, на которых выполнен вход в вашу учетную запись cmux. Откройте Mac Screen, чтобы увидеть их."
+            "value": "Теперь «Общий экран» соединяет компьютеры Mac, на которых выполнен вход в вашу учетную запись cmux. Откройте «Общий экран», чтобы увидеть их."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตอนนี้ Mac Screen เชื่อมต่อ Mac ที่ลงชื่อเข้าใช้บัญชี cmux ของคุณ เปิด Mac Screen เพื่อดู"
+            "value": "ตอนนี้การแชร์หน้าจอเชื่อมต่อ Mac ที่ลงชื่อเข้าใช้บัญชี cmux ของคุณ เปิดการแชร์หน้าจอเพื่อดู"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen artık cmux hesabınıza giriş yapmış Mac’leri bağlıyor. Görmek için Mac Screen’i açın."
+            "value": "Ekran Paylaşma artık cmux hesabınıza giriş yapmış Mac’leri bağlıyor. Görmek için Ekran Paylaşma’yı açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Тепер Mac Screen з’єднує комп’ютери Mac, на яких виконано вхід у ваш обліковий запис cmux. Відкрийте Mac Screen, щоб побачити їх."
+            "value": "Тепер «Спільний екран» з’єднує комп’ютери Mac, на яких виконано вхід у ваш обліковий запис cmux. Відкрийте «Спільний екран», щоб побачити їх."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Giờ đây Mac Screen kết nối các máy Mac đã đăng nhập tài khoản cmux của bạn. Mở Mac Screen để xem."
+            "value": "Giờ đây Chia sẻ màn hình kết nối các máy Mac đã đăng nhập tài khoản cmux của bạn. Mở Chia sẻ màn hình để xem."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen 现在连接已登录你的 cmux 账户的 Mac。打开 Mac Screen 查看。"
+            "value": "屏幕共享现在连接已登录你的 cmux 账户的 Mac。打开“屏幕共享”查看。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen 現在會連接已登入你 cmux 帳號的 Mac。開啟 Mac Screen 即可查看。"
+            "value": "螢幕共享現在會連接已登入你 cmux 帳號的 Mac。開啟「螢幕共享」即可查看。"
           }
         }
       }
@@ -16906,127 +16906,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "فتح شاشة Mac"
+            "value": "فتح مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otvori Ekran Maca"
+            "value": "Otvori Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åbn Mac-skærm"
+            "value": "Åbn Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-Bildschirm öffnen"
+            "value": "Bildschirmfreigabe öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Mac Screen"
+            "value": "Open Screen Sharing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir Pantalla del Mac"
+            "value": "Abrir Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ouvrir Écran Mac"
+            "value": "Ouvrir Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apri Schermo Mac"
+            "value": "Apri Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「Macの画面」を開く"
+            "value": "「画面共有」を開く"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើក អេក្រង់ Mac"
+            "value": "បើក ការចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 화면 열기"
+            "value": "화면 공유 열기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åpne Mac-skjerm"
+            "value": "Åpne Skjermdeling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otwórz Ekran Maca"
+            "value": "Otwórz Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir Tela do Mac"
+            "value": "Abrir Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Открыть «Экран Mac»"
+            "value": "Открыть «Общий экран»"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิดหน้าจอ Mac"
+            "value": "เปิดการแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac Ekranı’nı Aç"
+            "value": "Ekran Paylaşma’yı Aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відкрити «Екран Mac»"
+            "value": "Відкрити «Спільний екран»"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mở Màn hình Mac"
+            "value": "Mở Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打开“Mac 屏幕”"
+            "value": "打开“屏幕共享”"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打開「Mac 螢幕」"
+            "value": "打開「螢幕共享」"
           }
         }
       }
@@ -21753,127 +21753,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "شاشة Mac"
+            "value": "مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Maca"
+            "value": "Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-skærm"
+            "value": "Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-Bildschirm"
+            "value": "Bildschirmfreigabe"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen"
+            "value": "Screen Sharing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pantalla del Mac"
+            "value": "Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Écran Mac"
+            "value": "Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schermo Mac"
+            "value": "Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Macの画面"
+            "value": "画面共有"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អេក្រង់ Mac"
+            "value": "ការចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 화면"
+            "value": "화면 공유"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-skjerm"
+            "value": "Skjermdeling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Maca"
+            "value": "Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tela do Mac"
+            "value": "Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Экран Mac"
+            "value": "Общий экран"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าจอ Mac"
+            "value": "การแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac Ekranı"
+            "value": "Ekran Paylaşma"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Екран Mac"
+            "value": "Спільний екран"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màn hình Mac"
+            "value": "Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 屏幕"
+            "value": "屏幕共享"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 螢幕"
+            "value": "螢幕共享"
           }
         }
       }
@@ -30923,127 +30923,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "شاشة Mac"
+            "value": "مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Maca"
+            "value": "Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-skærm"
+            "value": "Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-Bildschirm"
+            "value": "Bildschirmfreigabe"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen"
+            "value": "Screen Sharing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pantalla del Mac"
+            "value": "Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Écran Mac"
+            "value": "Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schermo Mac"
+            "value": "Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Macの画面"
+            "value": "画面共有"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អេក្រង់ Mac"
+            "value": "ការចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 화면"
+            "value": "화면 공유"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-skjerm"
+            "value": "Skjermdeling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Maca"
+            "value": "Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tela do Mac"
+            "value": "Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Экран Mac"
+            "value": "Общий экран"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าจอ Mac"
+            "value": "การแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac Ekranı"
+            "value": "Ekran Paylaşma"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Екран Mac"
+            "value": "Спільний екран"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màn hình Mac"
+            "value": "Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 屏幕"
+            "value": "屏幕共享"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 螢幕"
+            "value": "螢幕共享"
           }
         }
       }

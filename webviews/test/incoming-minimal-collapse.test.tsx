@@ -1,8 +1,9 @@
-// In cmux's Minimal Mode another agent's message is one line (conversation/IncomingMessageCard.tsx;
-// Leo 2026-10-24: "we could just have the first line be the thing that's there, and then you can
-// expand that"): the sender's chip, which still opens its chat, then the message's first line, with
-// no "Received message from" lead. The line is a button that opens the card in place and closes it
-// again; with Minimal Mode off the message draws as before.
+// Another agent's message is one line whether or not cmux's Minimal Mode is on
+// (conversation/IncomingMessageCard.tsx; Leo 2026-10-24: "we could just have the first line be the
+// thing that's there, and then you can expand that", and 2026-10-29: "why the fuck did you guys
+// ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"): the sender's name, then
+// the message's first line, with no "Received message from" lead. The line opens the sender's chat;
+// its chevron, the shared DisclosureRow's toggle, opens the whole message in place and closes it again.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -76,8 +77,9 @@ async function line(id: string) {
       />,
     ),
   );
-  const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-received__toggle")!;
-  return { opened, toggle, chip: host.querySelector<HTMLButtonElement>("button.cv-received__name")! };
+  const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
+  // The sender's name opens its chat (Leo, 2026-10-29: "Just click the left name thing"); no Open chat.
+  return { opened, toggle, open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open")! };
 }
 
 test("Minimal Mode follows only cmux's own Minimal Mode switch", () => {
@@ -87,55 +89,52 @@ test("Minimal Mode follows only cmux's own Minimal Mode switch", () => {
   expect(resolveChatDisplay({}).minimal).toBe(false);
 });
 
-test("with Minimal Mode off the message draws as before: its line over the whole card", async () => {
-  const { toggle } = await line("normal-1");
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
-  expect(host.querySelector(".cv-received[data-minimal]")).toBeNull();
-  expect(toggle().getAttribute("aria-label")).toBe(t("message.label", { from: "grid-lane", to: t("message.self") }));
-  expect(toggle().getAttribute("aria-expanded")).toBe("false");
-});
+for (const minimal of [false, true])
+  test(`with Minimal Mode ${minimal ? "on" : "off"} the message is one line: its name, then its first line; its chevron opens and closes it`, async () => {
+    if (minimal) setChatDisplay({ [MINIMAL_MODE_KEY]: true });
+    const { open, opened, toggle } = await line(`line-${minimal}`);
+    // The name and the first line of text, as it reads, and nothing under the line.
+    expect(host.querySelector(".cv-received__from")?.textContent).toBe("grid-lane");
+    expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
+    expect(host.textContent).not.toContain("Received message from");
+    expect(host.querySelector(".cv-received__text")).toBeNull();
+    expect(host.querySelector(".cv-disclosure__panel")).toBeNull();
+    expect(toggle().tagName).toBe("BUTTON");
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(toggle().getAttribute("aria-label")).toBe(
+      t("message.collapsedLabel", { from: "grid-lane", preview: "Rebased onto main; ready for review." }),
+    );
+    expect(host.querySelector(".cv-disclosure__open")).toBeNull();
+    // The name opens the sender's chat, and leaves the message closed.
+    await act(async () => open.click());
+    expect(opened).toEqual(["mux-grid"]);
+    expect(host.querySelector(".cv-received__text")).toBeNull();
+    // The line opens the whole message in place, with no From: line repeating the name above it.
+    await act(async () => toggle().click());
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector(".cv-received__from-line")).toBeNull();
+    expect(host.querySelector(".cv-received__text")?.textContent).toContain("The retry tests pass.");
+    expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green.");
+    expect(host.querySelector(".cv-received__body, [data-cut], .cv-received__show")).toBeNull();
+    const panel = host.querySelector(".cv-disclosure__panel")!;
+    expect(toggle().getAttribute("aria-controls")).toBe(panel.parentElement!.id);
+    // And closes it again (a page with no Web Animations closes at once); the line stays as it was.
+    await act(async () => toggle().click());
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector(".cv-received__text")).toBeNull();
+    expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
+  });
 
-test("in Minimal Mode the message is one line: the chip, then its first line, which opens and closes it", async () => {
-  setChatDisplay({ [MINIMAL_MODE_KEY]: true });
-  const { chip, opened, toggle } = await line("minimal-1");
-  // The chip and the first line of text, as it reads, and nothing under the line.
-  expect(chip.textContent).toBe("grid-lane");
-  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
-  expect(host.textContent).not.toContain("Received message from");
-  expect(host.querySelector(".cv-received__body")).toBeNull();
-  expect(toggle().tagName).toBe("BUTTON");
-  expect(toggle().getAttribute("aria-expanded")).toBe("false");
-  expect(toggle().getAttribute("aria-label")).toBe(
-    t("message.collapsedLabel", { from: "grid-lane", preview: "Rebased onto main; ready for review." }),
-  );
-  // The chip still opens the sender's chat, and leaves the message closed.
-  await act(async () => chip.click());
-  expect(opened).toEqual(["mux-grid"]);
-  expect(host.querySelector(".cv-received__body")).toBeNull();
-  // The line opens the whole card in place.
-  await act(async () => toggle().click());
-  expect(toggle().getAttribute("aria-expanded")).toBe("true");
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("CI is green.");
-  expect(toggle().getAttribute("aria-controls")).toBe(host.querySelector(".cv-received__body")!.id);
-  // And closes it again (a page with no Web Animations closes at once).
-  await act(async () => toggle().click());
-  expect(toggle().getAttribute("aria-expanded")).toBe("false");
-  expect(host.querySelector(".cv-received__body")).toBeNull();
-  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
-});
-
-test("turning Minimal Mode off draws the closed message's card again", async () => {
+test("switching Minimal Mode leaves a closed message its one line", async () => {
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   await line("minimal-2");
-  expect(host.querySelector(".cv-received__body")).toBeNull();
+  expect(host.querySelector(".cv-received__text")).toBeNull();
   await act(async () => setChatDisplay({}));
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
+  expect(host.querySelector(".cv-received__text")).toBeNull();
+  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
-test("the line opens with no fade-in, its height alone moving; closing fades out", async () => {
+test("the reader's toggle plays the fold: the panel's height grows on open and closing fades out", async () => {
   const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
   const motion = { ...foldMotion };
   const proto = dom.window.HTMLElement.prototype as unknown as { animate?: unknown };
@@ -146,10 +145,10 @@ test("the line opens with no fade-in, its height alone moving; closing fades out
   };
   Object.assign(foldMotion, { duration: () => 180, reducedMotion: () => false });
   try {
-    setChatDisplay({ [MINIMAL_MODE_KEY]: true });
-    const { toggle } = await line("minimal-3");
+    const { toggle } = await line("fold-1");
     await act(async () => toggle().click());
-    expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 1]);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.at(-1)!.some((frame) => frame.height !== undefined)).toBe(true);
     await act(async () => toggle().click());
     expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 0]);
   } finally {
@@ -158,7 +157,7 @@ test("the line opens with no fade-in, its height alone moving; closing fades out
   }
 });
 
-test("in Minimal Mode a closed message estimates as its line; one opened in this chat as its whole card", async () => {
+test("a closed message estimates as its line in either mode; one opened in this chat as its whole panel", async () => {
   const { layoutConversation } = await import("../src/agent-session/acpmux/model");
   const { setMessageOpened } = await import("../src/agent-session/acpmux/conversation/incomingOpened");
   const long = Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of the landing report.`).join("\n");
@@ -175,13 +174,11 @@ test("in Minimal Mode a closed message estimates as its line; one opened in this
   const normal = height("chat-a");
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   try {
-    const closed = height("chat-a");
-    expect(closed).toBeLessThan(normal);
+    expect(height("chat-a")).toBe(normal);
     setMessageOpened("chat-a", "estimate-1", true);
-    // Opened: the whole card, longer than normal mode's eight-line cut; another chat's row of the
-    // same id stays closed.
-    expect(height("chat-a")).toBeGreaterThan(normal);
-    expect(height("chat-b")).toBe(closed);
+    // Opened: the whole text, its fourteen lines; another chat's row of the same id stays closed.
+    expect(height("chat-a")).toBeGreaterThan(normal + 13 * 16);
+    expect(height("chat-b")).toBe(normal);
   } finally {
     setMessageOpened("chat-a", "estimate-1", false);
   }

@@ -11,6 +11,9 @@ public import Observation
 /// the mock runs standalone.
 @Observable @MainActor
 public final class SidebarModel {
+    /// Effective New Workspace keycaps supplied by the app action registry; nil when unbound.
+    public var newWorkspaceShortcut: String?
+
     /// Pinned area first (optional), then one section per machine. A set is
     /// a structural change (`sectionsRevision` moves, the list reloads); a row
     /// content change goes through `patchWorkspaces` and reloads nothing.
@@ -24,13 +27,14 @@ public final class SidebarModel {
             let newValue = newValue.map { $0.resolvingGroupDepths() }
             // An unchanged set is no structural change (an intent that edits nothing).
             guard newValue != storedSections else { return }
+            let paths = Self.groupPaths(in: newValue)
             withMutation(keyPath: \.sections) {
                 storedSections = newValue
+                groupPaths = paths
                 sectionsRevision &+= 1
                 structureRevision = sectionsRevision
             }
             rowIndex = nil
-            groupPaths = nil
         }
     }
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
@@ -55,8 +59,8 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return structureRevision
     }
-    /// Where each group sits in `sections` (section, node); built on the first fold after a set.
-    @ObservationIgnored var groupPaths: [GroupID: (section: Int, node: Int)]?
+    /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.
+    @ObservationIgnored private var groupPaths: [GroupID: (section: Int, node: Int)] = [:]
     /// Told each group `setGroupCollapsed` folded or opened (the list splices that group's rows).
     @ObservationIgnored public var onGroupFolded: ((GroupID) -> Void)?
 
@@ -64,16 +68,7 @@ public final class SidebarModel {
     /// place, no structural set, then `onGroupFolded`, so it costs the group's rows. False when no listed group has `id`.
     @discardableResult
     public func setGroupCollapsed(_ id: GroupID, _ collapsed: Bool) -> Bool {
-        if groupPaths == nil {
-            var paths: [GroupID: (section: Int, node: Int)] = [:]
-            for (s, section) in storedSections.enumerated() {
-                for (n, node) in section.nodes.enumerated() {
-                    if case let .group(group) = node, paths[group.id] == nil { paths[group.id] = (s, n) }
-                }
-            }
-            groupPaths = paths
-        }
-        guard let (s, n) = groupPaths?[id], case var .group(group) = storedSections[s].nodes[n] else { return false }
+        guard let (s, n) = groupPaths[id], case var .group(group) = storedSections[s].nodes[n] else { return false }
         guard group.isCollapsed != collapsed else { return true }
         group.isCollapsed = collapsed
         revealedMembers[id] = nil
@@ -83,10 +78,9 @@ public final class SidebarModel {
         return true
     }
 
-    /// The section that lists group `id` (O(1) after a fold built `groupPaths`).
+    /// The section that lists group `id`, using the lookup prepared with the sections.
     func groupSection(_ id: GroupID) -> SidebarSection? {
-        if let (s, _) = groupPaths?[id] { return storedSections[s] }
-        return SidebarEdits.locateGroup(id, in: storedSections).map { storedSections[$0.section] }
+        groupPaths[id].map { storedSections[$0.section] }
     }
     /// `sectionsRevision` at the user's last keyboard move (never a drop): the next structural set may scroll to the moved
     /// active row; nil, none waits. Changes from others never move the view (DESIGN.md scroll reveal, cx-ml98q).
@@ -130,6 +124,8 @@ public final class SidebarModel {
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
+    /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).
+    @ObservationIgnored public var drawnSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
@@ -216,10 +212,6 @@ public final class SidebarModel {
     public var updatedCard: SidebarUpdatedCard?
     /// The Now Playing card (cx-ouoxo), shown only while ``updateCard`` is nil.
     public var nowPlaying: SidebarNowPlaying?
-    /// Whether each workspace expands to show its intra-workspace tabs.
-    public var showWorkspaceTabs = false
-    /// The workspaces whose disclosure hid their tabs: window view state.
-    public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// How rows show their state (`SidebarRowBadgeStyle`); nil follows the Debug setting.
@@ -238,13 +230,13 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
-    /// `sidebar.showColors`: off, rows and group headers draw no workspace or group color.
+    /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
-    /// What a collapsed group header shows beside its loading spinner
-    /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
-    /// adds its members' other states).
+    /// What a collapsed group header shows beside its loading spinner (`sidebar.groupHeader.*`,
+    /// all off by default; `sidebar.detailedStatusIcons` adds its members' other states).
     public var groupHeaderDetails = GroupHeaderDetails()
     /// `sidebar.groupBy` and Group by Status's folds and held row (`SidebarModel+Grouping`).
     public var grouping = SidebarGrouping()
@@ -264,12 +256,28 @@ public final class SidebarModel {
     /// sidebar comes back at the user's width.
     public var width: CGFloat = Metrics.sidebarWidth {
         didSet {
-            let clamped = min(max(width, Self.widthRange.lowerBound), Self.widthRange.upperBound)
+            let clamped = min(max(width, widthRange.lowerBound), widthRange.upperBound)
             if clamped != width { width = clamped }
         }
     }
 
-    public static var widthRange: ClosedRange<CGFloat> { Metrics.sidebarMinWidth...Metrics.sidebarMaxWidth }
+    /// The width the sidebar's titlebar row needs so its controls never overlap: the window's
+    /// traffic lights and toolbar band, then the + (`SidebarView.titlebarControlsWidth`, set from
+    /// the window's layout). Raising it clamps a narrower `width` at once, so a width saved below
+    /// it comes back wide enough (Lawrence 2026-10-30: Forward drew over the + at 160 pt).
+    public var titlebarControlsWidth: CGFloat = 0 {
+        didSet {
+            guard titlebarControlsWidth != oldValue, width < minimumWidth else { return }
+            width = minimumWidth
+        }
+    }
+
+    /// The narrowest the sidebar gets: the `sidebarMinWidth` tunable or what the titlebar row's
+    /// controls need, whichever is wider.
+    public var minimumWidth: CGFloat { max(Metrics.sidebarMinWidth, titlebarControlsWidth) }
+
+    /// The widths the sidebar may take: from ``minimumWidth`` to the `sidebarMaxWidth` tunable.
+    public var widthRange: ClosedRange<CGFloat> { minimumWidth...max(minimumWidth, Metrics.sidebarMaxWidth) }
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
@@ -285,6 +293,7 @@ public final class SidebarModel {
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
         storedSections = sections.map { $0.resolvingGroupDepths() }
+        groupPaths = Self.groupPaths(in: storedSections)
         collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id))
         self.activeWorkspaceID = activeWorkspaceID
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
@@ -338,20 +347,21 @@ public final class SidebarModel {
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
     public func group(_ id: GroupID) -> SidebarGroup? {
-        // O(1) once a fold built `groupPaths` (a header click reads its group, then folds it).
-        if let (s, n) = groupPaths?[id] {
-            access(keyPath: \.sections)
-            if case let .group(group) = storedSections[s].nodes[n] { return group }
-        }
-        guard let (s, n) = SidebarEdits.locateGroup(id, in: sections),
-              case let .group(group) = sections[s].nodes[n] else { return nil }
+        access(keyPath: \.sections)
+        guard let (s, n) = groupPaths[id], case let .group(group) = storedSections[s].nodes[n] else { return nil }
         return group
     }
 
     public func section(_ id: SectionID) -> SidebarSection? { sections.first { $0.id == id } }
 
     /// Selected ids in visual order.
-    public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
+    /// A pinned workspace drawn only as a tile is no section node: such ones come first, in drawn order (#27701).
+    public var orderedSelection: [WorkspaceID] {
+        let listed = SidebarEdits.treeOrder(selection, in: sections)
+        guard listed.count < selection.count else { return listed }
+        let tiles = selection.subtracting(listed)
+        return drawnSelectionOrder().filter(tiles.contains) + listed
+    }
 
     /// What a row verb on `id` (Close, Pin, Duplicate, Move Up/Down, from its menu or a key) acts
     /// on: the whole selection, in row order, when `id` is one of two or more selected rows;
@@ -367,7 +377,10 @@ public final class SidebarModel {
 
     /// Emits an intent to `onIntent`, or applies it locally when unset.
     public func send(_ intent: SidebarIntent) {
-        if let onIntent { onIntent(intent) } else { apply(intent) }
+        guard let onIntent else { return apply(intent) }
+        // A remote group (`SidebarSection.wrappedAsHostGroup`) is no document group: its daemon takes the machine's.
+        let end = { [sections] (machine: MachineID) in sections.first { $0.id == .machine(machine) }?.documentNodeCount ?? 0 }
+        if let resolved = intent.resolvingHostGroup(end: end) { onIntent(resolved) }
     }
 
     /// Applies an intent to local state. Call from `onIntent` for optimistic
@@ -377,7 +390,7 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             selection = [id]
-        case .selectTab, .moveTab, .closeTab:
+        case .selectTab:
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
@@ -428,7 +441,7 @@ public final class SidebarModel {
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural
     /// change, then told to `onRowsPatched`; a row this window does not list is skipped. False, writing nothing, when the
-    /// change moves rows (filter, folder buckets, listed tabs); the caller then sets the sections.
+    /// change moves rows (filter, folder buckets, the Done fold, the row limit); the caller then sets the sections.
     public func patchWorkspaces(_ rows: [SidebarWorkspace]) -> Bool {
         guard !rows.isEmpty else { return true }
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
@@ -446,6 +459,10 @@ public final class SidebarModel {
             row.isArchived = old.isArchived // the document's, set by `arrange`; the feed does not know it
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
+            // A rename into or out of the name of a group it is the one member of changes the group's rows: one row in
+            // the header's place, or a header over a member row (`SidebarLayout+SoleMember`).
+            // Each listed copy against its own title (a workspace may be listed twice).
+            guard !paths.contains(where: { renamesSoleMember(at: $0, to: row.title) }) else { return false }
             for path in paths {
                 // Each listed copy keeps its own row state (a saved stale row beside the live one).
                 var copy = row
@@ -457,6 +474,13 @@ public final class SidebarModel {
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
         if !patched.isEmpty { onRowsPatched?(patched) }
         return true
+    }
+
+    private func renamesSoleMember(at path: SidebarRowIndex.Path, to new: String) -> Bool {
+        guard path.member != nil, case let .group(group) = storedSections[path.section].nodes[path.node],
+              group.members.count == 1 else { return false }
+        let old = SidebarRowIndex.workspace(at: path, in: storedSections).title
+        return old != new && SidebarLayout.names(group, old) != SidebarLayout.names(group, new)
     }
 
     /// Whether these sections list workspace `id`: O(1) through `rowIndex`
@@ -538,13 +562,11 @@ public final class SidebarModel {
 
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
-        // Minimal mode lists no tab rows under a workspace.
-        showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
-        showsColors = preferences.showColors
+        (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
@@ -554,19 +576,11 @@ public final class SidebarModel {
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
 
-    /// The disclosure on a workspace row: hide its listed tabs, or list them again.
-    public func toggleWorkspaceTabs(_ id: WorkspaceID) {
-        if collapsedWorkspaces.remove(id) == nil { collapsedWorkspaces.insert(id) }
-    }
-
     /// The list layout's options that come from the model.
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        // Workspaces as tabs lists no tab rows under a workspace, as minimal mode.
-        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
-        o.showWorkspaceTabs = showWorkspaceTabs && !o.workspacesAsTabs
-        o.collapsedWorkspaces = collapsedWorkspaces
+        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }
@@ -575,11 +589,11 @@ public final class SidebarModel {
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
-        o.showsColors = showsColors
+        (o.showsColors, o.colorIndicator) = (showsColors, colorIndicator)
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {
-                guard let machine = section.machine, machine.kind != .local,
+                guard let machine = section.machine, machine.kind != .local, !machine.holdsStatusLabel,
                       let status = Strings.attentionStatus(machine.status) else { continue }
                 o.machineStatusLabels[machine.id] = status
             }

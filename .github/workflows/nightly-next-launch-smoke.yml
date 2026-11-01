@@ -1,0 +1,417 @@
+name: nightly-next launch smoke
+
+# The cmux NEXT post-publish launch smoke, the backstop. nightly.yml smokes the
+# DMG it would publish before any appcast names it (scripts/ci/nightly-steps/
+# launch-smoke-gate.sh in its verify jobs: a crash there publishes nothing), and
+# publishes a build its gate could not smoke. This workflow gates nothing: nothing
+# waits on it or reads its result before a publish. After a build is on the feed,
+# it launches that build's app the way a first install does (an empty home, no
+# defaults; scripts/ci/fresh_home_launch_smoke.py) and needs it to stay up 30 s
+# with Home rendered.
+#
+#   pass        nothing happens.
+#   cannot-run  nothing happens (no Mac, no GUI session, a download, harness or
+#               infrastructure error before the app launched); a notice says so.
+#   crash       the app exited, wrote a crash report, or never rendered Home, on
+#               both attempts. The feed rolls back through nightly-next-rollback.yml
+#               (bad_build = this build), which serves the earlier Nightly build the
+#               feed keeps (publish-nightly-next-r2.py keeps two), and one issue
+#               per build gets the evidence. A rollback is asked for only of a build
+#               Nightly apps are offered (never a Dev-only one) and only while it is
+#               still the feed's newest (scripts/ci/nightly_next_launch_smoke.py
+#               decide), and the rollback itself re-checks that on its own read
+#               (if_newest), so a second report of the same build, or a newer build
+#               published meanwhile, is never pulled.
+#
+# Every 10 minutes it checks the feed's newest Nightly build (never a Dev-ring or
+# Canary-only one): a pass is cached per build, so a tick with no new build stops
+# in the Linux pick job. A build another run is already smoking (its smoke queued or
+# running) is skipped too, so a build gets one smoke at a time (nightly_next_launch_smoke.py
+# in-flight). The pick places the smoke like cmux-next's Mac jobs
+# (scripts/ci/side_lane_placement.py and next_macos_cascade.py): an idle owned Mac,
+# else a free Blacksmith macOS slot, never a wait on one busy side label. A cannot-run is cached
+# for the rest of its UTC hour only, so a build the infrastructure could not
+# smoke is tried again at most an hour later. A crash is not cached, so it is
+# retried until its rollback lands. A schedule and a dispatch register only
+# from the default branch, so this file is on main too; every run takes its
+# tooling from feat-cmux-next (a pull request into feat-cmux-next, from its own
+# head). A pull request's run smokes the newest Nightly feed build and never rolls back
+# or files.
+on:
+  schedule:
+    - cron: "1,11,21,31,41,51 * * * *"
+  workflow_dispatch:
+    inputs:
+      build:
+        description: Smoke this build from the feed (digits; a Nightly build, never a Dev-only one). Empty takes the newest Nightly build.
+        required: false
+        default: ''
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/nightly-next-launch-smoke.yml
+      - scripts/ci/fresh_home_launch_smoke.py
+      - scripts/ci/nightly_next_launch_smoke.py
+      - scripts/ci/nightly_next_artifact_check.py
+
+permissions: {}
+
+# A new push to a pull request replaces its smoke (it never rolls back or files);
+# a scheduled or dispatched smoke has a group of its own run, so it is never
+# cancelled or replaced while it waits.
+concurrency:
+  group: nightly-next-launch-smoke-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  # Bumping it smokes every feed build again.
+  SMOKE_CACHE_PREFIX: nightly-next-launch-smoke-v1-
+  # A pull request into feat-cmux-next tests its own head; every other run (and a
+  # pull request into main, whose tree has none of this tooling) takes feat-cmux-next's.
+  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.sha || 'feat-cmux-next' }}
+
+jobs:
+  pick:
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 8
+    # The routing App's read-only key for the placement, in the environment cmux-next's placement
+    # uses; a pull request's run takes none (and mints no token).
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
+    permissions:
+      actions: read
+    outputs:
+      build: ${{ steps.feed.outputs.build }}
+      # Another run whose smoke of this build is queued or running, else empty. The value is `unknown`
+      # when the live read fails; scheduled dispatch requires empty and therefore fails closed.
+      in_flight: ${{ steps.in-flight.outputs.in_flight }}
+      # The smoke's placement (side_lane_placement.py): the side route, and the Blacksmith label the
+      # cascade lists `launch-smoke` for when no idle owned Mac takes it. Empty keeps the side label.
+      runner: ${{ steps.place.outputs.runner }}
+      blacksmith_12_jobs: ${{ steps.place.outputs.blacksmith_12_jobs }}
+      blacksmith_6_jobs: ${{ steps.place.outputs.blacksmith_6_jobs }}
+      # The attempt that placed: a re-run of the smoke alone keeps attempt 1's outputs, which name a
+      # Blacksmith slot read then, so the smoke reads them only in the attempt that wrote them.
+      placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
+      url: ${{ steps.feed.outputs.url }}
+      length: ${{ steps.feed.outputs.length }}
+      # The item's sparkle:edSignature: the smoke checks the downloaded DMG's bytes against it.
+      ed_signature: ${{ steps.feed.outputs.ed_signature }}
+      checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
+      hour: ${{ steps.hour.outputs.hour }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: false
+
+      # The newest build Nightly apps are offered (nightly_next_launch_smoke.py pick):
+      # a Dev-ring (cmux-next-dev) or Canary-only item is never smoked, so a newer
+      # Dev-only build is skipped and the Nightly build below it is smoked instead.
+      - name: Read the feed
+        id: feed
+        env:
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -A "cmux-nightly-next-launch-smoke/1" -H "Cache-Control: no-cache" -o "$RUNNER_TEMP/feed.xml" "$NIGHTLY_NEXT_FEED?smoke=$GITHUB_RUN_ID"
+          python3 scripts/ci/nightly_next_launch_smoke.py pick --feed "$RUNNER_TEMP/feed.xml" --build "$BUILD" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      # A scheduled tick skips a build an earlier tick passed, and a build an earlier
+      # tick could not smoke in this same UTC hour (a bounded retry: one transient
+      # infrastructure failure never stops the build from being smoked). A crash is
+      # never cached. A dispatch or a pull request always runs.
+      - name: Skip a build already passed
+        id: seen
+        if: github.event_name == 'schedule'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: smoke-verdict
+          key: ${{ env.SMOKE_CACHE_PREFIX }}${{ steps.feed.outputs.build }}
+          lookup-only: true
+
+      - name: Read the hour
+        id: hour
+        run: echo "hour=$(date -u +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip a build that could not be smoked this hour
+        id: seen-hour
+        if: github.event_name == 'schedule' && steps.seen.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: smoke-verdict
+          key: ${{ env.SMOKE_CACHE_PREFIX }}${{ steps.feed.outputs.build }}-cannot-run-${{ steps.hour.outputs.hour }}
+          lookup-only: true
+
+      # Reads the owned runners and Blacksmith's load for the placement, and this workflow's runs.
+      # A pull request's run mints none (its placement code is its own head): it keeps the side label.
+      - name: Mint the owned-pool read token
+        id: route-token
+        if: github.event_name != 'pull_request' && vars.GLAEDA_ROUTE_APP_ID != '' && steps.seen.outputs.cache-hit != 'true' && steps.seen-hour.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      # One smoke per build: a scheduled tick skips a build whose smoke another run has queued or
+      # running (on 2026-10-29 the ticks queued up to three smokes of one build on the side label).
+      # Read on every event so a pull request's run exercises it; only a scheduled tick acts on it.
+      # A failed read emits `unknown`, which keeps scheduled dispatch paused until the next tick.
+      - name: Skip a build another run is smoking
+        id: in-flight
+        if: steps.seen.outputs.cache-hit != 'true' && steps.seen-hour.outputs.cache-hit != 'true'
+        env:
+          BUILD: ${{ steps.feed.outputs.build }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/nightly_next_launch_smoke.py in-flight --build "$BUILD" >> "$GITHUB_OUTPUT"
+
+      # The routing order, as cmux-next's Mac jobs take it: an idle owned Mac on the side label, else a
+      # free Blacksmith macOS slot (12 vCPU, then 6), else 6 vCPU's queue while it moves, and only then
+      # the side label's queue (next_macos_cascade.py). FRESH_JOBS ranks the smoke with a feed's
+      # compiles: unread counts send it to Blacksmith 6 vCPU rather than an owned queue nobody measured.
+      # Anything unread or refused places nothing, and the smoke keeps the side label.
+      - name: Place the smoke
+        id: place
+        if: steps.route-token.outputs.token != '' && (github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          JOBS: launch-smoke
+          CASCADE_JOBS: launch-smoke
+          CASCADE_RUNS: ' launch-smoke '
+          FRESH_JOBS: launch-smoke
+        run: python3 scripts/ci/side_lane_placement.py
+
+  smoke:
+    name: smoke ${{ needs.pick.outputs.build }}
+    needs: pick
+    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' && (github.event_name != 'schedule' || needs.pick.outputs.in_flight == '')
+    # No secrets and no environment: it runs the published app. The pick's placement:
+    # the Blacksmith label the cascade lists `launch-smoke` for, else on attempt 1 an
+    # owned Mac's side route (an idle one when the placement found it;
+    # owned_pool_rescue.SIDE_WORKFLOW_PATHS re-runs a refused job), then
+    # MACOS_RUNNER_26 or Blacksmith macOS 26. Never a GitHub-hosted Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_12_jobs, ' launch-smoke ') && 'blacksmith-12vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_6_jobs, ' launch-smoke ') && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && (needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      verdict: ${{ steps.verdict.outputs.verdict }}
+    env:
+      BUILD: ${{ needs.pick.outputs.build }}
+      DMG_URL: ${{ needs.pick.outputs.url }}
+      DMG_LENGTH: ${{ needs.pick.outputs.length }}
+      DMG_ED_SIGNATURE: ${{ needs.pick.outputs.ed_signature }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/fresh_home_launch_smoke.py
+            scripts/ci/nightly_next_launch_smoke.py
+            scripts/ci/nightly_next_artifact_check.py
+            scripts/ci/release-signer/verify_appcast_item.py
+            scripts/ci/frame-pacing/console-session.sh
+            scripts/ci/lib/signing-runtime-guard.sh
+          sparse-checkout-cone-mode: false
+
+      # The bytes, not only the length: the feed item's edSignature must verify over the
+      # downloaded DMG with the pinned key (nightly_next_artifact_check.py), so a stale or corrupt
+      # object of the feed's length is never launched. A mismatch fails here (cannot-run, an error).
+      - name: Download the feed's DMG
+        id: dmg
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/smoke.dmg" "$DMG_URL"
+          python3 -I scripts/ci/nightly_next_artifact_check.py dmg --dmg "$RUNNER_TEMP/smoke.dmg" \
+            --length "$DMG_LENGTH" --ed-signature "$DMG_ED_SIGNATURE"
+
+      # Two attempts: one flaky launch never rolls a build back. Exit 0 passes,
+      # 1 is a crash, anything else could not run (and ends the check).
+      - name: Launch the app from a fresh home
+        id: launch
+        timeout-minutes: 8
+        run: |
+          set -uo pipefail
+          source scripts/ci/lib/signing-runtime-guard.sh
+          cmux_signing_runtime_guard
+          mkdir -p "$RUNNER_TEMP/launch-smoke"
+          for attempt in 1 2; do
+            out="$RUNNER_TEMP/launch-smoke/attempt-$attempt"
+            mkdir -p "$out" && chmod 0777 "$out"
+            status=0
+            scripts/ci/frame-pacing/console-session.sh python3 -I "$GITHUB_WORKSPACE/scripts/ci/fresh_home_launch_smoke.py" \
+              --dmg "$RUNNER_TEMP/smoke.dmg" --out "$out" || status=$?
+            echo "$status" > "$RUNNER_TEMP/launch-smoke/status-$attempt"
+            echo "attempt $attempt: exit $status"
+            [ "$status" = 1 ] || break
+          done
+          exit 0
+
+      - name: Record the verdict
+        id: verdict
+        if: always()
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/launch-smoke"
+          mkdir -p "$dir"
+          # Until the tooling has landed on TOOLING_REF (a pull request into main runs
+          # before it does), there is nothing to judge with: no verdict, so nothing
+          # rolls back and nothing is cached, and the build is smoked once it lands.
+          if [ ! -f scripts/ci/nightly_next_launch_smoke.py ]; then
+            echo "::notice title=nightly-next launch smoke::$TOOLING_REF has no scripts/ci/nightly_next_launch_smoke.py yet; build $BUILD is not judged"
+            exit 0
+          fi
+          verdict="$(python3 scripts/ci/nightly_next_launch_smoke.py verdict --dir "$dir")"
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          last=""
+          for d in "$dir"/attempt-1 "$dir"/attempt-2; do [ -d "$d" ] && last="$d"; done
+          if [ -n "$last" ]; then
+            crashes=()
+            for f in "$last"/*.ips "$last"/*.crash; do [ -f "$f" ] && crashes+=(--crash "$f"); done
+            python3 scripts/ci/nightly_next_launch_smoke.py evidence --report "$last/report.json" \
+              --app-log "$last/app.log" ${crashes[@]+"${crashes[@]}"} --out "$dir/evidence.md"
+          else
+            printf 'The smoke did not reach the app (download or setup failed).\n' > "$dir/evidence.md"
+          fi
+          {
+            echo "### cmux NEXT build $BUILD: launch smoke $verdict"
+            echo ""
+            cat "$dir/evidence.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$verdict" in
+            crash) echo "::error title=nightly-next launch smoke::build $BUILD crashed at launch on every attempt" ;;
+            cannot-run) echo "::notice title=nightly-next launch smoke::build $BUILD could not be smoked here; nothing is rolled back" ;;
+          esac
+
+      - name: Upload the evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: launch-smoke-${{ env.BUILD }}
+          path: ${{ runner.temp }}/launch-smoke
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # A crash: roll the feed back (only while the build is still its newest) and
+  # file the evidence. A pull request's run does neither.
+  crashed:
+    needs: [pick, smoke]
+    if: always() && github.event_name != 'pull_request' && needs.smoke.outputs.verdict == 'crash'
+    # One at a time per build, so two reports of one crash never open two issues.
+    concurrency:
+      group: nightly-next-launch-crash-${{ needs.pick.outputs.build }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write # dispatch nightly-next-rollback.yml
+      contents: read
+      issues: write # the launch crash issue
+    env:
+      BUILD: ${{ needs.pick.outputs.build }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci/nightly_next_launch_smoke.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: launch-smoke-${{ env.BUILD }}
+          path: evidence
+
+      - name: Roll the feed back
+        id: rollback
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -A "cmux-nightly-next-launch-smoke/1" -H "Cache-Control: no-cache" -o live.xml "$NIGHTLY_NEXT_FEED?crashed=$GITHUB_RUN_ID"
+          decision="$(python3 scripts/ci/nightly_next_launch_smoke.py decide --feed live.xml --build "$BUILD" --verdict crash)"
+          echo "$decision"
+          action="$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["action"])' "$decision")"
+          why="$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["why"])' "$decision")"
+          echo "why=$why" >> "$GITHUB_OUTPUT"
+          if [ "$action" = rollback ]; then
+            reason="build $BUILD crashed at launch in the fresh-home smoke: $RUN_URL"
+            # if_newest makes the rollback re-check, on its own read, that BUILD is still the
+            # newest, so a build published while the rollback waited in a queue is never pulled.
+            # There is no dispatch without it: a nightly-next branch that predates the input
+            # rejects the dispatch, this step fails, and the issue says the rollback was not made.
+            gh workflow run nightly-next-rollback.yml -R "$GITHUB_REPOSITORY" --ref nightly-next \
+              -f bad_build="$BUILD" -f if_newest="$BUILD" -f reason="$reason"
+            echo "action=requested" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Also when the dispatch failed: the issue then says the build may still be up.
+      - name: File the crash
+        if: always()
+        env:
+          ACTION: ${{ steps.rollback.outputs.action }}
+          WHY: ${{ steps.rollback.outputs.why }}
+        run: |
+          set -euo pipefail
+          title="nightly-next launch crash: build $BUILD"
+          case "${ACTION:-failed}" in
+            requested) what="The feed rollback was requested (nightly-next-rollback.yml, bad_build $BUILD): $WHY." ;;
+            none) what="No rollback: $WHY." ;;
+            *) what="Requesting the rollback FAILED, so the build may still be on the feed. Roll it back: \`gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next -f bad_build=$BUILD -f if_newest=$BUILD -f reason=\"launch crash\"\`" ;;
+          esac
+          {
+            echo "cmux NEXT build $BUILD crashed at launch from a fresh home on every attempt: $RUN_URL"
+            echo ""
+            echo "$what"
+            echo ""
+            echo "The crash report and the full app output are in the run's \`launch-smoke-$BUILD\` artifact."
+            echo ""
+            cat evidence/evidence.md 2>/dev/null || echo "(no evidence was uploaded)"
+          } > body.md
+          number="$(gh issue list -R "$GITHUB_REPOSITORY" --state all --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\"))[0].number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" -R "$GITHUB_REPOSITORY" --body-file body.md
+          else
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+          fi
+
+  # Mark a passed build smoked, and a cannot-run build for the rest of the pick's
+  # UTC hour only. A crash is never marked: while the build is still the feed's
+  # newest, the next tick smokes it again and asks for the rollback again, so a
+  # rollback that failed is retried until the build is off.
+  record:
+    needs: [pick, smoke]
+    if: always() && github.event_name == 'schedule' && (needs.smoke.outputs.verdict == 'pass' || needs.smoke.outputs.verdict == 'cannot-run')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Record the verdict
+        env:
+          VERDICT: ${{ needs.smoke.outputs.verdict }}
+        run: |
+          mkdir -p smoke-verdict
+          printf '%s\n' "$VERDICT" > smoke-verdict/verdict
+
+      - name: Save the smoked marker
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: smoke-verdict
+          key: ${{ env.SMOKE_CACHE_PREFIX }}${{ needs.pick.outputs.build }}${{ needs.smoke.outputs.verdict == 'cannot-run' && format('-cannot-run-{0}', needs.pick.outputs.hour) || '' }}

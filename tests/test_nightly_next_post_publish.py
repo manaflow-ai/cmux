@@ -2,9 +2,8 @@
 """Keep NEXT feed publication independent of the compatibility identity.
 
 The signed arm64 artifact is the user-facing readiness boundary. The
-NIGHTLY-identity compatibility lane can submit its own copy while the NEXT
-publication writes the feed; it must not become a dependency of
-``publish-nightly``.
+NIGHTLY-identity compatibility lane runs after the NEXT publication; it must
+not become a dependency of ``publish-nightly``.
 """
 
 import re
@@ -40,6 +39,8 @@ for post_job in compatibility_jobs:
     post = job(post_job)
     if "prepare-nightly-variant" not in needs(post):
         failures.append(f"{post_job} must wait for the prepared NEXT artifact")
+    if "publish-nightly" not in needs(post):
+        failures.append(f"{post_job} must run after the primary NEXT publication")
 legacy = job("legacy-identity-target")
 if "build-nightly-app" not in needs(legacy):
     failures.append("legacy identity targeting must know the current build number")
@@ -101,6 +102,10 @@ if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.
     failures.append("legacy identity publication must match the exact NEXT build selected for the compatibility feed")
 if "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" not in legacy_publish:
     failures.append("legacy identity continuation must remain available when publish-nightly is intentionally skipped")
+# Run 41126559170 (2026-10-30): the rescue's full re-runs skipped publish-nightly (the build was already on the
+# NEXT feed), so a legacy sign there could never publish. A target from the live feed publishes from any run.
+if "|| needs.legacy-identity-target.outputs.source_run == '')" not in legacy_publish:
+    failures.append("a legacy target from the live NEXT feed (source_run empty) must publish whatever this run's publish-nightly did")
 
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))

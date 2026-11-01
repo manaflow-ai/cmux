@@ -13,8 +13,8 @@ import Foundation
     /// bundled pane's origin, so even a dev server page reaches LocalApp and
     /// the app starts the daemon with no dev origin and no `--dev`
     /// (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``). Only the
-    /// browser dev slot, with no host, still needs both (dev-slot.sh).
-    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool)
+    /// browser dev slot, with no host, still needs both (dev-slot.sh). `daemons`: the app's local daemons.
+    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool, daemons: AcpmuxLocalDaemons, peerApprover: AgentPanePeerApprover?)
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
         #if DEBUG
         let allowsDevServer = true
@@ -53,10 +53,20 @@ import Foundation
             }
         }
         computerUse.upstream.acpmux = { resolve().map { ($0.executable, $0.socketPath) } }
+        // Machine consent for the helper comes from this app's own daemon socket only.
+        computerUse.upstream.machineConsent = {
+            guard let own = resolve() else { return nil }
+            return await AcpmuxMachineConsent(socketPath: own.socketPath, executable: own.executable).current()
+        }
+        computerUse.upstream.consentRefused = { surface in
+            guard let own = resolve() else { return }
+            await AcpmuxMachineConsent(socketPath: own.socketPath, executable: own.executable)
+                .recordRefusal(surface: surface)
+        }
         let upstream = computerUse.upstream
-        let host = AcpmuxHost(resolve: resolve,
+        let host = AcpmuxHost(daemons: daemons, resolve: resolve,
                               computerUse: { computerUse.childEnvironment },
-                              daemonReady: { socket in await upstream.registerAcpmuxDaemon(acpmuxSocket: socket) })
+                              daemonReady: { socket in await upstream.registerAcpmuxDaemon(acpmuxSocket: socket) }, peerApprover: peerApprover)
         // A replaced agent token reaches the running acpmux now, not when a pane reconnects.
         computerUse.onEndpointChange = { _ in
             // task-owner: one enrollment per endpoint change; each reads the current endpoint, so the last one wins.

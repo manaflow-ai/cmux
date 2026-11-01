@@ -1,0 +1,271 @@
+name: Machine join E2E (development)
+
+# One bounded end-to-end run of the one-line machine join against the DEVELOPMENT
+# platform (https://cmux-platform-development.debussy.workers.dev) only, on an
+# ephemeral Blacksmith VM: mint a join token, pipe it to `acpmux host join` on
+# stdin as a disposable OS user, run that user's daemon until it heartbeats,
+# check status, the platform's list, consent and the credential file, revoke,
+# and scan for secrets. The evidence (redacted JSON) is the run summary and the
+# only artifact.
+#
+# Secrets: the repo-level dev stack account (CMUX_DOGFOOD_STACK_EMAIL and
+# _PASSWORD, the same pair ios-e2e.yml maps to CMUX_UITEST_STACK_*) reaches the
+# one mint step, through env only. scripts/cmux-next/machine-join-e2e.ts holds
+# the stack session, the cmux access token, the join token and the machine
+# credential in memory, masks each the moment it exists, and passes children a
+# fixed environment; the join token reaches acpmux only on stdin. The machine and
+# the run's cmux install are revoked in that step's `finally` and on a cancel;
+# the evidence check below fails the job when a joined machine is not shown
+# revoked. Manual dispatch on feat-cmux-next only.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Machine name for the join (default ci-join-<run id>)
+        required: false
+        default: ""
+        type: string
+      acpmux_ref:
+        description: The commit acpmux is built from; only the run's commit (the feat-cmux-next tip) is accepted
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    # A secret-reading dispatch job runs in an environment (tests/test_supplychain_security.py). This
+    # existing one is limited to feat-cmux-next by GitHub's branch policy; its own secret is never read here
+    # (tests/test_machine_join_e2e_workflow.py pins the job's two secret references).
+    environment: cmux-next-vm-image-dev
+    # Blacksmith only (16 vCPU; 32 while the overflow switch's record exists): a VM that runs
+    # this one job and is destroyed. Never LINUX_RUNNER, which may name a persistent host, since
+    # this job adds an OS user and holds the stack secrets.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    env:
+      HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev
+    steps:
+      - name: Refuse any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/feat-cmux-next ]; then
+            echo "::error::machine-join-e2e runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Resolve inputs
+        id: inputs
+        env:
+          NAME_INPUT: ${{ inputs.name }}
+          ACPMUX_REF_INPUT: ${{ inputs.acpmux_ref }}
+        run: |
+          set -euo pipefail
+          name="${NAME_INPUT:-ci-join-$GITHUB_RUN_ID}"
+          if ! printf '%s' "$name" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$'; then
+            echo "::error::name must be 1-63 letters, digits, dot, underscore or dash"
+            exit 1
+          fi
+          # acpmux is built from the run's own commit only: the build runs as the runner user, which
+          # later holds the stack secrets, so no other (older) code may build here.
+          if [ -n "$ACPMUX_REF_INPUT" ] && [ "$ACPMUX_REF_INPUT" != "$GITHUB_SHA" ]; then
+            echo "::error::acpmux_ref must be the run's commit ($GITHUB_SHA); dispatch on feat-cmux-next builds its tip"
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # The harness's own redaction and failure-path tests, before any secret is in reach.
+      - name: Test the harness
+        run: bun test scripts/cmux-next/machine-join-e2e.test.ts
+
+      - name: Build acpmux
+        working-directory: cmux-tui
+        run: cargo build --locked -p acpmux --bin acpmux
+
+      # The user and base path go to the outputs before useradd, so cleanup runs even if a later line fails.
+      - name: Create the disposable user
+        id: user
+        run: |
+          set -euo pipefail
+          base="$(mktemp -d /tmp/machine-join-e2e.XXXXXX)"
+          user="cmuxjoin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "user=$user"
+            echo "base=$base"
+            echo "home=$base/home"
+          } >> "$GITHUB_OUTPUT"
+          # acpmux refuses a state directory with an ancestor owned by anyone but root or its own user
+          # (config.rs validate_private_state_ancestors), and the disposable user must not be able to
+          # replace the binary: the base is root's, 0755, before the user exists.
+          sudo chown root:root "$base"
+          sudo chmod 0755 "$base"
+          # An empty home, not a copy of /etc/skel (hundreds of MB on some runner images): it holds only what
+          # acpmux writes, which the harness scans in full.
+          sudo useradd --no-create-home --home-dir "$base/home" --shell /usr/sbin/nologin --user-group "$user"
+          uid="$(id -u "$user")"
+          echo "uid=$uid" >> "$GITHUB_OUTPUT"
+          sudo install -d -o "$user" -g "$user" -m 0700 "$base/home"
+          sudo install -d -o root -g root -m 0755 "$base/bin"
+          sudo install -o root -g root -m 0755 cmux-tui/target/debug/acpmux "$base/bin/acpmux"
+          # Every ancestor of the home and of the binary: owned by root or the user, no group or other
+          # write unless sticky (as /tmp is), and no extended ACL (ls marks one with a trailing +): the
+          # rule acpmux applies to its state ancestors, and what keeps the binary out of the user's reach.
+          for start in "$base/home" "$base/bin/acpmux"; do
+            path="$start"
+            while :; do
+              perms="$(sudo ls -ld -- "$path" | cut -d' ' -f1)"
+              if [ "${perms:10:1}" = + ]; then
+                echo "::error::$path ($perms) has an extended ACL"
+                exit 1
+              fi
+              read -r owner mode < <(sudo stat -c '%u %a' -- "$path")
+              if [ "$owner" != 0 ] && [ "$owner" != "$uid" ]; then
+                echo "::error::$path is owned by uid $owner, not root or the disposable user"
+                exit 1
+              fi
+              if [ $((8#$mode & 8#022)) -ne 0 ] && [ $((8#$mode & 8#1000)) -eq 0 ]; then
+                echo "::error::$path ($mode) is writable by group or others and not sticky"
+                exit 1
+              fi
+              [ "$path" = / ] && break
+              path="$(dirname -- "$path")"
+            done
+          done
+
+      # Real acpmux as the disposable user, with no secret in reach: a join takes its lock, and so makes
+      # and checks its state directory and every ancestor, before it reads stdin. Malformed stdin then
+      # ends it with exit 2 (join.malformed) before any request; exit 5 (join.store) is the directory refusal.
+      - name: Smoke-test acpmux as the disposable user
+        env:
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          JOIN_HOME: ${{ steps.user.outputs.home }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/machine-join-smoke.txt"
+          # The runner, not the disposable user, writes the output file (it lives in the runner's temp).
+          # The step shell is `bash -e`: the expected non-zero exit is captured, not fatal.
+          code=0
+          # shellcheck disable=SC2024
+          printf 'not-a-join-token\n' | sudo -n -u "$JOIN_USER" -- /usr/bin/env -i -C "$JOIN_HOME" \
+            HOME="$JOIN_HOME" USER="$JOIN_USER" LOGNAME="$JOIN_USER" \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
+            "$JOIN_BASE/bin/acpmux" host join --hub "$HUB_ORIGIN" --name ci-join-smoke --json >"$out" 2>&1 || code=$?
+          # acpmux's output, made plain: no line can start a workflow command (::stop-commands:: would turn
+          # the later steps' masks into text).
+          sed -e 's/::/: :/g' -e 's/##\[/## [/g' -- "$out"
+          if [ "$code" -eq 5 ]; then
+            echo "::error::acpmux refused its state directory as the disposable user (exit 5, join.store)"
+            exit 1
+          fi
+          if [ "$code" -ne 2 ]; then
+            echo "::error::the malformed-input join exited $code, not 2"
+            exit 1
+          fi
+          read -r owner mode < <(sudo stat -c '%U %a' -- "$JOIN_HOME/.acpmux")
+          if [ "$owner" != "$JOIN_USER" ] || [ "$mode" != 700 ]; then
+            echo "::error::the state directory is $owner $mode, not $JOIN_USER 700"
+            exit 1
+          fi
+
+      # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.
+      - name: Mint, join, verify and revoke
+        timeout-minutes: 15
+        env:
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          JOIN_NAME: ${{ steps.inputs.outputs.name }}
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          JOIN_HOME: ${{ steps.user.outputs.home }}
+        # exec: bun is the step's process, so a cancel's SIGINT reaches it and it revokes at once.
+        run: |
+          exec bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
+            --user "$JOIN_USER" --home "$JOIN_HOME" --name "$JOIN_NAME" \
+            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA"
+
+      # Fails on a token or credential prefix, a JWT or an auth header in the evidence (nothing is then
+      # uploaded or summarized), on missing evidence, and on a joined machine not shown revoked.
+      - name: Check the evidence
+        id: evidence
+        if: always() && steps.user.outcome == 'success'
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/machine-join-e2e/evidence.json"
+          if [ ! -s "$file" ]; then
+            echo "::error::no evidence was written; if a machine joined, revoke it in the platform's machine list"
+            exit 1
+          fi
+          if grep -Eqi 'cmj_|cmm_|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.|bearer|authorization' "$file"; then
+            echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
+            exit 1
+          fi
+          echo "clean=true" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Machine join E2E (development)'
+            echo
+            echo '```json'
+            cat "$file"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Printed values are plain characters only, so no line of the evidence can start a workflow command.
+          machine="$(jq -r '.machineId // empty' "$file" | tr -cd 'A-Za-z0-9._:-' | cut -c1-128)"
+          if [ -n "$machine" ] && [ "$(jq -r '.revoke.revokedListed' "$file")" != true ]; then
+            echo "::error::machine $machine is not shown revoked; revoke it in the platform's machine list"
+            exit 1
+          fi
+          if [ "$(jq -r '.result' "$file")" != pass ]; then
+            echo "::error::$(jq -r '.reason' "$file" | tr -cd 'A-Za-z0-9 ._:;,()/-' | cut -c1-500)"
+            exit 1
+          fi
+
+      - name: Upload the evidence
+        if: always() && steps.evidence.outputs.clean == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: machine-join-e2e-evidence
+          path: ${{ runner.temp }}/machine-join-e2e/evidence.json
+          if-no-files-found: error
+          retention-days: 3
+
+      # The user's processes, the user and its home, and its socket directory. `kill -1` run as the
+      # disposable user signals exactly the processes that user owns (all started by this job), nothing else.
+      - name: Remove the disposable user
+        if: always() && steps.user.outputs.user != ''
+        env:
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_UID: ${{ steps.user.outputs.uid }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+        run: |
+          set -uo pipefail
+          sudo -n -u "$JOIN_USER" -- /bin/kill -KILL -1 2>/dev/null || true
+          sleep 1
+          sudo userdel --remove "$JOIN_USER" 2>/dev/null || true
+          sudo rm -rf -- "$JOIN_BASE"
+          if [ -n "$JOIN_UID" ]; then sudo rm -rf -- "/tmp/acpmux-$JOIN_UID"; fi
+          if id "$JOIN_USER" >/dev/null 2>&1; then
+            echo "::error::the disposable user $JOIN_USER is still present"
+            exit 1
+          fi

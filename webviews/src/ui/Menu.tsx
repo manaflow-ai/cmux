@@ -19,6 +19,8 @@ import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvid
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
+import { popupCollision, type UiPopupFlip } from "./openSide";
+import { usePopupPadding } from "./popupInset";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
@@ -102,7 +104,22 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
-        pick: (row) => row.click(),
+        pick: (row, event) => {
+          const View = row.ownerDocument.defaultView!.MouseEvent;
+          row.dispatchEvent(
+            new View("click", {
+              bubbles: true,
+              cancelable: true,
+              altKey: event.altKey,
+              ctrlKey: event.ctrlKey,
+              metaKey: event.metaKey,
+              shiftKey: event.shiftKey,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              button: event.button,
+            }),
+          );
+        },
         // A row that keeps its menu open (`MenuItem` `closeOnClick={false}`) keeps it open here too.
         picked: (row) => {
           if (!row.hasAttribute("data-keeps-open")) setMenuOpen(false);
@@ -174,6 +191,8 @@ export interface MenuButtonProps {
   "data-menu"?: string;
   /** Also holds the button, for a caller that anchors other UI to it. */
   buttonRef?: RefObject<HTMLButtonElement | null>;
+  /** A field-like trigger (a select, a host field): its menu opens as wide as it (`matchTrigger`). */
+  fieldTrigger?: boolean;
   children: ReactNode;
 }
 
@@ -186,6 +205,7 @@ export function MenuButton({
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
   buttonRef,
+  fieldTrigger,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -201,6 +221,8 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
+      data-field-trigger={fieldTrigger ? "" : undefined}
+      data-popup-open={context?.isOpen ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;
@@ -245,8 +267,9 @@ export interface MenuPopupProps {
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
-  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
-  flip?: boolean;
+  /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
+   *  along it to stay in the window (openSide.ts `UiPopupFlip`); default flips when there is no room. */
+  flip?: UiPopupFlip;
   align?: "start" | "center" | "end";
   /** What the menu is placed against (default: the menu button). */
   anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
@@ -269,6 +292,12 @@ export interface MenuPopupProps {
    * its own. It then fits by its own max height.
    */
   escapes?: boolean;
+  /**
+   * The menu starts at its trigger's leading edge and is at least as wide (Base UI's
+   * `--anchor-width`): for a field-like trigger, a select or a host field, whose menu reads as its
+   * drop-down (leo-workspace design/menus.md). The trigger says so with `data-field-trigger`.
+   */
+  matchTrigger?: boolean;
   children: ReactNode;
 }
 
@@ -292,10 +321,12 @@ export function MenuPopup({
   onKeyDown,
   boundary,
   escapes = true,
+  matchTrigger = false,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
+  const padding = usePopupPadding();
   const host = usePopupHost();
   const menu = use(MenuContext);
   const nested = use(InPopup);
@@ -336,17 +367,20 @@ export function MenuPopup({
         positionMethod={positionMethod}
         anchor={anchor}
         side={side}
-        collisionAvoidance={flip ? undefined : { side: "none" }}
+        collisionAvoidance={popupCollision(flip)}
+        collisionPadding={padding}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup
+          // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
+          data-popup-shift={flip === "shift" ? "" : undefined}
           // Only a page with a host measures its menus; the others render as they did.
           ref={attachPopup}
           id={id}
           aria-label={label}
-          className={cx("ui-popup ui-glass ui-menu", className)}
+          className={cx("ui-popup ui-glass ui-menu", matchTrigger && "ui-menu-match-trigger", className)}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }
@@ -417,7 +451,7 @@ export interface MenuItemProps {
   className?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
-  onSelect?(): void;
+  onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
 }
 
@@ -451,18 +485,18 @@ export function MenuItem({
       onPointerMove={(event) => context?.movePointer(event)}
       onPointerUp={(event) => {
         if (disabled) return;
-        if (context?.activatePointer(event, () => onSelect?.(), closeOnClick === false)) {
+        if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {
           handledClick.current = true;
           event.preventDefault();
         }
         context?.endPointer();
       }}
-      onClick={() => {
+      onClick={(event) => {
         if (handledClick.current) {
           handledClick.current = false;
           return;
         }
-        onSelect?.();
+        onSelect?.(event);
       }}
     >
       {children}

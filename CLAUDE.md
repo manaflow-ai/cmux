@@ -65,6 +65,8 @@ commit the result. The hook comes with `scripts/install-git-hooks.sh` (run by
 `scripts/setup.sh`; one run covers every worktree of the clone). Skip it only with
 `CMUX_WEB_LINT_SKIP_REASON="<failing check> is red on base <sha>"`; the
 `web lint (fast)` job of cmux-next-web.yml still checks every feat-cmux-next push.
+A host that must not run heavy checks (a shared agent host) sets `CMUX_LOCAL_HEAVY_CHECKS=0`:
+the type-aware lint and type check (`vp lint`, `vp check`) are left to CI there; the rest still run.
 
 ## cmux-next checks before every push
 
@@ -201,13 +203,28 @@ rustfmt. The pre-commit hook does the same for staged files and restages them.
 Both touch only those files, so agents sharing a checkout never reformat each
 other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
 
+## macOS and iOS parity
+
+Every new feature or capability built on cmux-next macOS, however small or big, must also be
+supported in the cmux-next iPhone app (`cmux-next-ios/`), with a row in
+[cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md). Two exceptions, each
+recorded there as "not from a phone" with its reason: Mac-only chrome (windows, menu bar, Dock),
+and anything a paired phone may not do under [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md)
+and "Remote CLI relay" below. A phone path that needs a new trust or security policy goes to
+https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
 
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- Cloud backend code (control plane, VM API routes, provider drivers, billing,
+  entitlements, the NEXT Worker): new code goes to the private
+  manaflow-ai/cmux-platform repository, not here. Read
+  [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
+- `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
 
 ## Contributions and publication
 
@@ -242,6 +259,17 @@ Release gates do not share it. Signing, notarization and GUI steps that truly
 require macOS run on owned Macs first and Blacksmith macOS last, in parallel
 with the fast checks. Keep the target at zero queue.
 
+**Nightlies never use Blacksmith, ever** (Lawrence, 2026-10-30). Every job of
+every nightly workflow (`.github/workflows/*nightly*.yml`,
+`*notarization*.yml`, the nightly appcast repair) runs only on our own Mac
+minis, for cmux-next and classic alike. This covers every path: the primary
+label, fallbacks, re-runs and rescue attempts, twin/backup signing jobs, the
+cloud overflow switch, and any input or repository variable a nightly
+`runs-on` reads. Never add a Blacksmith label (or a variable that may hold one,
+such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
+capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
+enforces this.
+
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
   A bug-fix PR body names that command, its failure on the base and its pass on the head,
@@ -264,7 +292,7 @@ with the fast checks. Keep the target at zero queue.
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
   by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
-- A native UI change shows a real capture in its description (`pr-capture-check` fails it otherwise):
+- A native UI change shows a real capture in its description (`pr-capture-check` warns otherwise; a missing capture never blocks a land, since Leo tries the build himself):
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
   real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
   the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
@@ -310,13 +338,53 @@ with the fast checks. Keep the target at zero queue.
   When your review subagent passes (and the risk tier's evidence is in the description), add the
   `ready-to-land` label. A label older than the head's last push doesn't count: after any later
   push, remove and add it again. `next-autoland` on Huge Blue then merges that exact head
-  (leo-workspace `tools/next_autoland.py`). It also requires `ci-status` to have run, a red
+  (leo-workspace `tools/next_autoland.py`). `ci.yml`'s `ci-status` does not run here; a red
   `risk evidence` or `merge freeze` keeps the PR out, and it reads the merge freezes again right
   before merging. Don't wait for, rerun or fix base reds in your PR; a red it causes keeps it out
   until you fix it. Don't merge with `gh-merge-green` here (`--revert` still works).
 - **Into `main`, the normal merge path is `gh-merge-green`** and main's rulesets. It refuses a PR
   that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
   only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
+
+## Settings on every surface
+
+Every new or changed cmux-next setting also works from the command palette (Cmd-Shift-P), the `cmux` CLI and
+the MCP tools, the way existing settings do ([settings-surfaces.md](plans/cmux-next/settings-surfaces.md)).
+A setting that only the Settings page can change is unfinished. The existing settings get there through
+one schema, so do it like this:
+
+- Declare the setting as a `SettingDescriptor` reached from `SettingsSchema.all`
+  (`Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema.swift`): a row in a section JSON,
+  `schemas/settings/source/<section>.json`, then `python3 scripts/cmux-next/gen-settings-sources.py`, or a
+  `*SettingsSchema` / `SettingsSchema+<Area>.swift` group in that folder. A new section JSON also needs its
+  entry in the generator's `SECTIONS`, and its generated type added to `SettingsSchema.all`.
+  Never keep a setting in `UserDefaults`, a side file or a private key list: the surfaces read only the schema.
+- Palette: `SettingsPaletteSource` (CmuxNextApp) and `SettingsPaletteProvider` (CmuxNextPalette) give every
+  `isPaletteExposed` descriptor a row with an editor for its `SettingKind`. Keep `palette = .exposed`;
+  `.hidden("<why>")` needs a real reason. A new `SettingKind` needs its palette editor
+  (`SettingDescriptor+Palette.swift`) in the same change.
+- CLI: `cmux settings` (`cmux-tui/crates/cmux-tui/src/cli/app/settings.rs`). `list`, `schema` and `validate`
+  read the embedded `schemas/settings/settings-schema.json` through `cmux-config`
+  (`cmux-tui/crates/cmux-config/src/schema/`); `get`, `set`, `reset` and `unset` call the app's `settings.*`
+  socket methods (`CmuxNextControl/Routing/ControlRouter+Settings.swift`), which write through
+  `SettingsController.setSetting`. `settings-schema.json` is generated by `SettingsSchemaExport`
+  (`SettingsSchemaExportTests`; base autofix regenerates it, never hand-edit it). A new kind, validation or
+  value shape also goes into `cmux-config`'s schema module.
+- MCP: `settings_list|get|set|reset|unset` (`cmux-tui/crates/cmux-tui/src/cli/mcp/settings_tools.rs`) read the
+  same schema and write only keys marked `agent_settable`. Put every new key in exactly one table of
+  `SettingsSchema+AgentPolicy.swift`: `agentSettableKeys` (agents may set it; looks and layout usually) or
+  `agentRefusedKeys` with an `AgentRefusal` reason (privacy, network, destructive, user-only).
+  `SettingsSchemaExportTests` fails on a key in neither or both.
+- A setting edited by a dedicated control instead of a schema row (keybindings, custom actions) gets the
+  surfaces through its `ActionCatalog` action's `ActionSurfacePlan`: `palette`, and `cli: .offered` for a
+  `cmux` verb, which MCP follows as an `app_*` tool (`action_tools.rs`) unless `mcpExemption` says why not.
+  Exempt a surface only with a stated reason. `EXCLUDED` in `cli/mcp/v2_tools.rs` is for daemon wire ops only.
+- Renaming or removing a key: list a rename in `RenamedSettingKeys.swift`, so existing cmux.json values keep
+  applying under the new key, or a removal in `schemas/settings/retired-keys.json`, so the CLI and socket
+  refuse a new value for the old key as `removed`. MCP refuses an old key; the CLI only sets it as raw
+  file text. Say so in the PR.
+- Verify all three on a tagged build: the palette row, `cmux settings get|set <key>`, and MCP `settings_get` /
+  `settings_set` (or its refusal for a refused key). Say in the PR which ones you checked.
 
 ## Implementation rules by task
 
@@ -344,16 +412,3 @@ execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes
 on the remote host. An allowlist addition without this analysis blocks review.
-
-## Hand the person something to try
-
-End every implementation with something the person can run or see, not only a diff or a summary:
-
-- App changes: a tagged dev build named after the task ([tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md);
-  team agents build it on the fleet, see the hq link at the top), with its tag and how to open it
-  (`CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, or the team's Tag Opener link). Never a raw `.app` path or `file://` URL.
-- Web or webview changes: a preview URL. Visual changes: screenshots or a video.
-- Anything else: the test or run command that exercises the change.
-
-Say where it is and how to try it, with the exact steps and what the person should see. Check it works before
-handing off. If none could be produced, say why. Documentation-only changes need no build.

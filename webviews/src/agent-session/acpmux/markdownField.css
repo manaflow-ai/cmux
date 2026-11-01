@@ -3,11 +3,13 @@
    only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* Keep long drafts inside the composer: it grows to 40% of the pane, never less than eight
-     lines, and leaves the transcript and location shelf anchored while the draft grows (Leo,
-     2026-10-24: "I think we can afford to expand the composer text area a bit more than we do right
-     now. When there's lots of text."). A short pane still gives up height (bottomStack.css). */
-  max-height: max(calc(var(--text-content--line-height) * 8 + var(--cmux-control-height, 23px)), 40vh);
+  /* Goldilocks after #24984: the old cap was eight body lines plus the control row, then
+     31bbb2fd6d4 let 40vh win. Lawrence found that growth too big; twelve lines is the compromise,
+     with 40vh still limiting unusually tall panes. Short panes still give up height (bottomStack.css). */
+  max-height: min(
+    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 12) + var(--cmux-control-height, 23px)),
+    40vh
+  );
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
@@ -144,6 +146,11 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
 }
+/* A `/name` that names a command (composer/slashTokens.ts), at the prompt's start or after a space:
+   the link blue, so the person sees the agent will read it as a command. Only its colour changes. */
+.acpmux-md .acpmux-slash-token {
+  color: var(--agent-link, var(--agent-accent));
+}
 .acpmux-md code {
   padding: 1px 4px;
   border-radius: 4px;
@@ -210,6 +217,17 @@
 .acpmux-md p {
   margin-top: 0;
   margin-bottom: 0;
+}
+/* The draft never widens the composer (https://github.com/manaflow-ai/cmux/issues/28672): a run of
+   spaces, a long word or a URL wraps inside the text column, and no line's content can ask the box
+   for more width. `anywhere` (the deprecated `word-break: break-word` above names it too) also lets
+   the field's min-content width drop to one character, so a grid or flex parent never sizes the
+   field to its longest unbroken run; the field is a vertical scroller with no width of its own. */
+.acpmux-md {
+  overflow-wrap: anywhere;
+}
+.acpmux-md-field {
+  min-width: 0;
 }
 
 /*
@@ -284,4 +302,159 @@
   display: inline !important;
   border: none !important;
   margin: 0 !important;
+}
+
+/* Attachments are atoms in the editable line, as in Messages. */
+.acpmux-md-inline {
+  display: inline-block;
+  vertical-align: bottom;
+  margin: 2px 2px;
+  border-radius: var(--acpmux-attach-radius, 8px);
+  user-select: none;
+}
+/* Inside a selection (Select All, a drag across it) the chip wears the selection's tint, as the text
+   around it does: the browser's highlight passes over a non-text atom (composer/inlineNode.ts). The
+   strip's chips wear it too while the whole draft is selected (ComposerBox, composerAttachments.css). */
+.acpmux-md-inline-selected {
+  position: relative;
+}
+.acpmux-md-inline-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(
+    in srgb,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)) 55%,
+    transparent
+  );
+  pointer-events: none;
+}
+.acpmux-md-inline-chip {
+  position: relative;
+  display: inline-flex;
+  /* Never on its content's baseline: a thumbnail's would leave a descender's gap under the chip. */
+  vertical-align: top;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 40px;
+  height: calc(var(--cmux-control-height, 24px) * 2);
+  border-radius: inherit;
+  background: var(--agent-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  color: var(--agent-muted);
+  overflow: hidden;
+}
+/* Settings' strip view (ComposerBox attachmentView): the strip alone shows the attachments; each keeps
+   its place in the text, so the inline view shows it there again and the prompt goes the same. */
+.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline,
+.nt-composer[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
+  display: none;
+}
+/* A file placed in the text: its name on the chip, as the strip's link chip has it. */
+.acpmux-md-inline-chip[data-kind="file"] {
+  gap: 4px;
+  max-width: 180px;
+  height: 28px;
+  padding: 0 24px 0 8px;
+  color: var(--agent-text);
+  font-size: inherit;
+}
+.acpmux-md-inline-chip[data-kind="file"] .acpmux-md-inline-remove {
+  top: 6px;
+}
+.acpmux-md-inline-chip[data-state="loading"],
+.acpmux-md-inline-chip[data-state="failed"] {
+  width: 72px;
+}
+/* An image, a PDF, a video or a file: the strip's own chip (composerAttachments.css). A thumbnail or
+   a video's poster is as tall as two control rows so it sits in a line of text; an image that could
+   not be drawn keeps the strip's tile, which has room for its note, Retry and ×. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
+  --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
+}
+/* A text file's page card in the text: as tall as a thumbnail there, two lines over its label. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card {
+  --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
+}
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card .acpmux-attachment-pasted-open {
+  padding-top: 4px;
+}
+.acpmux-md-inline-chip[data-chip="strip"] {
+  min-width: 0;
+  height: auto;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+  color: var(--agent-text);
+}
+/* A huge paste's name: a click puts its text back in the prompt. */
+.acpmux-md-inline-retry:not(.acpmux-attachment-retry) {
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--agent-text);
+  font-size: inherit;
+  text-decoration: underline;
+}
+/* A huge paste in the text: the strip's page of its first lines (composerAttachments.css
+   .acpmux-text-card), as tall as a thumbnail in the text (two control rows), two lines over its
+   label; never the underlined name above. */
+.acpmux-md-inline-chip[data-preview="text"] {
+  justify-content: stretch;
+  width: 168px;
+  max-width: 168px;
+  height: calc(var(--cmux-control-height, 24px) * 2);
+  padding: 0;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 12px;
+  border-radius: inherit;
+  text-decoration: none;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-remove {
+  top: 3px;
+}
+/* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
+.acpmux-md-inline-chip[data-state="failed"] {
+  gap: 4px;
+  padding-right: 16px;
+}
+.acpmux-md-inline-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  color: var(--agent-text);
+}
+.acpmux-md-inline-chip:hover .acpmux-md-inline-remove,
+.acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove,
+.acpmux-md-inline-chip[data-state="failed"] .acpmux-md-inline-remove {
+  opacity: 1;
+}
+.acpmux-md-inline-remove:hover {
+  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+}
+.acpmux-md-inline-remove:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
 }

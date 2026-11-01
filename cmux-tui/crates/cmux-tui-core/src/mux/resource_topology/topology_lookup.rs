@@ -1,6 +1,7 @@
 //! Resource topology lookups and change values: screen, pane and tab lookups, active screen, registry workspace, upsert and delete deltas, and workspace placement.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Registry position for a workspace created into `group` (`None` =
 /// ungrouped) at final index `index` among that section's members. Groups
@@ -193,7 +194,7 @@ pub(super) fn pane_value_with_zoom(
     zoomed: bool,
 ) -> anyhow::Result<Value> {
     let mut value = pane_value(state, pane, topology)?;
-    value["zoomed"] = json!(zoomed);
+    value.set("zoomed", json!(zoomed));
     Ok(value)
 }
 

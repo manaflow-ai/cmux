@@ -22,7 +22,7 @@ optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
 optchat-chief settings [show | set cache.ttl 5m|1h | set replies.thread auto|always|never | set show.afterReport true|false | set trace.full true|false
-                       | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
+                       | set subagents.showWorkspaces true|false | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
                                                            per-Chief settings (none of them makes the Chief ask before it acts)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
@@ -84,10 +84,20 @@ fn main() -> std::process::ExitCode {
             flags.words.get(3).cloned().unwrap_or_default(),
         );
         let home = home(&flags);
+        // The composition root of the launchers: this Chief home's store, the process's stdio.
+        let store_of =
+            |p: &optchat_chief::toolpacks::Pack| optchat_chief::toolpacks::store(&home, p);
         let out = if args[1] == "mcp" {
-            optchat_chief::toolpacks::serve_mcp(&home, &pack, &server)
+            optchat_chief::toolpacks::serve_mcp(
+                &home,
+                &pack,
+                &server,
+                &store_of,
+                Box::new(std::io::BufReader::new(std::io::stdin())),
+                Box::new(std::io::stdout()),
+            )
         } else {
-            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server).map(|h| {
+            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server, &store_of).map(|h| {
                 println!("{h}");
                 0
             })
@@ -147,6 +157,10 @@ fn main() -> std::process::ExitCode {
         if a == "--stop-host" {
             *a = "--stop-host=1".to_owned();
         }
+        // `memory import-from detect --exports`: a boolean too.
+        if a == "--exports" {
+            *a = "--exports=1".to_owned();
+        }
     }
     let mut flags = Flags::parse(&args);
     // `memory search --json` (and only there: `trace` and `stats` read their
@@ -178,8 +192,8 @@ fn main() -> std::process::ExitCode {
         }
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "remember" | "transcript" | "control" | "profile"
-            | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
+            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
             | "cloud_workspace"),
         ) => {
             let socket = flags
@@ -316,9 +330,17 @@ fn main() -> std::process::ExitCode {
                                 optchat_chief::chief_settings::TRACE_FULL => {
                                     s.trace_full = optchat_chief::chief_settings::parse_bool(value)?
                                 }
+                                optchat_chief::chief_settings::CLOUD_AUTO_PAUSE => {
+                                    s.cloud_auto_pause =
+                                        optchat_chief::chief_settings::parse_bool(value)?
+                                }
                                 optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
                                     s.cloud_auto_pause_idle_secs =
                                         optchat_chief::chief_settings::parse_idle_secs(value)?
+                                }
+                                optchat_chief::chief_settings::SHOW_SUBAGENT_WORKSPACES => {
+                                    s.show_subagent_workspaces =
+                                        optchat_chief::chief_settings::parse_bool(value)?
                                 }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }

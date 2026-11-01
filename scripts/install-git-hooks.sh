@@ -72,10 +72,58 @@ lock = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)  # not inheritable (PEP
 try:
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
-    holder = os.pread(lock, 32, 0).decode(errors="replace").strip() or "unknown"
-    print(f"install-git-hooks: another install holds {lock_path} (pid {holder}); waiting for it to finish.",
+    # The holder is whoever has the file open now (a push refresh writes no pid), never the pid text a
+    # finished install left in it: on 2026-10-28 that named pid 85305, gone for hours, while a stuck refresh held it.
+    found = []
+    if os.path.isdir("/proc/self/fd"):  # Linux: no lsof on CI runners
+        real = os.path.realpath(lock_path)
+        for entry in os.listdir("/proc"):
+            if entry.isdigit():
+                try:
+                    fds = os.listdir(f"/proc/{entry}/fd")
+                except OSError:
+                    continue
+                for fd in fds:
+                    try:
+                        if os.readlink(f"/proc/{entry}/fd/{fd}") == real:
+                            found.append(entry)
+                            break
+                    except OSError:
+                        pass
+    else:
+        try:
+            found = subprocess.run(["lsof", "-t", "--", lock_path], capture_output=True, text=True,
+                                   stdin=subprocess.DEVNULL, timeout=10,
+                                   env={**os.environ, "PATH": "/usr/sbin:/usr/bin:/bin"}).stdout.split()
+        except (OSError, subprocess.SubprocessError):
+            found = []
+    pids = [p for p in found if p != str(os.getpid())]
+    holder = ", ".join(pids) or "unknown"
+    try:
+        wait = float(os.environ.get("CMUX_HOOKS_INSTALL_LOCK_WAIT_SECONDS") or 300)
+    except ValueError:
+        wait = 300.0
+    print(f"install-git-hooks: another process holds {lock_path} (pid {holder}); waiting for it to finish (up to {wait:g}s).",
           file=sys.stderr, flush=True)
-    fcntl.flock(lock, fcntl.LOCK_EX)
+
+    def gave_up(number, frame):
+        raise TimeoutError
+
+    signal.signal(signal.SIGALRM, gave_up)
+    signal.setitimer(signal.ITIMER_REAL, wait)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    except TimeoutError:
+        details = []
+        for pid in pids:
+            line = subprocess.run(["ps", "-o", "pid=,etime=,command=", "-p", pid], capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL).stdout.strip()
+            details.append(line[:200] or pid)
+        print(f"install-git-hooks: gave up after {wait:g}s: pid {holder} still holds {lock_path}; the hooks were "
+              "not installed. The holder: " + ("; ".join(details) or "unknown") + ". Stop it if it is stuck "
+              "(a push refresh stuck before 9af05f03147 is), then run this again.", file=sys.stderr, flush=True)
+        sys.exit(1)
+    signal.setitimer(signal.ITIMER_REAL, 0)
 os.ftruncate(lock, 0)
 os.pwrite(lock, f"{os.getpid()}\n".encode(), 0)
 # The lock must outlive the child: Ctrl-C reaches the child through the process group of the terminal, and a
@@ -143,6 +191,10 @@ while IFS= read -r -d '' checker; do
     [[ "$folder" == . ]] || (cd "$TRUSTED_CHECKS_STAGE" && mkdir -p "$folder")
     cp -p "$checker" "$TRUSTED_CHECKS_STAGE/$relative"
 done < <(git ls-files -z scripts/cmux-next)
+# check-package-dependency-lists.py imports the Swift source masker from scripts/; the installed copy reads it here.
+if [[ -f scripts/swift_source_mask.py ]]; then
+    cp -p scripts/swift_source_mask.py "$TRUSTED_CHECKS_STAGE/swift_source_mask.py"
+fi
 # The commit and tree the copy is made from, for refresh_checks.py; "worktree" when scripts/cmux-next differs from HEAD.
 if git diff --quiet HEAD -- scripts/cmux-next && git rev-parse -q --verify HEAD >/dev/null; then
     printf '%s %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD:scripts/cmux-next)" > "$TRUSTED_CHECKS_STAGE/.source"

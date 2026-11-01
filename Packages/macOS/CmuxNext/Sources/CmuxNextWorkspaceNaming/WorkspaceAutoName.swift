@@ -86,6 +86,7 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
                                    nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
         guard (title ?? "").isEmpty else { return true }
         guard nameSource == .user else { return false }
+        if nameRevision == 0, WorkspaceModel.isNumberedDefaultName(name) { return false }
         return nameRevision > 0 || !allowsLegacyDefaults || !NewWorkspaceName.isDefaultWorkspaceName(name)
     }
 

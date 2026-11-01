@@ -17,7 +17,19 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT = ROOT / "scripts" / "build-cmux-cua.sh"
-PATCH_FILE = ROOT / "scripts" / "cmux-cua-codex-delivery-mode.patch"
+
+
+def patch_files() -> list[Path]:
+    """The patch series build-cmux-cua.sh applies, in its order."""
+    block = re.search(
+        r"^CMUX_CUA_PATCH_RELATIVE_PATHS=\(\n(.*?)^\)$",
+        BUILD_SCRIPT.read_text(),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert block is not None
+    paths = re.findall(r'^\s*"([^"]+)"$', block.group(1), re.MULTILINE)
+    assert paths
+    return [ROOT / path for path in paths]
 
 
 def pinned_sha() -> str:
@@ -31,7 +43,7 @@ def pinned_sha() -> str:
 
 
 def patch_digest() -> str:
-    return hashlib.sha256(PATCH_FILE.read_bytes()).hexdigest()
+    return hashlib.sha256(b"".join(path.read_bytes() for path in patch_files())).hexdigest()
 
 
 def write_executable(path: Path, contents: str) -> None:
@@ -113,6 +125,9 @@ exit 1
         bin_dir / "cargo",
         """#!/bin/bash
 set -eu
+if [[ -n "${CUA_TEST_CARGO_ARGV_LOG:-}" ]]; then
+  printf '%s\n' "$@" > "$CUA_TEST_CARGO_ARGV_LOG"
+fi
 target=""
 while (($#)); do
   if [[ "$1" == "--target" ]]; then
@@ -272,6 +287,115 @@ def test_each_xcode_gets_its_own_cargo_target(sha: str) -> None:
         assert [sdkroot for _target, sdkroot in rows] == seen, rows
 
 
+def cargo_features(argv: list[str]) -> set[str]:
+    """Every feature cargo was asked for, from `--features A,B`, `--features "A B"`
+    and `--features=A` alike."""
+    features: set[str] = set()
+    for index, argument in enumerate(argv):
+        if argument == "--features" and index + 1 < len(argv):
+            value = argv[index + 1]
+        elif argument.startswith("--features="):
+            value = argument.split("=", 1)[1]
+        else:
+            continue
+        features.update(name for name in re.split(r"[,\s]+", value) if name)
+    return features
+
+
+def test_the_bundled_build_turns_on_host_consent(sha: str) -> None:
+    """The cmux-cua that ships inside cmux.app must take machine consent only from
+    the verified cmux host (the `cmux-host-consent` feature that
+    scripts/cmux-cua-machine-consent.patch adds). Without the feature the helper
+    falls back to the consent sources a caller could redirect, and the consent
+    red/green tests would not notice: they build cmux-cua with cargo directly, not
+    through this script. So run the script itself and check the cargo command it
+    ran."""
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-features-") as tmp:
+        root = Path(tmp)
+        argv_log = root / "cargo-argv.log"
+        environment = successful_build_environment(root, sha)
+        environment["CUA_TEST_CARGO_ARGV_LOG"] = str(argv_log)
+        developer, sdk = fake_xcode(root, "Xcode")
+        environment.update(DEVELOPER_DIR=str(developer), SDKROOT=str(sdk))
+        result = subprocess.run(
+            [
+                str(BUILD_SCRIPT),
+                "--output",
+                str(root / "output" / "cmux-cua"),
+                "--archs",
+                "arm64",
+                "--cache-dir",
+                str(root / "cache"),
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        assert argv_log.exists(), (
+            "build-cmux-cua.sh never reached cargo build\n"
+            f"exit {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        argv = argv_log.read_text().splitlines()
+        assert argv[:1] == ["build"], argv
+        assert "--release" in argv and "--locked" in argv, argv
+        assert ["-p", "cmux-cua"] in [argv[i:i + 2] for i in range(len(argv))], argv
+        assert "cmux-host-consent" in cargo_features(argv), (
+            f"build-cmux-cua.sh built cmux-cua without --features cmux-host-consent: {argv}"
+        )
+
+
+def test_the_build_names_its_rust_toolchain(sha: str) -> None:
+    """The fleet worker's shared RUSTUP_HOME has no default toolchain on purpose, and the cmux-cua clone has
+    no rust-toolchain.toml, so an unnamed `rustup target add` or cargo there failed: "rustup could not choose
+    a version of rustup to run ... no default is configured" (cmux7s, job 6f0858ce, 2026-11-01). The script
+    now builds with the toolchain cmux-tui pins; a caller's RUSTUP_TOOLCHAIN is kept."""
+    pinned = ""
+    for line in (ROOT / "cmux-tui" / "rust-toolchain.toml").read_text().splitlines():
+        if line.strip().startswith("channel"):
+            pinned = line.split("=", 1)[1].strip().strip('"')
+    assert pinned, "cmux-tui/rust-toolchain.toml names no channel"
+    for caller, want in ((None, pinned), ("caller-chosen", "caller-chosen")):
+        with tempfile.TemporaryDirectory(prefix="cmux-cua-toolchain-") as tmp:
+            root = Path(tmp)
+            environment = successful_build_environment(root, sha)
+            seen = root / "rustup-toolchain.log"
+            no_default = (
+                "if [[ -z \"${RUSTUP_TOOLCHAIN:-}\" ]]; then\n"
+                "  echo \"error: rustup could not choose a version of rustup to run, because one wasn't specified"
+                " explicitly, and no default is configured.\" >&2\n"
+                "  exit 1\n"
+                "fi\n"
+                f"echo \"$RUSTUP_TOOLCHAIN\" >> {seen}\n"
+            )
+            bin_dir = root / "bin"
+            for tool in ("rustup", "cargo"):
+                body = (bin_dir / tool).read_text()
+                head, rest = body.split("\n", 1)
+                write_executable(bin_dir / tool, f"{head}\n{no_default}{rest}")
+            argv_log = root / "cargo-argv.log"
+            environment["CUA_TEST_CARGO_ARGV_LOG"] = str(argv_log)
+            environment.pop("RUSTUP_TOOLCHAIN", None)
+            if caller:
+                environment["RUSTUP_TOOLCHAIN"] = caller
+            developer, sdk = fake_xcode(root, "Xcode")
+            environment.update(DEVELOPER_DIR=str(developer), SDKROOT=str(sdk))
+            result = subprocess.run(
+                [str(BUILD_SCRIPT), "--output", str(root / "output" / "cmux-cua"), "--archs", "arm64",
+                 "--cache-dir", str(root / "cache")],
+                env=environment, capture_output=True, text=True,
+            )
+            # Not the exit code: the fake cargo's binary is a copy of /usr/bin/true, which macOS kills once
+            # the script signs it ad hoc and runs it (see use_plain_binary in
+            # test_cmux_cua_dev_helper_identity.py). What matters is that rustup and cargo ran, and with
+            # which toolchain; on the old script rustup fails before either writes a line.
+            assert argv_log.exists() and seen.exists(), (
+                f"build-cmux-cua.sh never reached cargo with no rustup default (caller toolchain {caller!r})\n"
+                f"exit {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
+            used = set(seen.read_text().split())
+            assert used == {want}, f"rustup and cargo ran with toolchains {used}, want {{{want!r}}}"
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
@@ -279,6 +403,8 @@ def main() -> int:
     test_clean_legacy_source_is_adopted(sha)
     test_unmanaged_helper_bundle_is_preserved(sha)
     test_each_xcode_gets_its_own_cargo_target(sha)
+    test_the_bundled_build_turns_on_host_consent(sha)
+    test_the_build_names_its_rust_toolchain(sha)
     print("PASS: cmux-cua builds preserve unmanaged cache contents")
     return 0
 

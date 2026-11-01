@@ -48,6 +48,8 @@ EXEMPT = {
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
+    ("nightly-next-launch-smoke.yml", "smoke"):
+        "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
     ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
@@ -66,9 +68,11 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
+    ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
+    ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("nightly.yml", "decide"):
-        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
-        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+        "control job: attempt 1 of a nightly-next push takes the owned nightly slot "
+        "(CI_NIGHTLY_NEXT_BUILD_RUNNER); git, github-script and Python only, no Xcode",
     ("nightly.yml", "resolve-nightly-cmux-tui-client"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
@@ -76,9 +80,6 @@ EXEMPT = {
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
     ("nightly.yml", "pick-nightly-build-runner"):
-        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
-        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
-    ("nightly.yml", "prepare-nightly-variant"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
     ("nightly.yml", "pick-nightly-sign-runner"):
@@ -90,7 +91,7 @@ EXEMPT = {
     ("nightly.yml", "prepare-nightly-variant-primary"):
         "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
         "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
-    ("nightly.yml", "prepare-nightly-variant-fallback"):
+    ("nightly.yml", "prepare-nightly-variant"):
         "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
         "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
     ("cmux-next-batch.yml", "build"):
@@ -104,6 +105,10 @@ EXEMPT = {
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "compile-check; the compile runs on a fleet worker, never with this "
         "runner's Xcode",
+    ("cmux-next.yml", "fast-tier-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "run (package-test-lane.sh suites); the suites build on a fleet "
+        "worker, never with this runner's Xcode",
     ("cmux-next.yml", "release-compile-fast"):
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "compile-check --release; the compile runs on a fleet worker, never "
@@ -160,7 +165,7 @@ def steps(job: str) -> list[tuple[str, str]]:
     """(name, text) for each step of a job."""
     lines = job.splitlines()
     try:
-        start = next(i for i, line in enumerate(lines) if re.match(r"^    steps:\s*$", line))
+        start = next(i for i, line in enumerate(lines) if re.match(r"^    steps:(?:\s+&[\w-]+)?\s*$", line))
     except StopIteration:
         return []
     found = []
@@ -196,7 +201,15 @@ def check_workflow(name: str, text: str) -> list[str]:
     # A path such as scripts/build-x.sh keeps its name even when a job shares it.
     job_ids = [job_id for job_id in workflow_jobs if "-" in job_id]
     job_id_token = re.compile(r"(?<![\w/-])(" + "|".join(map(re.escape, job_ids)) + r")(?![\w-])") if job_ids else None
+    # A job whose steps are a YAML alias (`steps: *name`, a same-run twin) runs the anchored job's steps.
+    anchored = {m.group(1): job for job in workflow_jobs.values()
+                for m in [re.search(r"^    steps:\s+&([\w-]+)\s*$", job, re.M)] if m}
     for job_id, job in workflow_jobs.items():
+        alias = re.search(r"^    steps:\s+\*([\w-]+)\s*$", job, re.M)
+        if alias and alias.group(1) in anchored:
+            body = anchored[alias.group(1)]
+            after = body.index("\n", re.search(r"^    steps:", body, re.M).start()) + 1
+            job = job[:alias.start()] + "    steps:\n" + body[after:]
         key = (name, job_id)
         if not is_macos(job) or key in EXEMPT:
             continue

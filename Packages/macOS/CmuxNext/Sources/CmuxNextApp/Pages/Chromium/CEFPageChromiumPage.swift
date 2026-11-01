@@ -50,9 +50,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     private func listen() {
         guard onEvent != nil, !closed else {
-            tab.pageFilesDragged = nil
-            tab.pageUserInput = nil
-            tab.agentRelay.set(onMessage: nil, onEnd: nil)
+            tab.clearPageEventHooks()
             crashWatch?.cancel()
             crashWatch = nil
             return
@@ -60,7 +58,9 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
                            onEnd: { [weak self] in self?.renderEnded() })
         tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
+        tab.pageDragEnded = { [weak self] dropped in self?.onEvent?(.dragEnded(dropped: dropped)) }
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
+        tab.pagePasted = { [weak self] in self?.onEvent?(.pasted) }
         guard crashWatch == nil else { return }
         let tab = tab
         crashWatch = Task { [weak self] in
@@ -91,15 +91,14 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
+    func setAnswersFileChooser(_ on: Bool) { if on { tab.pageFilesChosen = { [weak self] urls in self?.onEvent?(.filesChosen(urls)) } } else { tab.pageFilesChosen = nil } }
+
     func close() {
         guard !closed else { return }
         closed = true
         crashWatch?.cancel()
         crashWatch = nil
-        tab.agentRelay.set(onMessage: nil, onEnd: nil)
-        tab.pageResources = nil
-        tab.pageFilesDragged = nil
-        tab.pageUserInput = nil
+        tab.clearPageHooks()
         tab.delegate = nil
         tab.close()
     }
@@ -128,12 +127,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 }
 
 extension TabContent {
-    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page
-    /// (an agent chat or New Tab page too) in Chromium.
+    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page in Chromium
+    /// (an agent chat, New Tab, the docked Home's Channels page: ``PageWebView/shown(in:)``).
     var childWindowTab: (any BrowserTab)? {
         switch self {
         case .browser(let entry): entry.tab.presentation == .childWindow ? entry.tab : nil
-        case .page(let view): ((view.content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab
+        case .page(let view): (PageWebView.shown(in: view.content)?.chromiumPage as? CEFPageChromiumPage)?.tab
         case .agent(let view): (view.chromiumPage as? CEFPageChromiumPage)?.tab
         default: nil
         }

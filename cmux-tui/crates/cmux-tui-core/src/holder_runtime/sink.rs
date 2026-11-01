@@ -204,7 +204,7 @@ impl SinkState {
         Pending {
             confirmed: self.confirmed,
             received: self.received,
-            head: all[..head_len.min(all.len())].to_vec(),
+            head: all.get(..head_len).unwrap_or(&all).to_vec(),
             all,
         }
     }
@@ -421,11 +421,16 @@ impl HolderSink {
         }
         // Taken, not parsed: the bytes stay queued (and in `pending`) until
         // the reader confirms them.
-        let n = buf.len().min(state.bytes.len());
         let (head, tail) = state.bytes.as_slices();
-        let from_head = n.min(head.len());
-        buf[..from_head].copy_from_slice(&head[..from_head]);
-        buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
+        let mut n = 0;
+        for part in [head, tail] {
+            let Some(room) = buf.get_mut(n..) else { break };
+            let take = room.len().min(part.len());
+            if let (Some(to), Some(from)) = (room.get_mut(..take), part.get(..take)) {
+                to.copy_from_slice(from);
+            }
+            n += take;
+        }
         state.in_flight = n;
         let unnumbered: usize =
             state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
@@ -473,7 +478,7 @@ impl TerminalSink for HolderSink {
         }
         let skip = state.received.saturating_sub(offset) as usize;
         let mut from = offset.max(state.received);
-        let mut rest = &bytes[skip.min(bytes.len())..];
+        let mut rest = bytes.get(skip..).unwrap_or_default();
         loop {
             let inside = state.cuts.iter().copied().find(|cut| *cut > from && *cut < end);
             let Some(cut) = inside else { break };
@@ -604,7 +609,9 @@ impl Read for SnapshottingReader {
         }
         let (n, unnumbered) = self.sink.read(buf);
         if n > unnumbered {
-            crate::debug_spans::output_marks(&self.terminal_id, &buf[unnumbered..n]);
+            if let Some(output) = buf.get(unnumbered..n) {
+                crate::debug_spans::output_marks(&self.terminal_id, output);
+            }
             cmux_flow_trace::hop("daemon.output.holder", 0, &self.terminal_id);
         }
         Ok(n)

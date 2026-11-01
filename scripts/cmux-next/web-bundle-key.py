@@ -10,11 +10,17 @@ version of bun on PATH. A changed input, an edited or deleted output or
 another bun therefore makes it differ. `--verify-stamp` prints the first two
 fields only: the Xcode verify phase runs with a PATH that may lack bun.
 
-`--inputs` prints the pathspecs the source key hashes, one per line.
+`--inputs` prints the pathspecs the source key hashes, one per line. `--routed` prints the
+pathspecs a change to which runs the web CI checks (routed_inputs below).
 
-Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs]
+The source key includes the pinned Bun and Node toolchain identity. Set CMUX_WEB_BUN_VERSION or
+CMUX_WEB_NODE_VERSION when a workflow computes the key so a toolchain change cannot reuse a
+published manifest for the same sources.
+
+Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs | --routed]
 """
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -24,11 +30,13 @@ import sys
 # source imports (imported_inputs below finds those). webviews/ includes its scripts, lockfile and
 # xcstrings catalogs (not the strings tables: build output, ignored since #21946, made from those
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
-# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; marked.min.js is inlined into the
-# webviews app's agent-session.html.
+# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
+# gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
+# marked.min.js is inlined into the webviews app's agent-session.html.
 INPUTS = [
     "webviews",
     "schemas/settings",
+    ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-bun-version.sh",
@@ -41,6 +49,12 @@ INPUTS = [
     "scripts/cmux-next/web-bundle-key.py",
     ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
 ]
+# The key hashes every CmuxNext catalog (a superset is safe for a cache key); the web CI routing
+# narrows it to the catalogs gen-strings.mjs names (gen_strings_catalogs below).
+CATALOG_GLOB = ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
+GEN_STRINGS = "webviews/scripts/pages/gen-strings.mjs"
+GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings)["'`]""")
+GEN_STRINGS_CONST = re.compile(r"""^const (\w+) = ["']([^"'$]+)["'];""", re.M)
 
 # What the builders write (build-web-bundles.sh). The palette ranker is one file
 # in a resource directory that holds other files.
@@ -163,6 +177,68 @@ def source_inputs(root):
     return INPUTS + imported_inputs(root)
 
 
+def gen_strings_catalogs(root):
+    """The string catalogs outside webviews/ that gen-strings.mjs reads (`file:` entries, with its
+    `const NAME = "..."` prefixes substituted), or None when it is unreadable, names none, or names
+    one through a template it cannot resolve."""
+    try:
+        with open(os.path.join(root, GEN_STRINGS), encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+    consts = dict(GEN_STRINGS_CONST.findall(text))
+    found = set()
+    for m in GEN_STRINGS_FILE.finditer(text):
+        path = re.sub(r"\$\{(\w+)\}", lambda g: consts.get(g.group(1), g.group(0)), m.group(1))
+        if "${" in path:
+            return None
+        if not (path == "webviews" or path.startswith("webviews/")):
+            found.add(path)
+    return sorted(found) or None
+
+
+def routed_inputs(root):
+    """Pathspecs whose change runs the web CI checks (scripts/ci/detect_ci_change_areas.py's web
+    area and scripts/ci/web_subareas.py's react-apps subarea): the source key's inputs, with the
+    catalog glob narrowed to the catalogs gen-strings.mjs reads, so a string edit in a Swift
+    catalog no web page shows does not wake the web checks. Unresolvable catalogs keep the glob."""
+    inputs = source_inputs(root)
+    catalogs = gen_strings_catalogs(root)
+    if catalogs is None:
+        return inputs
+    return [p for p in inputs if p != CATALOG_GLOB] + catalogs
+
+
+def _glob_regex(pattern):
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out += "(?:.*/)?"; i += 3
+        elif pattern.startswith("**", i):
+            out += ".*"; i += 2
+        elif pattern[i] == "*":
+            out += "[^/]*"; i += 1
+        elif pattern[i] == "?":
+            out += "[^/]"; i += 1
+        else:
+            out += re.escape(pattern[i]); i += 1
+    return re.compile(out + r"\Z")
+
+
+def pathspec_matcher(pathspecs):
+    """A predicate for repository paths matching any of `pathspecs` (a file, a directory and
+    everything under it, or a `:(glob)` pattern), as git ls-files reads them."""
+    exact, globs = [], []
+    for spec in pathspecs:
+        if spec.startswith(":(glob)"):
+            globs.append(_glob_regex(spec[len(":(glob)"):]))
+        else:
+            exact.append(spec.rstrip("/"))
+    prefixes = tuple(p + "/" for p in exact)
+    exact = frozenset(exact)
+    return lambda path: path in exact or path.startswith(prefixes) or any(g.match(path) for g in globs)
+
+
 def file_digest(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -171,8 +247,34 @@ def file_digest(path):
     return h.hexdigest()
 
 
+def declared_bun_version(root):
+    with open(os.path.join(root, "webviews/package.json"), encoding="utf-8") as f:
+        package_manager = (json.load(f).get("devEngines") or {}).get("packageManager") or {}
+    return package_manager.get("version", "1.4.4") if package_manager.get("name") == "bun" else "1.4.4"
+
+
+def toolchain_identity(root):
+    # Keep these defaults in one place: workflows export the same values before computing keys.
+    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION", declared_bun_version(root)))
+    node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1"))
+    return f"bun={bun}\nnode={node}\n"
+
+
+def normalize_toolchain_version(value):
+    """Normalize runtime version output for stable manifest comparisons."""
+    return value.strip().removeprefix("v")
+
+
+def manifest_matches_toolchain(manifest, bun, node):
+    return all(
+        normalize_toolchain_version(manifest.get(name, "")) == normalize_toolchain_version(expected)
+        for name, expected in (("bun", bun), ("node", node))
+    )
+
+
 def source_key(root):
     h = hashlib.sha256()
+    h.update(b"web-bundle-toolchain\0" + toolchain_identity(root).encode())
     for rel in git_files(root, source_inputs(root)):
         path = os.path.join(root, rel)
         # A tracked file deleted in the worktree is listed but absent.
@@ -219,6 +321,8 @@ def main(argv):
         print(source_key(root))
     elif mode == "--inputs":
         print("\n".join(source_inputs(root)))
+    elif mode == "--routed":
+        print("\n".join(routed_inputs(root)))
     elif mode == "--outputs":
         print(output_digest(root))
     elif mode == "--stamp":

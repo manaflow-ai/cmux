@@ -54,12 +54,27 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
                 category: .agents, symbol: "bubble.left.and.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                // `cwd`: the folder a chat opened by a script starts in (#23016).
-                arguments: [ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
-                                           kind: .string, isRequired: false)],
+                // These optional values are one schema for Cmd-I extensions, the palette chooser,
+                // CLI and MCP. With none present the handler keeps Cmd-I's inherited seed.
+                arguments: [
+                    ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "harness", title: String(localized: "argument.agent.harness", defaultValue: "Harness", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "model", title: String(localized: "argument.agent.model", defaultValue: "Model", bundle: .module), kind: .string, isRequired: false),
+                    CatalogArgument.agentHostMachine.optional,
+                ],
                 // A workspace target opens in its last focused pane; a pane or workspace that no
                 // window shows gets the tab without being shown (AgentChatPlacement, #23016).
                 targets: [.pane, .workspace], cliName: "agent new-chat", mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "palette.newAgentChatOn",
+                title: String(localized: "action.palette.newAgentChatOn", defaultValue: "New Agent Chat on…", bundle: .module),
+                keywords: ["agent", "chat", "new", "host", "machine", "peer", "cloud", "remote"],
+                category: .agents, symbol: "bubble.left.and.bubble.right", surfaces: [.palette],
+                // Destination selection is the palette action's only step; it resolves the
+                // destination's focused pane rather than capturing the local palette context.
+                arguments: [CatalogArgument.agentHostMachine], targets: [],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.toggleSessionInfo",
@@ -67,6 +82,64 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "chat", "session", "session info", "context", "environment", "panel"],
                 category: .agents, symbol: "sidebar.right", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-session-info",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            // The chat header's toggles (AgentPageCommand): unavailable where the header has no button.
+            ActionDescriptor(
+                id: "agentPane.toggleFiles",
+                title: String(localized: "action.agentPane.toggleFiles", defaultValue: "Toggle Files Beside Chat", bundle: .module),
+                keywords: ["agent", "chat", "files", "file tree", "folder", "explorer", "beside", "split"],
+                category: .agents, symbol: "folder", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-files",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.togglePreview",
+                title: String(localized: "action.agentPane.togglePreview", defaultValue: "Toggle Preview Beside Chat", bundle: .module),
+                keywords: ["agent", "chat", "preview", "page", "web", "localhost", "beside", "split"],
+                category: .agents, symbol: "play.rectangle", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-preview",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.toggleSideTabs",
+                title: String(localized: "action.agentPane.toggleSideTabs", defaultValue: "Toggle Tabs Beside Chat", bundle: .module),
+                keywords: ["agent", "chat", "new tab", "hide tabs", "side tabs", "beside", "column"],
+                category: .agents, symbol: "rectangle.split.2x1", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-side-tabs",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            // The composer's and Session Info's controls (AgentPageCommand): unavailable where the chat has none.
+            ActionDescriptor(
+                id: "agentPane.runInBackground",
+                title: String(localized: "action.agentPane.runInBackground", defaultValue: "Run in Background", bundle: .module),
+                keywords: ["agent", "chat", "background", "ctrl-b", "detach", "command", "subagent", "move"],
+                category: .agents, symbol: "arrow.down.to.line", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent run-in-background",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.toggleQueueing",
+                title: String(localized: "action.agentPane.toggleQueueing", defaultValue: "Toggle Prompt Queueing", bundle: .module),
+                keywords: ["agent", "chat", "queue", "queueing", "steer", "send", "prompt", "turn"],
+                category: .agents, symbol: "tray.full", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-queueing",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.showSubagents",
+                title: String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module),
+                keywords: ["agent", "chat", "subagents", "agents", "session info", "inspector", "children"],
+                category: .agents, symbol: "person.2", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-subagents",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.showBackgroundTasks",
+                title: String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module),
+                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info", "inspector"],
+                category: .agents, symbol: "gearshape", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-background-tasks",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
@@ -157,6 +230,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "mic", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
             ),
+            // Read aloud's Stop from anywhere (user, 2026-10-29: "I can't stop it"): the speaker under
+            // a message reads through the app's one voice (CmuxNextAgentPane AgentPaneReadAloud).
+            ActionDescriptor(
+                id: "agentPane.stopReadingAloud",
+                title: String(localized: "action.agentPane.stopReadingAloud", defaultValue: "Stop Reading Aloud", bundle: .module),
+                keywords: ["read aloud", "speak", "speech", "voice", "stop", "silence", "mute", "speaker", "tts"],
+                category: .agents, symbol: "speaker.slash", surfaces: [.palette],
+                cliName: "agent stop-reading-aloud",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "agentPane.continueIn",
                 title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue In…", bundle: .module),
@@ -176,8 +259,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("m", modifiers: [.control, .command]),
                 category: .agents, symbol: "cpu", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],
-                // A chooser for a person. Scripts set the model with `debug.agent_pane set_model`
-                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue In….
+                // A chooser for a person. Scripts set the model with `cmux agent set-model --target
+                // pane:|tab:|agent-chat:` (agentPane.setModel), so the CLI/MCP surface is exempt like Continue In….
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
@@ -289,9 +372,22 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 cliName: "agent launch-codex-teams"
             ),
             ActionDescriptor(
+                id: "palette.forkAgentConversation",
+                title: String(localized: "action.palette.forkAgentConversation", defaultValue: "Fork Conversation", bundle: .module),
+                keywords: ["agent", "fork", "branch"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
+                category: .agents, symbol: "arrow.triangle.branch", surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationTo",
+                title: String(localized: "action.palette.forkAgentConversationTo", defaultValue: "Fork To…", bundle: .module),
+                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.turn.up.right",
+                surfaces: [.contextMenu]
+            ),
+            ActionDescriptor(
                 id: "palette.forkAgentConversationRight",
                 title: String(localized: "action.palette.forkAgentConversationRight", defaultValue: "Fork Conversation to the Right", bundle: .module),
-                keywords: ["agent", "fork", "branch", "split"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
+                keywords: ["agent", "fork", "branch", "split"],
                 category: .agents, symbol: "rectangle.righthalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-right"
@@ -316,6 +412,29 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.bottomhalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-below"
+            ),
+            // u18673: a fork in a new strip column on either side of the chat's column, or a new row
+            // below it, as New Column Right / New Column Left / New Row open a terminal.
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewColumnRight",
+                title: String(localized: "action.palette.forkAgentConversationNewColumnRight", defaultValue: "Fork Conversation to New Column Right", bundle: .module),
+                keywords: ["agent", "fork", "column", "right"], category: .agents, symbol: "rectangle.split.3x1",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-column-right"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewColumnLeft",
+                title: String(localized: "action.palette.forkAgentConversationNewColumnLeft", defaultValue: "Fork Conversation to New Column Left", bundle: .module),
+                keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.leftthird.inset.filled",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-column-left"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewRow",
+                title: String(localized: "action.palette.forkAgentConversationNewRow", defaultValue: "Fork Conversation to New Row", bundle: .module),
+                keywords: ["agent", "fork", "row", "below"], category: .agents, symbol: "rectangle.grid.1x2",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-row"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewTab",
@@ -383,6 +502,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     // A group's name (made when missing), not a target: a launcher names it.
                     ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    // `top`: first in the sidebar (below Home), over workspaces.newPlacement (#29875).
+                    ActionArgument(name: "placement", title: String(localized: "argument.agent.placement", defaultValue: "Placement", bundle: .module),
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",

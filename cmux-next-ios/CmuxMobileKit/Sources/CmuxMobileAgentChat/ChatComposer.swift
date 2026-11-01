@@ -24,6 +24,11 @@ struct ChatComposer: View {
     var placeholderOverride: String?
     /// Sending answers the pending permission with a denial plus this message.
     var denyingPermission = false
+    /// Window y the slash-command list may not rise above (under the chat's header and
+    /// what the bottom stack shows over the composer); nil when the host does not say.
+    var suggestionsCeiling: CGFloat?
+    /// A Retry uses the same send path, including queue/steer and draft clearing.
+    var retryCount = 0
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false
@@ -32,9 +37,14 @@ struct ChatComposer: View {
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
     @State private var planMode = false
+    #if DEBUG
+    @State private var ranOfflineSendDemo = false
+    #endif
     /// Set by a tap on the collapsed capsule: the text field only exists
     /// when expanded, so focus can only move into it after it is built.
     @State private var expandRequested = false
+    /// The slash-command list's bottom edge, window y (its height bound's floor).
+    @State private var suggestionsBottom: CGFloat?
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
@@ -82,11 +92,23 @@ struct ChatComposer: View {
             guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .onChange(of: retryCount) { _, _ in sendFromKeyboard() }
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
         .onAppear { if expandOnAppear { expand() } }
+        #if DEBUG
+        .task {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
+                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  !ranOfflineSendDemo else { return }
+            ranOfflineSendDemo = true
+            text = "Run the tests and summarize the results."
+            send(steer: false)
+        }
+        #endif
         // A returned prompt the Mac turned out to have run: out of the composer again,
         // unless the person already changed it.
         .onChange(of: store.withdrawnDraft) { _, draft in
@@ -136,11 +158,12 @@ struct ChatComposer: View {
             // A file copied in Files is its bytes on the pasteboard, not a path.
             let providers = board.itemProviders
             Task {
-                let pasted = await ComposerPastedFiles.load(providers, maxBytes: LinkUpload.maxBytes)
-                attachments += pasted.files.map {
-                    AgentAttachment(kind: $0.type.conforms(to: .image) && UIImage(data: $0.data) != nil ? .image : .file, name: $0.name, data: $0.data)
+                let pasted = await ComposerPastedFiles.load(providers)
+                attachments += pasted.files.map { file in
+                    let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
+                    return AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
+                                           data: file.data, fileURL: file.fileURL, byteCount: file.byteCount)
                 }
-                if let name = pasted.tooLarge.first { store.clientError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
@@ -150,17 +173,26 @@ struct ChatComposer: View {
         }
     }
 
-    /// Picked files with their bytes (read through the picker's
-    /// security-scoped URLs), and the reason when one can't be attached.
+    /// Bytes held in memory for a picked file up to this size (the prompt
+    /// inlines small text files); larger files stream from their URL at send.
+    static let inlineFileBytes = 256 << 10
+
+    /// Picked files, and the reason when one can't be attached. Any size: a
+    /// small file's bytes are read now (through the picker's security-scoped
+    /// URL), a larger one keeps its URL, and each later reader reopens its
+    /// scope (`ScopedFile`): the preview while it is open, the upload while it streams.
     static func readFiles(_ urls: [URL]) -> ([AgentAttachment], String?) {
         var files: [AgentAttachment] = []
         var refused: String?
         for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            guard size <= LinkUpload.maxBytes else {
-                refused = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
+            let access = ScopedFile(url).open()
+            defer { access.close() }
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
+                refused = "Couldn't read \(url.lastPathComponent)."
+                continue
+            }
+            if size > inlineFileBytes {
+                files.append(AgentAttachment(kind: .file, name: url.lastPathComponent, fileURL: url, byteCount: size))
                 continue
             }
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
@@ -220,7 +252,7 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String {
-        placeholderOverride ?? (store.turns.isEmpty ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        placeholderOverride ?? (!store.hasTurns ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.
@@ -478,25 +510,39 @@ struct ChatComposer: View {
         return prefix.isEmpty ? store.availableCommands.filter { $0.name.lowercased().contains(query) } : prefix
     }
 
+    /// Every matching command, in a list as tall as its rows while they fit between the
+    /// ceiling and the composer card, scrolling past that (`SlashSuggestionsBound`).
     private var slashSuggestions: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(slashMatches) { command in
-                Button {
-                    text = "/\(command.name) "
-                } label: {
-                    HStack {
-                        Text("/\(command.name)").font(.body.monospaced())
-                        Text(command.description).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                        Spacer()
+        let bound = SlashSuggestionsBound(ceiling: suggestionsCeiling, bottom: suggestionsBottom)
+        return CappedHeightLayout(maxHeight: bound.maxHeight) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(slashMatches) { command in
+                        Button {
+                            text = "/\(command.name) "
+                        } label: {
+                            HStack {
+                                Text("/\(command.name)").font(.body.monospaced())
+                                Text(command.description).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: SlashSuggestionsBound.minRowHeight)
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 16)
-                    .frame(height: 44)
-                    .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
             }
+            .scrollBounceBehavior(.basedOnSize)
         }
+        .clipShape(.rect(cornerRadius: 20, style: .continuous))
         .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        // The card's top, which only the keyboard or the resting place moves (the
+        // stack is bottom-aligned), so the list's own height never feeds back here.
+        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
+            if suggestionsBottom != bottom { suggestionsBottom = bottom }
+        }
         .padding(.horizontal, 12)
     }
 
@@ -549,10 +595,13 @@ struct ChatComposer: View {
 
 /// Messages waiting for the current turn to end, above the composer or the
 /// permission bar (so a queued message stays visible when the bar takes the
-/// composer's place). The X takes a message back into the composer.
+/// composer's place). The X takes a message back into an empty composer; with a
+/// draft there it asks first, and never replaces the draft.
 struct QueuedPromptsView: View {
     let store: AgentChatStore
     @Binding var text: String
+    /// The X on a message while the composer holds a draft: which one to confirm removing.
+    @State private var confirmingRemoval: QueuedPrompt?
     /// Edit queued prompt: which one, and its text while editing.
     @State private var editing: QueuedPrompt?
     @State private var editText = ""
@@ -595,6 +644,21 @@ struct QueuedPromptsView: View {
             Button("Cancel", role: .cancel) {}
             Button("Save") { store.editQueued(item.id, text: editText) }
                 .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut(.defaultAction)
+        }
+        // The X while a draft is in the composer: the draft stays, so the message is not
+        // put back there; it is removed only on a choice here, and can be copied first.
+        .confirmationDialog("Remove queued message?",
+                            isPresented: Binding(get: { confirmingRemoval != nil }, set: { if !$0 { confirmingRemoval = nil } }),
+                            titleVisibility: .visible, presenting: confirmingRemoval) { item in
+            Button("Copy and Remove") {
+                UIPasteboard.general.string = item.text
+                store.removeQueued(item.id)
+            }
+            Button("Remove", role: .destructive) { store.removeQueued(item.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Your draft stays in the composer.")
         }
     }
 
@@ -605,8 +669,11 @@ struct QueuedPromptsView: View {
                     Text(item.text).font(.subheadline).lineLimit(1)
                     Spacer()
                     Button {
-                        store.removeQueued(item.id)
-                        text = item.text
+                        if let restored = store.takeBackQueued(item.id, draft: text) {
+                            text = restored
+                        } else if store.queue.contains(where: { $0.id == item.id }) {
+                            confirmingRemoval = item
+                        }
                     } label: {
                         Image(systemName: "xmark").font(.footnote.weight(.semibold))
                             .frame(width: 44, height: 44)

@@ -21,7 +21,75 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
 
 jobs:
+  # Leo, 2026-10-28: the release signing jobs may run on our own Macs ("we can just read the code").
+  # Picks sign's runner (scripts/ci/signing_runner.py): a drained owned Mac on attempt 1 while
+  # vars.CI_SIGN_OWNED is 1, held whole for the job (its claim step), else the Blacksmith macOS label
+  # whose queue moves, and the other size for a re-run. The routing App key stays in this Linux job's
+  # routing environment and is minted only on the refs the release environment allows (main, rc/**, v* tags), so
+  # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
+  # success, and sign then falls back to Blacksmith 6 vCPU. The pick is a few API reads (nightly.yml's twin: W44 p50
+  # 9 s on GitHub-hosted Ubuntu), so it takes hosted Ubuntu and Blacksmith Linux 4 vCPU on a re-run, never 16 or 32
+  # vCPU (Leo, 2026-11-01: "surely we measured the signign we dont need 32/16 just for signing").
+  pick-sign-runner:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    environment: ci-routing-agent
+    continue-on-error: true
+    # Checkout, then the token mints 1 + 1 and the pick 3.
+    timeout-minutes: 8
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      owned: ${{ steps.pick.outputs.owned }}
+      runner: ${{ steps.pick.outputs.runner }}
+      alternate: ${{ steps.pick.outputs.alternate }}
+    steps:
+      - name: Checkout the picker
+        if: github.repository_owner == 'manaflow-ai'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_SIGN_OWNED == '1' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.run_attempt == 1 && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/') || startsWith(github.ref, 'refs/tags/v'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the signing runner
+        id: pick
+        if: github.repository_owner == 'manaflow-ai'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ENABLED: ${{ vars.CI_SIGN_OWNED }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          OWNED_LABELS: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 scripts/ci/signing_runner.py
+
   sign:
+    needs: [pick-sign-runner]
     # The source run is checked again by id in the first step.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Sign cmux NEXT DEV
@@ -32,15 +100,17 @@ jobs:
     # This job signs and runs no code from the app. verify runs the app's
     # sidecar without secrets; publish uploads only the archive it tested.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned && fromJSON(needs.pick-sign-runner.outputs.owned) || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
-    permissions:
+    permissions: &sign-permissions
       actions: read
       contents: read
-    outputs:
+    outputs: &sign-outputs
+      # owned when the claim gate passed on an owned Mac; the Blacksmith twin signs when it did not.
+      claim: ${{ steps.claim-gate.outputs.claim }}
       signed: ${{ steps.package.outputs.signed }}
       source_sha: ${{ steps.package.outputs.source_sha }}
-    env:
+    env: &sign-env
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       RELEASE_TAG: cmux-next-dev
       APP_NAME: cmux NEXT DEV
@@ -52,7 +122,35 @@ jobs:
         cmux NEXT DEV Release compile
         cmux app scheme compile (Debug)
         cmux-next Release compile (Xcode 26)
-    steps:
+    steps: &sign-steps
+      # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
+      # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       # SOURCE_SHA is the commit the source run built: a dev daily run of
       # cmux-next.yml on feat-cmux-next whose name carries the SHA it was asked
       # for (cmux-next.yml fails a run whose checkout is not that SHA).
@@ -129,6 +227,11 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        if: steps.source-artifact.outputs.archive != ''
+        run: ./scripts/ci/signing-runner-claim.sh
 
       - name: Select Xcode
         if: steps.source-artifact.outputs.archive != ''
@@ -215,6 +318,21 @@ jobs:
               || security delete-keychain "$CMUX_NEXT_DEV_DAILY_KEYCHAIN" >/dev/null 2>&1 || true
           fi
 
+  sign-blacksmith:
+    needs: [pick-sign-runner, sign]
+    # The same run signs on Blacksmith when the owned Mac took sign but its claim gate never passed
+    # (glaeda refused the job, or a hook scripts/ci/glaeda-signing-hooks.txt does not list admitted it).
+    if: "!cancelled() && github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned != '' && needs.sign.result != 'skipped' && needs.sign.result != 'cancelled' && needs.sign.outputs.claim != 'owned'"
+    name: Sign cmux NEXT DEV on Blacksmith
+    environment: release
+    # Blacksmith only: this run's sign when the owned Mac refused the job (its claim gate).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions: *sign-permissions
+    outputs: *sign-outputs
+    env: *sign-env
+    steps: *sign-steps
+
   # Offers verify to the owned Macs (Leo, 2026-10-24: owned Macs before
   # Blacksmith). It runs e2e_runner_pool.py, test-e2e.yml's picker, as
   # iroh-release-gate.yml does: an owned pool on the lane's Xcode pin while
@@ -223,8 +341,8 @@ jobs:
   # skipped pick or a failure of this job leaves verify on Blacksmith. The
   # routing App key stays in this Linux job; verify holds no secret.
   runner:
-    needs: sign
-    if: needs.sign.outputs.signed == 'true'
+    needs: [sign, sign-blacksmith]
+    if: "!cancelled() && (needs.sign-blacksmith.result == 'skipped' && needs.sign.result || needs.sign-blacksmith.result) == 'success' && ((needs.sign-blacksmith.outputs.signed || needs.sign.outputs.signed) == 'true')"
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -247,6 +365,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -339,8 +458,8 @@ jobs:
   verify:
     name: Verify signed cmux NEXT DEV
     # No environment and no secrets: this job runs the app's diff sidecar.
-    needs: [sign, runner]
-    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' }}
+    needs: [sign, runner, sign-blacksmith]
+    if: ${{ !cancelled() && (needs.sign-blacksmith.result == 'skipped' && needs.sign.result || needs.sign-blacksmith.result) == 'success' && (needs.sign-blacksmith.outputs.signed || needs.sign.outputs.signed) == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 15
     permissions:
@@ -395,8 +514,8 @@ jobs:
     # nightly)." Signing and codesign verification remain the admission gate;
     # the sidecar verification job runs independently and never blocks the
     # cutting-edge DEV artifact.
-    needs: [sign]
-    if: needs.sign.outputs.signed == 'true'
+    needs: [sign, sign-blacksmith]
+    if: "!cancelled() && (needs.sign-blacksmith.result == 'skipped' && needs.sign.result || needs.sign-blacksmith.result) == 'success' && ((needs.sign-blacksmith.outputs.signed || needs.sign.outputs.signed) == 'true')"
     # This copy's publish updates the rolling release without a lease, so its
     # group still serializes it. main's copy, the one that runs, replaced the
     # group with an R2 lease and a newest-wins check.
@@ -410,7 +529,7 @@ jobs:
     env:
       RELEASE_TAG: cmux-next-dev
       APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
-      SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
+      SOURCE_SHA: ${{ (needs.sign-blacksmith.outputs.source_sha || needs.sign.outputs.source_sha) }}
     steps:
       - name: Download the signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

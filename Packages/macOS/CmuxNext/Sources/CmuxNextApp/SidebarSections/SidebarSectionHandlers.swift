@@ -37,7 +37,7 @@ enum SidebarSectionHandlers {
         let services = context.services
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
-            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }))
+            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, focus: true, services: services) }, keeps: { [weak services] in await services?.agentTabs.chiefHomes?.keeps(session: $0, host: $1) ?? false }))
         // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
         // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
@@ -97,13 +97,17 @@ enum SidebarSectionHandlers {
             guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
             // Home and the App Store are apps now (R63/R64).
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
+            // One Chief: one placed already, drawn before its echo too (a second quick drag in, Get in another window), is
+            // kept. Its item id is the Chief's own (`chiefItemID`): the daemon refuses a second one in any race.
+            if ref == .builtIn(.chief), SidebarDocStore.current?.placesItem(with: ref) == true { return nil }
+            let id: LayoutItemID = ref == .builtIn(.chief) ? SidebarLayoutDocument.chiefItemID : .mint()
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
-                return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
+                return .itemAdd(LayoutItem(id: id, ref: ref), section: section.id, index: Int.max)
             }
             // The account shows as its avatar (no label) by default.
             return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc,
-                                            showsLabel: builtIn != .account)
+                                            showsLabel: builtIn != .account, newItem: id)
         }
         // Edit mode (SidebarView+EditItems): the window's sidebar wiggles, or stops.
         registry.bind("sidebar.edit") { services.windows.active?.sidebar.container.toggleEditingItems() }
@@ -265,14 +269,17 @@ enum SidebarSectionResolve {
         }
     }
 
-    /// By item id, else by built-in name (`home`).
+    /// By item id, else by built-in name (`home`). The bands' layout first, then the sidebar document at any
+    /// depth (`placed`): a Chief moved into a group or a machine list is no band item.
     static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutItem {
         guard let target, target.kind == .sidebarItem else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
-        if let item = doc.item(LayoutItemID(target.id)) { return item }
+        let placed = SidebarDocStore.current.flatMap { $0.isActive ? $0 : nil }
+        let id = LayoutItemID(target.id)
+        if let item = doc.item(id) ?? placed?.placedItem(id) { return item }
         if let builtIn = SidebarBuiltIn(rawValue: target.id) {
             // Home and the App Store are app items now (R63/R64); their names still name them.
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)
-            if let item = doc.firstItem(with: ref) { return item }
+            if let item = doc.firstItem(with: ref) ?? placed?.placedItem(with: ref) { return item }
         }
         throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
     }

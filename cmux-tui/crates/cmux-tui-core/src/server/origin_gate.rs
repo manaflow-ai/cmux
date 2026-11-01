@@ -115,14 +115,14 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
-fn peer_pid(key: &str) -> Option<u32> {
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;
     (!version.is_empty() && pid > 0).then_some(pid)
 }
 
 #[cfg(unix)]
-fn peer_session_id(pid: u32) -> Option<u32> {
+pub(super) fn peer_session_id(pid: u32) -> Option<u32> {
     let pid = libc::pid_t::try_from(pid).ok()?;
     // SAFETY: getsid only reads kernel process metadata for the positive pid.
     let session = unsafe { libc::getsid(pid) };
@@ -130,7 +130,7 @@ fn peer_session_id(pid: u32) -> Option<u32> {
 }
 
 #[cfg(not(unix))]
-fn peer_session_id(_pid: u32) -> Option<u32> {
+pub(super) fn peer_session_id(_pid: u32) -> Option<u32> {
     None
 }
 

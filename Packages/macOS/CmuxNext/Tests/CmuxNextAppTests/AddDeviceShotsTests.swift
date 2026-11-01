@@ -71,6 +71,58 @@ import Testing
         print("add-device-shots: wrote \(out.path)")
     }
 
+    /// The gallery of the "Any machine: one line" way (Labs labs.machineJoin): every look
+    /// (``JoinLineLayout``) in every state, one contact sheet:
+    /// `Packages/macOS/CmuxNext/.build/add-device-join-line-shots.png`. The app uses ``JoinLineLayout/card``.
+    @Test func everyJoinLineLayoutAndStateRendersToTheGallery() async throws {
+        _ = NSApplication.shared
+        var shots: [(String, NSImage)] = []
+        for layout in JoinLineLayout.allCases {
+            for state in ["name", "showing", "under a minute", "joined", "expired"] {
+                let fake = MachineJoinLineFlowTests.Fake()
+                let devices = AddDeviceFlowTests.Fake()
+                if state == "joined" { fake.rows = [MachineJoinLineFlowTests.Fake.joined("jt_1", name: "build-box")] }
+                let model = fake.deviceModel(MachineJoinLineFlowTests.services(devices, fake))
+                await model.begin(way: .joinLine)
+                let join = try #require(model.joinLine)
+                if state != "name" { await join.mint() }
+                if state == "under a minute" { fake.now = fake.now.addingTimeInterval(560); join.tick() }
+                if state == "expired" { fake.now = fake.now.addingTimeInterval(601); join.tick() }
+                let view = AddDeviceView(model: model, joinLineLayout: layout)
+                #expect(!Self.hostsSwiftUI(view), "\(layout) \(state) hosts SwiftUI")
+                let image = try AddMachineShotsTests.render(view)
+                #expect(image.size.width >= 400, "\(layout) \(state) is \(image.size.width) pt wide")
+                shots.append(("\(layout.rawValue): \(state)", image))
+                model.closeCard()
+            }
+        }
+        let sheet = AddServerShotsTests.contactSheet(shots)
+        let out = AddServerShotsTests.packageRoot.appending(path: ".build/add-device-join-line-shots.png")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try AddServerShotsTests.png(sheet).write(to: out)
+        print("add-device-join-line-shots: wrote \(out.path)")
+    }
+
+    @Test func theJoinLineControlsAreReachableByAccessibility() async throws {
+        let fake = MachineJoinLineFlowTests.Fake()
+        let devices = AddDeviceFlowTests.Fake()
+        var concealed: [String] = []
+        var services = MachineJoinLineFlowTests.services(devices, fake)
+        services.copyConcealed = { concealed.append($0) }
+        let model = fake.deviceModel(services)
+        await model.begin(way: .joinLine)
+        #expect(Self.identifiers(AddDeviceView(model: model)).contains("cmux.addDevice.joinLine.name"))
+        await model.joinLine?.mint()
+        let view = AddDeviceView(model: model)
+        let ids = Self.identifiers(view)
+        #expect(ids.contains("cmux.addDevice.joinLine.line"))
+        #expect(ids.contains("cmux.addDevice.joinLine.countdown"))
+        let copy = try #require(Self.find(view, id: "cmux.addDevice.button.copyJoinLine") as? NSButton)
+        copy.performClick(nil)
+        #expect(concealed == [fake.line.line], "the footer's Copy Line runs the concealed copy")
+        model.closeCard()
+    }
+
     @Test func theButtonsAndTheWaysAreReachableByAccessibility() async throws {
         let fake = AddDeviceFlowTests.Fake()
         let model = AddDeviceModel(services: fake.services())

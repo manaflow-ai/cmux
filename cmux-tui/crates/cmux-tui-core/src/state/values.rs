@@ -196,7 +196,7 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
         if marked_unread.is_some_and(|value| value != 0) {
             fields.insert("marked_unread".into(), json!(true));
         }
-        // `tab-attention-v1`: `{reason, at_ms}`, present only while an agent
+        // `tab-attention-v1`: `{reason, at_ms, request_id}`, present only while an agent
         // needs the person in this tab.
         if let Some(attention) = attention {
             fields.insert(

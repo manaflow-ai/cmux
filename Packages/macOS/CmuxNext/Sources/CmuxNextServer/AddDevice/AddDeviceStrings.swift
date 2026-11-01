@@ -18,6 +18,7 @@ public nonisolated struct AddDeviceStrings {
         case .network: s("addDevice.way.network", "On your network")
         case .code: s("addDevice.way.code", "It shows a code")
         case .newDevice: s("addDevice.way.newDevice", "Set up a new device")
+        case .joinLine: s("addDevice.way.joinLine", "Any machine")
         }
     }
 
@@ -32,6 +33,8 @@ public nonisolated struct AddDeviceStrings {
     static var networkHelp: String {
         s("addDevice.network.help", "Pick a computer to run your agents on it. cmux installs what it needs and checks each step.")
     }
+    /// Before Add: enroll reaches the computer with ssh in batch mode, so a password prompt fails it.
+    static var sshKeyHint: String { s("addDevice.network.sshKeyHint", "It needs ssh that signs in with a key, not a password.") }
     static var networkLoading: String { s("addDevice.network.loading", "Looking for your computers…") }
     static var networkEmpty: String {
         s("addDevice.network.empty", "Every computer on your network is already added. Set up a new device instead.")
@@ -50,6 +53,10 @@ public nonisolated struct AddDeviceStrings {
     static var newDeviceHelp: String {
         s("addDevice.newDevice.help", "Run this line on the new computer. It installs cmux and shows a code with four words; then choose “It shows a code”.")
     }
+    /// Beside Other Computer… on "Set up a new device": a computer already reached with ssh needs no line.
+    static var otherComputerHint: String {
+        s("addDevice.newDevice.otherComputerHint", "Already reach it with an ssh key? Add it by name.")
+    }
     static var phoneHelp: String {
         s("addDevice.newDevice.phone", "Open cmux on your iPhone and sign in with this account. The first time it connects, this Mac asks you to allow it.")
     }
@@ -63,9 +70,46 @@ public nonisolated struct AddDeviceStrings {
         case .otherComputer: s("addDevice.otherComputer", "Other Computer…")
         case .newCloudMachine: s("addDevice.newCloudMachine", "New Cloud VM…")
         case .enterCode: s("addDevice.enterCode", "Enter Code…")
+        case .installTailscale: s("addDevice.installTailscale", "Install Tailscale…")
         case .copyLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
+        case .copyJoinLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
+        case .makeJoinLine: s("addDevice.joinLine.makeLine", "Make Line")
+        case .newJoinLine: s("addDevice.joinLine.newLine", "New Line")
+        case .showMachines: s("addDevice.joinLine.showMachines", "Show in Machines")
         case .done: s("addDevice.done", "Done")
         case .cancel: s("addDevice.cancel", "Cancel")
+        }
+    }
+
+    // "Any machine: one line" (Labs labs.machineJoin).
+    static var joinLineHelp: String {
+        s("addDevice.joinLine.help", "Paste this line in a terminal on any Mac or Linux machine. It installs what that machine needs and joins it to your team's machines.")
+    }
+    static var joinLineName: String { s("addDevice.joinLine.name", "Name (optional)") }
+    static var joinLineNamePlaceholder: String { s("addDevice.joinLine.namePlaceholder", "e.g. build-box") }
+    static var joinLineMinting: String { s("addDevice.joinLine.minting", "Making a line…") }
+    static var joinLineWaiting: String { s("addDevice.joinLine.waiting", "Waiting for it to join. This card changes when it does.") }
+    static var joinLineConsent: String {
+        s("addDevice.joinLine.consent", "Screen sharing and control stay off until that machine allows them.")
+    }
+    static var joinLinePaste: String { s("addDevice.joinLine.paste", "Paste it in a terminal on that machine.") }
+    static var joinLineOnce: String { s("addDevice.joinLine.once", "It works once, on one machine.") }
+    static func joinLineExpires(_ seconds: Int) -> String {
+        let clock = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        return String(format: s("addDevice.joinLine.expiresIn", "Expires in %@"), clock)
+    }
+    static var joinLineExpired: String {
+        s("addDevice.joinLine.expired", "That line expired before a machine used it. Make a new one.")
+    }
+    static func joinLineJoined(_ name: String) -> String {
+        String(format: s("addDevice.joinLine.joined", "%@ joined"), name)
+    }
+    static var joinLineChecking: String { s("addDevice.joinLine.checking", "Checking it…") }
+    static func joinLineFailed(_ failure: JoinLineFailure) -> String {
+        switch failure {
+        case .signedOut: s("addDevice.joinLine.signedOut", "Sign in to cmux to make a line.")
+        case .unavailable: s("addDevice.joinLine.unavailable", "Joining with one line is not available on this cmux account yet.")
+        case .failed: s("addDevice.joinLine.failed", "cmux could not make a line. Try again.")
         }
     }
 

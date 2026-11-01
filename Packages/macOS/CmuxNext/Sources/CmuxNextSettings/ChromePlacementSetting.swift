@@ -14,11 +14,12 @@ public nonisolated struct ChromePlacementSetting {
     public static let tabBarOrderPath = ["tabs", "barOrder"]
     public static let browserToolbarPositionPath = ["browser", "toolbarPosition"]
 
-    /// The title bar the window uses: `window.titlebar`, except standard
-    /// while tab bars sit at the bottom (the traffic lights then need a row
-    /// that is not content).
+    /// The title bar the window uses: `window.titlebar`, also while tab bars
+    /// sit at the bottom (user 2026-10-28: no title strip there, to save
+    /// space). The traffic lights then sit on the sidebar's header, or the
+    /// main pane starts below their row (`WindowTitlebar.cardTopInset`).
     public static func effectiveTitlebar(_ snapshot: CmuxConfigSnapshot) -> TitlebarStyle {
-        snapshot.tabBarPosition == .bottom ? .standard : snapshot.titlebar
+        snapshot.titlebar
     }
 
     static func parse(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
@@ -61,7 +62,7 @@ public nonisolated struct ChromePlacementSetting {
         SettingDescriptor(tabBarPositionPath, section: .general, group: group,
                           title: SettingsText.keyed("settings.tabs.barPosition", "Tab Bar Position"),
                           help: SettingsText.keyed("settings.tabs.barPosition.help",
-                                                   "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."),
+                                                   "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."),
                           kind: .choice([
                               SettingChoice(TabBarPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
                               SettingChoice(TabBarPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),

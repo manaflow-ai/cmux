@@ -70,7 +70,7 @@ jobs:
           set -euo pipefail
           refuse() { echo "::error title=Production environment::$1"; exit 1; }
           [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
-          inert="production stays off until $PROD_ENV exists, allows branch feat-cmux-next only, and holds FREESTYLE_API_KEY (production account), CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD, plus variable FREESTYLE_PROD_ANCHOR (<slug> <sh-id> of a production account snapshot) until a production snapshot is recorded; nothing ran"
+          inert="production stays off until $PROD_ENV exists, allows branch feat-cmux-next only, and holds FREESTYLE_API_KEY (production account) plus the team-owned production Stack test profile (CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD); a trusted production snapshot must already be recorded in channel data for the account check; nothing ran"
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV" > "$RUNNER_TEMP/prod-env.json" 2> /dev/null || refuse "$PROD_ENV does not exist or cannot be read: $inert"
           [ "$(jq -r '.deployment_branch_policy | "\(.custom_branch_policies // false) \(.protected_branches // false)"' "$RUNNER_TEMP/prod-env.json")" = "true false" ] || refuse "$PROD_ENV has no custom branch policy (or also allows protected branches): $inert"
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")' > "$RUNNER_TEMP/prod-env-branches.txt" || refuse "cannot read the branch policies of $PROD_ENV: $inert"
@@ -169,6 +169,23 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/bake
 
+      # Check only repository records: the downloaded candidate must not vouch for its own account.
+      - name: Verify production account before recording the candidate
+        if: steps.inputs.outputs.promote == 'true' && inputs.channel == 'production'
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
+          FREESTYLE_API_KEY_FILE="$key_file" bun scripts/cmux-vm-image/prod-copy.ts account-check
+
       # production: the prod-copy run's channel-production.json becomes names.production of that dev entry.
       - name: Record the candidate in channels/dev.json history
         if: steps.inputs.outputs.promote == 'true'
@@ -187,8 +204,8 @@ jobs:
       # The key reaches promote.ts only as a 0600 file in RUNNER_TEMP (FREESTYLE_API_KEY_FILE),
       # never on a command line or in a child's environment, and is deleted when the step ends.
       # production first refuses a key that is not the production account's (prod-copy.ts account-check:
-      # never the dev key, and it must resolve the environment's FREESTYLE_PROD_ANCHOR or a recorded
-      # production snapshot to its id); promote.ts then runs the cmux-old compat gate as the test
+      # never the dev key, and it must resolve a trusted recorded production
+      # snapshot to its id); promote.ts then runs the cmux-old compat gate as the test
       # profile (empty on dev) and smokes on that account.
       - name: Promote (fresh-clone smoke on the channel's account)
         if: steps.inputs.outputs.promote == 'true'
@@ -200,7 +217,6 @@ jobs:
           CMUX_UITEST_STACK_PASSWORD: ${{ inputs.channel == 'production' && secrets.CMUX_UITEST_STACK_PASSWORD || '' }}
           # compat.ts reads the newest release with gh (read-only).
           GH_TOKEN: ${{ inputs.channel == 'production' && github.token || '' }}
-          FREESTYLE_PROD_ANCHOR: ${{ inputs.channel == 'production' && vars.FREESTYLE_PROD_ANCHOR || '' }}
         run: |
           set -euo pipefail
           # First: the key moves to an unexported shell variable, so no child process inherits it.
@@ -220,7 +236,6 @@ jobs:
             FREESTYLE_API_KEY_FILE="$key_file" bun scripts/cmux-vm-image/prod-copy.ts account-check 2>&1 | tee "$OUT_DIR/account-check.log"
           else
             stack_email="" stack_password="" gh_token=""
-            unset FREESTYLE_PROD_ANCHOR || true
           fi
           CMUX_UITEST_STACK_EMAIL="$stack_email" CMUX_UITEST_STACK_PASSWORD="$stack_password" GH_TOKEN="$gh_token" \
             FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/promote.ts --channel "$CHANNEL" --snapshot "$SNAPSHOT" --var "$SNAPSHOT_VAR" 2>&1 | tee "$OUT_DIR/promote.log"

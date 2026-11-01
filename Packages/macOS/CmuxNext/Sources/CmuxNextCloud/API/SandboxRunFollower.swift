@@ -1,10 +1,11 @@
 public import Foundation
 import CmuxNextWakeups
 
-/// The app's one waiter on each sandboxed Run it handed off, whatever happens to the tab that sent
-/// it (closed, reloaded) and across a relaunch. Each Run gets one long-poll of `GET /api/runs/:id/wait`
-/// (the server holds a call up to 10 s; there is no push), and the tab's send awaits that same wait
-/// (``follow(_:)``). When the Run ends, ``onEnd`` hears it once: the record is dropped from the saved
+/// The app's one waiter on each cloud task it handed off, whatever happens to the tab that sent it
+/// (closed, reloaded) and across a relaunch. Its ``Source`` says what a task is: a sandboxed Run
+/// (``Source/runs(wait:)``, `GET /api/runs/:id/wait`, held up to 10 s) or a hand-off (`GET
+/// /v1/handoffs/:id/wait`, held up to 25 s). There is no push: each task gets one long-poll, and a
+/// Run's send awaits that same wait (``follow(_:)``). When the Run ends, ``onEnd`` hears it once: the record is dropped from the saved
 /// list before ``onEnd`` runs, so neither a second answer nor a relaunch can tell it again. A Run this
 /// app cancelled (``noteCancel(_:)``) ends without ``onEnd``.
 ///
@@ -17,11 +18,39 @@ public final class SandboxRunFollower {
     /// One wait call on Run `id` in `team`; answers the snapshot JSON.
     public typealias Wait = @Sendable (_ id: String, _ team: String?) async throws -> Data
 
+    /// What the follower waits on: one wait call, how its answer reads, where the tasks are kept,
+    /// how long one may take, and which ends are told.
+    public nonisolated struct Source: Sendable {
+        /// One wait on task `id` in `team`, past `cursor` (nil: from its start).
+        public var wait: @Sendable (_ id: String, _ team: String?, _ cursor: Int?) async throws -> Data
+        public var read: @Sendable (Data) -> CloudTaskRead
+        public var defaultsKey: String
+        /// A task that has not changed for this long is given up, so the tasks in flight need no count limit.
+        public var maximumAge: TimeInterval
+        /// The ends (``CloudTaskRead/ended(_:_:)``) that are told.
+        public var tells: Set<SandboxRunEnd.Outcome>
+        /// The path errors name (`/api/runs`).
+        public var path: String
+        /// Whether the owner's list can bring a task back after a relaunch (hand-offs): its incognito ids are
+        /// then kept until that list answers (``keepIncognito(listed:)``). Otherwise (Runs) nothing brings an
+        /// unsaved incognito task back, so its id is dropped at the next sign-in.
+        public var relisted: Bool
+
+        public init(wait: @escaping @Sendable (String, String?, Int?) async throws -> Data, read: @escaping @Sendable (Data) -> CloudTaskRead,
+                    defaultsKey: String, maximumAge: TimeInterval, tells: Set<SandboxRunEnd.Outcome>, path: String, relisted: Bool = false) {
+            (self.wait, self.read, self.defaultsKey, self.maximumAge, self.tells, self.path) = (wait, read, defaultsKey, maximumAge, tells, path)
+            self.relisted = relisted
+        }
+
+        /// Sandboxed Runs (hq#3367): the server caps a task at 12 minutes; every end is told.
+        public static func runs(wait: @escaping Wait) -> Source {
+            Source(wait: { id, team, _ in try await wait(id, team) }, read: SandboxRunFollower.read, defaultsKey: SandboxRunFollower.defaultsKey,
+                   maximumAge: 6 * 3_600, tells: [.succeeded, .failed, .timedOut, .cancelled], path: "/api/runs")
+        }
+    }
+
     /// Where the Runs in flight are kept between launches.
-    public static let defaultsKey = "cmux.next.sandboxRuns.following"
-    /// A Run not terminal after this long is given up (the server caps a task at 12 minutes), so the
-    /// Runs in flight need no count limit.
-    public static let maximumAge: TimeInterval = 6 * 3_600
+    public nonisolated static let defaultsKey = "cmux.next.sandboxRuns.following"
     /// How long an ended Run's card is kept for its banner (its banner is withdrawn with it).
     public static let keptEnded: TimeInterval = 7 * 86_400
     /// The cancels this app sent that are kept for Runs still in flight.
@@ -32,7 +61,7 @@ public final class SandboxRunFollower {
 
     /// A followed Run ended (not one this app cancelled): once per Run.
     public var onEnd: (@MainActor (SandboxRunEnd) -> Void)?
-    private let wait: Wait
+    public let source: Source
     private let defaults: UserDefaults
     private let now: @MainActor () -> Date
     private let clock: any Clock<Duration>
@@ -44,18 +73,34 @@ public final class SandboxRunFollower {
     /// Runs this app asked to cancel, newest last (bounded), noted before or after their follow
     /// starts: a cancel that races the send's hand-off still ends silently.
     private var cancelledHere: [String] = []
+    /// Incognito tasks that may still be open, newest last (ids only, as the incognito ledger keeps). Never
+    /// evicted for count: an id goes when its task ends, the server no longer shows it (403, 404), or it is
+    /// neither followed nor in the owner's list once that answers (``keepIncognito(listed:)``; a Run's at the
+    /// next sign-in, #31208). Their records are never saved, so one found again after a relaunch (a hand-off
+    /// in the owner's list) is given back its flag (#31040).
+    private var incognitoIDs: [String] = []
+    /// The account of each id in ``incognitoIDs`` (none: saved before owners were kept). An owner's list prunes
+    /// only that owner's ids, so another account's sign-in never takes a hand-off's flag away.
+    private var incognitoOwners: [String: String] = [:]
     private var user: String?
 
-    public init(wait: @escaping Wait, defaults: UserDefaults = .standard, now: @escaping @MainActor () -> Date = { Date() },
+    public convenience init(wait: @escaping Wait, defaults: UserDefaults = .standard, now: @escaping @MainActor () -> Date = { Date() },
+                            clock: any Clock<Duration> = ContinuousClock()) {
+        self.init(source: .runs(wait: wait), defaults: defaults, now: now, clock: clock)
+    }
+
+    public init(source: Source, defaults: UserDefaults = .standard, now: @escaping @MainActor () -> Date = { Date() },
                 clock: any Clock<Duration> = ContinuousClock()) {
-        self.wait = wait
+        self.source = source
         self.defaults = defaults
         self.now = now
         self.clock = clock
-        if let data = defaults.data(forKey: Self.defaultsKey), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
+        if let data = defaults.data(forKey: source.defaultsKey), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
             records = Dictionary(saved.following.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             ended = saved.ended
             cancelledHere = saved.cancelled ?? []
+            incognitoIDs = saved.incognito ?? []
+            incognitoOwners = saved.incognitoOwners ?? [:]
         }
     }
 
@@ -80,6 +125,8 @@ public final class SandboxRunFollower {
         }
         guard let user else { return }
         prune()
+        // Nothing brings an unsaved incognito Run back, whichever account made it.
+        if !source.relisted { pruneIncognito(listed: [], owner: nil) }
         tellUntold(of: user)
         for record in following { start(record) }
     }
@@ -89,18 +136,14 @@ public final class SandboxRunFollower {
     /// `timedOut`, as the send's own poll did, while the follow goes on for the notification.
     public func follow(_ record: SandboxRunRecord) async throws -> Data {
         // Another account signed in since the create: its session can't read this Run, and must not hear of it.
-        if let user, record.user != user { throw CloudAPIError.timedOut("/api/runs/\(record.id)") }
-        if records[record.id] == nil, endedRun(record.id) == nil {
-            records[record.id] = record
-            save()
-        }
-        start(record)
+        if let user, record.user != user { throw CloudAPIError.timedOut("\(source.path)/\(record.id)") }
+        add(record)
         let token = UUID()
         let id = record.id
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 guard polls[id] != nil, !Task.isCancelled else {
-                    return continuation.resume(throwing: Task.isCancelled ? CancellationError() : CloudAPIError.timedOut("/api/runs/\(id)"))
+                    return continuation.resume(throwing: Task.isCancelled ? CancellationError() : CloudAPIError.timedOut("\(source.path)/\(id)"))
                 }
                 waiters[id, default: [:]][token] = continuation
             }
@@ -109,6 +152,77 @@ public final class SandboxRunFollower {
             Task { @MainActor [weak self] in self?.answer(id, token: token, .failure(CancellationError())) }
         }
     }
+
+    /// Follows task `record` without awaiting it (a hand-off found in the owner's list, or one this
+    /// app just made): told when it needs the person or ends. A task already followed or ended is left,
+    /// and so is one of no signed-in user or of another (a late answer after a sign-out follows nothing).
+    public func watch(_ record: SandboxRunRecord) {
+        guard let user, record.user == user else { return }
+        add(record)
+    }
+
+    /// Keeps `record` (unless followed or ended already) and starts its poll.
+    private func add(_ record: SandboxRunRecord) {
+        var record = record
+        if record.incognito == true, !incognitoIDs.contains(record.id) { incognitoIDs.append(record.id) }
+        if incognitoIDs.contains(record.id), incognitoOwners[record.id] == nil { incognitoOwners[record.id] = record.user }
+        if incognitoIDs.contains(record.id) { record.incognito = true }
+        if records[record.id] == nil, endedRun(record.id) == nil {
+            records[record.id] = record
+            save()
+        } else if record.incognito == true {
+            flagIncognito(record.id)
+        }
+        start(record)
+    }
+
+    /// Task `id`, followed or ended already as a normal one (the owner's list answered before this app's watch), is incognito from now on.
+    private func flagIncognito(_ id: String) {
+        if records[id] != nil { records[id]?.incognito = true }
+        if let index = ended.lastIndex(where: { $0.record.id == id }) { ended[index].record.incognito = true }
+        save()
+    }
+
+    /// Task `id`, followed now, changed at `changed` with its turn `running` or not, as the owner's
+    /// list shows it (a record saved before a relaunch may be days behind): its age counts from the
+    /// later of that and what the record has. A task not followed is left.
+    public func refresh(_ id: String, changed: Date, running: Bool) {
+        guard var record = records[id] else { return }
+        let latest = max(record.changed ?? record.started, changed)
+        guard latest != record.changed || running != (record.running ?? false) else { return }
+        (record.changed, record.running) = (latest, running ? true : nil)
+        records[id] = record
+        save()
+    }
+
+    /// The signed-in owner's list answered with `listed`: an incognito id neither followed nor listed is
+    /// dropped. Its task ended while the app was stopped (never resumed, its record isn't saved), so nothing
+    /// else would ever remove it (#31208).
+    /// Only the signed-in user's ids (and ones saved without an owner) are pruned: another account's list can't show them.
+    public func keepIncognito(listed: Set<String>) {
+        guard let user else { return }
+        pruneIncognito(listed: listed, owner: user)
+    }
+
+    /// Drops the incognito ids of `owner` (nil: every account) that are neither followed nor `listed`.
+    private func pruneIncognito(listed: Set<String>, owner: String?) {
+        let gone = incognitoIDs.filter { id in
+            guard records[id] == nil, !listed.contains(id) else { return false }
+            return owner == nil || (incognitoOwners[id] ?? owner) == owner
+        }
+        guard !gone.isEmpty else { return }
+        for id in gone { forgetIncognito(id) }
+        save()
+    }
+
+    /// Task `id` is no longer an incognito task that may be open (the caller saves).
+    private func forgetIncognito(_ id: String) {
+        incognitoIDs.removeAll { $0 == id }
+        incognitoOwners[id] = nil
+    }
+
+    /// Whether task `id` is followed now or ended here (still kept).
+    public func knows(_ id: String) -> Bool { records[id] != nil || endedRun(id) != nil }
 
     /// This app asked the server to cancel Run `id` (the person's own action): it ends silently, also
     /// when the note comes before the Run's follow, or the app quits before the end.
@@ -127,48 +241,63 @@ public final class SandboxRunFollower {
     private func start(_ record: SandboxRunRecord) {
         let id = record.id
         guard polls[id] == nil, records[id] != nil else { return }
-        let (wait, clock) = (wait, clock)
+        let (wait, read, clock, path, maximumAge) = (source.wait, source.read, clock, source.path, source.maximumAge)
         polls[id] = Task { [weak self] in // task-owner: in polls; cancelled when the Run ends, on sign-out and in stop()
             var backoff = Backoff(initial: .seconds(2), maximum: .seconds(60))
-            // wakeup-allow: a long-poll, each pass one /wait call the server holds up to 10 s; a failure waits a Backoff delay
+            // When the server last answered this poll (a readable answer): a turn that runs is kept
+            // while the server answers, and given up after ``Source/maximumAge`` of silence.
+            var heard = self?.now() ?? Date()
+            // wakeup-allow: a long-poll, each pass one /wait call the server holds (10 s for a Run, 25 s for a hand-off); a failure waits a Backoff delay
             while !Task.isCancelled {
-                guard let self, self.records[id] != nil else { return }
-                guard self.now().timeIntervalSince(record.started) < Self.maximumAge else {
-                    return self.drop(id, error: CloudAPIError.timedOut("/api/runs/\(id)"))
+                guard let self, let current = self.records[id] else { return }
+                // A turn that runs is never given up for how long since it changed, only when the server is silent.
+                let since = current.running == true ? heard : current.changed ?? current.started
+                guard self.now().timeIntervalSince(since) < maximumAge else {
+                    return self.drop(id, error: CloudAPIError.timedOut("\(path)/\(id)"))
                 }
                 let began = ContinuousClock.now
-                let read: Read
+                let answer: CloudTaskRead
                 do {
-                    read = Self.read(try await wait(id, record.team))
+                    answer = read(try await wait(id, record.team, self.records[id]?.cursor))
                 } catch is CancellationError {
                     return
                 } catch CloudAPIError.http(let status, _, _, _, _) where status == 403 || status == 404 {
                     // The server doesn't show this Run to this account any more: nothing to wait for.
-                    return self.drop(id, error: CloudAPIError.timedOut("/api/runs/\(id)"))
+                    self.forgetIncognito(id)
+                    return self.drop(id, error: CloudAPIError.timedOut("\(path)/\(id)"))
                 } catch {
-                    read = .unreadable
+                    answer = .unreadable
                 }
-                switch read {
+                // Stopped while the call was out (stop(), a sign-out): its answer is the next launch's.
+                if Task.isCancelled { return }
+                if case .unreadable = answer {} else { heard = self.now() }
+                switch answer {
                 case .ended(let outcome, let data):
                     return self.end(id, outcome: outcome, snapshot: data)
-                case .running:
-                    backoff.reset()
-                    // A server that answers at once (no long-poll) is asked again no sooner than every 2 s.
-                    // wakeup-allow: spacing of the long-poll above, only when the server did not hold the call
-                    if ContinuousClock.now - began < .seconds(2) { do { try await clock.sleep(for: .seconds(2)) } catch { return } }
+                case .closed(let notice, let data):
+                    if let notice { self.notice(id, notice, cursor: nil, snapshot: data) }
+                    return self.end(id, outcome: notice?.outcome ?? .cancelled, snapshot: data, silent: true)
+                case .going(let cursor, let notice, let data, let running):
+                    self.notice(id, notice, cursor: cursor, running: running, snapshot: data)
                 case .unreadable:
-                    self.answerAll(id, .failure(CloudAPIError.timedOut("/api/runs/\(id)")))
+                    self.answerAll(id, .failure(CloudAPIError.timedOut("\(path)/\(id)")))
                     // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
                     do { try await backoff.wait(owner: "sandboxRuns.follow", clock: clock) } catch { return }
+                    continue
                 }
+                backoff.reset()
+                // A server that answers at once (no long-poll) is asked again no sooner than every 2 s.
+                // wakeup-allow: spacing of the long-poll above, only when the server did not hold the call
+                if ContinuousClock.now - began < .seconds(2) { do { try await clock.sleep(for: .seconds(2)) } catch { return } }
             }
         }
     }
 
-    private func end(_ id: String, outcome: SandboxRunEnd.Outcome, snapshot: Data) {
+    private func end(_ id: String, outcome: SandboxRunEnd.Outcome, snapshot: Data, silent: Bool = false) {
         guard let record = records.removeValue(forKey: id) else { return }
-        let silent = cancelledHere.contains(id) && outcome == .cancelled
+        let silent = silent || (cancelledHere.contains(id) && outcome == .cancelled) || !source.tells.contains(outcome)
         cancelledHere.removeAll { $0 == id }
+        forgetIncognito(id)
         // Saved untold first: a crash before the banner leaves it to the next launch, never lost;
         // marked told once ``onEnd`` ran, so it is never told twice.
         ended.append(SandboxRunEnded(record: record, outcome: outcome, card: Self.card(snapshot), at: now(), told: silent))
@@ -178,6 +307,27 @@ public final class SandboxRunFollower {
         answerAll(id, .success(snapshot))
         if !silent { tell(id, SandboxRunEnd(record: record, outcome: outcome, snapshot: snapshot)) }
     }
+
+    /// Task `id` goes on at `cursor` (nil: where it was), its turn `running` or not (nil: as it was);
+    /// `notice` is told unless its key was. Saved after ``onEnd`` ran: a crash in between tells it
+    /// again at the next launch (its banner, of the same id, replaces the first), never loses it.
+    private func notice(_ id: String, _ notice: CloudTaskNotice?, cursor: Int?, running: Bool? = nil, snapshot: Data) {
+        guard var record = records[id] else { return }
+        let moved = cursor != nil && cursor != record.cursor
+        let fresh = notice.map { !(record.told ?? []).contains($0.key) } ?? false
+        let ran = running.map { $0 != (record.running ?? false) } ?? false
+        guard moved || fresh || ran else { return }
+        if moved || ran { record.changed = now() }
+        if moved { record.cursor = cursor }
+        if ran { record.running = running == true ? true : nil }
+        if let notice, fresh { record.told = Array(((record.told ?? []) + [notice.key]).suffix(Self.toldLimit)) }
+        records[id] = record
+        if let notice, fresh { onEnd?(SandboxRunEnd(record: record, outcome: notice.outcome, snapshot: snapshot)) }
+        save()
+    }
+
+    /// The notice keys kept per task: a hand-off's turn tells at most three, and turns only go up.
+    static let toldLimit = 16
 
     /// Runs ``onEnd`` for ended Run `id`, then marks it told. A replayed end is marked by its
     /// listener (``markTold(_:)``) once its banner is handled: that may take a moment (a read of the
@@ -235,8 +385,10 @@ public final class SandboxRunFollower {
     }
 
     private func save() {
-        let saved = Saved(following: following, ended: ended, cancelled: cancelledHere)
-        if let data = try? JSONEncoder().encode(saved) { defaults.set(data, forKey: Self.defaultsKey) }
+        // Nothing of an incognito chat's tasks outlives this run (leo-workspace design/spaces.md "Incognito").
+        let saved = Saved(following: following.filter { $0.incognito != true }, ended: ended.filter { $0.record.incognito != true }, cancelled: cancelledHere,
+                          incognito: incognitoIDs, incognitoOwners: incognitoOwners)
+        if let data = try? JSONEncoder().encode(saved) { defaults.set(data, forKey: source.defaultsKey) }
     }
 
     private nonisolated struct Saved: Codable {
@@ -244,6 +396,10 @@ public final class SandboxRunFollower {
         var ended: [SandboxRunEnded]
         /// Runs this app asked to cancel (``noteCancel(_:)``): a quit before their end keeps them silent.
         var cancelled: [String]?
+        /// The ids of incognito tasks still open (``incognitoIDs``).
+        var incognito: [String]?
+        /// The account of each of those ids (``incognitoOwners``).
+        var incognitoOwners: [String: String]?
     }
 
     /// The part of a final snapshot the Run's card needs: its receipt.
@@ -253,21 +409,15 @@ public final class SandboxRunFollower {
         return try? JSONSerialization.data(withJSONObject: ["receipt": receipt])
     }
 
-    nonisolated enum Read {
-        case running
-        case ended(SandboxRunEnd.Outcome, Data)
-        case unreadable
-    }
-
     /// One wait's answer. A sandboxed Run is terminal once its snapshot carries its receipt (the
     /// server writes it with the terminal status); until then it runs. A body that is no Run snapshot,
     /// or names a status the Run API has not, is unreadable, never an end.
-    nonisolated static func read(_ data: Data) -> Read {
+    nonisolated static func read(_ data: Data) -> CloudTaskRead {
         let statuses: Set<String> = ["queued", "running", "cancelling", "succeeded", "failed", "cancelled"]
         guard let snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let run = snapshot["run"] as? [String: Any], let status = run["status"] as? String,
               statuses.contains(status) else { return .unreadable }
-        guard let receiptValue = snapshot["receipt"], !(receiptValue is NSNull) else { return .running }
+        guard let receiptValue = snapshot["receipt"], !(receiptValue is NSNull) else { return .going(cursor: nil, notice: nil, data) }
         guard let receipt = receiptValue as? [String: Any], let ending = receipt["status"] as? String else { return .unreadable }
         switch ending {
         case "succeeded": return .ended(.succeeded, data)

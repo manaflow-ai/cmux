@@ -58,14 +58,14 @@ pub(super) fn handle_target_created(
     created: &TargetCreated,
     mux: &Weak<Mux>,
     runtime: &Weak<BrowserRuntime>,
-    opener_surface: SurfaceId,
+    route: &Weak<SurfaceRoute>,
 ) {
     if created.target_type != "page" {
         return;
     }
     let Some(session) = browser.session.lock().unwrap().clone() else {
         if let Some(runtime) = runtime.upgrade() {
-            let _ = runtime.client.close_target(&created.target_id);
+            let _ = runtime.client.close_target_detached(&created.target_id);
         }
         return;
     };
@@ -79,19 +79,15 @@ pub(super) fn handle_target_created(
     if created.opener_id.as_deref() != Some(session.target_id.as_str()) {
         return;
     }
-    let Some(mux) = mux.upgrade() else {
-        let _ = session.runtime.client.close_target(&created.target_id);
-        return;
-    };
-    let adopted = mux.adopt_browser_target(
-        opener_surface,
-        created.target_id.clone(),
-        if created.url.is_empty() { "about:blank".to_string() } else { created.url.clone() },
-        session.runtime.clone(),
-    );
-    if !matches!(adopted, Ok(true)) {
-        let _ = session.runtime.client.close_target(&created.target_id);
-        if let Err(error) = adopted {
+    if let Err(error) = browser.defer_registry_work(
+        route,
+        event_registry::RegistryWork::AdoptTarget {
+            created: created.clone(),
+            opener: session.clone(),
+        },
+    ) {
+        let _ = session.runtime.client.close_target_detached(&created.target_id);
+        if let Some(mux) = mux.upgrade() {
             mux.emit(MuxEvent::Status(format!("browser target adoption failed: {error}")));
         }
     }

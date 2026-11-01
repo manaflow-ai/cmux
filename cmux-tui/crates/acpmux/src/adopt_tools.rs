@@ -7,6 +7,7 @@
 //! The transcript is the record: no file is read, so an edit's before and after text are its
 //! hunks' lines (context and removed, context and added), with each file's +/- counts.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// One past tool call.
@@ -45,10 +46,13 @@ impl PastTool {
             // A Write's diff is a fragment until its result says it created the file or holds
             // the text it replaced; otherwise Undo would read the file as one the turn created.
             let text = result.done.pointer("/content/0/content/text").and_then(Value::as_str);
-            self.done["content"] = crate::claude_stdio::settle_write(
-                proposed,
-                text.unwrap_or_default(),
-                result.structured.as_ref(),
+            self.done.set(
+                "content",
+                crate::claude_stdio::settle_write(
+                    proposed,
+                    text.unwrap_or_default(),
+                    result.structured.as_ref(),
+                ),
             );
         }
         if let (Some(done), Some(update)) = (self.done.as_object_mut(), result.done.as_object()) {
@@ -158,7 +162,7 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
     if kind != "execute"
         && let Some(path) = path
     {
-        call["locations"] = json!([{"path": path}]);
+        call.set("locations", json!([{"path": path}]));
     }
     let output = ["aggregated_output", "formatted_output", "stdout"]
         .iter()
@@ -172,7 +176,7 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
         "rawOutput": {"exit_code": exit_code, "duration_ms": took},
     });
     if !output.is_empty() {
-        done["content"] = json!([text_content(output)]);
+        done.set("content", json!([text_content(output)]));
     }
     Some(PastTool {
         id: id.to_owned(),
@@ -349,11 +353,11 @@ fn codex_file_change(
         };
         let mut entry = json!({"path": target, "type": change.kind});
         if !failed {
-            entry["additions"] = json!(additions);
-            entry["deletions"] = json!(deletions);
+            entry.set("additions", json!(additions));
+            entry.set("deletions", json!(deletions));
         }
         if change.move_path.is_some() {
-            entry["from"] = json!(change.path);
+            entry.set("from", json!(change.path));
         }
         summary.push(entry);
     }
@@ -481,7 +485,7 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
             let mut done = json!({"status": state});
             if state == "failed" {
                 // The begin event's diffs never applied: the error, or nothing, replaces them.
-                done["content"] = error.map(text_content).into_iter().collect();
+                done.set("content", error.map(text_content).into_iter().collect());
             }
             Some((Err(ToolResult { id: id.to_owned(), done, structured: None }), false))
         }
@@ -498,7 +502,7 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
                 "status": if ok.is_some() { "completed" } else { "failed" },
             });
             if let Some(ok) = ok {
-                item["result"] = ok.clone();
+                item.set("result", ok.clone());
             }
             Some((Ok(codex_mcp(id, &item, at)), false))
         }
@@ -551,11 +555,16 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
         .filter(|b| s(b, "type") == Some("tool_result"))
         .filter_map(|block| {
             let failed = block.get("is_error").and_then(Value::as_bool) == Some(true);
+            // Its text, then the images it returned (a Read of a PNG), as a live turn sends them.
+            // What is kept is bounded by the transcript tail adopt reads (`adopt_replay::MAX_BYTES`),
+            // which already holds each image.
+            let mut content = result_text(block.get("content"));
+            content.extend(crate::claude_stdio::result_images(block.get("content")));
             Some(ToolResult {
                 id: s(block, "tool_use_id")?.to_owned(),
                 done: json!({
                     "status": if failed { "failed" } else { "completed" },
-                    "content": result_text(block.get("content")),
+                    "content": content,
                 }),
                 structured: structured.cloned(),
             })
@@ -594,6 +603,24 @@ mod tests {
         assert_eq!(applied.done["status"], "completed");
         assert_eq!(applied.done["content"][0]["type"], "diff", "{}", applied.done);
         assert_eq!(applied.done["content"][0]["newText"], "b");
+    }
+
+    /// An adopted Read of an image keeps the image its result returned, so a reopened chat on
+    /// another machine draws it instead of "Image unavailable".
+    #[test]
+    fn an_adopted_claude_read_keeps_the_image_its_result_returned() {
+        let read = json!([{"type": "tool_use", "id": "r1", "name": "Read",
+                           "input": {"file_path": "/tmp/shot.png"}}]);
+        let [mut tool] = claude_tool_uses(&read, Some(1)).try_into().unwrap();
+        let block = json!([{"type": "tool_result", "tool_use_id": "r1", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0K"}}]}]);
+        let [result] = claude_tool_results(&block, None).try_into().unwrap();
+        tool.settle(&result, Some(2));
+        assert_eq!(tool.done["status"], "completed");
+        assert_eq!(
+            tool.done["content"],
+            json!([{"type": "content", "content": {"type": "image", "mimeType": "image/png", "data": "iVBORw0K"}}])
+        );
     }
 
     fn write(id: &str) -> Value {

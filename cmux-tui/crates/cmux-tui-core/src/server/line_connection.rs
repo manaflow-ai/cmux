@@ -60,7 +60,10 @@ pub(super) fn serve_line_connection(
     };
     let peer_key = stream.peer_process_key();
     let peer_token = stream.peer_token();
-    let client = mux.control_clients.register(transport, writer.clone());
+    // Before it registers, so the orphan exit never sees the owner's own
+    // plugin as a client (orphan_shutdown.rs).
+    let owner_plugin = orphan_shutdown::is_owner_plugin_peer(&mux, peer_key.as_deref());
+    let client = mux.control_clients.register_classified(transport, writer.clone(), owner_plugin);
     origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation

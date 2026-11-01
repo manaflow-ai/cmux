@@ -5,14 +5,37 @@ CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.
 CMUX_CUA_PINNED_SHA="e8a8dbfd45a5d050058e7340f97ffe6f157c3128"
 CMUX_CUA_RELEASE_TAG="cmux-cua-v0.8.12"
 CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="7f140fe2f75dcb43649297440b7902fd21b938851984de9b018bc29583d72ba4"
-CMUX_CUA_PATCH_RELATIVE_PATH="scripts/cmux-cua-codex-delivery-mode.patch"
+# cmux-side patches applied, in order, to the pinned source. Each one is the
+# exact diff of a cmux-cua PR that the pin does not carry yet; the pin bump to
+# a release that includes it deletes the patch here.
+#   codex-delivery-mode: the Codex adapter's public delivery_mode field.
+#   machine-consent: manaflow-ai/cmux-cua#82 (merged as 07a6e0fba359, the diff
+#     against its parent 3b6166ff1f16), screen/control consent on a
+#     machine joined to a cmux team, checked on every tool call.
+#   display-still: host-only `display_still`, one still of the main display for
+#     cmux's Share Screen with Chief, so Screen Recording belongs to the helper
+#     (and its relaunch after a grant), never to cmux.app.
+CMUX_CUA_PATCH_RELATIVE_PATHS=(
+  "scripts/cmux-cua-codex-delivery-mode.patch"
+  "scripts/cmux-cua-machine-consent.patch"
+  "scripts/cmux-cua-display-still.patch"
+)
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
 CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-helper-v2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CMUX_CUA_PATCH_FILE="$REPO_ROOT/$CMUX_CUA_PATCH_RELATIVE_PATH"
-CMUX_CUA_PATCH_DIGEST="$(shasum -a 256 "$CMUX_CUA_PATCH_FILE" | awk '{print $1}')"
+CMUX_CUA_PATCH_FILES=()
+for patch_relative_path in "${CMUX_CUA_PATCH_RELATIVE_PATHS[@]}"; do
+  CMUX_CUA_PATCH_FILES+=("$REPO_ROOT/$patch_relative_path")
+done
+# One digest over the series, in order: the build-source cache key changes when
+# any patch is added, removed, reordered or edited.
+CMUX_CUA_PATCH_DIGEST="$(cat "${CMUX_CUA_PATCH_FILES[@]}" | shasum -a 256 | awk '{print $1}')"
+# The build that ships inside cmux.app takes machine consent only from the
+# verified cmux host, never from files a caller could redirect
+# (cmux-cua-machine-consent.patch). Released cmux-cua builds leave it off.
+CMUX_CUA_CARGO_FEATURES="cmux-host-consent"
 CMUX_CUA_BUILD_SOURCE_OWNER_FILE=".cmux-cua-managed-build-source"
 CMUX_CUA_BUILD_SOURCE_OWNER_VALUE="cmux-cua-build-source-v1 $CMUX_CUA_PINNED_SHA $CMUX_CUA_PATCH_DIGEST"
 
@@ -393,11 +416,11 @@ fi
 
 TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
 
-# The pinned engine already owns the native delivery ladder, but its Codex
-# compatibility adapter predates the public delivery_mode field. Apply the
-# small, reviewed compatibility patch after the SHA gate while the source
-# lock still protects the shared checkout.
-"$REPO_ROOT/scripts/apply-cmux-cua-patch.sh" "$SRC_ROOT" "$CMUX_CUA_PATCH_FILE"
+# Apply the small, reviewed cmux-side patches (CMUX_CUA_PATCH_RELATIVE_PATHS)
+# after the SHA gate while the source lock still protects the shared checkout.
+for patch_file in "${CMUX_CUA_PATCH_FILES[@]}"; do
+  "$REPO_ROOT/scripts/apply-cmux-cua-patch.sh" "$SRC_ROOT" "$patch_file"
+done
 
 if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
   # A caller-supplied checkout can contain intentional local edits, so keep
@@ -450,6 +473,19 @@ CUA_TOOLCHAIN_KEY="$(
   } | shasum -a 256 | cut -c1-16
 )"
 
+# The cmux-cua clone has no rust-toolchain.toml, so rustup would need a default toolchain. The fleet worker's
+# shared RUSTUP_HOME keeps none on purpose (hq build-fleet rust_cache.go: the shim and the repair undo the
+# default a first install makes), so `rustup target add` and cargo failed there with "rustup could not choose a
+# version of rustup to run ... no default is configured" (cmux7s, job 6f0858ce, 2026-11-01). Build it with the
+# toolchain cmux-tui pins, as cmux-tui-rust-check.sh does for its unpinned modes (#27363). A caller that sets
+# RUSTUP_TOOLCHAIN keeps its own.
+if [[ -z "${RUSTUP_TOOLCHAIN:-}" ]] && command -v rustup >/dev/null 2>&1; then
+  cua_toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/cmux-tui/rust-toolchain.toml" 2>/dev/null | head -1 || true)"
+  if [[ -n "$cua_toolchain" ]]; then
+    export RUSTUP_TOOLCHAIN="$cua_toolchain"
+  fi
+fi
+
 # shellcheck source=scripts/lib/rust-targets.sh
 source "$REPO_ROOT/scripts/lib/rust-targets.sh"
 ensure_rust_target() {
@@ -486,7 +522,8 @@ for arch in "${ARCHS[@]}"; do
     if CARGO_TARGET_DIR="$target_dir" \
       CARGO_NET_RETRY="${CARGO_NET_RETRY:-5}" \
       CARGO_HTTP_MULTIPLEXING="${CARGO_HTTP_MULTIPLEXING:-false}" \
-      cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target"; then
+      cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target" \
+        --features "$CMUX_CUA_CARGO_FEATURES"; then
       cargo_status=0
       break
     else

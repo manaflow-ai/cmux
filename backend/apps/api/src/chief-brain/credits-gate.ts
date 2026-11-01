@@ -28,7 +28,11 @@ export class CreditsRefusedError extends Error {
   }
 }
 
-export type GateResult = { readonly ok: true; readonly skipped?: true } | { readonly ok: false; readonly available_usd: number; readonly needed_usd: number }
+/**
+ * Not ok: out of credits (`available_usd` < `needed_usd`), or `refused` names another reason the
+ * meter gave no hold (the per-chief call cap, credits.ts CreditsRateLimited); send nothing either way.
+ */
+export type GateResult = { readonly ok: true; readonly skipped?: true } | { readonly ok: false; readonly available_usd: number; readonly needed_usd: number; readonly refused?: string }
 
 const MAX_ATTEMPT_IDS = 20
 
@@ -64,6 +68,7 @@ export class CreditsGate {
         Credits.use((c) => c.reserve({ team, request, chief, conversation, maxCostUsd })).pipe(
           Effect.map((res) => ({ ok: true as const, res })),
           Effect.catchTag("CreditsExhausted", (e) => Effect.succeed({ ok: false as const, available_usd: e.available_usd, needed_usd: e.needed_usd })),
+          Effect.catchTag("CreditsRateLimited", (e) => Effect.succeed({ ok: false as const, available_usd: 0, needed_usd: 0, refused: e.text })),
           Effect.catchTag("CreditsAlreadySettled", () => Effect.succeed(null))
         )
       )

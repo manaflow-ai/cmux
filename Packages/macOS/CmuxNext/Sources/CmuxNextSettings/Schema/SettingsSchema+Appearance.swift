@@ -22,8 +22,8 @@ nonisolated enum AppearanceSettingsSchema {
                 AppThemeSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.theme", "Theme"),
                 help: SettingsText.keyed("settings.appearance.theme.help",
-                                        "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."),
-                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for cmux and its terminals"),
+                                        "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."),
+                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for terminals, and cmux unless App Theme is set"),
                 kind: .theme, default: nil, defaultLabel: ghostty,
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
             ),
@@ -31,8 +31,8 @@ nonisolated enum AppearanceSettingsSchema {
                 ChromeThemeSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
                 help: SettingsText.keyed("settings.appearance.appTheme.help",
-                                        "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."),
-                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for cmux's own pages"),
+                                        "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."),
+                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for the window, sidebar, tabs and pages"),
                 kind: .theme, default: .string(ChromeThemeSetting.followTerminal),
                 defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
                 keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
@@ -64,6 +64,16 @@ nonisolated enum AppearanceSettingsSchema {
                 ]),
                 default: .string(ThemeAccent.neutral.rawValue),
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
+            ),
+            SettingDescriptor(
+                HighlightColorSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
+                help: SettingsText.keyed("settings.appearance.highlightColor.help",
+                                        "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."),
+                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
+                kind: .color, default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
+                keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
             ),
             SettingDescriptor(
                 BackdropArtSetting().configPath, section: .appearance, group: window,

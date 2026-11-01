@@ -42,8 +42,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         let files = attachments.compactMap(\.file)
         // Create the flight before the row exists so the row inserts hidden.
         let flight = SendFlight(text: text, attachments: photos.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
-        // A bubble effect replaces the flight: the bubble makes its entrance in place.
-        let flies = effect?.kind != .bubble
+        // A bubble effect replaces the flight: the bubble makes its entrance in
+        // place. A reply joins the open thread instead (`refreshReplyThread`).
+        let replying = replyTarget != nil
+        let flies = effect?.kind != .bubble && !replying
         pendingFlight = flies ? flight : nil
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
@@ -55,7 +57,6 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         }
         pendingFlight = nil
         pendingFlightRowIDs = []
-        if replyTarget != nil { exitReplyMode(settling: false) }
         if flies { launch(flight, rowID: rowID) }
         if effect != nil { playSentEffect(rowID: rowID) }
         // The send button leaves with the text; VoiceOver stays in the field.

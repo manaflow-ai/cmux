@@ -20,10 +20,13 @@ final class SandboxRunNotices {
     static let bannerPrefix = "sandbox-run."
     let follower: SandboxRunFollower
     private weak var services: AppServices?
+    /// The signed-in user whose Runs are followed (tests pass their own).
+    private let currentUser: @MainActor () -> String?
     private var account: Task<Void, Never>?
 
-    init(services: AppServices, follower: SandboxRunFollower? = nil) {
+    init(services: AppServices, follower: SandboxRunFollower? = nil, user: (@MainActor () -> String?)? = nil) {
         self.services = services
+        self.currentUser = user ?? { [weak services] in services?.cloud.auth.user?.id }
         self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.api] id, team in
             try await api.pinningTeam(team).waitRun(id, timeoutMs: 10_000)
         })
@@ -50,10 +53,17 @@ final class SandboxRunNotices {
     /// A send's Run `id`, followed here for the account signed in now; answers its terminal snapshot.
     /// The server decides who may read it: if the create went out under another account (a switch
     /// during the send), this account's wait is refused (403, 404) and the follow ends, untold.
-    func follow(id: String, task: String, key: String, team: String?) async throws -> Data {
-        guard let user = services?.cloud.auth.user?.id else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
-        return try await follower.follow(SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date()))
+    /// `incognito` is the send's own, read as it was issued (``sendIsIncognito(_:)``): by the time the
+    /// create answers, its tab may be gone (#31040).
+    func follow(id: String, task: String, key: String, team: String?, incognito: Bool) async throws -> Data {
+        guard let user = currentUser() else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
+        var record = SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date())
+        record.incognito = incognito ? true : nil
+        return try await follower.follow(record)
     }
+
+    /// Whether `view`'s tab is incognito, read as its send is issued, before the line drains (#31109). No tab: taken as one.
+    func sendIsIncognito(_ view: AgentPaneView) -> Bool { services?.agentTabs.views.first { $0.value === view }.map { incognito(tab: $0.key) } ?? true }
 
     func ended(_ end: SandboxRunEnd) {
         let snapshot = (try? JSONSerialization.jsonObject(with: end.snapshot)) as? [String: Any] ?? [:]
@@ -80,7 +90,7 @@ final class SandboxRunNotices {
     private func post(_ end: SandboxRunEnd) {
         guard let center = services?.notifications else { return }
         var arrival = NotificationPolicy.Arrival(source: .agent)
-        arrival.appActive = NSApp.isActive
+        arrival.appActive = services?.appActiveSource() ?? false
         // A tab whose page still shows the send's earlier answer doesn't show the end.
         arrival.paneIsViewed = !stale(end.record.key) && (tab(holding: end.record.key).map { center.isViewed($0) } ?? false)
         arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .cancelled ? .message : .error
@@ -93,7 +103,8 @@ final class SandboxRunNotices {
         let text = Self.text(end)
         if decision.desktop {
             center.desktop.post(id: Self.bannerPrefix + end.record.id, title: text.title, body: text.body, surface: nil,
-                                workspace: nil, defaultSound: decision.sound == "default")
+                                workspace: nil, defaultSound: decision.sound == "default",
+                                incognito: end.record.incognito == true || incognito(end.record.key))
             if let sound = decision.sound, sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: true) }
         } else if let sound = decision.sound {
             center.soundGate.player.play(sound, volume: decision.soundVolume, banner: false)
@@ -111,6 +122,8 @@ final class SandboxRunNotices {
         case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
         case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module)
         case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module)
+        // A Run never stops for the person (only a hand-off does, HandoffNotices).
+        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
         }
         return (title, body)
     }
@@ -129,6 +142,8 @@ final class SandboxRunNotices {
             services.notifications.open(surface: tab.surface)
             return true
         }
+        // An incognito chat's Run never shows outside its window: with the tab gone, the click opens nothing.
+        if run.record.incognito == true { return true }
         var seed = AgentPaneSeed()
         seed.sandboxResult = .init(task: run.record.task, key: run.record.key, card: run.card)
         var spawn = WorkspaceSpawn(name: Self.text(SandboxRunEnd(record: run.record, outcome: run.outcome, snapshot: Data())).title)
@@ -145,6 +160,11 @@ final class SandboxRunNotices {
         })
         return true
     }
+
+    /// Whether attempt `key`'s tab is in an incognito window.
+    private func incognito(_ key: String) -> Bool { tab(holding: key).map { incognito(tab: $0) } ?? false }
+
+    private func incognito(tab: String) -> Bool { services.map { $0.cache.browserTabs.isIncognitoTab($0.agentTabs.resolve(tab)) } ?? false }
 
     /// The agent tab whose page holds the send of attempt `key`.
     private func tab(holding key: String) -> String? {

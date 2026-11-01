@@ -13,7 +13,10 @@ discount change, would bill them; the rule holds here so it holds everywhere. A 
 - its artifact is a known-large kind (an app, a dSYM, an xcresult, a capture, a zip, a DMG, an
   IPA or an xcframework, by name or path), whatever its retention,
 
-unless tests/upload_artifact_retention_allowlist.json lists the step with a reason. An entry is
+unless tests/upload_artifact_retention_allowlist.json lists the step with a reason. The allowlist
+excuses a longer retention or a large kind, never a missing one: every step, listed or not, sets
+retention-days itself, so no artifact falls back to the 90-day default by omission (HQ#5230). An
+entry is
 "<workflow file>::<job id>::<artifact name as written>", with "#2", "#3" ... appended for a later
 step of the same job that writes the same name, so each step is listed on its own. An entry that
 no longer matches a
@@ -180,6 +183,14 @@ class WorkflowTests(unittest.TestCase):
             + ["Use retention-days: 1 for a same-run handoff and R2 (scripts/ci/upload-r2-object.py) "
                "for anything bigger or longer-lived, or add the step to "
                "tests/upload_artifact_retention_allowlist.json with a reason."]))
+
+    def test_every_upload_sets_retention_days_even_when_allowlisted(self):
+        # The class is deliberate per step: 1 day for a same-run handoff, 3 for a report a person
+        # reads, longer only for a listed handoff (e.g. one that waits on an environment approval).
+        missing = sorted(key for path in workflow_files() for key, options in upload_steps(path)
+                         if options.get("retention-days") in (None, ""))
+        self.assertEqual(missing, [], "these upload steps set no retention-days, so they keep the "
+                         "90-day default; set it explicitly (an allowlist entry does not excuse it)")
 
     def test_the_allowlist_has_reasons_and_no_stale_entries(self):
         allow = load_allowlist()

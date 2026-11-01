@@ -50,6 +50,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // closed.reopen by a closed tab's id (its link), with the pane a tab
         // whose pane and workspace are gone opens in.
         (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
+        // closed.reopen by a closed workspace's old id (its link, #25659).
+        (vec!["closed", "reopen", "--workspace", WORKSPACE], "closed.reopen"),
         // Fields added since the case list last covered them: each one's CLI path.
         (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
         (
@@ -345,6 +347,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        | "chief.continue"
+                        | "chief.retry"
                         // `cmux chief list|new|adopt|edit|delete` send these
                         // (cli/chief/registry.rs), outside the noun grammar.
                         | "chief.profile.list"
@@ -409,6 +413,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ("tab.update", "owner"),
         ("tab.update", "back"),
         ("tab.update", "forward"),
+        // The guarded attention clear: an app acknowledging the mark it captured
+        // (`extra.attention.request_id`) sends it with `attention:null`; the CLI
+        // keeps the unconditional clear (docs/protocol.md, #27497).
+        ("tab.update", "attention_request_id"),
         ("client.metadata.update", "capabilities"),
         // layout.bulk: the CLI names the anchor by its selector and has no
         // selection; apps and MCP send anchor and ids.

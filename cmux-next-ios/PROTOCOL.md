@@ -112,7 +112,7 @@ echoes the token),
 | `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
-| `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation). `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. |
+| `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
 | `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt,online,machineId,push}]}` (0.7.0): every Mac and phone the caller registered, in any team or personal space. `online` is live presence for Macs and `null` for phones; `push` is whether the phone has an APNs token |
@@ -546,16 +546,51 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+- `cloud-directory` (link protocol 2): no arguments; one JSON data frame
+  `{"machines":[{"machine_id","team_id","name"}]}` followed by `eof`.
+  Hostd obtains this list from the signed-in Mac app's authenticated owner
+  CloudLinkSession objects. Carrier paths and ownership markers are never sent
+  to the phone; conflicting duplicate machine/team entries are omitted.
+- `cloud-acpmux` (link protocol 2): `{"machine_id","team_id"}`. Hostd
+  resolves exactly one current owner link from the app. This socket is already
+  the Cloud app server's daemon carrier; no second `link.dial` or service hello
+  is sent. Rust hostd requires `identify.data.capabilities` to advertise
+  `cloud-mobile-chat-v1` before marking its connection with that capability.
+  A successful `set-client-info` reply alone is insufficient. It discovers the VM's stored
+  agent tabs, and translates the phone's ACP requests to scoped native
+  `agent-session-*` commands. ACP pages and records keep their original sequence
+  numbers. Text prompts answer on durable acceptance; cancel and history paging
+  are supported. Approval answers, mode changes and arbitrary daemon commands
+  are refused. Every prompt first refreshes the session summary and requires
+  Claude `default`/`plan` or Codex `ask`, plus enforcement policy `ask`; missing
+  or unknown fields fail closed. This preflight supplements the required VM
+  implementation: authenticated owner checks and an atomic asking-mode floor
+  through dispatch, queued prompts and the active turn. It cannot replace that
+  enforcement or prove the actual Codex bridge profile from a mode name.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
+  Any size: data frames until `eof`, up to the size the file had when it was opened. A host
+  before 2026-10-28 refuses a file over 64 MiB with `too_large`.
+- `file-preview`: `{"path"}` uses the same authorization and confinement as `file`.
+  Its first data frame is JSON `{"size": <bytes>}`, from the same open descriptor
+  used to stream the file. Subsequent data frames contain raw file bytes until `eof`,
+  up to that initial size, with no file-size cap. A file truncated while streaming
+  may end earlier; the phone treats a stream that ends short of the size, or runs past
+  it, as a file that changed while downloading, removes the partial copy and asks the
+  person to try again. Refusals before streaming send no metadata. The phone uses this
+  size to check available storage before downloading and rechecks during the stream;
+  insufficient space cancels the preview and removes the partial temporary file.
+  Older hosts refuse this service with `unknown_service`; clients must not parse the
+  legacy `file` service's raw bytes as metadata.
 - `upload`: `{"name","size","cwd"?}` (`size` a number or a decimal string).
   The phone sends exactly `size` bytes as data frames. The Mac writes them to
   a new file and answers one data frame `{"path","size"}`, then `eof`. With
   `cwd`, which must be a folder of one of the Mac's tabs or inside a workspace
   root, the file goes to `<cwd>/.cmux/attachments/phone-<session>/`.
-  Otherwise it goes to the host's uploads folder. A refusal (`too_large`,
-  `forbidden`, `not_found`, `bad_request`, `io`) is answered
-  `{"error","message"}` before the channel closes with that code. The name is
-  made safe, and an existing file is never replaced (`name 2.ext`, ...).
+  Otherwise it goes to the host's uploads folder. Any size is accepted; the
+  bytes stream to disk as they arrive. A refusal (`forbidden`, `not_found`,
+  `bad_request`, `io`) is answered `{"error","message"}` before the channel
+  closes with that code. The name is made safe, and an existing file is never
+  replaced (`name 2.ext`, ...).
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
@@ -649,7 +684,32 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   forward Delete and Command/Control shortcuts go to the page directly as
   `key` events (with the Mac's edit commands: Option-arrows by word,
   Command-arrows by line or document, Command-Z/Shift-Command-Z); Command-V
-  pastes the phone's clipboard. Under
+  pastes the phone's clipboard.
+  **Page asks** (2026-10-26, remote-tab-protocol.md section 4, as the Mac's
+  viewer answers them): a link that opens a new tab or window
+  (`rb.open_tab {request, url, disposition}`: `target=_blank`, `window.open`)
+  becomes a phone browser tab in the page's
+  pane (daemon `new-browser-tab {url, pane}`, so only `http(s)` and
+  `about:blank` open), shown unless `disposition` is `background_tab`, and the
+  phone answers `rb.open_tab.result {request, tab}` or `{request, refused}`. A
+  long press sends a secondary click at that spot (pointer `button` 2) and
+  shows the host's `rb.menu.show` of kind `context` as the system menu; rows
+  whose command acts on the Mac itself (Copy and Save rows, Paste, Print,
+  Inspect, Look Up, Speech, Cast, Create QR Code) are left out, and so are the
+  rows Chromium opens as a new tab through `OpenURLFromTab` (Open Link in New
+  Tab or Window, Open Image in New Tab, Search for, View Page Source): the browser host forwards only the page's
+  own popups (`OnBeforePopup`) as `rb.open_tab`, so those would open nothing
+  a viewer sees until it forwards them too. The pick goes back as `rb.menu.result
+  {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
+  or one that arrives with no long press waiting (after 1.5 s), as `{choice:
+  "cancel"}`. A `<select>` (`rb.menu.show` of kind `select`) shows its options
+  in a sheet and answers `{choice: "indices", indices}`. JavaScript dialogs
+  (`rb.dialog.show`) show as a system alert (a prompt with a text field) and
+  answer `rb.dialog.result {token, accept, text}`. `rb.menu.cancel` and
+  `rb.dialog.cancel` close the sheet or alert with no answer; a new stream
+  session drops whatever was open. Popup surfaces (`rb.surface.show`: date,
+  color and datalist pickers) are not shown on the phone yet. The page menu's
+  Hard Reload sends `rb.history reload_no_cache`. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
@@ -685,6 +745,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   until the person allows iPhone connections again on the Mac, so the
   phone's removal copy can say so. Absent (older hosts): the Mac may add
   itself back.
+  `file-preview-v1`: `file-preview` sends a size metadata frame before file bytes,
+  allowing a phone to check available storage without a separate stat/open race.
   `browser-stream-v1`: the host streams browser tabs (`browser`); the Mac
   build bundles a browser host (Release builds ship none yet). A host that
   says `removal-v1` without it refuses `browser` with `no_browser_host`, and
@@ -693,6 +755,19 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
   `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
   (`surface`, below).
+  `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
+  `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
+  and drive authenticated owner Cloud machines through the Mac carrier.
+- `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
+  string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
+  then `[::1]`. Data frames are the connection's bytes in each direction;
+  either side closing ends it. The phone opens one channel per connection a
+  native browser tab makes to its own `127.0.0.1:<port>` / `[::1]:<port>`
+  (Open on iPhone at `http(s)://localhost:<port>`), so the page keeps its
+  origin. Nothing listening: `unavailable` "Nothing is listening on port N on
+  this Mac."; a missing or bad port: `bad_request`; an older Mac:
+  `unknown_service`, and the phone keeps that tab mirrored. The phone never
+  names a host.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
   (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;
@@ -1040,11 +1115,14 @@ APNs.
   characters), only the ids, `kind`, `state` and texts cut to 20 characters
   stay.
 - Banner text: question "<Agent> asks" / the question; permission "<Agent>
-  needs permission" / the title; completed "<Agent> finished" / the last
-  `tail` line; failed "<Agent> stopped with an error" / `body` or the last
-  line; chief "Chief" / `body`; terminal "Terminal · <workspace>" /
-  "<title>: <body>" (a program never chooses the banner's title). Subtitle
-  "<workspace or place> · <Mac>".
+  wants to act on <Mac>" / the title, as the Mac's approval prompt for a
+  streaming device ("<device> wants to control this Mac"); completed
+  "<Agent> finished" / the last `tail` line; failed "<Agent> stopped with an
+  error" / `body` or the last line; chief "Chief" / `body`; terminal
+  "Terminal · <workspace>" / "<title>: <body>" (a program never chooses the
+  banner's title). Subtitle "<workspace or place> · <Mac>"; for a permission
+  only "<workspace or place>" (the Mac is in the title). The phone writes the
+  same text for a sealed push (`PushBanner`, `ApprovalBanner`).
 - `previews: false` (the phone turned Show previews off): the 0.11 banner
   text ("Claude has a question", body the Mac's name) and no subtitle; the
   `cmuxMobile` fields stay, so the buttons still work after unlock.

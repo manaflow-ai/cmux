@@ -7,8 +7,9 @@ extension SidebarDocStore {
     /// - Parameters:
     ///   - session: the host daemon's session id (its `registryID`).
     ///   - title: the change's name (the undo menu and the refusal HUD).
-    public func markHostGroup(session: String, title: String) {
-        let ops = SidebarDocHostGroupPlan(session: session, records: records).ops
+    ///   - name: the group's name on its header; nil keeps the host's name.
+    public func markHostGroup(session: String, title: String, name: String? = nil) {
+        let ops = SidebarDocHostGroupPlan(session: session, records: records, title: name).ops
         guard !ops.isEmpty else { return }
         send(ops: ops, title: title, undoable: false)
     }

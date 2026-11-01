@@ -1,0 +1,145 @@
+/* The transcript family row: one quiet line by default, with its panel growing below the anchored
+   header. Incoming messages use the same DisclosureRow API when their shared bridge lands. */
+/* A row's line has the tool rows' 26px height in 2px margins and their regular weight, as the
+   received-message line it sits among does (conversation.css .cv-received): consecutive rows of the
+   family stack with no extra gap and none of them is bold (Leo, 2026-10-29: "why is one of these
+   bold? And why is there space, a fucking gap in between them?"). */
+.cv-disclosure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
+  min-width: 0;
+  color: var(--cv-text);
+}
+.cv-disclosure__line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: var(--cv-disclosure-line-height);
+  gap: var(--grid-gap);
+}
+.cv-disclosure__toggle,
+.cv-disclosure__open {
+  all: unset;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: var(--grid-gap);
+  box-sizing: border-box;
+  min-height: var(--cv-disclosure-line-height);
+  cursor: default;
+  border-radius: 6px;
+  /* The line's first toggle takes its start inset back (below), so its icon sits in the one
+     column (conversation.css --cv-row-icon). */
+  padding: 0 var(--ds-space-1);
+}
+/* A line that starts with its toggle: the hover plate keeps its inset, the icon stays in the
+   shared column. */
+.cv-disclosure__line > :is(.cv-disclosure__toggle, .cv-disclosure__open):first-child:not(.is-chevron) {
+  margin-inline-start: calc(-1 * var(--ds-space-1));
+}
+/* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
+   own toggle right after it. */
+.cv-disclosure__open {
+  flex: 0 1 auto;
+}
+.cv-disclosure__line > .cv-disclosure__toggle.is-chevron {
+  flex: none;
+  justify-content: center;
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+  padding: 0;
+  margin-inline-start: calc(-1 * var(--ds-space-1));
+  border-radius: 5px;
+  color: var(--cv-text-muted);
+}
+.cv-disclosure__toggle:hover,
+.cv-disclosure__toggle:focus-visible,
+.cv-disclosure__open:hover,
+.cv-disclosure__open:focus-visible {
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+}
+.cv-disclosure__icon {
+  display: inline-flex;
+  flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-text-muted);
+}
+.cv-disclosure__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+.cv-disclosure__meta,
+.cv-disclosure__status {
+  flex: none;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-disclosure__meta::before,
+.cv-disclosure__status::before {
+  content: "·";
+  margin-inline-end: calc(var(--ds-space-1) + 1px);
+  color: var(--cv-text-faint, var(--cv-text-muted));
+}
+.cv-disclosure__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-disclosure__status [data-state="failed"],
+.cv-disclosure[data-state="failed"] .cv-disclosure__status {
+  color: var(--agent-status-failure);
+}
+.cv-disclosure__panel {
+  margin: 0;
+  margin-inline-start: var(--grid-icon-box);
+  padding: var(--grid-cards-padding);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cv-text) 5%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
+}
+.cv-disclosure__panel > .cv-subsession__raw {
+  margin-inline-start: 0;
+  margin-top: 0;
+}
+.cv-disclosure__panel .cv-subsession__markdown,
+.cv-disclosure__panel .cv-subsession__cut {
+  margin-inline-start: 0;
+}
+.cv-disclosure__panel > .cv-disclosure {
+  margin: 0;
+}
+
+/* The caret sits right after the words, never pushed to the line end (cmux#28018). */
+.cv-disclosure__toggle > .cv-rotor {
+  flex: none;
+}
+.cv-disclosure__panel > .cv-subsession__under {
+  padding-inline-start: 0;
+}
+/* Opened, the line's state reads whole (a lane's error, what it waits on): the panel under it does
+   not repeat it (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO
+   WAY TO EXPAND WHAT WAS SAID TO SEE"). */
+.cv-disclosure[data-open] .cv-disclosure__status {
+  flex: 0 1 auto;
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

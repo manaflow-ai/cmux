@@ -27,8 +27,8 @@ public struct PaneToolbarItem: Equatable, Sendable {
 /// 2026-10-12): the pinned actions' buttons, then "…". They hide at rest (`tabs.restingControlOpacity`,
 /// 0 by default; Lawrence 2026-10-20) and fade in while the pointer is over the tab bar or these
 /// controls (`HoverReveal`, like the strip's plus), while "…"'s menu is open and while one has keyboard
-/// focus, and stay shown, "…" and the zoom button lit, while the pane is zoomed (the zoom button
-/// shows then even when not pinned, and its click restores the layout). Their width is kept while they are faded,
+/// focus, and stay shown, "…" and a pinned zoom button lit, while the pane is zoomed (the selected
+/// tab carries the zoom indicator, `TabStripModel.zoomsSelected`). Their width is kept while they are faded,
 /// so no tab moves when they appear. The overflow glyph also stays in its trailing slot throughout
 /// the opacity fade (Leo 2026-10-26). "…"'s menu opens on press (press-drag-release) and lists what
 /// opens in the pane, then the actions without a button, Search Tabs, then Show in Tab Bar.
@@ -37,6 +37,11 @@ public final class PaneToolbarView: NSView {
     public var moreMenu: (() -> NSMenu?)?
     /// Runs a pinned button's action (its catalog id).
     public var onPerform: ((String) -> Void)?
+    public var onNativeTool: ((String, String?) -> Void)?
+    /// Owner-checked URL selection, paired with the tab-row event publication.
+    public var onNativeToolURL: ((String, String?, URL) -> Void)?
+    /// Opens a validated native menu URL. Injectable for tests; production uses AppKit's workspace.
+    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
     /// The tab bar's frame in the superview: hovering it reveals the controls too.
     public var stripFrame: (() -> NSRect?)?
 
@@ -46,6 +51,8 @@ public final class PaneToolbarView: NSView {
     /// Buttons' room the bar keeps even while fewer show (``show(_:more:lit:reserving:)``).
     public private(set) var reservedCount = 0
     public private(set) var buttons: [TitlebarBandButton] = []
+    public private(set) var nativeItems: [PaneTabRowTool] = []
+    public private(set) var nativeButtons: [TitlebarBandButton] = []
     /// The app's one more button (⋮, OverflowButton); its menu opens on press.
     public let moreButton = OverflowButton(label: Strings.paneMore)
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
@@ -92,10 +99,13 @@ public final class PaneToolbarView: NSView {
     ///
     /// - Parameter reserving: buttons' room to keep even while fewer show: the most any tab of the
     ///   pane shows, so the strip's width (and every tab's) does not follow the selected tab.
-    public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool, reserving: Int = 0) {
-        guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount else { return }
+    public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool, reserving: Int = 0,
+                     nativeItems: [PaneTabRowTool] = []) {
+        guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount || nativeItems != self.nativeItems else { return }
         reservedCount = reserving
         if items != self.items { setButtons(items) }
+        if nativeItems != self.nativeItems { setNativeButtons(nativeItems) }
+        self.nativeItems = nativeItems
         hasMore = more
         self.lit = lit
         moreButton.isHidden = !more
@@ -128,16 +138,117 @@ public final class PaneToolbarView: NSView {
         }
     }
 
-    /// Nothing to offer: no width, so the strip keeps the whole bar.
-    override public var intrinsicContentSize: NSSize {
-        let count = max(shownCount, reservedCount)
-        guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
-        let side = TitlebarBandButton.side
-        let inset = Self.edgeInset(height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2))
-        return NSSize(width: CGFloat(count) * side + CGFloat(count - 1) * Metrics.space1 / 2 + inset, height: NSView.noIntrinsicMetric)
+    private func setNativeButtons(_ items: [PaneTabRowTool]) {
+        nativeButtons.forEach { reveal.remove($0); $0.removeFromSuperview() }
+        nativeButtons = items.enumerated().map { index, item in
+            let button = TitlebarBandButton(symbol: item.symbol, text: item.text)
+            button.tag = index
+            button.setAccessibilityLabel(item.label)
+            button.setAccessibilityIdentifier("cmux.pane.native-toolbar.\(item.id)")
+            button.themedToolTip = item.label
+            button.state = item.toggled ? .on : .off
+            button.isEnabled = item.enabled
+            button.badge = item.badge
+            if item.menu.isEmpty {
+                button.target = self
+                button.action = #selector(pressNative(_:))
+            } else {
+                button.target = self
+                button.action = #selector(pressNative(_:))
+                button.pressMenu = { [weak self] in self?.menu(for: item) }
+                let present = button.presentMenu
+                button.presentMenu = { [weak self] menu, source in
+                    let hold = self?.reveal.hold()
+                    present(menu, source)
+                    hold?.release()
+                }
+            }
+            addSubview(button)
+            reveal.add(button)
+            return button
+        }
     }
 
-    private var shownCount: Int { buttons.count + (hasMore ? 1 : 0) }
+    private func menu(for tool: PaneTabRowTool) -> NSMenu? {
+        let menu = NSMenu(title: tool.label)
+        let invoke = onNativeTool
+        let invokeURL = onNativeToolURL
+        menu.autoenablesItems = false
+        for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke, invokeURL: invokeURL)) }
+        return menu
+    }
+
+    /// Native tools remain reachable from the overflow menu when a narrow pane cannot fit every
+    /// supplied button: only those whose button is hidden, so a tool that shows is not listed twice.
+    /// The same invoker path keeps the page event identical to a direct press.
+    public func nativeOverflowItems() -> [NSMenuItem] {
+        let invoke = onNativeTool
+        let invokeURL = onNativeToolURL
+        layoutSubtreeIfNeeded()
+        return zip(nativeItems, nativeButtons).compactMap { tool, button in button.isHidden ? tool : nil }.map { tool in
+            let row = NSMenuItem(title: tool.text ?? tool.label, action: nil, keyEquivalent: "")
+            row.isEnabled = tool.enabled
+            row.state = tool.toggled ? .on : .off
+            let invoker = NativeMenuInvoker(enabled: { [weak self] in
+                tool.enabled && self?.nativeItems.contains(tool) == true
+            }) {
+                guard tool.menu.isEmpty else { return }
+                invoke?(tool.id, nil)
+            }
+            row.action = #selector(NativeMenuInvoker.run)
+            row.target = invoker
+            row.representedObject = invoker
+            if !tool.menu.isEmpty {
+                let submenu = NSMenu(title: tool.label)
+                submenu.autoenablesItems = false
+                tool.menu.forEach { submenu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke, invokeURL: invokeURL)) }
+                row.submenu = submenu
+            }
+            return row
+        }
+    }
+
+    private func menuItem(_ item: PaneTabRowMenuItem, tool: PaneTabRowTool, ancestorsEnabled: Bool,
+                          invoke: ((String, String?) -> Void)?, invokeURL: ((String, String?, URL) -> Void)?) -> NSMenuItem {
+        let row = NSMenuItem(title: item.label, action: #selector(NativeMenuInvoker.run), keyEquivalent: "")
+        let enabled = ancestorsEnabled && item.enabled
+        row.isEnabled = enabled
+        if let checked = item.checked { row.state = checked ? .on : .off }
+        let invoker = NativeMenuInvoker(enabled: { [weak self] in
+            enabled && self?.nativeItems.contains(tool) == true
+        }) {
+            guard item.children.isEmpty else { return }
+            if let rawURL = item.url, let url = URL(string: rawURL) {
+                invokeURL?(tool.id, item.id, url)
+            } else {
+                invoke?(tool.id, item.id)
+            }
+        }
+        row.target = invoker
+        row.representedObject = invoker
+        if !item.children.isEmpty {
+            let submenu = NSMenu(title: item.label)
+            submenu.autoenablesItems = false
+            item.children.forEach { submenu.addItem(self.menuItem($0, tool: tool, ancestorsEnabled: enabled, invoke: invoke, invokeURL: invokeURL)) }
+            row.submenu = submenu
+        }
+        return row
+    }
+
+    /// Nothing to offer: no width, so the strip keeps the whole bar.
+    override public var intrinsicContentSize: NSSize {
+        let allButtons = buttons + nativeButtons
+        let count = max(shownCount, reservedCount)
+        guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
+        let inset = Self.edgeInset(height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2))
+        let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
+        let reservedWidth = CGFloat(max(0, count - allButtons.count)) * TitlebarBandButton.side
+        let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
+        return NSSize(width: buttonWidth + reservedWidth + gaps + inset,
+                      height: NSView.noIntrinsicMetric)
+    }
+
+    private var shownCount: Int { buttons.count + nativeButtons.count + (hasMore ? 1 : 0) }
 
     override public func layout() {
         super.layout()
@@ -146,19 +257,29 @@ public final class PaneToolbarView: NSView {
         // in order, so Search Tabs keeps its place whichever tab is selected and fewer pins leave room
         // only at the leading end.
         let y = Self.edgeInset(height: bounds.height)
-        func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - y - side - CGFloat(fromTrailing) * (side + gap) }
         moreButton.frame = moreFrame()
-        let trailingSlot = hasMore || reservedCount > buttons.count ? 1 : 0
+        let allButtons = buttons + nativeButtons
+        let trailingSlot = hasMore || reservedCount > allButtons.count ? 1 : 0
+        let widths = allButtons.map(\.preferredWidth)
         // Creation actions remain in the + menu. Fold their buttons away together when the
         // pane caps this toolbar's width, keeping pins in their trailing slots. Pins that also
         // cannot fit return to the more menu instead of overlapping the remaining controls.
-        let creationFits = items.indices.filter { items[$0].alwaysVisible }.allSatisfy {
-            slotX(buttons.count - $0 - 1 + trailingSlot) >= 0
-        }
-        for (index, button) in buttons.enumerated() {
-            let x = slotX(buttons.count - index - 1 + trailingSlot)
-            button.isHidden = x < 0 || (items[index].alwaysVisible && !creationFits)
-            button.frame = NSRect(x: max(0, x), y: y, width: side, height: side)
+        let requiredWidth = y + widths.reduce(0, +) + CGFloat(max(0, allButtons.count - 1)) * gap
+            + CGFloat(trailingSlot) * (side + gap)
+        let creationFits = requiredWidth <= bounds.width
+        var cursor = bounds.width - y - CGFloat(trailingSlot) * (side + gap)
+        for index in allButtons.indices.reversed() {
+            let button = allButtons[index]
+            let available = max(0, cursor)
+            // A button needs its complete icon slot to stay reachable. If only a
+            // partial slot remains, hide it so nativeOverflowItems() can expose it
+            // under the trailing menu instead of drawing over the neighbor.
+            let fits = available >= side
+            let width = fits ? min(widths[index], available) : 0
+            let x = cursor - width
+            button.isHidden = !fits || x < 0 || (index < items.count && items[index].alwaysVisible && !creationFits)
+            button.frame = NSRect(x: max(0, x), y: y, width: max(side, width), height: side)
+            cursor = x - gap
         }
         applyTint()
     }
@@ -187,6 +308,9 @@ public final class PaneToolbarView: NSView {
     private func applyTint() {
         moreButton.tintOverride = lit ? performWithTheme { Palette.litGlyph } : nil
         for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.litGlyph : Palette.textSecondary } }
+        for (button, item) in zip(nativeButtons, nativeItems) {
+            button.contentTintColor = performWithTheme { item.toggled ? Palette.litGlyph : Palette.textSecondary }
+        }
     }
 
     // MARK: The tab bar
@@ -225,7 +349,7 @@ public final class PaneToolbarView: NSView {
     public func refreshCorner() {
         let rect = stripFrame?().map { $0.union(frame) } ?? frame
         // Any control that shows (Search Tabs with a chat selected has no "…") brightens on hover.
-        let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty) && !isHiddenOrHasHiddenAncestor
+        let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty || !nativeButtons.isEmpty) && !isHiddenOrHasHiddenAncestor
         if live, let corner, corner.rect == rect, cornerHost === superview { return }
         if let corner { cornerHost?.removeTrackingArea(corner) }
         corner = nil
@@ -248,6 +372,34 @@ public final class PaneToolbarView: NSView {
         guard items.indices.contains(sender.tag) else { return }
         onPerform?(items[sender.tag].id)
     }
+
+    @objc private func pressNative(_ sender: TitlebarBandButton) {
+        guard sender.isEnabled, nativeItems.indices.contains(sender.tag) else { return }
+        if !nativeItems[sender.tag].menu.isEmpty {
+            sender.performPressMenu()
+            return
+        }
+        onNativeTool?(nativeItems[sender.tag].id, nil)
+    }
+}
+
+private final class NativeMenuInvoker: NSObject, NSMenuItemValidation {
+    let enabled: () -> Bool
+    let action: () -> Void
+    init(enabled: @escaping () -> Bool, action: @escaping () -> Void) {
+        self.enabled = enabled
+        self.action = action
+    }
+    @objc func run() {
+        guard enabled() else { return }
+        action()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let value = enabled()
+        menuItem.isEnabled = value
+        return value
+    }
 }
 
 // Like the strip's empty space (TabStripView+TitlebarDrag): in the window's top row, a press
@@ -255,7 +407,7 @@ public final class PaneToolbarView: NSView {
 extension PaneToolbarView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
-        let onButton = (buttons as [NSView] + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
+        let onButton = ((buttons + nativeButtons).map { $0 as NSView } + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
         return !onButton && WindowTitlebar.isInTopRow(self) ? .movesWindow : .staysPut
     }
 }

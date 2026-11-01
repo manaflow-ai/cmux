@@ -13,9 +13,9 @@ extension KeyRouter {
     /// (not in a text field, not in browser focus mode), then a Chrome
     /// extension shortcut. Only for a key the dispatcher never saw (a
     /// synthetic event): the dispatcher already decided every real key-down.
-    func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
+    func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState, facts: Facts = Facts()) -> Bool {
         if decided.contains(event) || Self.overlayHasKeys(focus) { return false }
-        let context = keyContext(for: focus, facts: Facts())
+        let context = keyContext(for: focus, facts: facts)
         // A Ghostty keybind never runs a content action from a hook (the terminal runs its own).
         if let winner = resolve(event, context: context), !winner.source.isGhostty, registry.keyTier(for: winner.command) == .content,
            !isPageKey(event, id: winner.command), Self.allows(.content, id: winner.command, focus: focus) {
@@ -108,7 +108,7 @@ extension KeyRouter {
         guard let services else { return (nil, .other) }
         // No key window (the app is inactive, or an automation launch):
         // menu actions target the active window, so its focus decides.
-        guard let key = NSApp.keyWindow else { return (services.windows.active, .content) }
+        guard let key = services.keyWindowSource() else { return (services.windows.active, .content) }
         return focus(for: key)
     }
 

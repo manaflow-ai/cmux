@@ -50,8 +50,10 @@
 //!   prompt the next daemon adopts gets a new nonce under the new run (`permission_reissued`, also
 //!   a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
 //!   nothing. A question's answers, and their annotations, count only under
-//!   [`decision_answers_proof`]. A proof never
-//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
+//!   [`decision_answers_proof`]. A decision proof never
+//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own.
+//!   One chat's policy raise has a proof of its own over a challenge this daemon issued
+//!   ([`policy_grant`]). A keyed daemon is not dumpable (`daemon.rs`), so an
 //!   agent it starts cannot read the key from its memory.
 //! - A group's one-time allow from a connection that is not the person (peer-route approvals,
 //!   `mac_approvers.rs`) counts only with `_meta.acpmux.approverDecisions`: for EVERY pending
@@ -181,7 +183,9 @@
 //! (`Hub::keeps_harness_mode`, as a handoff target of a source that asks
 //! does). A request that names a mode skips the default; (a) and (b) gate
 //! it as above. Presets, folder profiles, adopted chats and profiles that
-//! pin a mode in their argv keep the harness's own mode.
+//! pin a mode in their argv keep the harness's own mode, except a built-in
+//! Chief subagent preset that names no mode, whose chat starts as a plain one
+//! (`start_mode.rs` `plain_for_mode`, cmux#27847).
 //!
 //! Also without the person: no rules change under a session policy that
 //! does not ask (a rule is then what keeps a tool asking), no removal of a
@@ -249,6 +253,7 @@ pub use super::start_gate::{
     StartMode, caller_env, caller_proves, caller_token, host_label, mode_person_required,
     take_caller,
 };
+use cmux_json::JsonSet as _;
 
 /// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
 pub const KEY_FIELD: &str = "personKey";
@@ -383,6 +388,8 @@ pub struct PersonGate {
     instance: std::sync::OnceLock<String>,
     /// Decision nonces that counted once, with when.
     spent: StdMutex<std::collections::VecDeque<(String, std::time::Instant)>>,
+    /// The open challenges of a policy raise from another machine's app (`policy_grant.rs`).
+    policy_challenges: StdMutex<std::collections::VecDeque<policy_grant::Challenge>>,
     /// The person's phones that may allow with a signature (`approvers.rs`).
     pub approvers: super::approvers::ApproverSet,
     /// The Macs whose app may allow here over the peer link (`mac_approvers.rs`).
@@ -470,7 +477,7 @@ impl PersonGate {
                 .ok_or_else(|| bad("each folder is absolute"))?;
             let mut row =
                 pick(f).ok_or_else(|| bad("each folder pick names a harness and a model"))?;
-            row["folder"] = folder.into();
+            row.set("folder", folder.into());
             kept.push(row);
         }
         out.insert("folders".into(), Value::Array(kept));
@@ -655,7 +662,8 @@ impl PersonGate {
             spent.pop_front();
         }
         let fresh = nonces.iter().enumerate().all(|(i, nonce)| {
-            !nonces[..i].contains(nonce) && !spent.iter().any(|(n, _)| n == nonce)
+            !nonces.get(..i).unwrap_or_default().contains(nonce)
+                && !spent.iter().any(|(n, _)| n == nonce)
         });
         if nonces.is_empty() || !fresh {
             return false;
@@ -778,7 +786,9 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
 }
 
 mod decision_answers;
+pub mod policy_grant;
 pub use decision_answers::decision_answers_proof;
+pub use policy_grant::policy_proof;
 /// The bytes a decision proof covers.
 fn decision_message(parts: [&str; 5]) -> Vec<u8> {
     let mut message = b"acpmux-person-decision-v1".to_vec();

@@ -36,6 +36,22 @@ public final class AgentActivityMockSource: AgentActivitySource {
                               tint: specs.first { $0.id == parts[0] }?.color ?? "#888888")
     }
 
+    /// Draws and encodes the demo frame off the main actor (one size: the demo has no full frames).
+    public func frame(_ frame: AgentActivityFrameRef, size: AgentActivityFrameSize,
+                      session: String?) async -> AgentActivityFrameData? {
+        let parts = frame.blob.split(separator: "|").map(String.init)
+        guard parts.count == 3, let step = Int(parts[2]) else { return nil }
+        let app = parts[1], tint = specs.first { $0.id == parts[0] }?.color ?? "#888888"
+        let pixels = NSSize(width: max(frame.width, 1), height: max(frame.height, 1))
+        // concurrency-allow: a detached encode keeps PNG work off the main actor; it captures only Sendable values.
+        return await Task.detached(priority: .userInitiated) {
+            let image = Self.drawFrame(app: app, step: step, size: pixels, tint: tint)
+            guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+                  let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+            return AgentActivityFrameData(mime: "image/png", base64: png.base64EncodedString())
+        }.value
+    }
+
     public func perform(_ op: AgentActivityUserOp) async throws {
         performed.append(op)
     }

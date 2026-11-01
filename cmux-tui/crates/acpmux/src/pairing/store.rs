@@ -335,14 +335,18 @@ impl Store {
             .iter()
             .position(|d| d.revoked_ms.is_none() && d.name == name && d.role == Role::Phone);
         // Names are unique among live records: set the old one aside for the issue's check.
-        if let Some(at) = old {
-            self.devices[at].revoked_ms = Some(now_ms);
+        if let Some(at) = old
+            && let Some(device) = self.devices.get_mut(at)
+        {
+            device.revoked_ms = Some(now_ms);
         }
         let mut device = match self.issue(name, Role::Phone, token, id, None, now_ms) {
             Ok(device) => device,
             Err(e) => {
-                if let Some(at) = old {
-                    self.devices[at].revoked_ms = None;
+                if let Some(at) = old
+                    && let Some(device) = self.devices.get_mut(at)
+                {
+                    device.revoked_ms = None;
                 }
                 return Err(e);
             }
@@ -369,7 +373,9 @@ impl Store {
                 RpcError::not_found(format!("no paired machine {key:?}; see `cmux host ticket ls`"))
                     .with_data(json!({"reason": "not_found"}))
             })?;
-        let d = &mut self.devices[at];
+        let Some(d) = self.devices.get_mut(at) else {
+            return Err(RpcError::internal("a paired machine moved while it was changed"));
+        };
         if on && !d.role.drives_chats() {
             return Err(RpcError::invalid_params(format!(
                 "{} is paired {}: only a client machine or a phone drives chats here, so only one can run them in Full access",
@@ -401,7 +407,9 @@ impl Store {
                 ))
                 .with_data(json!({"reason": "not_found"}))
             })?;
-        let d = &mut self.devices[at];
+        let Some(d) = self.devices.get_mut(at) else {
+            return Err(RpcError::internal("a paired machine moved while it was changed"));
+        };
         let already = d.revoked_ms.is_some();
         d.revoked_ms.get_or_insert(now_ms);
         Ok(Revoked::Device(d.clone(), already))

@@ -8,7 +8,8 @@
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
-#include "command_line_switches.h"
+#include "command_line_apply.h"
+#include "artifact_page.h"
 #include "external_url.h"
 #include "local_file_handoff.h"
 #include "local_file_scope.h"
@@ -97,18 +98,8 @@ class App : public CefApp, public CefBrowserProcessHandler {
     if (!process_type.empty()) {
       return;
     }
-    for (const std::string& entry : switches_) {
-      size_t eq = entry.find('=');
-      if (eq == std::string::npos) {
-        command_line->AppendSwitch(entry);
-      } else {
-        const std::string name = entry.substr(0, eq);
-        std::string value = entry.substr(eq + 1);
-        if (IsFeatureListSwitch(name) && command_line->HasSwitch(name)) {
-          value = MergeFeatureList(command_line->GetSwitchValue(name).ToString(), value);
-        }
-        command_line->AppendSwitchWithValue(name, value);
-      }
+    for (const std::string& name : ApplySwitches(command_line, switches_)) {
+      NSLog(@"cmux: Chromium switch refused (weakens the sandbox): %s", name.c_str());
     }
   }
 
@@ -163,6 +154,17 @@ std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> 
     frame = frame->GetParent();
   }
   return std::string();
+}
+
+// Inspect the whole ancestry: blank/srcdoc children cannot shed the offline
+// document's restrictions by inheriting an ancestor's ordinary page URL.
+bool RestrictedArtifactFrame(CefRefPtr<CefFrame> frame) {
+  while (frame) {
+    CefRefPtr<CefFrame> parent = frame->GetParent();
+    if (ArtifactContextRestricted(frame->GetURL().ToString(), parent ? parent->GetURL().ToString() : "")) return true;
+    frame = parent;
+  }
+  return false;
 }
 
 class Client : public CefClient,
@@ -282,6 +284,10 @@ class Client : public CefClient,
   // tab in the other store with the same URL.
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
                       bool user_gesture, bool is_redirect) override {
+    CefRefPtr<CefFrame> parent = frame->GetParent();
+    if (RestrictedArtifactFrame(frame) ||
+        ArtifactNavigationRefused(frame->IsMain(), frame->GetURL().ToString(),
+                                  parent ? parent->GetURL().ToString() : "", request->GetURL().ToString())) return true;
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
@@ -311,6 +317,12 @@ class Client : public CefClient,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
     const std::string url = request->GetURL().ToString();
+    const auto type = request->GetResourceType();
+    if (RestrictedArtifactFrame(frame) &&
+        !ArtifactResourceAllowed(url, type == RT_IMAGE || type == RT_MEDIA || type == RT_FONT_RESOURCE)) {
+      static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
+      return refusal;
+    }
     // A request with no frame (a worker, a CefURLRequest) has no folder to
     // judge it by: its file: loads are refused.
     if (LocalFileSchemeURL(url) && request->GetResourceType() != RT_MAIN_FRAME &&
@@ -536,6 +548,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     DropBeforeUnload(id);
     CancelFileDialogs(id);
+    ForgetFileDialogRoute(id);
     TakeHostClose(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);

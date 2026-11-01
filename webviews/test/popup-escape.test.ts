@@ -207,10 +207,25 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     // Insert Mention picked in the host: its @ lands in the prompt, the panel ends.
     const mention = String(items.findIndex((item) => item.label === "Insert Mention"));
     expect(mention).not.toBe("-1");
-    await page.evaluate(
-      (id) => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "pick", id } })),
-      mention,
-    );
+    const modifiers = await page.evaluate((id) => {
+      const picks: boolean[][] = [];
+      document.addEventListener(
+        "click",
+        (event) => {
+          if ((event.target as Element).closest('[role="menuitem"]')?.textContent?.includes("Insert Mention"))
+            picks.push([event.altKey, event.ctrlKey, event.metaKey, event.shiftKey]);
+        },
+        { capture: true, once: true },
+      );
+      // Native selection must preserve Option (Fork's destination chooser) and other modifiers.
+      window.dispatchEvent(
+        new CustomEvent("cmux-popup", {
+          detail: { type: "pick", id, altKey: true, ctrlKey: true, metaKey: true, shiftKey: true },
+        }),
+      );
+      return picks;
+    }, mention);
+    expect(modifiers).toEqual([[true, true, true, true]]);
     await page.waitForSelector(".ui-context-menu", { state: "detached" });
     expect(await page.locator("[contenteditable='true']").innerText()).toContain("@");
     expect((await popupCalls(page)).some((call) => call.method === "popup.hide")).toBe(true);
@@ -260,15 +275,20 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       },
       [list, before] as const,
     );
-    expect(["INPUT", "TEXTAREA"]).toContain(await page.evaluate(() => document.activeElement?.tagName ?? ""));
+    expect(
+      await page.evaluate(() => {
+        const active = document.activeElement;
+        return active instanceof HTMLElement && (active.isContentEditable || active.matches("input,textarea"));
+      }),
+    ).toBe(true);
     // The host's labels are the rows' words, spaced, without the Return hint the selected row shows.
     const labels = ((show?.params.items ?? []) as { label: string }[]).map((item) => item.label);
     for (const label of labels) expect(label).not.toContain("↵");
     // A dismiss from the host (another app, a resize) hides the rows and keeps the typed text.
-    const typed = await page.inputValue(field);
+    const typed = await page.locator(field).textContent();
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "dismiss" } })));
     await page.waitForSelector(`${list} [role=option]`, { state: "detached" });
-    expect(await page.inputValue(field)).toBe(typed);
+    expect(await page.locator(field).textContent()).toBe(typed);
     expect((await popupCalls(page)).some((call) => call.method === "popup.hide")).toBe(true);
     // Typing again brings them back.
     await page.keyboard.type("e");
@@ -279,7 +299,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
   test("a short window sends the New Tab suggestions past its edge", async () => {
     const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
     // The default (Cards) template's field heads the page, so its rows open under it.
-    const labels = await checkSuggestions(page, ".nt-field", ".nt-rows", "release");
+    const labels = await checkSuggestions(page, ".nt-field .acpmux-md", ".nt-rows", "release");
     expect(labels).toContain("Release notes cmux.dev");
     await page.close();
   });
@@ -287,7 +307,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
   test("a short window sends the stage layout's New Tab suggestions past its edge, above the composer", async () => {
     const page = await stage("agent-pane.new-tab", "typed-tab-match-stage", { width: 600, height: 260 });
     // Default's stage layout keeps the composer at the foot of the page, so its rows open above it.
-    const labels = await checkSuggestions(page, ".nt-field", ".nt-rows", "release", "top");
+    const labels = await checkSuggestions(page, ".nt-field .acpmux-md", ".nt-rows", "release", "top");
     expect(labels).toContain("Release notes cmux.dev");
     await page.close();
   });

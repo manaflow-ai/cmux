@@ -17,6 +17,11 @@ enum DebugWindowsControl {
             .async("debug.text_weight") { call in .object(await TextWeightProbe(dark: call.params["dark"]?.boolValue ?? true).measure().mapValues { .number($0) }) },
             // ChromeLabel layout, ink, layer drawing and accessibility vs a stock label (text-weight-e2e.py).
             .mainActor("debug.label_parity") { call in .value(JSONValue(foundation: LabelParityProbe(imageDirectory: call.params["dir"]?.stringValue.map { URL(fileURLWithPath: $0) }).measure().foundation) ?? .null) },
+            // Every click target of a window and whether one press acts now (`FirstClickAudit`, first-click-live.py).
+            .mainActor("debug.first_click") { [weak services] call in
+                guard let window = services?.windows.controllers.first?.window else { return .value(.null) }
+                return .value(JSONValue(foundation: FirstClickAudit().debugReply(window, makePageKey: call.params["make_key"]?.stringValue == "page")) ?? .null)
+            },
             // Window membership and the window invariants (no window
             // without a workspace), with what each window's record saves.
             .mainActor("debug.windows") { [weak services] _ in
@@ -55,7 +60,8 @@ enum DebugWindowsControl {
     /// not entered again yet), `sidebar_width` (points; the saved width while
     /// the window has no controller), `sidebar_hidden`, `display` (the display
     /// UUID of the screen the window is on, null with no screen) and
-    /// `saved_display` (the registry's, written at each geometry save).
+    /// `saved_display` (the registry's, written at each geometry save) and `profile` (the space the
+    /// window shows).
     static func restoreFields(_ windows: WindowManager, id: String) -> [String: JSONValue] {
         let controller = windows.controller(for: id), state = windows.states[id]
         let width = controller.map { Double($0.sidebar.model.width) } ?? state?.sidebarWidth
@@ -67,6 +73,7 @@ enum DebugWindowsControl {
             "sidebar_hidden": .bool(hidden),
             "display": controller?.window?.screen.flatMap(WindowPlacementFallback.displayID(of:)).map(JSONValue.string) ?? .null,
             "saved_display": windows.registry.value.window(id)?.display.map(JSONValue.string) ?? .null,
+            "profile": state.map { JSONValue.string($0.profileID.rawValue) } ?? .null,
         ]
     }
 }

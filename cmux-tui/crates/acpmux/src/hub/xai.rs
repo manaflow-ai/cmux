@@ -19,6 +19,7 @@
 //! (https://github.com/pingdotgg/t3code; see THIRD_PARTY_LICENSES.md).
 
 use super::*;
+use cmux_json::JsonSet as _;
 use serde_json::Map;
 
 /// Which x.ai request a method is.
@@ -149,7 +150,7 @@ fn question_reply(params: &Value, outcome: &Value) -> Value {
     }
     let mut reply = json!({"outcome": "accepted", "answers": answers});
     if !annotations.is_empty() {
-        reply["annotations"] = Value::Object(annotations);
+        reply.set("annotations", Value::Object(annotations));
     }
     reply
 }
@@ -182,7 +183,10 @@ fn plan_request(params: &Value) -> Value {
         "rawInput": {"plan": plan},
     });
     if !plan.is_empty() {
-        tool["content"] = json!([{"type": "content", "content": {"type": "text", "text": plan}}]);
+        tool.set(
+            "content",
+            json!([{"type": "content", "content": {"type": "text", "text": plan}}]),
+        );
     }
     json!({
         "sessionId": params["sessionId"],

@@ -10,6 +10,7 @@ use super::super::GlobalArgs;
 use super::super::agent_message;
 use super::super::agents::{self, AgentCommand, AgentFailure, chat};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
+use cmux_json::JsonSet as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Verb {
@@ -257,6 +258,11 @@ impl AgentTool {
                     "empty".into(),
                     json!({"type": "boolean", "description": "Create it with no terminal."}),
                 );
+                properties.insert(
+                    "top".into(),
+                    json!({"type": "boolean",
+                           "description": "Put the new workspace first in the sidebar, below Home."}),
+                );
             }
             Verb::TabSelect | Verb::TerminalFocus => {
                 properties.insert(
@@ -350,6 +356,11 @@ impl AgentTool {
                 );
                 properties
                     .insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
+                properties.insert(
+                    "top".into(),
+                    json!({"type": "boolean",
+                           "description": "Put the new workspace first in the sidebar, below Home."}),
+                );
                 for (name, description) in [
                     ("harness", "The harness: claude, codex or another acpmux profile."),
                     ("model", "The model, as the harness names it."),
@@ -426,7 +437,7 @@ impl AgentTool {
                 // Stored but not handed to the chat: an error that keeps its
                 // receipt, so a retry can name the message.
                 if failed {
-                    result["isError"] = json!(true);
+                    result.set("isError", json!(true));
                 }
                 result
             }
@@ -460,6 +471,9 @@ impl AgentTool {
                 }
                 if args.flag("empty")? {
                     words.push("--empty".into());
+                }
+                if args.flag("top")? {
+                    words.push("--top".into());
                 }
             }
             Verb::TabSelect => words.extend(["tab".into(), "select".into(), args.word("tab")?]),
@@ -541,6 +555,9 @@ impl AgentTool {
                         words.push(format!("--{name}={value}"));
                     }
                 }
+                if args.flag("top")? {
+                    words.push("--top".into());
+                }
                 if let Some(prompt) = args.text("prompt")? {
                     words.extend(["--".into(), prompt]);
                 }
@@ -621,7 +638,7 @@ impl Arguments<'_> {
 pub(super) fn fit_receipt(mut receipt: Value) -> Value {
     let size = serde_json::to_vec(&receipt).map(|bytes| bytes.len()).unwrap_or(usize::MAX);
     if size > super::MAX_RESULT_BYTES {
-        receipt["state"] = json!({"truncated": true, "hint": "call agents_snapshot"});
+        receipt.set("state", json!({"truncated": true, "hint": "call agents_snapshot"}));
     }
     receipt
 }

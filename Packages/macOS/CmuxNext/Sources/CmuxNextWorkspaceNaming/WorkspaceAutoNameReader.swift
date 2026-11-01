@@ -66,6 +66,33 @@ public struct WorkspaceAutoNameReader {
     /// resync) never drops the row back to the daemon's `workspace-N`.
     public func label(_ workspace: WorkspaceModel, front tab: TabModel, work: TabModel?) -> String? {
         let rule = self.rule
+        // The sidebar page face, titlebar and palette all read this label. Only the face
+        // chat supplies naming facts; never promote a background chat or a raw prompt.
+        let face = tab.kind == .browser ? (work ?? tab) : tab
+        if let session = face.agentSession, !isNewTabPage(face) {
+            let allowsLegacyDefaults = self.allowsLegacyDefaults(workspace)
+            let protectedName = WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title,
+                                                               nameSource: workspace.nameSource,
+                                                               nameRevision: workspace.nameRevision,
+                                                               allowsLegacyDefaults: allowsLegacyDefaults)
+            let sessionName = turns.sessionName(for: session)
+            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil
+                && (workspace.name == sessionName || workspace.name == SidebarMapping.shortSessionName(sessionName))
+            let mayName = (workspace.title ?? "").isEmpty && (!protectedName || launcherNamed)
+            guard rule.enabled, mayName else { hold.forget(workspace: workspace.id); return nil }
+            let task = (turns.detail(for: session)?.prompt ?? face.agent?.lastPrompt)
+                .flatMap { AgentTurnStates.promptGist($0, requiringTitleHeader: true) }
+                .flatMap(NewWorkspaceName.clean)
+            // The hold remembers only trusted titles, never the prompt-based turns.title.
+            let candidate = SidebarMapping.agentRowTitle(
+                workspaceTitle: "", workspaceName: workspace.name,
+                workspaceNameSource: workspace.nameSource, workspaceNameRevision: workspace.nameRevision,
+                explicitWorkspaceTitle: workspace.title, sessionName: sessionName,
+                chatTitle: NewWorkspaceName.clean(turns.generatedTitle(for: session)),
+                explicitChatTitle: NewWorkspaceName.clean(face.name), taskSummary: task)
+            return hold.settle(workspace: workspace.id, namer: Self.namer(face, work: nil),
+                               label: candidate.isEmpty ? nil : candidate) ?? NewWorkspaceName.clean(SidebarMapping.shortSessionName(sessionName))
+        }
         let legacyDefaults = self.allowsLegacyDefaults(workspace)
         let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },
                                nameSource: workspace.nameSource, nameRevision: workspace.nameRevision,
@@ -122,14 +149,13 @@ public struct WorkspaceAutoNameReader {
     }
 
     /// What a window's titlebar names `workspace`, whose panes show the tabs `selectedTab` picks
-    /// (the window's selection): `displayName` for the front and work tabs its sidebar row reads
-    /// (`SidebarMapping.row`): its agent chat while the front is an idle shell (`labelTab`).
+    /// (the window's selection): `displayName` for the one tab its sidebar row reads
+    /// (`SidebarMapping.faceTab`): its agent chat while the front is an idle shell (`labelTab`).
     public func titlebarName(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> String {
-        let mapping = SidebarMapping.shared, tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let front = mapping.labelTab(mapping.frontTab(workspace, selectedTab: selectedTab), tabs,
-                                     newTabPages: Set(tabs.filter { isNewTabPage($0) }.map(\.id)))
-        let work = front?.kind == .browser ? SidebarMapping.shared.workTab(workspace, selectedTab: selectedTab) : nil
-        return displayName(workspace, front: front, work: work)
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        let newTabPages = Set(tabs.filter { isNewTabPage($0) }.map(\.id))
+        return displayName(workspace, front: SidebarMapping.shared.faceTab(workspace, selectedTab: selectedTab,
+                                                                          newTabPages: newTabPages))
     }
 
     /// A browser tab's title as a workspace name: the tab's user name, else

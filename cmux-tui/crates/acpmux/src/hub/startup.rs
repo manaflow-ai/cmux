@@ -64,7 +64,10 @@ impl Hub {
         self.care_worker();
         tracing::info!("startup complete; agents may spawn");
         // Probes and one-shots of earlier runs left files behind: remove them.
-        let _ = tokio::task::spawn_blocking(crate::probe_cleanup::at_daemon_start).await;
+        let _ = tokio::task::spawn_blocking(|| {
+            crate::qos::background(crate::probe_cleanup::at_daemon_start)
+        })
+        .await;
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;

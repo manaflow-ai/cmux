@@ -19,8 +19,29 @@ nonisolated enum AgentPaneRenderFrame {
     /// True for the frame document's URL, and nothing else on the render host.
     static func isFrame(_ url: URL) -> Bool {
         url.scheme?.lowercased() == AgentPaneSource.bundledScheme && url.host?.lowercased() == host
-            && url.path == path && url.port == nil && url.user == nil
+            && [path, "/artifact"].contains(url.path) && url.port == nil && url.user == nil
     }
+
+    /// Offline artifacts use their own endpoint; render tools keep their existing library policy.
+    static func isArtifact(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        return isFrame(url) && url.path == "/artifact"
+    }
+
+    static let artifactPolicy = [
+        "default-src 'none'",
+        "sandbox allow-scripts",
+        "frame-ancestors cmux-agent://pane",
+        "script-src 'unsafe-inline'",
+        "style-src 'unsafe-inline'",
+        "img-src data: blob:",
+        "media-src data: blob:",
+        "font-src data:",
+        "connect-src 'none'",
+        "frame-src 'none'",
+        "form-action 'none'",
+        "base-uri 'none'",
+    ].joined(separator: "; ")
 
     static let policy = [
         "default-src 'none'",
@@ -69,11 +90,11 @@ nonisolated enum AgentPaneRenderFrame {
     </script></head></html>
     """#.utf8)
 
-    static func headers(length: Int) -> [String: String] {
+    static func headers(length: Int, artifact: Bool = false) -> [String: String] {
         [
             "Content-Type": "text/html; charset=utf-8",
             "Content-Length": String(length),
-            "Content-Security-Policy": policy,
+            "Content-Security-Policy": artifact ? artifactPolicy : policy,
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer",

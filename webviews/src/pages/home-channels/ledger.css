@@ -36,6 +36,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
@@ -819,6 +820,7 @@
   color: var(--page-text-2);
 }
 .lg-sheet-meta {
+  font-variant-numeric: tabular-nums;
   display: flex;
   flex-wrap: wrap;
   margin: 0;
@@ -1151,7 +1153,10 @@
   border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
-  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .lg-goal-strip.failed {
   border-color: color-mix(in srgb, var(--hc-danger) 48%, transparent);
@@ -1192,7 +1197,9 @@
   min-height: 26px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .lg-goal-strip { transition: none; }
+  .lg-goal-strip {
+    transition: none;
+  }
 }
 .lg-run {
   /* The label's column (after the status mark) and the rail's place (under the first glyph). */
@@ -1316,6 +1323,25 @@
 .lg-run-steps .cv-tool {
   min-height: 22px;
   line-height: var(--text-detail--line-height);
+}
+/* Message rows are outside the folded steps. Keep their sentence layout even when
+   the shared tool stylesheet is loaded later and gives ordinary tools a grid. */
+.lg-run-messages {
+  margin-inline-start: var(--lg-run-lead);
+  --cv-font-size: var(--text-body);
+  --cv-line-height: var(--text-body--line-height);
+}
+.lg-run-messages .cv-agentmsg__line {
+  display: flex;
+  flex-wrap: wrap;
+  white-space: nowrap;
+  gap: 4px;
+}
+.lg-run-messages .cv-agentmsg__card {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
 }
 .lg-run-more {
   margin: 6px 0 0;
@@ -1677,6 +1703,9 @@
   border-radius: 8px;
   background: var(--lg-fill);
 }
+.hc-att-meta.is-failed {
+  color: var(--lg-warn);
+}
 .hc-tray-item.failed .hc-att-meta {
   color: var(--lg-warn);
 }
@@ -1886,6 +1915,7 @@
   gap: 6px;
 }
 .lg-picker-count {
+  font-variant-numeric: tabular-nums;
   min-height: var(--text-caption--line-height);
   margin: 0;
   font-size: var(--text-caption);
@@ -2040,4 +2070,27 @@
     border-inline-start: 0;
     box-shadow: none;
   }
+}
+
+/* A compact presentation choice; the conversation title gives up space first. */
+.lg-presentation {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+.lg-presentation button {
+  border: 0;
+  border-radius: 4px;
+  padding: 4px;
+  background: transparent;
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+}
+.lg-presentation button[aria-pressed="true"] {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.lg-run-transcript {
+  margin: 8px 0;
+  min-height: 24px;
 }

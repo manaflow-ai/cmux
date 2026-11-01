@@ -89,23 +89,17 @@ extension AppActions {
             }
             runGroup(services) { await $0.setChiefReplies(policy, id) }
         })
-        // One pin path for a Home conversation: the row's Pin/Unpin and grid drags call it too.
-        registry.bind("home.togglePin", invoke: { invocation in
-            guard let id = conversation(invocation, services) else { return }
-            let source = pinSource(services)
-            let pinned = invocation["pinned"]?.boolValue ?? !source.isPinned(id)
-            source.setPinned(pinned, id)
-            shownPage(services)?.listPinsChanged()
+        HomeListActions(page: { shownPage(services) }, source: { pinSource(services) }, conversation: { conversation($0, services) },
+                        notReady: RefusalStrings.homeNotReady, pinTitles: (PinStrings.pinConversation, PinStrings.unpinConversation)).bind(into: registry)
+        // A chat's own colours: arguments set them (`cmux chat colors`, MCP); a person's run with none opens the panel.
+        registry.bindEffect("home.chatColors", requires: nil, effect: { invocation in
+            guard let id = conversation(invocation, services) else { return .done }
+            let values = ["sent", "sentText", "received", "receivedText"].reduce(into: [String: String]()) { $0[$1] = invocation[$1]?.stringValue }
+            guard try !services.home.chatColors.apply(values, reset: invocation["reset"]?.boolValue == true, to: id.rawValue) else { return .done }
+            let name = services.home.homeStore.rows.first { $0.id == id }?.title ?? ""
+            services.home.chatColorsPanel.show(conversation: id.rawValue, name: name, over: services.windows.active?.window)
+            return .done
         })
-        ActionTargetTitles.set("home.togglePin", in: registry) { invocation in
-            let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-            guard let id = text.flatMap({ $0.isEmpty ? nil : ConversationID($0) }) ?? shownPage(services)?.shown else { return nil }
-            return pinSource(services).isPinned(id) ? PinStrings.unpinConversation : PinStrings.pinConversation
-        }
-        ActionTargetTitles.setPaletteState("home.togglePin", in: registry) {
-            guard let id = shownPage(services)?.shown else { return false }
-            return pinSource(services).isPinned(id)
-        }
         registry.bind("home.sendMessage", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
             let text = invocation["text"]?.stringValue ?? ""

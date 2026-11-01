@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/defaults_guard.py"
@@ -100,10 +101,8 @@ class DefaultsGuardTests(unittest.TestCase):
         pull = {"author": {"login": author}, "headRefOid": head, "merged": False,
                 "reviews": {"nodes": [{"author": {"login": who}, "state": state, "commit": {"oid": oid}}
                                       for who, state, oid in reviews]},
-                "comments": {"nodes": [{"databaseId": n, "body": body, "createdAt": at,
-                                        "authorAssociation": association,
-                                        "author": {"login": AUTHOR, "__typename": kind}}
-                                       for n, (body, at, association, kind) in enumerate(comments)]}}
+                "comments": {"nodes": [self.comment_node(n, item)
+                                       for n, item in enumerate(comments)]}}
         path = self.repo.root.parent / f"{self.repo.root.name}-pull.json"
         path.write_text(json.dumps(pull), encoding="utf-8")
         summary = self.repo.root.parent / f"{self.repo.root.name}-summary.md"
@@ -113,7 +112,30 @@ class DefaultsGuardTests(unittest.TestCase):
         result.summary = summary.read_text(encoding="utf-8")
         return result
 
+    @staticmethod
+    def comment_node(number, item):
+        body, at, association, kind = item[:4]
+        login = item[4] if len(item) > 4 else AUTHOR
+        node_id = item[5] if len(item) > 5 else None
+        author = {"login": login, "__typename": kind}
+        if node_id is not None:
+            author["id"] = node_id
+        return {"databaseId": number, "body": body, "createdAt": at,
+                "authorAssociation": association, "author": author}
+
     # The cases that just bit us.
+
+    def test_a_checkout_without_the_comment_writer_keeps_the_verdict(self):
+        # The pull_request_target workflow runs from main, whose sparse checkout listed no
+        # pr_status.py after #28451, so every pull request failed on ModuleNotFoundError.
+        head = self.head(extra={"README.md": "no default changes\n"})
+        path = self.repo.root.parent / f"{self.repo.root.name}-pull.json"
+        path.write_text(json.dumps({"author": {"login": AUTHOR}, "headRefOid": head, "merged": False,
+                                    "reviews": {"nodes": []}, "comments": {"nodes": []}}), encoding="utf-8")
+        result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path),
+                                 "--repo", "o/r", "--pr", "1", "--comment")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning title=Defaults comment not posted::", result.stdout)
 
     def test_a_new_default_chord_fails_and_names_it(self):
         actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
@@ -414,8 +436,9 @@ enum BrowserResize { static let `default` = true }
 
     # An independent review receipt on the head passes any change (Leo 2026-10-21).
 
-    def receipt(self, text, at="2026-10-21T10:00:00Z", association="MEMBER", kind="User"):
-        return (text, at, association, kind)
+    def receipt(self, text, at="2026-10-21T10:00:00Z", association="MEMBER", kind="User",
+                login=AUTHOR, node_id=None):
+        return (text, at, association, kind, login, node_id)
 
     def test_a_ship_receipt_on_the_head_passes_without_a_teammate(self):
         head = self.changed_head()
@@ -459,6 +482,104 @@ enum BrowserResize { static let `default` = true }
                         self.receipt(f"Review (subagent): SHIP at {head}", association="CONTRIBUTOR"),
                         self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
+
+    def test_the_cmux_bot_ship_receipt_at_the_head_passes(self):
+        head = self.changed_head()
+        receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
+        result = self.check(head, comments=[receipt])
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_the_cmux_bot_receipt_at_an_old_head_fails(self):
+        head = self.changed_head()
+        receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {self.base}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
+        result = self.check(head, comments=[receipt])
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_a_bot_with_the_right_login_but_wrong_node_id_fails(self):
+        head = self.changed_head()
+        receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_wrong")
+        self.assertEqual(self.check(head, comments=[receipt]).returncode, 1)
+
+    def test_a_later_cmux_bot_block_beats_an_earlier_ship(self):
+        head = self.changed_head()
+        ship = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
+                            at="2026-10-21T10:00:00Z", kind="Bot", login="cmux-bot[bot]",
+                            node_id="BOT_kgDOFMYsLQ")
+        block = self.receipt(f"Review (codex gpt-6-astra high, next-review): BLOCK at {head}",
+                             at="2026-10-21T11:00:00Z", kind="Bot", login="cmux-bot[bot]",
+                             node_id="BOT_kgDOFMYsLQ")
+        result = self.check(head, comments=[ship, block])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("BLOCK", result.summary)
+
+    def test_a_user_with_the_bot_login_or_node_id_does_not_pass(self):
+        head = self.changed_head()
+        for login, node_id in (("cmux-bot[bot]", "BOT_kgDOFMYsLQ"), ("trusted-user", "BOT_kgDOFMYsLQ"),
+                               ("cmux-bot[bot]", "BOT_wrong")):
+            receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
+                                   kind="User", login=login, node_id=node_id,
+                                   association="CONTRIBUTOR")
+            self.assertEqual(self.check(head, comments=[receipt]).returncode, 1,
+                             (login, node_id))
+
+    def private_member_check(self, head, roles, body=None, extra_comments=()):
+        """A receipt from a member whose org membership is private: the workflow's token sees
+        CONTRIBUTOR (cmux#26153). `roles` is what a fake `gh` answers for the permission lookup."""
+        bin_dir = self.repo.root.parent / f"{self.repo.root.name}-bin"
+        bin_dir.mkdir(exist_ok=True)
+        calls = bin_dir / "calls"
+        fake = bin_dir / "gh"
+        fake.write_text("#!/usr/bin/env python3\n"
+                        "import json, sys\n"
+                        f"roles = json.loads({json.dumps(json.dumps(roles))})\n"
+                        f"open({str(calls)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+                        "login = sys.argv[2].split('/')[-2]\n"
+                        "if login not in roles:\n"
+                        "    sys.stderr.write('HTTP 404: Not Found\\n'); sys.exit(1)\n"
+                        "print(roles[login])\n", encoding="utf-8")
+        fake.chmod(0o755)
+        body = body or f"Review (Claude Opus 5.5 subagent, correctness): SHIP at {head}\n\nFollow-up review"
+        nodes = [{"databaseId": 6483350726, "body": body, "createdAt": "2026-10-28T23:25:01Z",
+                  "authorAssociation": "CONTRIBUTOR", "author": {"login": "austinywang", "__typename": "User"}}]
+        nodes += list(extra_comments)
+        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False,
+                "reviews": {"nodes": []}, "comments": {"nodes": nodes}}
+        path = self.repo.root.parent / f"{self.repo.root.name}-private-pull.json"
+        path.write_text(json.dumps(pull), encoding="utf-8")
+        result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path),
+                                 "--repo", "manaflow-ai/cmux",
+                                 env={"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+        result.calls = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+        return result
+
+    def test_a_private_org_member_with_write_access_ships_the_head(self):
+        head = self.changed_head()
+        result = self.private_member_check(head, {"austinywang": "admin"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(result.calls, ["api repos/manaflow-ai/cmux/collaborators/austinywang/permission --jq .role_name"])
+
+    def test_a_contributor_without_write_access_still_does_not_pass(self):
+        head = self.changed_head()
+        for roles in ({}, {"austinywang": "read"}, {"austinywang": "triage"}):
+            result = self.private_member_check(head, roles)
+            self.assertEqual(result.returncode, 1, (roles, result.stdout))
+
+    def test_a_private_member_is_looked_up_only_for_a_receipt_on_the_head(self):
+        head = self.changed_head()
+        result = self.private_member_check(head, {"austinywang": "admin"}, body=f"Review (subagent): SHIP at {self.base}")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(result.calls, [])
+
+    def test_a_later_block_from_a_private_member_still_beats_a_ship(self):
+        head = self.changed_head()
+        ship = {"databaseId": 1, "body": f"Review (subagent): SHIP at {head}", "createdAt": "2026-10-28T20:00:00Z",
+                "authorAssociation": "MEMBER", "author": {"login": AUTHOR, "__typename": "User"}}
+        result = self.private_member_check(head, {"austinywang": "write"},
+                                           body=f"Review (subagent): BLOCK at {head}", extra_comments=[ship])
+        self.assertEqual(result.returncode, 1, result.stdout)
 
     def test_a_receipt_below_the_first_line_does_not_pass(self):
         head = self.changed_head()
@@ -572,6 +693,88 @@ class SettingsSourceStampTests(unittest.TestCase):
 
     def test_check_stamp_is_gone(self):
         self.assertEqual(self.repo.guard("check-stamp").returncode, 2)
+
+
+class StatusCommentTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import defaults_guard
+        import pr_status
+        self.guard, self.status = defaults_guard, pr_status
+        self.comments, self.writes = [], []
+        original = pr_status.upsert
+        self.writer = patch.object(pr_status, "upsert", side_effect=lambda *a, **kw:
+                                   original(*a, **kw, api=self.api, sleep=None))
+        self.writer.start()
+        self.addCleanup(self.writer.stop)
+        self.addCleanup(sys.path.pop, 0)
+        self.old = patch.object(defaults_guard, "gh", side_effect=AssertionError("standalone writer used"))
+        self.old.start()
+        self.addCleanup(self.old.stop)
+
+    def api(self, method, path, payload=None):
+        if method == "GET":
+            return self.comments
+        if getattr(self, "fail_write", False):
+            raise RuntimeError("write failed")
+        self.writes.append((method, path, payload))
+        if method == "PATCH":
+            next(c for c in self.comments if path.endswith('/' + str(c['id'])))['body'] = payload['body']
+        elif method == "POST":
+            self.comments.append(self.comment(100, payload['body']))
+        elif method == "DELETE":
+            self.comments[:] = [c for c in self.comments if not path.endswith('/' + str(c['id']))]
+
+    def comment(self, number, body, author="github-actions[bot]"):
+        return {"id": number, "body": body, "user": {"login": author}}
+
+    def post(self, changed=True):
+        # The legacy GraphQL snapshot may be truncated: the writer reads all comments.
+        body = self.guard.MARKER + "\n## Default changes\n" + ("Needs review" if changed else "No default changes")
+        with patch.object(self.status, "http_api", self.api):
+            self.guard.post_comment("o/r", 1, {}, body, [object()] if changed else [])
+
+    def test_changes_share_existing_status_and_unchanged_runs_write_nothing(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"}))]
+        self.post()
+        self.assertEqual([w[0] for w in self.writes], ["PATCH"])
+        sections = self.status.parse(self.comments[0]['body'])
+        self.assertEqual(sections['review'], 'SHIP')
+        self.assertIn('Needs review', sections['defaults'])
+        self.assertNotIn(self.guard.MARKER, sections['defaults'])
+        self.writes.clear()
+        self.post()
+        self.assertEqual(self.writes, [])
+
+    def test_no_changes_and_no_prior_defaults_are_silent(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"}))]
+        self.post(False)
+        self.assertEqual(self.writes, [])
+        self.assertNotIn('defaults', self.status.parse(self.comments[0]['body']))
+
+    def test_legacy_comment_migrates_in_place(self):
+        self.comments = [self.comment(2, self.guard.MARKER + "\nold")]
+        self.post()
+        self.assertEqual([w[0] for w in self.writes], ['PATCH'])
+        self.assertTrue(self.comments[0]['body'].startswith(self.status.MARKER))
+
+    def test_resolved_defaults_update_the_existing_section(self):
+        self.comments = [self.comment(1, self.status.render({"defaults": "Needs review", "review": "SHIP"}))]
+        self.post(False)
+        self.assertIn('No default changes', self.status.parse(self.comments[0]['body'])['defaults'])
+
+    def test_failed_status_write_keeps_legacy_comment(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"})),
+                         self.comment(2, self.guard.MARKER + "\nold")]
+        self.fail_write = True
+        with self.assertRaises(RuntimeError):
+            self.post()
+        self.assertEqual(len(self.comments), 2)
+
+    def test_human_legacy_lookalike_is_not_changed(self):
+        self.comments = [self.comment(2, self.guard.MARKER + "\nquoted", "person")]
+        self.post(False)
+        self.assertEqual(self.writes, [])
 
 
 if __name__ == "__main__":

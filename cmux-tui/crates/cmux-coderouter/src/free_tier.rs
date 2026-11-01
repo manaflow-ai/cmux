@@ -24,6 +24,7 @@
 use crate::Secret;
 use axum::{body::Body, http::StatusCode, response::Response};
 use base64::Engine as _;
+use cmux_json::JsonSet as _;
 use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -746,7 +747,7 @@ impl Provider {
             "client_data_hash": base64::engine::general_purpose::STANDARD.encode(hash),
         });
         if let Some(fresh) = fresh {
-            request["fresh_key"] = json!(fresh);
+            request.set("fresh_key", json!(fresh));
         }
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id, tx);

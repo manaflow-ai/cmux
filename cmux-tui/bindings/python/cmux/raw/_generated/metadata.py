@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022'
+IR_SHA256 = 'ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8'
 
 
 @dataclass(frozen=True)
@@ -675,6 +675,20 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-environment': CommandMetadata(
+        'cloud-environment',
+        'local-admin',
+        12,
+        'cloud-environments-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'action': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+            'platform_origin': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-host-replica-clear': CommandMetadata(
         'cloud-host-replica-clear',
         'local-admin',
@@ -719,6 +733,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'cursor': CommandFieldMetadata(None, None),
             'include_archived': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
         },
@@ -1097,6 +1112,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'answers': CommandFieldMetadata(None, 'conversation-run-answers-v1'),
             'before_started_at': CommandFieldMetadata(None, None),
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
@@ -2308,6 +2324,7 @@ COMMANDS = {
             'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'side': CommandFieldMetadata(12, 'column-left-v1'),
             'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),

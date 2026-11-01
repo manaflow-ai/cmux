@@ -8,7 +8,7 @@
 // that it counts the work still going in the background, as Claude's phone app does ("Working… · 5
 // running tasks"): "· 3 subagents · 1 command", only subagents and chats the agent started still
 // running (one word, subagents, as the tray says), and background commands that have not ended
-// (the process registry's and the transcript's, inspector/processes.ts `backgroundCommands`). Each count opens what it
+// (the process registry's and the transcript's, session-info/processes.ts `backgroundCommands`). Each count opens what it
 // counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
 // the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
 // the tray above the composer is the count, and App.tsx counts nothing here. Before them, as Claude
@@ -21,9 +21,11 @@
 // Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
 // has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext } from "react";
 import { type Translate, useT } from "../i18n";
 import type { AcpmuxRow, TurnTokenSplit } from "../model";
+import { usePageNow as useTicking } from "../../../ui/pageClock";
+export { usePageNow as useTicking } from "../../../ui/pageClock";
 import { TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel, TurnTokens } from "./TurnTokens";
@@ -74,18 +76,6 @@ export function workingParts(t: Translate, counts: WorkingCounts): { key: string
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
-/// `now()`, again each second while `running`.
-export function useTicking(running: boolean, now: () => number = Date.now): number {
-  const [time, setTime] = useState(now);
-  useEffect(() => {
-    if (!running) return;
-    setTime(now());
-    const timer = setInterval(() => setTime(now()), 1000);
-    return () => clearInterval(timer);
-  }, [now, running]);
-  return time;
-}
-
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
   const counts = useContext(WorkingCountsContext);
@@ -95,7 +85,8 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const time = useTicking(!held && waiting === undefined, now);
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
-  const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
+  // The Verbose transcript view opens every group, as ToolGroupRow reads it.
+  const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true, true);
   const shown = row.doingGroup && groupOpen ? undefined : row.doing;
   // A send in flight names who it goes to, not its command (acpmuxSends.ts, turns.ts `sendingTo`).
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;

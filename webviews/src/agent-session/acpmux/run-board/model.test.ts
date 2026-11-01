@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { activity, tool } from "../../../gallery/fixtures/acpmux";
 import { sessionSummary } from "../summary/sessionSummary";
 import { replayedBoardFixture, runBoardFixture } from "./fixtures";
 import { canApprove, evidenceReady, initialBoard, reduceBoard, type RunBoardState } from "./model";
@@ -96,6 +97,27 @@ describe("Run board human intent", () => {
     expect(sessionSummary(runBoardFixture.attempts[0]!.rows).outputs.map((output) => output.path)).toEqual([
       "src/workspace/Workspace.tsx",
       "src/workspace/styles.css",
+    ]);
+  });
+
+  test("summary Outputs exclude files outside the session project folder", () => {
+    const rows = [
+      activity(
+        [
+          tool("Write project and scratch files", "edit", "completed", {
+            diffs: [
+              { path: "/work/project/src/main.ts", newText: "export {}" },
+              { path: "/tmp/m1076.txt", newText: "scratch" },
+              { path: "/work/project/../tmp/m1077.txt", newText: "scratch" },
+              { path: "m1078.txt", canonical: "/tmp/m1078.txt", newText: "scratch" },
+            ],
+          }),
+        ],
+        1,
+      ),
+    ];
+    expect(sessionSummary(rows, undefined, "/work/project").outputs.map((output) => output.path)).toEqual([
+      "/work/project/src/main.ts",
     ]);
   });
 });

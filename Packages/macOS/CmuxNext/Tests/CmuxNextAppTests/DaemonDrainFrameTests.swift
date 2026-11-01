@@ -14,6 +14,51 @@ import Testing
 /// and a sustained event rate above what one slice per frame applied grew the inbox until it collapsed
 /// into an overflow and a full snapshot apply.
 @MainActor @Suite struct DaemonDrainFrameTests {
+    @Test func shutdownJoinsAnUnadoptedStartup() async {
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let cancelled = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        defer {
+            entered.continuation.finish()
+            cancelled.continuation.finish()
+            release.continuation.finish()
+        }
+        let service = DaemonService()
+        service.start {
+            DaemonConnection {
+                try await withTaskCancellationHandler {
+                    entered.continuation.yield(())
+                    // task-owner: controlled startup work; the test releases and joins it on shutdown
+                    let attempt = Task<DaemonEndpoint, any Error> {
+                        var iterator = release.stream.makeAsyncIterator()
+                        _ = await iterator.next()
+                        throw CancellationError()
+                    }
+                    return try await attempt.value
+                } onCancel: {
+                    cancelled.continuation.yield(())
+                }
+            }
+        }
+        var started = entered.stream.makeAsyncIterator()
+        _ = await started.next()
+        #expect(service.connection == nil)
+        var stopped = false
+        // task-owner: the test joins this shutdown after releasing the controlled endpoint attempt
+        let shutdown = Task { @MainActor in
+            await service.shutdownConnectionAndWait()
+            stopped = true
+        }
+        var cancellation = cancelled.stream.makeAsyncIterator()
+        _ = await cancellation.next()
+        // The cancellation handler ran on detach's main-actor turn. A cancel-only teardown
+        // would have returned on that turn; a joined teardown waits for the explicit release.
+        #expect(!stopped)
+        release.continuation.yield(())
+        await shutdown.value
+        #expect(stopped && service.connection == nil && !service.isStarting)
+    }
+
     /// One workspace, one screen, one pane with `tabs` tabs on surfaces 1...tabs.
     private func service(tabs: Int, mainWork: MainWorkScheduler) -> DaemonService {
         let service = DaemonService(mainWork: mainWork)

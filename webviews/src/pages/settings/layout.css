@@ -141,7 +141,7 @@
 
 .group-title {
   margin: 0 0 7px 2px;
-  font-size: 12.5px;
+  font-size: var(--text-detail);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -253,7 +253,7 @@
 
 .row-help,
 .row-key {
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   line-height: 1.35;
 }
 
@@ -274,7 +274,7 @@
   align-items: center;
   gap: 6px;
   min-height: 26px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -350,6 +350,19 @@
 .link-button,
 .channel-link {
   color: var(--accent-text);
+}
+
+/* A Channels build row's Switch: one per row, shown only while the pointer or focus is on the row,
+   and kept while its switch runs, so the track reads as a list, not a column of buttons. */
+.channel-build .channel-switch {
+  opacity: 0;
+}
+
+.channel-build:hover .channel-switch,
+.channel-build:focus-within .channel-switch,
+.channel-build:has([data-popup-open]) .channel-switch,
+.channel-build .channel-switch[data-busy] {
+  opacity: 1;
 }
 
 /* P3: the Theme section. */
@@ -432,7 +445,7 @@
 }
 
 .theme-token:not(:disabled) {
-  cursor: pointer;
+  cursor: default;
 }
 
 .theme-token:not(:disabled):hover {
@@ -519,7 +532,7 @@
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
-  cursor: pointer;
+  cursor: default;
 }
 
 .token-tuner-contrast {
@@ -549,7 +562,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -751,6 +764,7 @@
 }
 
 .theme-count {
+  font-variant-numeric: tabular-nums;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
   margin-top: 4px;
@@ -872,6 +886,10 @@
     overflow-x: auto;
   }
 
+  /* One scrolling row of categories: the sections' runs join it and their headers step aside. */
+  .sidebar-section { display: contents; }
+  .sidebar-section-title { display: none; }
+
   .section-link {
     flex: none;
     width: auto;
@@ -969,7 +987,7 @@
   font: inherit;
   position: relative;
   text-align: center;
-  cursor: pointer;
+  cursor: default;
   transition: border-color var(--motion-hover) var(--motion-ease);
 }
 

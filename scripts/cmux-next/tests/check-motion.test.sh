@@ -51,7 +51,30 @@ fail "a window that animates by itself" '        animationBehavior = .utilityWin
 pass "a window whose animation a gate decides" '        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none'
 pass "a window that never animates" '        animationBehavior = .none'
 fail "a popover that animates by itself" '        popover.animates = true'
+fail "a popover controlled by an ungated variable" '        popover.animates = flag'
+fail "a popover controlled by an ungated expression" '        popover.animates = false || flag'
+fail "a popover controlled by a false-prefixed variable" '        popover.animates = falseFlag'
+fail "a popover controlled by a comparison" '        popover.animates = false == flag'
+fail "a multiline ungated popover expression" '        popover.animates = false
+            || flag'
+fail "a commented multiline ungated popover expression" '        popover.animates = false // not a complete assignment
+            // the expression continues
+            || flag'
+fail "a multiline popover type check" '        popover.animates = false
+            is Bool'
+fail "a multiline popover property access" '        popover.animates = false
+            .enabled'
+fail "a multiline popover custom operator" '        popover.animates = false
+            ⋁ flag'
+fail "a second ungated assignment after disabling a popover" '        popover.animates = false; another.animates = flag'
+pass "a disabled popover followed by another statement" '        popover.animates = false
+        configure()'
+pass "a popover explicitly disables animation" '        popover.animates = false'
+pass "a popover disables animation before another statement" '        popover.animates = false; configure()'
+pass "a popover disables animation at the end of a block" '        if enabled { popover.animates = false }'
 pass "a popover whose animation a gate decides" '        popover.animates = Motion.overlays.animatesMovement'
+pass "a popover explicitly disables AppKit animation" '        popover.animates = false'
+fail "a popup entrance animation" '        popup.show(entrance: true)'
 fail "an animator change outside any gate group" '        view.animator().alphaValue = 1'
 pass "an animator change inside a gate group" '        Motion.home.animate(.fadeIn, in: view) {
             view.animator().alphaValue = 1

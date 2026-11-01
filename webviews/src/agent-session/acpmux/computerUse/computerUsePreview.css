@@ -1,0 +1,257 @@
+/* The live preview card of computer use (ComputerUsePreviewCard.tsx): at the chat's top right, under
+   the header, beside the column: while it shows, the column's end keeps its room (--cv-inset-end
+   below), so no message runs under it. The card is the app's window alone (the Codex app's preview):
+   no glass, no edge, no inset. The frame keeps its own rounded corners (a window capture with
+   transparent corners) and floats on a soft shadow that follows them. No app name shows (the card's
+   label has it). A small dark round close button sits on the window's top left corner; done, the
+   window dims under the app's icon with a green check on the icon's corner.
+   Motion (the pane's tokens, and only when motion is on): it eases in with a fade, a small rise and a
+   scale from 0.96; done, the window dims, the icon scales in with a slight overshoot and the check
+   pops in just after it; it leaves with a short fade and scale down (cardMotion.ts unmounts it when
+   that ends). Motion off or reduced, each state shows at once. */
+/* The column's end while the card shows beside it (App.tsx sets data-cu-preview on .acpmux-main, only
+   in a pane wide enough and with Session Info closed): the card's 180px, 12px from the edge and a 12px
+   gap, or the column's own inset when that is wider. The transcript's rows, the composer and the dock's
+   bands read it; model.ts transcriptColumn mirrors it (COMPUTER_USE_PREVIEW_RESERVE). */
+.acpmux-main[data-cu-preview] {
+  --cv-inset-end: max(var(--cv-inset), 204px);
+}
+.acpmux-main[data-cu-preview] .acpmux-composer {
+  padding-right: var(--cv-inset-end);
+}
+.acpmux-cu-preview {
+  /* The window's shadow: the shared elevation steps, as drop shadows so they follow the frame's own
+     corners. The literals are the same steps, for a page without desktop.css (the gallery shell). */
+  --cu-preview-shadow: drop-shadow(var(--elevation-1, 0 1px 2px color-mix(in srgb, black 7%, transparent)))
+    drop-shadow(var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent)));
+  /* The motion scale has one curve, an ease-out; the done icon and check take a slight overshoot. */
+  --cu-preview-ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1);
+  /* The close button: a small dark circle with a light X, readable over a light or a dark window. */
+  --cu-preview-close-fill: color-mix(in srgb, black 52%, transparent);
+  --cu-preview-close-hover: color-mix(in srgb, color-mix(in srgb, black 76%, white) 66%, transparent);
+  --cu-preview-close-press: color-mix(in srgb, black 64%, transparent);
+  position: absolute;
+  top: calc(var(--acpmux-header-height, 44px) + 8px);
+  right: 12px;
+  z-index: var(--layer-sticky);
+  /* As wide as the frame, at most 180px (the column's reserve): a tall window gets a narrow card. */
+  width: fit-content;
+  max-width: 180px;
+  color: var(--agent-text);
+  transform-origin: top right;
+}
+/* Leaving (cardMotion.ts): faded and a little smaller, and it takes no input. With motion on, the
+   transitions below play it; off, the card is gone before this draws. */
+.acpmux-cu-preview[data-leaving] {
+  opacity: 0;
+  transform: scale(0.96);
+  pointer-events: none;
+}
+/* With Session Info open (either place), directly under its card: the layout's 8px gap, right-aligned
+   with it (the Codex app's preview under its summary panel). Session Info publishes the place on the
+   shell (session-info/underSessionInfo.ts, once per resize of the panel). Floating, the column keeps its
+   room (data-cu-preview stays), so opening or closing the panel never reflows the chat; Push always's
+   column keeps the chat clear of both instead. Closed, the card is back at the top right. */
+.acpmux-shell[data-session-info-chat-placement] .acpmux-cu-preview {
+  top: var(--acpmux-session-info-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
+  right: var(--acpmux-session-info-under-right, 12px);
+}
+
+.acpmux-cu-preview__open {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.acpmux-cu-preview__open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+.acpmux-cu-preview__frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.acpmux-cu-preview__frame > img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 180px;
+  filter: var(--cu-preview-shadow);
+}
+.acpmux-cu-preview[data-done] .acpmux-cu-preview__frame > img {
+  opacity: 0.4;
+}
+
+/* The agent's cursor where the helper draws it (the frame's fractions: the frame box is the image's
+   box), the helper's own dart (cursorArt.tsx) at the window's scale: --cu-pointer-width is a share of
+   the frame's width. The tip is the point: the viewBox puts it 1 point in, 1/19 of the width. Each new
+   click plays one ripple (keyed by the click), in the cursor's blue. */
+.acpmux-cu-preview__arrow {
+  position: absolute;
+  left: calc(var(--cu-pointer-x) * 100%);
+  top: calc(var(--cu-pointer-y) * 100%);
+  width: var(--cu-pointer-width, 12px);
+  aspect-ratio: 1;
+  overflow: visible;
+  transform: translate(-5.263%, -5.263%);
+  pointer-events: none;
+}
+.acpmux-cu-preview__arrow > path {
+  stroke: white;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+.acpmux-cu-preview__ripple {
+  position: absolute;
+  left: calc(var(--cu-pointer-x) * 100%);
+  top: calc(var(--cu-pointer-y) * 100%);
+  width: 14px;
+  aspect-ratio: 1;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  border: 1.5px solid #2d8cff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Done: the app's icon (40px) centered over the dimmed window, a 16px green check on the icon's lower
+   right corner with a ring in the page's color (the Codex app's done preview). With no icon, the
+   check alone, a little larger. */
+.acpmux-cu-preview__badge {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.acpmux-cu-preview__mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.acpmux-cu-preview__mark > img {
+  display: block;
+  width: 40px;
+  aspect-ratio: 1;
+  filter: drop-shadow(var(--elevation-1, 0 1px 2px color-mix(in srgb, black 7%, transparent)));
+}
+.acpmux-cu-preview__check {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-status-success);
+  color: white;
+  box-shadow: 0 0 0 2px var(--agent-page-bg);
+}
+.acpmux-cu-preview__mark[data-icon] > .acpmux-cu-preview__check {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 16px;
+}
+
+/* Close: a small dark round button on the window's top left corner, always shown (the Codex app's
+   preview). Hover lifts its fill a little and scales it up; a press scales it down. */
+.acpmux-cu-preview__close {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cu-preview-close-fill);
+  color: white;
+  cursor: default;
+}
+.acpmux-cu-preview__close:hover {
+  background: var(--cu-preview-close-hover);
+  transform: scale(1.08);
+}
+.acpmux-cu-preview__close:active {
+  background: var(--cu-preview-close-press);
+  transform: scale(0.94);
+}
+/* A light ring on a dark one: it shows over a light or a dark window. */
+.acpmux-cu-preview__close:focus-visible {
+  outline: 1.5px solid white;
+  outline-offset: 0;
+  box-shadow: 0 0 0 3px var(--cu-preview-close-press);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview {
+    transition:
+      opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      transform var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+    @starting-style {
+      opacity: 0;
+      transform: translate3d(0, 4px, 0) scale(0.96);
+    }
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview[data-leaving] {
+    transition-duration: var(--agent-motion-out, 80ms);
+  }
+  /* A new live frame swaps in with no transition (about 6 a second); only the done dim eases. */
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__frame > img {
+    transition: opacity var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__mark {
+    transition:
+      opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      transform var(--agent-motion-move, 180ms) var(--cu-preview-ease-pop);
+    @starting-style {
+      opacity: 0;
+      transform: scale(0.8);
+    }
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__mark[data-icon] > .acpmux-cu-preview__check {
+    transition:
+      opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) var(--agent-motion-in, 120ms),
+      transform var(--agent-motion-in, 120ms) var(--cu-preview-ease-pop) var(--agent-motion-in, 120ms);
+    @starting-style {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+  }
+  /* The cursor glides to each new point as the helper's own cursor does (cmux-cua --glide-ms 150),
+     and each click's ripple grows and fades on the motion scale's large step once the glide lands. */
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__arrow,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
+    transition: /* motion-allow: mirrors the helper's own cursor glide (cmux-cua --glide-ms 150) */
+      left 150ms var(--agent-ease-out, ease-out),
+      top 150ms var(--agent-ease-out, ease-out);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
+    animation: acpmux-cu-preview-click var(--cmux-motion-large, 240ms) var(--agent-ease-out, ease-out) 150ms both;
+  }
+  @keyframes acpmux-cu-preview-click {
+    from {
+      opacity: 0.9;
+      transform: scale(0.4);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.6);
+    }
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__close {
+    transition:
+      background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out),
+      transform var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
+  }
+}

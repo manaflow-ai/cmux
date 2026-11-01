@@ -288,6 +288,49 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     await page.close();
   });
 
+  test("rail ticks retain their inset keyboard outline through the shared button focus cascade", async () => {
+    const page = await open(2);
+    await page.evaluate(() => {
+      const tick = document.createElement("button");
+      tick.id = "rail-tick";
+      tick.className = "acpmux-minimap__tick";
+      tick.dataset.focusRing = "tick";
+      tick.textContent = "Prompt 3";
+      document.getElementById("plain")!.after(tick);
+    });
+    await page.focus("#plain");
+    await page.keyboard.press("Tab");
+    const ring = await page.evaluate(() => {
+      const tick = document.getElementById("rail-tick")!;
+      const style = getComputedStyle(tick);
+      return {
+        focused: tick.matches(":focus-visible"),
+        style: style.outlineStyle,
+        width: parseFloat(style.outlineWidth),
+        offset: parseFloat(style.outlineOffset),
+      };
+    });
+    expect(ring.focused).toBe(true);
+    expect(ring.style).toBe("solid");
+    expect(ring.width).toBe(1);
+    // Chromium quantizes the specified -1.5px outline offset to -1px at 1x.
+    expect(ring.offset).toBe(-1);
+    await page.emulateMedia({ contrast: "more" });
+    const contrastRing = await page.evaluate(() => {
+      const tick = document.getElementById("rail-tick")!;
+      const style = getComputedStyle(tick);
+      return {
+        style: style.outlineStyle,
+        width: parseFloat(style.outlineWidth),
+        offset: parseFloat(style.outlineOffset),
+      };
+    });
+    expect(contrastRing.style).toBe("solid");
+    expect(contrastRing.width).toBe(2);
+    expect(contrastRing.offset).toBe(2);
+    await page.close();
+  });
+
   test("any other keyboard focus is one hairline in the text color, never the accent", async () => {
     const page = await open(2);
     // A blue accent and focus token, so a ring in either shows.

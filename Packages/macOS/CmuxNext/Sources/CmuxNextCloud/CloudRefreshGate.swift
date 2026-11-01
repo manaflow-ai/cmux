@@ -4,30 +4,32 @@ import Foundation
 /// CloudService is main-actor isolated, so the gate needs no additional lock.
 @MainActor
 public final class CloudRefreshGate {
-    private var active: Task<Void, Never>?
+    private var active: Task<Bool, Never>?
     private var followUpRequested = false
 
     public init() {}
 
-    public func run(_ operation: @escaping @MainActor () async -> Void) async {
+    @discardableResult
+    public func run(_ operation: @escaping @MainActor () async -> Bool) async -> Bool {
         if let active {
             followUpRequested = true
-            await active.value
-            return
+            return await active.value
         }
 
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
+        let task = Task { @MainActor [weak self] () -> Bool in
+            guard let self else { return false }
             self.followUpRequested = false
-            await operation()
+            var result = await operation()
             // concurrency-allow: this second pass follows an awaited refresh and only runs when a caller arrived during that await.
-            if self.followUpRequested {
+            while self.followUpRequested {
                 self.followUpRequested = false
-                await operation()
+                result = await operation()
             }
+            return result
         }
         active = task
-        await task.value
+        let result = await task.value
         active = nil
+        return result
     }
 }

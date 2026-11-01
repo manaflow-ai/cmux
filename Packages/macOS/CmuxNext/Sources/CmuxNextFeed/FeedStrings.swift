@@ -27,7 +27,6 @@ nonisolated enum FeedStrings {
 
     static var reportsTitle: String { t("reports.title", "Reports basket") }
     static var reportsSubtitle: String { t("reports.subtitle", "Human view · reports do not wake a model") }
-    static var reportsLabs: String { t("reports.labs", "LABS") }
     static var reportsEmpty: String { t("reports.empty", "No agent reports yet") }
     static var reportsEmptyHint: String {
         t("reports.emptyHint", "Deliver to reports:<person> to add one without waking a Chief.")
@@ -74,6 +73,7 @@ nonisolated enum FeedStrings {
     static var expired: String { t("item.expired", "Expired") }
     static var answeredInTerminal: String { t("item.answeredInTerminal", "Answered in the terminal") }
     static func answeredOn(_ device: String) -> String { t("item.answeredOn", "Answered on \(device)") }
+    static var answered: String { t("item.answered", "Answered") }
     static func threadCount(_ count: Int) -> String { t("item.threadCount", "\(count) items") }
 
     /// An update card's title: "Claude Code updated to 2.1.305" (UpdateFeedCard).
@@ -97,7 +97,7 @@ nonisolated enum FeedStrings {
     static func closed(_ item: FeedItem) -> String? {
         switch item.state {
         case .open: nil
-        case .answered: answeredOn(item.answer?.device ?? "")
+        case .answered: (item.answer?.device).flatMap { $0.isEmpty ? nil : answeredOn($0) } ?? answered
         case .expired: expired
         case .cancelled:
             switch item.cancel?.reason {

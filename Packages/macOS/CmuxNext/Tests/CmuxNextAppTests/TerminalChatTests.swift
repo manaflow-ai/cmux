@@ -32,6 +32,15 @@ struct TerminalChatTests {
         #expect(route == .open(AgentPaneAdopt(harness: harness, agentSessionId: "s-123")))
     }
 
+    /// A hook-reported terminal (every Claude Code and Codex with cmux hooks) names its session in
+    /// `agent_session_id`; `session` is only a label.
+    @Test func aHookReportedSessionOpensAsAChatResumingIt() {
+        let status = AgentStatus(surface: 1, state: .idle, source: "hook", session: "Claude Code", agent: "codex",
+                                 agentSessionID: "01a14344-2fe7-7e33-8f68-5e342115469c")
+        let route = TerminalChatRoute.route(status, openTab: { _ in nil })
+        #expect(route == .open(AgentPaneAdopt(harness: "codex", agentSessionId: "01a14344-2fe7-7e33-8f68-5e342115469c")))
+    }
+
     @Test func aSessionATabAlreadyResumesIsShownInsteadOfADuplicate() {
         var asked: AgentPaneAdopt?
         let route = TerminalChatRoute.route(Self.status(agent: "codex", session: "abc")) { adopt in

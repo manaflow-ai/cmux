@@ -14,7 +14,7 @@
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
 // block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
 import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AcpmuxRow, PromptImage } from "../model";
+import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
@@ -23,20 +23,55 @@ import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
+import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
+import { recordedPromptParts } from "../inlinePrompt";
+import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
+import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
-import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
+import {
+  ForkButton,
+  forkWithFeedback,
+  MessageCopy,
+  MessageFooterRow,
+  MessageTime,
+  PromptRetry,
+  ROW_ICON,
+} from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
+import { skillDollarsOf, withSkillDollars, withoutSkillDollars } from "../slashCommands";
+
+/// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
+/// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
+/// original path is drawn by that image instead.
+export function recordedFiles(
+  parts: AcpmuxRow["inlineParts"],
+  originals: ReadonlySet<string> = new Set(),
+): FileAttachmentInfo[] | undefined {
+  return parts?.flatMap((part): FileAttachmentInfo[] =>
+    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
+      ? [{ ...part, path: attachmentPath(part.uri) }]
+      : [],
+  );
+}
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
-  row,
-  text,
+  row: given,
+  text: givenText,
   pending,
 }: {
   row: AcpmuxRow;
   text: string;
   pending?: (actions: ReactNode) => ReactNode;
 }) {
+  // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
+  // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
+  // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
+  const row = useMemo(() => shownSkills(withoutVideoFrames(given)), [given]);
+  const text = useMemo(
+    () => withoutSkillDollars(withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length)),
+    [givenText, given],
+  );
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
@@ -45,20 +80,12 @@ export function UserBubble({
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
-  const resend = row.resend ?? row.text ?? text;
+  const resend = given.resend ?? given.text ?? givenText;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
-  const originals = new Set(
-    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
-  );
-  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" &&
-    part.companionOf === undefined &&
-    !part.mimeType?.startsWith("video/") &&
-    !originals.has(attachmentPath(part.uri) ?? "")
-      ? [{ ...part, path: attachmentPath(part.uri) }]
-      : [],
-  );
+  // The ordered bubble below skips them by the same rule.
+  const originals = imageOriginals(row);
+  const recorded = recordedFiles(row.inlineParts, originals);
   const files = recorded?.length
     ? recorded
     : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
@@ -71,6 +98,29 @@ export function UserBubble({
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
   const imageName = t("image.viewer");
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
+  const orderedParts = useMemo(() => {
+    const kept = imageOriginals(row);
+    return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
+  }, [row]);
+  // A prompt whose attachments the composer placed draws in its recorded order, each attachment
+  // where it was put, the last part included. Placed: the pane marked it so (`placed`, acpmux
+  // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
+  // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
+  // to read beside its attachments, keep the legacy bands above the bubble.
+  const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
+  const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
+  const hasInterleaved =
+    firstMedia >= 0 &&
+    (placed
+      ? orderedParts!.some((part) => !isStripMedia(part))
+      : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
+  const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
+  // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
+  const banded = (part: PromptContentPart) =>
+    isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
+  const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
+  const shownParts = orderedParts?.filter((part) => !banded(part));
+  const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -83,88 +133,148 @@ export function UserBubble({
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
           if (!edit || through === undefined) return;
-          if (await edit.send(row.id, through, value)) setEditing(false);
+          // The skills it named go as `/$name` again; the App writes any other skill so too.
+          const sent = withSkillDollars(value, skillDollarsOf(given.text ?? givenText));
+          if (await edit.send(row.id, through, sent)) setEditing(false);
         }}
       />
     );
   }
   return (
     <>
-      {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      {Boolean(files?.length) && (
+      {!hasInterleaved && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!hasInterleaved && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
           ))}
         </div>
       )}
-      {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
-          bubble under them read as a lost message; Leo 2026-10-21). */}
-      {text.trim() && (
-        <div className="ui-glass cv-user__bubble selectable">
-          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
-          {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
-          {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+      {stripMedia.length > 0 && (
+        <div className="cv-user__files cv-user__inline-strip" data-inline-attachment-strip="true">
+          {stripMedia.map((part, index) =>
+            part.kind === "image" ? (
+              <span key={`${part.id}-${index}`} className="cv-user__inline-image">
+                {renderImage(part)}
+              </span>
+            ) : (
+              <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />
+            ),
+          )}
         </div>
       )}
-      {!row.failed && !row.queued && (text || pending) && (
-        <UserFooter
-          className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-          pending={pending}
-        >
-          {branch && branches && (
-            <span className="cv-user__versions">
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("message.previousVersion")}
-                title={t("message.previousVersion")}
-                disabled={branch.index === 0}
-                onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
-              >
-                <ChevronLeft size={12} />
-              </button>
-              <span
-                className="cv-user__version-count"
-                aria-label={t("message.versionCount", { index: branch.index + 1, total: branch.sessions.length })}
-              >
-                {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
-                {branch.index + 1}/{branch.sessions.length}
-              </span>
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("message.nextVersion")}
-                title={t("message.nextVersion")}
-                disabled={branch.index === branch.sessions.length - 1}
-                onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
-              >
-                <ChevronRight size={12} />
-              </button>
-            </span>
-          )}
-          <MessageTime at={row.at} className="cv-user__time" />
-          <MessageCopy text={row.text ?? text} />
-          {through !== undefined && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={t("message.edit")}
-              title={t("message.edit")}
-              onClick={() => setEditing(true)}
-            >
-              <Pencil size={ROW_ICON} />
-            </button>
-          )}
-          {/* Not while it is still on its way: a second send would duplicate it. */}
-          {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-          {forkThrough !== undefined && (
-            <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
-          )}
-        </UserFooter>
-      )}
+      <div className="cv-user__body">
+        {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
+            bubble under them read as a lost message; Leo 2026-10-21). */}
+        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
+          <div className="ui-glass cv-user__bubble selectable">
+            {hasInterleaved ? (
+              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+            ) : (
+              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+            )}
+            {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
+            {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+          </div>
+        )}
+        {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
+            moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
+        {!row.failed && (text || pending) && (
+          <UserFooter
+            className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
+            pending={pending}
+          >
+            <MessageFooterRow>
+              {branch && branches && (
+                <span className="cv-user__versions">
+                  <button
+                    type="button"
+                    className="cv-iconbtn cv-iconbtn--compact"
+                    aria-label={t("message.previousVersion")}
+                    title={t("message.previousVersion")}
+                    disabled={branch.index === 0}
+                    onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <span
+                    className="cv-user__version-count"
+                    aria-label={t("message.versionCount", {
+                      index: branch.index + 1,
+                      total: branch.sessions.length,
+                    })}
+                  >
+                    {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
+                    {branch.index + 1}/{branch.sessions.length}
+                  </span>
+                  <button
+                    type="button"
+                    className="cv-iconbtn cv-iconbtn--compact"
+                    aria-label={t("message.nextVersion")}
+                    title={t("message.nextVersion")}
+                    disabled={branch.index === branch.sessions.length - 1}
+                    onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
+                  >
+                    <ChevronRight size={12} />
+                  </button>
+                </span>
+              )}
+              <MessageTime at={row.at} className="cv-user__time" />
+              <MessageCopy text={row.text ?? text} />
+              {through !== undefined && (
+                <button
+                  type="button"
+                  className="cv-iconbtn cv-iconbtn--compact"
+                  aria-label={t("message.edit")}
+                  title={t("message.edit")}
+                  onClick={() => setEditing(true)}
+                >
+                  <Pencil size={ROW_ICON} />
+                </button>
+              )}
+              {/* Not while it is still on its way: a second send would duplicate it. */}
+              {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
+              {forkThrough !== undefined && (
+                <ForkButton
+                  throughSeq={forkThrough}
+                  onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))}
+                />
+              )}
+            </MessageFooterRow>
+          </UserFooter>
+        )}
+      </div>
     </>
   );
+}
+
+/// `row` with its prompt text and placed text parts as the bubble reads them (`withoutSkillDollars`);
+/// `row` itself when it names no Codex skill.
+function shownSkills(row: AcpmuxRow): AcpmuxRow {
+  const sent = [row.text, ...(row.inlineParts ?? []).map((part) => (part.kind === "text" ? part.text : ""))];
+  if (!sent.some((text) => text?.includes("/$"))) return row;
+  return {
+    ...row,
+    ...(row.text !== undefined && { text: withoutSkillDollars(row.text) }),
+    ...(row.inlineParts && {
+      inlineParts: row.inlineParts.map((part) =>
+        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text) } : part,
+      ),
+    }),
+  };
+}
+
+/// The paths of the originals a prompt's images kept (an image the composer converted sends its
+/// original file after it).
+function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
+  return new Set(
+    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+  );
+}
+
+/// A file part that is an image's retained original: drawn as the image, never again as a file.
+function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
+  return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
 }
 
 function UserFooter({
@@ -216,11 +326,12 @@ export function sentImageWidth(size: { width?: number; height?: number }): numbe
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
 /// it), and says "Couldn't load image" when the image cannot be drawn. An image acpmux no longer
 /// has shows nothing. It fades in on its first draw only.
-const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
+export const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
-  const shown = useStableImage({ id: image.id, read: promptImage }, image);
+  // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
+  const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);

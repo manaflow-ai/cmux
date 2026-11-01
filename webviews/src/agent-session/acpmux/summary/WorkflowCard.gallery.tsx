@@ -2,11 +2,16 @@
 // A Claude workflow's card in the transcript (Labs `workflowLabs`, WorkflowCard.tsx), drawn from a
 // workflow's events fed through the real subagent fold (workflowFixture.ts): its name, "Workflow ·
 // N agents · time" and a dot per agent, live while it runs. A click opens Session Info's
-// Background tasks (inspector/WorkflowTasks.tsx), whose gallery is agent-pane.chat-inspector.
+// Background tasks (session-info/WorkflowTasks.tsx), whose gallery is agent-pane.chat-inspector.
 import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
-import { configureWorkflowCardOpen, WorkflowCard, type WorkflowCardPresentation } from "./WorkflowCard";
 import { realWorkflowFixture } from "../realWorkflowFixture";
+import {
+  configureWorkflowCardOpen,
+  configureWorkflowCardSideTab,
+  WorkflowCard,
+  type WorkflowCardPresentation,
+} from "./WorkflowCard";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
 type Props = {
@@ -17,6 +22,7 @@ type Props = {
 
 /// The gallery's cards open nothing, but draw as the chat's do: a button.
 configureWorkflowCardOpen(() => undefined);
+configureWorkflowCardSideTab(() => undefined);
 
 function GalleryWorkflowCard({ stage, presentation, replay }: Props) {
   const nodes = (replay ?? workflowFixture(stage)).filter((node) => node.kind === "workflow");

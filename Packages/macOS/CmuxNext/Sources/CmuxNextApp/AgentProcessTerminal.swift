@@ -19,7 +19,7 @@ struct AgentProcessTerminal {
 
     /// Opens `viewer` beside chat tab `chat`; false when the chat is not found or not on this Mac.
     func open(_ viewer: AgentPaneProcessViewer, beside chat: String) -> Bool {
-        guard let (tab, chatPane) = services.locateTab(chat) else { return false }
+        guard let (tab, chatPane) = services.locateTab(chat, onMachine: services.machines.local.machineID) else { return false }
         let daemon = services.machines.daemon(forTab: tab)
         guard daemon.isLocal, let connection = daemon.connection else { return false }
         let store = daemon.store

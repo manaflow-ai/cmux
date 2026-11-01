@@ -11,6 +11,7 @@ description = "cmux server and VM software, pure core: layout, ports, Postgres p
 workspace = true
 
 [dependencies]
+cmux-json.workspace = true
 base64.workspace = true
 hmac.workspace = true
 ring.workspace = true

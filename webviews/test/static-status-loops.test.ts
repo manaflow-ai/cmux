@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { readWebThemeBootstrap } from "../dev-server/galleryHost";
+import type { PageLoops } from "../src/ui/pageLoops";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("static-status-loops.test.ts", async () => {
@@ -32,6 +33,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     "agent-session/acpmux/composerStates.css",
     "agent-session/acpmux/styles.css",
     "agent-session/acpmux/harnesses/harnesses.css",
+    "agent-session/acpmux/conversation/spinner.css",
     "agent-session/acpmux/conversation/conversation.css",
     "agent-session/acpmux/summary/summary.css",
   ]
@@ -41,11 +43,17 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   const diff = css("styles.css");
   // The script the app installs at document start in every cmux web view (WebTheme.swift).
   const bootstrap = readWebThemeBootstrap();
+  const diagnosticBundle = await Bun.build({
+    entrypoints: [path.join(import.meta.dir, "support/installPageLoops.entry.ts")],
+    target: "browser",
+  });
+  if (!diagnosticBundle.success) throw new Error(diagnosticBundle.logs.join("\n"));
+  const diagnosticScript = await diagnosticBundle.outputs[0].text();
 
   // A running transcript row's working mark (Spinner, WORKING-LOOK) with its words.
   const working =
     `<div class="cv-tool"><span class="cv-tool__icon"><span class="cv-spinner" data-working>` +
-    `<span class="cv-spinner__arc"></span><span class="cv-spinner__dot"></span></span></span>` +
+    `<span class="cv-spinner__spokes"></span><span class="cv-spinner__dot"></span></span></span>` +
     `<span class="cv-tool__text">Compacting</span></div>`;
   const paneLoops =
     `<button class="acpmux-mic" data-state="starting">mic</button>` +
@@ -123,6 +131,44 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     // Agent work uses the shared spinner by default; no working mark runs the breathing keyframe.
     expect(running.filter((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-spin")).length).toBe(2);
     expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(false);
+  });
+
+  test("a hidden page has no running infinite CSS loops", async () => {
+    const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "no-preference");
+    try {
+      await p.addStyleTag({
+        content: `
+          @keyframes cmux-root-loop { from { opacity: 1; } to { opacity: 0.9; } }
+          :root::before { content: ""; animation: cmux-root-loop 1s infinite; }
+        `,
+      });
+      await p.evaluate(() => {
+        document.documentElement.style.animation = "cmux-root-loop 1s infinite";
+      });
+      await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect((await loops(p)).some((loop) => loop.endsWith("cmux-root-loop"))).toBe(true);
+      await p.addScriptTag({ content: diagnosticScript });
+      const report = () =>
+        p.evaluate(() => (window as unknown as { cmuxDebug: { loops(): PageLoops } }).cmuxDebug.loops());
+      const visible = await report();
+      expect(visible.loops).toBeGreaterThanOrEqual(6);
+      expect(visible.hidden_loops).toBe(0);
+      await p.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect(await loops(p)).toEqual([]);
+      expect(await report()).toMatchObject({ visibilityState: "hidden", loops: 0, hidden_loops: 0 });
+      await p.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect((await report()).loops).toBe(visible.loops);
+    } finally {
+      await p.close();
+    }
   });
 
   /** Infinite opacity or scale animations running on a working mark, including its children. */

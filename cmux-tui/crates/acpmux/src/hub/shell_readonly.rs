@@ -100,16 +100,19 @@ pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_
 /// The environment the harness runs its shell commands with.
 pub(crate) type Env = BTreeMap<String, String>;
 
-/// Whether `env` points none of these programs at another program or file. A library search
-/// path (`LD_LIBRARY_PATH`, which cargo sets for its tests) passes: it only finds libraries
-/// already on disk, and putting one there takes an edit, which asks. Any other loader variable
-/// asks: one loads a library first, another writes a trace (`LD_DEBUG_OUTPUT`,
-/// `DYLD_PRINT_TO_FILE`).
+/// Whether `env` points none of these programs at another program or file. The library search
+/// path cargo sets for its tests passes on each OS: `LD_LIBRARY_PATH` on Linux and
+/// `DYLD_FALLBACK_LIBRARY_PATH` on macOS. Each only finds libraries already on disk, and putting
+/// one there takes an edit, which asks; the macOS one is searched only for a library its install
+/// name does not find (and macOS drops every `DYLD_*` variable when it starts a protected system
+/// program such as `/usr/bin/git`). Any other loader variable asks: one loads a library first
+/// (`DYLD_INSERT_LIBRARIES`, `DYLD_LIBRARY_PATH`, searched before the install name), another
+/// writes a trace (`LD_DEBUG_OUTPUT`, `DYLD_PRINT_TO_FILE`).
 fn env_runs_nothing(env: &Env) -> bool {
     env.keys().all(|k| {
         !(RUNS_ENV.contains(&k.as_str())
             || (k.starts_with("LD_") && k != "LD_LIBRARY_PATH")
-            || k.starts_with("DYLD_")
+            || (k.starts_with("DYLD_") && k != "DYLD_FALLBACK_LIBRARY_PATH")
             // An exported bash function (`BASH_FUNC_pwd%%`) runs in place of the command it names.
             || k.starts_with("BASH_FUNC_")
             || (k.starts_with("GIT_") && !HARMLESS_GIT_ENV.contains(&k.as_str())))
@@ -267,7 +270,7 @@ const GLOBBED: char = '\0';
 fn names_signature(text: &str) -> bool {
     text.contains("signature")
         || text.match_indices('%').any(|(i, _)| {
-            let rest = &text[i + 1..];
+            let rest = text.get(i + 1..).unwrap_or("");
             rest.strip_prefix(['+', '-', ' ']).unwrap_or(rest).starts_with('G')
         })
 }
@@ -390,7 +393,7 @@ fn command_name(word: &str) -> Option<&str> {
 
 /// A short option cluster (`-no`) holding `flag`.
 fn short_has(arg: &str, flag: char) -> bool {
-    arg.starts_with('-') && !arg.starts_with("--") && arg[1..].contains(flag)
+    arg.starts_with('-') && !arg.starts_with("--") && arg.get(1..).unwrap_or("").contains(flag)
 }
 
 /// A long option that GNU getopt and git read as `full`: any unambiguous prefix of it, with or
@@ -429,7 +432,7 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
             a.len() > 1
                 && a.starts_with('-')
                 && !a.starts_with("--")
-                && a[1..].chars().all(|c| "cdiu".contains(c))
+                && a.get(1..).unwrap_or("").chars().all(|c| "cdiu".contains(c))
         }),
         // Only the time, as is or `+FORMAT`: an operand sets the clock, and BSD `-f` reads the
         // operand after it as the time to set.
@@ -492,7 +495,7 @@ fn git_ok(args: &[String]) -> Option<Option<String>> {
             }
             a if a.starts_with("-C") => {
                 i += 1;
-                a[2..].to_owned()
+                a.get(2..).unwrap_or("").to_owned()
             }
             a if a.starts_with('-') => return None,
             _ => break,
@@ -555,7 +558,8 @@ fn git_read_ok(args: &[String]) -> bool {
                             )
                             || a.starts_with("--sort=")
                             || a.starts_with("--format=")
-                            || (a.starts_with("-n") && a[2..].chars().all(|c| c.is_ascii_digit()))
+                            || (a.starts_with("-n")
+                                && a.get(2..).unwrap_or("").chars().all(|c| c.is_ascii_digit()))
                     }))
         }
         "remote" => match rest {
@@ -640,7 +644,8 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
     // `-z`: scope NUL key LF value NUL; a key with no value has no LF.
     let fields: Vec<&[u8]> = config.split(|b| *b == 0).collect();
     for pair in fields.chunks_exact(2) {
-        let (Ok(scope), Ok(entry)) = (std::str::from_utf8(pair[0]), std::str::from_utf8(pair[1]))
+        let [scope, entry] = pair else { return false };
+        let (Ok(scope), Ok(entry)) = (std::str::from_utf8(scope), std::str::from_utf8(entry))
         else {
             return false;
         };
@@ -1138,6 +1143,31 @@ mod tests {
         for d in [clean, hostile, plain] {
             std::fs::remove_dir_all(d).unwrap();
         }
+    }
+
+    /// The library search path cargo sets for its tests, on each OS (`LD_LIBRARY_PATH` on Linux,
+    /// `DYLD_FALLBACK_LIBRARY_PATH` on macOS), only finds libraries already on disk: a git read
+    /// under either still runs without asking. On macOS every git read under approve-reads asked
+    /// (full-suite macOS job ac2ca38ed60bef1405523e24,
+    /// `permission_groups::approve_reads_runs_read_only_shell_commands_without_asking`). Every
+    /// other loader variable still asks.
+    #[cfg(unix)]
+    #[test]
+    fn a_library_search_path_lets_a_git_read_run_on_each_os() {
+        let dir = repo(&[]);
+        let reads =
+            |command: &str, env: &Env| request_is_read_only(&execute(json!(command)), &dir, env);
+        for key in ["LD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
+            let mut env = system_env();
+            env.insert(key.to_owned(), "/tmp/x".to_owned());
+            assert!(reads("git status", &env), "{key}");
+        }
+        for key in ["DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_FRAMEWORK_PATH"] {
+            let mut env = system_env();
+            env.insert(key.to_owned(), "/tmp/x".to_owned());
+            assert!(!reads("git status", &env), "{key}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Codex review of #24155 at 7e312f83: the command runs with the harness's PATH and env, so

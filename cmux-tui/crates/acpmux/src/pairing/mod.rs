@@ -1,8 +1,8 @@
 //! Pairing: add a machine with one pasted line.
 //!
 //! The person mints a ticket here (`acpmux host ticket new --role R`). The new
-//! machine redeems it once (`acpmux host join TICKET`, which the install
-//! script runs) over this daemon's WebSocket listener, and gets a device
+//! machine redeems it once (`acpmux host join`, the ticket on its stdin, which
+//! the install line runs) over this daemon's WebSocket listener, and gets a device
 //! credential bound to the role the minter chose:
 //!
 //! - `client`: the new machine adds this daemon as its peer and drives its
@@ -47,6 +47,8 @@
 //! mobile host marks what its own phone filter refuses
 //! (`_meta.acpmux.requireFullAccess`, `server/remote_guard.rs`): that runs only
 //! when the setting covers it.
+
+use cmux_json::JsonSet as _;
 
 mod read_only;
 mod store;
@@ -352,7 +354,7 @@ impl Pairing {
             .rev()
             .map(|d| {
                 let mut v = d.to_value();
-                v["connections"] = json!(inner.open.get(&d.id).copied().unwrap_or(0));
+                v.set("connections", json!(inner.open.get(&d.id).copied().unwrap_or(0)));
                 v
             })
             .collect();

@@ -48,6 +48,10 @@ export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
 export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 /** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
 const SHOWN_INK = 38;
+/// A fade out runs a third longer than its duration property (the host's, after ui.animationSpeed,
+/// Reduce Motion and animations off, so 0 stays 0): the pane's 180 ms move is 240 ms, the motion
+/// scale's longest step, so the thumb is seen to fade (Leo 2026-10-29).
+const FADE_OUT_STRETCH = 4 / 3;
 
 /** A duration custom property's value in ms (`120ms`, `0.18s`); 0 when it is unset or not one. */
 function durationMs(element: Element, property: string): number {
@@ -67,7 +71,8 @@ function durationMs(element: Element, property: string): number {
  */
 export function followShownScrollerFade(element: HTMLElement): () => void {
   const view = element.ownerDocument.defaultView;
-  if (!view?.MutationObserver) return () => {};
+  // A view that draws no frames (a test page made without them) runs no fade.
+  if (!view?.MutationObserver || typeof view.requestAnimationFrame !== "function") return () => {};
   const root = element.ownerDocument.documentElement;
   /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
   const resting = () =>
@@ -88,15 +93,22 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
     if (!root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return settle();
     target = to;
     const from = ink;
-    const ms = durationMs(element, to > from ? "--cmux-scroller-fade-in" : "--cmux-scroller-fade-out");
+    const ms =
+      to > from
+        ? durationMs(element, "--cmux-scroller-fade-in")
+        : durationMs(element, "--cmux-scroller-fade-out") * FADE_OUT_STRETCH;
     view.cancelAnimationFrame(frame);
     if (ms <= 0) return settle();
     const start = view.performance.now();
     const step = (now: number) => {
       const t = Math.min(1, Math.max(0, (now - start) / ms));
       if (t >= 1) return settle();
-      // Ease out, as the pane's other fades (--agent-ease-out).
-      ink = from + (to - from) * (1 - (1 - t) * (1 - t));
+      // A fade in eases out, as the pane's other fades (--agent-ease-out). A fade out eases in and
+      // out: eased out, three quarters of the ink went in the first half and the thumb read as
+      // vanishing at once (Leo 2026-10-29: "the scroll thumb should fade instead of disappearing
+      // instantly").
+      const eased = to > from ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t);
+      ink = from + (to - from) * eased;
       element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
       frame = view.requestAnimationFrame(step);
     };

@@ -1,7 +1,5 @@
 //! A sub-session start is a new session: this host's admission (`hub/admission.rs`)
-//! checks it before its worktree is made, so a refused start leaves no worktree, and
-//! `_meta.acpmux.forceAdmit` (`acpmux new --parent --force-admit`) admits it past the
-//! refusal as it does a `session/new`.
+//! checks it before its worktree is made. A disk-floor warning never refuses it.
 //!
 //! Stand-in agents (fake_agent.py). One test function: HOME is read from this
 //! process's environment.
@@ -88,7 +86,7 @@ fn git(dir: &Path, args: &[&str]) {
 }
 
 #[tokio::test]
-async fn a_refused_child_start_makes_no_worktree_and_force_admit_starts_it() {
+async fn an_under_floor_child_start_makes_its_worktree_without_force_admit() {
     let root = std::env::temp_dir().join(format!("acpmux-admsub-{}", uuid::Uuid::now_v7()));
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
@@ -111,28 +109,17 @@ async fn a_refused_child_start_makes_no_worktree_and_force_admit_starts_it() {
     let parent = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
     let mut p = Client::as_session(&hub, &parent).await;
 
-    // The disk is under its floor: the child is refused before its worktree is made.
+    // A floor is advisory: an ordinary child starts in its requested worktree.
     let flag = home.join(".cache/worktree-reclaim/under-floor");
     std::fs::create_dir_all(flag.parent().unwrap()).unwrap();
     std::fs::write(&flag, "").unwrap();
-    let refused =
+    let child =
         p.call(START, json!({"prompt": "echo child", "name": "Child", "worktree": true})).await;
-    assert_eq!(refused["error"]["data"]["reason"], "admission_refused", "{refused}");
+    assert!(child.get("error").is_none(), "the floor never refuses a child: {child}");
     let worktrees = home.join(".cmux/worktrees");
-    assert!(!worktrees.exists(), "a refused start made its worktree");
-
-    // Forced, it starts, in its worktree.
-    let forced = p
-        .call(
-            START,
-            json!({"prompt": "echo child", "name": "Child", "worktree": true,
-                   "_meta": {"acpmux": {"forceAdmit": true}}}),
-        )
-        .await;
-    assert!(forced.get("error").is_none(), "--force-admit admits a child: {forced}");
-    let wt = forced["result"]["worktree"]["root"].as_str().unwrap_or_default();
-    assert!(wt.starts_with(&*worktrees.to_string_lossy()), "{forced}");
-    assert!(Path::new(wt).is_dir(), "the forced child runs in its worktree: {forced}");
+    let wt = child["result"]["worktree"]["root"].as_str().unwrap_or_default();
+    assert!(wt.starts_with(&*worktrees.to_string_lossy()), "{child}");
+    assert!(Path::new(wt).is_dir(), "the child runs in its worktree: {child}");
 
     let _ = std::fs::remove_dir_all(&root);
 }

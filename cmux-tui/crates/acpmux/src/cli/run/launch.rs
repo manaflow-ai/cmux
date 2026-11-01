@@ -7,11 +7,14 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde_json::{Value, json};
+use tokio::time::Instant;
 
 use crate::cli::command::NewArgs;
+use crate::cli::errors;
 use crate::client::Client;
 use crate::rpc::method;
 
@@ -76,7 +79,16 @@ impl Launch {
                 Some((json!({"name": name, "base": base}), absolute(repo)?))
             }
         };
+        if let (Some(host), Some(from)) = (&args.host, &args.harness_from) {
+            bail!(
+                "--harness-from copies a session on this machine only: run \
+                 `ssh {host} acpmux new --harness-from {from} ...` there instead of --host {host}"
+            );
+        }
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;
+        if let Some(group) = &args.group {
+            validate_group(group)?;
+        }
         if args.reuse && name.is_none() {
             bail!("--reuse needs --name: the session to reuse is found by it");
         }
@@ -140,6 +152,28 @@ impl Launch {
     }
 }
 
+/// `_meta.acpmux` of `new` for the session it takes over from (`hub/lineage/successor.rs`):
+/// `--harness-from`, and `--report-to` (a successor reports to its predecessor).
+pub(super) fn successor_meta(args: &NewArgs, meta: &mut Value) {
+    if let Some(p) = &args.harness_from {
+        meta[crate::hub::lineage::successor::HARNESS_FROM_FIELD] = json!(p);
+    }
+    if let Some(to) = &args.report_to {
+        meta[crate::hub::lineage::successor::REPORT_TO_FIELD] = json!(to);
+    }
+}
+
+/// The warnings in a new session's reply, one line each: started past this host's lane cap
+/// (`hub/admission.rs`), never a refusal, and running unlike the session it takes over from
+/// (`hub/lineage/successor.rs`).
+pub(crate) fn print_new_warnings(created: &Value) {
+    for at in ["/_meta/acpmux/admission/warning", "/_meta/acpmux/successor/warning"] {
+        if let Some(w) = created.pointer(at).and_then(Value::as_str) {
+            eprintln!("acpmux: warning: {w}");
+        }
+    }
+}
+
 /// `name` as a session name, the same as its worktree's folder and branch
 /// (`cmux/<name>`): lowercase letters and digits, every other run one `-`,
 /// at most 48 characters.
@@ -149,6 +183,25 @@ pub(crate) fn session_name(name: &str) -> Result<String> {
         anyhow::anyhow!("--name {name:?} has no letters or digits to name a session")
     })?;
     Ok(out)
+}
+
+/// A group is a person's label, not a cmux object id. Rejecting ids before
+/// `session/new` keeps a bad launcher from creating persistent sidebar junk.
+pub(crate) fn validate_group(group: &str) -> Result<()> {
+    let label = group.trim();
+    let lower = label.to_ascii_lowercase();
+    let id_prefix = ["grp_", "ws_", "tab_", "pane_", "win_", "workspace_group:"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix));
+    let uuid = uuid::Uuid::parse_str(label).is_ok();
+    if label.is_empty() || id_prefix || uuid {
+        let message = "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group";
+        let data = json!({"reason": "usage.group_name", "group": group});
+        return Err(errors::AppError::new(errors::Code::Usage, "group_name", message)
+            .with_data(data)
+            .into());
+    }
+    Ok(())
 }
 
 /// `REPO[@BASE]`: the last `@` splits off the base (a ref or commit),
@@ -248,7 +301,10 @@ pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>
         Ok(_) => Ok(None),
         Err(e) => {
             let m = e.to_string().to_lowercase();
-            let none = m.contains("no session") || m.contains("not found") || m.contains("matches");
+            let none = m.contains("no session")
+                || m.contains("no local session")
+                || m.contains("not found")
+                || m.contains("matches");
             if none { Ok(None) } else { Err(e) }
         }
     }
@@ -318,35 +374,108 @@ fn workspace_key(id: &str) -> String {
 /// app's `agent open` action (`cmux agent open`), optionally named `title`.
 /// Unnamed launches omit the title so a peer's generated session name cannot
 /// accidentally match another session's workspace in the same group.
-/// A remote create returns the ID mirrored by the local daemon. Open that
-/// ID here, without `--host`: the workspace belongs to this Mac and its
+/// A remote create's ID stays qualified with its owning peer. Open that
+/// qualified ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
 /// the app's peer inventory, which may not have seen the new session yet.
-pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
+pub(super) fn show_in_group(
+    id: &str,
+    session_name: &str,
+    title: Option<&str>,
+    group: &str,
+    daemon_cli_path: Option<&std::path::Path>,
+    deadline: Option<Instant>,
+) -> Result<()> {
     let key = workspace_key(id);
     let mut args = vec!["agent", "open", id];
     if let Some(title) = title {
         args.extend(["--name", title]);
     }
     args.extend(["--key", &key, "--group", group]);
-    let retry = std::iter::once("cmux")
+    // Prefer the app's bundled CLI when the daemon was started by the app.
+    // A plain shell can otherwise resolve an older standalone `cmux` first.
+    let cli =
+        select_cli(daemon_cli_path, std::env::var_os(crate::login_env::BUNDLED_CLI_ENV).as_deref());
+    let path_cli = PathBuf::from("cmux");
+    let (cli, result) = run_with_fallback(&cli, &args, &path_cli, deadline);
+    let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let out = std::process::Command::new("cmux").args(args).output().with_context(|| {
-        format!(
-            "the session was created, but --group could not run cmux; put the running Mac app's \
-             bundled CLI on PATH, then retry on that Mac: {retry}"
+    let out = result.map_err(|error| -> anyhow::Error {
+        if error.kind() == std::io::ErrorKind::TimedOut {
+            return crate::cli::errors::AppError::timeout(format!(
+                "session {session_name} was created, but showing it in --group {group} did not finish \
+                 before the deadline ({error}); retry only the open: {command}"
+            ))
+            .with_session(id)
+            .into();
+        }
+        anyhow::anyhow!(
+            "session {session_name} was created, but --group could not run cmux ({error}); put the running Mac app's \
+             bundled CLI on PATH, then retry on that Mac: {command}"
         )
     })?;
     if !out.status.success() {
         bail!(
-            "the session runs, but the cmux app did not show it: {retry}: {}",
+            "session {session_name} was created, but the cmux app did not show it ({}): {}; retry only the open: {command}",
+            out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     Ok(())
+}
+
+fn run_with_fallback(
+    primary: &Path,
+    args: &[&str],
+    fallback: &Path,
+    deadline: Option<Instant>,
+) -> (PathBuf, std::io::Result<std::process::Output>) {
+    let result = run_bounded(primary, args, deadline);
+    if primary != fallback
+        && !result.as_ref().is_ok_and(|output| output.status.success())
+        && !result.as_ref().is_err_and(|error| error.kind() == std::io::ErrorKind::TimedOut)
+    {
+        let fallback_result = run_bounded(fallback, args, deadline);
+        return (fallback.to_path_buf(), fallback_result);
+    }
+    (primary.to_path_buf(), result)
+}
+
+fn run_bounded(path: &Path, args: &[&str], deadline: Option<Instant>) -> std::io::Result<Output> {
+    let mut command = Command::new(path);
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let done =
+        crate::cli::bounded_child::wait(command.spawn()?, None, deadline, "cmux agent open")?;
+    Ok(Output { status: done.status, stdout: done.stdout, stderr: done.stderr })
+}
+
+fn select_cli(daemon_cli_path: Option<&Path>, env_cli_path: Option<&std::ffi::OsStr>) -> PathBuf {
+    for path in [daemon_cli_path.map(Path::to_path_buf), env_cli_path.map(PathBuf::from)]
+        .into_iter()
+        .flatten()
+    {
+        if is_executable_file(&path) {
+            return path;
+        }
+    }
+    PathBuf::from("cmux")
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 #[cfg(test)]
@@ -359,14 +488,45 @@ mod tests {
             #[command(flatten)]
             args: NewArgs,
         }
-        let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let brief = dir.join("brief.md");
+        // A brief of its own per call: tests run in parallel, and a shared
+        // file one test rewrites (truncate, then write) reads empty in another.
+        let dir = tempfile::tempdir().unwrap();
+        let brief = dir.path().join("brief.md");
         std::fs::write(&brief, "do it\n").unwrap();
         let mut argv = vec!["new".to_owned()];
         argv.extend(words.iter().map(|w| w.replace("BRIEF", &brief.to_string_lossy())));
         let new = <New as clap::Parser>::try_parse_from(argv).unwrap();
         Launch::prepare(&new.args).unwrap()
+    }
+
+    #[test]
+    fn stale_bundled_cli_falls_back_to_path_name() {
+        let stale = std::env::temp_dir().join(format!("acpmux-stale-cli-{}", std::process::id()));
+        assert_eq!(select_cli(Some(&stale), None), Path::new("cmux"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_bundled_cli_retries_the_path_cli() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-cli-fallback-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        let bundled = root.join("bundled");
+        let path_cli = root.join("path-cmux");
+        std::fs::write(&bundled, "#!/bin/sh\nexit 7\n").unwrap();
+        std::fs::write(&path_cli, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for path in [&bundled, &path_cli] {
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+        }
+        let args = ["agent", "open", "session-id"];
+        let (chosen, output) = run_with_fallback(&bundled, &args, &path_cli, None);
+        assert_eq!(chosen, path_cli);
+        assert!(output.unwrap().status.success());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -388,6 +548,30 @@ mod tests {
         // One worktree, one session: the name is the worktree's.
         assert_eq!(session_name("Lane_A").unwrap(), session_name("lane-a").unwrap());
         assert!(session_name("//").is_err());
+    }
+
+    #[test]
+    fn a_group_is_a_human_label_and_never_an_object_id() {
+        for group in [
+            "",
+            "   ",
+            "grp_012345",
+            "ws_012345",
+            "workspace_group:42",
+            "550e8400-e29b-41d4-a716-446655440000",
+        ] {
+            let refused = validate_group(group).unwrap_err();
+            let error = refused.to_string();
+            assert!(error.contains("human label"), "{group:?}: {error}");
+            assert!(error.contains("omit --group"), "{group:?}: {error}");
+            // A usage error (exit 2) the --json envelope names, before any session is made.
+            let app = crate::cli::errors::classify(&refused);
+            assert_eq!(app.exit_status(), 2, "{group:?}");
+            let envelope = app.envelope();
+            assert_eq!(envelope["error"]["detail"], "group_name", "{envelope}");
+            assert_eq!(envelope["error"]["data"]["reason"], "usage.group_name", "{envelope}");
+        }
+        assert!(validate_group("GUI push").is_ok());
     }
 
     #[test]
@@ -485,6 +669,43 @@ mod tests {
         assert_eq!(k, workspace_key("lane"));
         assert_ne!(k, workspace_key("lane2"));
         assert!(uuid::Uuid::parse_str(&k).is_ok());
+    }
+
+    #[test]
+    fn a_group_open_failure_keeps_the_session_name_and_retry_command() {
+        let error = show_in_group(
+            "session-id",
+            "lane-name",
+            None,
+            "remote-audit",
+            Some(Path::new("/definitely/missing/cmux")),
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("session lane-name was created"), "{error}");
+        assert!(error.contains("cmux agent open session-id"), "{error}");
+        assert!(error.contains("--group remote-audit"), "{error}");
+    }
+
+    /// A `cmux agent open` that stalls ends at the caller's deadline, exits as a timeout and is
+    /// not tried again on the PATH fallback.
+    #[cfg(unix)]
+    #[test]
+    fn a_stalled_group_open_ends_at_the_caller_deadline_as_a_timeout() {
+        let dir = std::env::temp_dir().join(format!("acpmux-group-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cli = dir.join("cmux");
+        crate::test_exec::write_executable(&cli, "#!/bin/sh\nsleep 30\n");
+        let started = std::time::Instant::now();
+        let deadline = Instant::now() + std::time::Duration::from_millis(300);
+        let error = show_in_group("session-id", "lane-name", None, "g", Some(&cli), Some(deadline))
+            .unwrap_err();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        let app = error.downcast_ref::<crate::cli::errors::AppError>();
+        assert_eq!(app.map(|a| a.code), Some(crate::cli::errors::Code::Timeout), "{error:#}");
+        assert!(error.to_string().contains("session lane-name was created"), "{error:#}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -45,6 +45,9 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// The first contentful paint report (its own world, main frame); the page-channel path only:
     /// the DevTools path reads Page.lifecycleEvent instead (`CEFFirstPaintBridge`).
     var firstPaint: [Script]
+    /// The settled scroll report (its own world, main frame); the page-channel path only: a fork
+    /// without it keeps the position measured when the person leaves the app and at quit.
+    var scrollReport: [Script]
 
     init(post: Post) {
         let mediaChannel = BrowserMediaState.channel
@@ -72,10 +75,16 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
                       source: BrowserFirstPaintScript.source(post: post.send(paintChannel, "String(report)"), ready: post.ready(paintChannel)),
                       allFrames: false)]
             : []
+        let scrollChannel = BrowserScrollReportScript.channel
+        scrollReport = post == .pageChannel
+            ? [Script(world: BrowserScrollReportScript.world,
+                      source: BrowserScrollReportScript.source(post: post.send(scrollChannel, "String(y)"), ready: post.ready(scrollChannel)),
+                      allFrames: false)]
+            : []
     }
 
     /// Every script, in install order.
-    var all: [Script] { media + verification + firstPaint }
+    var all: [Script] { media + verification + firstPaint + scrollReport }
 
     /// Installs every script and channel for every browser (fork API 29). Returns the names the
     /// shim refused (empty when all went in).

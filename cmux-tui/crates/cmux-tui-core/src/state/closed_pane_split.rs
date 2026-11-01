@@ -14,6 +14,7 @@ use crate::model::State;
 use crate::mux::tab_groups::{pane_by_public_id, pane_public_id};
 use crate::mux::*;
 use crate::{Actor, PaneId, SurfaceId};
+use cmux_json::JsonSet as _;
 
 /// Where closing pane `pane_id` sits in the split tree of `screen_id`:
 /// `neighbor` (the pane next to it in its split), `direction` (the side
@@ -35,7 +36,7 @@ pub(super) fn pane_placement(
     let Some(layout) = layout else { return Ok(None) };
     let layout: Value = serde_json::from_str(&layout)?;
     Ok(placement_in(&layout, pane_id).map(|mut placement| {
-        placement["screen"] = json!(screen_id);
+        placement.set("screen", json!(screen_id));
         placement
     }))
 }
@@ -62,7 +63,7 @@ fn placement_in(node: &Value, pane_id: &str) -> Option<Value> {
     if sibling["kind"] == "split"
         && let Some(around) = sibling["split"].as_str()
     {
-        placement["around"] = json!(around);
+        placement.set("around", json!(around));
     }
     Some(placement)
 }

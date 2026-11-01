@@ -23,7 +23,7 @@ import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand,
 import { keybindingRules } from "./vscodeKeys";
 import { installNativeEditorMenu } from "./nativeEditorMenu";
 import type { CodeView, EditorDocument } from "./store";
-import type { FindRange, FindTarget } from "./editorFind";
+import { MATCH_LIMIT, type FindRange, type FindTarget } from "./editorFind";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
 import { analyzeText, LineEndings, lineEndingLabel } from "./textCodec";
 import {
@@ -716,8 +716,11 @@ export class MonacoView implements CodeView {
   findTarget(): FindTarget {
     const decorations = this.editor.createDecorationsCollection();
     return {
-      findMatches: (query, matchCase) =>
-        this.model?.findMatches(query, false, false, matchCase, null, false).map((match) => match.range) ?? [],
+      // Monaco's own default stops at 999; the pill takes MATCH_LIMIT, Replace All takes them all.
+      findMatches: (query, matchCase, all) =>
+        this.model
+          ?.findMatches(query, false, false, matchCase, null, false, all ? Number.MAX_SAFE_INTEGER : MATCH_LIMIT)
+          .map((match) => match.range) ?? [],
       // The selection's start, not the cursor: a selected match leaves the cursor at its end, and
       // the next letter typed would skip to the match after it.
       caret: () =>

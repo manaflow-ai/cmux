@@ -83,6 +83,13 @@ public struct HomeColor: Hashable, Sendable {
         return base.mixed(with: ink, hi)
     }
 
+    /// Black or white, whichever has the higher WCAG contrast on this colour: the automatic text of a
+    /// bubble colour a person chose (Chat Colors…), where Messages' white-on-blue rule does not apply.
+    public var strongestText: HomeColor {
+        let white = HomeColor.gray255(255), black = HomeColor.gray255(0)
+        return contrast(with: white) >= contrast(with: black) ? white : black
+    }
+
     /// Text on this colour: white while it keeps 3:1 (Messages' white on
     /// its blue is 3.7:1; saturated blues read better white than WCAG's
     /// black pick), else white or black, whichever has the higher contrast.
@@ -123,6 +130,10 @@ public struct HomePalette: Hashable, Sendable {
     public var morphUnderlay: HomeColor
     public var typingDot: HomeColor
     public var typingDotHighlight: HomeColor
+    /// The composer's own text and symbols: the received text unless a chat
+    /// chose received colours (``applying(_:)``), which keep this the theme's.
+    public var composeText: HomeColor { composeTextOverride ?? incomingText }
+    var composeTextOverride: HomeColor? = nil
 
     public struct GradientStop: Hashable, Sendable {
         public var location: CGFloat
@@ -250,6 +261,33 @@ public struct HomePalette: Hashable, Sendable {
         palette.secondaryText = .gray255(light ? 134 : 154)
         palette.badge = palette.incomingBubble
         return palette.withReadableText()
+    }
+
+    /// This palette with a chat's chosen bubble colours (Chat Colors…, `home.bubbleColors.*`).
+    /// A chosen fill draws flat (no viewport shading); a fill with no chosen
+    /// text gets black or white text, whichever has more contrast on it (``HomeColor/strongestText``). The composer
+    /// keeps the theme's text (``composeText``) whatever the bubbles' text is.
+    /// - Parameter colors: the chosen colours; empty returns this palette unchanged.
+    /// - Returns: the palette the chat draws with.
+    public func applying(_ colors: HomeBubbleColors) -> HomePalette {
+        guard !colors.isEmpty else { return self }
+        var p = self
+        if let fill = colors.sent?.with(alpha: 1) {
+            p.outgoingGradient = [GradientStop(location: 0, color: fill), GradientStop(location: 1, color: fill)]
+            // The caret stays the theme's: it also inks links in the other side's bubbles.
+            p.outgoingText = fill.strongestText
+        }
+        if let ink = colors.sentText { p.outgoingText = ink.with(alpha: 1) }
+        if colors.received != nil || colors.receivedText != nil {
+            p.composeTextOverride = composeText
+        }
+        if let fill = colors.received?.with(alpha: 1) {
+            p.incomingBubble = fill
+            p.badge = fill
+            p.incomingText = fill.strongestText
+        }
+        if let ink = colors.receivedText { p.incomingText = ink.with(alpha: 1) }
+        return p
     }
 
     /// The outgoing colour at a fraction of the viewport height.

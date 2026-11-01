@@ -64,6 +64,11 @@ public final class ComputerUseHelperDaemon {
     public static let shared = ComputerUseHelperDaemon()
 
     public private(set) var state: State = .off
+    /// Why the running helper refused this app as its consent host
+    /// (`host_unverified`: a cmux build that isn't team-signed, such as a
+    /// tagged dev build). Every call that needs consent is refused then.
+    /// Cleared when the helper stops, exits or starts again.
+    public private(set) var consentHostUnverified: String?
     @ObservationIgnored let socketPath: String
     @ObservationIgnored let stateDirectory: URL
     @ObservationIgnored private let identity: CuaHelperIdentity
@@ -91,6 +96,9 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let restarts: ComputerUseHelperRestarts
     /// The helper v2 (`computerUse.driver = "upstream"`).
     @ObservationIgnored public let upstream: ComputerUseHelperV2
+    /// Serves machine consent to the running helper from this app's acpmux
+    /// daemon (the same query the helper v2 uses).
+    @ObservationIgnored private var consentHost: ComputerUseConsentHost?
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
@@ -157,18 +165,40 @@ public final class ComputerUseHelperDaemon {
     }
 
     /// Which helper runs. The default (driver legacy) is today's path only:
-    /// the helper v2 never starts.
-    nonisolated static func route(_ settings: ComputerUseSettings, disabledByPolicy: Bool) -> (legacy: Bool, upstream: Bool) {
+    /// the helper v2 never starts. "upstream" in a build without the helper
+    /// v2 runs the legacy helper (`effectiveDriver`).
+    nonisolated static func route(_ settings: ComputerUseSettings, disabledByPolicy: Bool,
+                                  upstreamInBuild: Bool = true) -> (legacy: Bool, upstream: Bool) {
         let on = settings.enabled && !disabledByPolicy
-        return (on && settings.driver == .legacy, on && settings.driver == .upstream)
+        let driver = effectiveDriver(settings.driver, upstreamInBuild: upstreamInBuild)
+        return (on && driver == .legacy, on && driver == .upstream)
+    }
+
+    /// The driver that runs for the chosen one. "upstream" in a build
+    /// without the helper v2 (NIGHTLY and release builds today) is the
+    /// legacy helper: nothing could ever start, so Computer Use stayed down
+    /// and setup said "starting" forever (2026-10-29). The stored setting is
+    /// never rewritten; a build that carries the helper v2 runs it again.
+    nonisolated static func effectiveDriver(_ chosen: ComputerUseDriver, upstreamInBuild: Bool) -> ComputerUseDriver {
+        chosen == .upstream && !upstreamInBuild ? .legacy : chosen
+    }
+
+    /// `effectiveDriver` for this build's helper v2.
+    public func effectiveDriver(_ chosen: ComputerUseDriver) -> ComputerUseDriver {
+        Self.effectiveDriver(chosen, upstreamInBuild: upstream.isInBuild)
     }
 
     /// Applies one settings value: stops the helper that is off first, then
     /// starts the one that is on.
     func apply(_ settings: ComputerUseSettings, disabledByPolicy: Bool) async {
         guard !quitting, !Task.isCancelled else { return }
-        let route = Self.route(settings, disabledByPolicy: disabledByPolicy)
-        publish(!disabledByPolicy && settings.driver == .legacy)
+        let upstreamInBuild = upstream.isInBuild
+        let driver = Self.effectiveDriver(settings.driver, upstreamInBuild: upstreamInBuild)
+        if driver != settings.driver, settings.enabled, !disabledByPolicy {
+            helperLogger.notice("computerUse.driver is upstream, but this build has no helper v2; using the legacy helper")
+        }
+        let route = Self.route(settings, disabledByPolicy: disabledByPolicy, upstreamInBuild: upstreamInBuild)
+        publish(!disabledByPolicy && driver == .legacy)
         if route.legacy {
             await upstream.apply(enabled: false)
             guard !quitting, !Task.isCancelled else { return }
@@ -268,6 +298,7 @@ public final class ComputerUseHelperDaemon {
         agentToken = agent
         hostToken = host
         state = .running(pid)
+        startConsentHost(agentToken: agent, hostToken: host)
         restarts.watch(launcher.watchExit(of: pid) { [weak self] in self?.helperExited(pid) })
         helperLogger.notice("cmux Computer Use helper started from \(staged.path, privacy: .public)")
     }
@@ -279,6 +310,8 @@ public final class ComputerUseHelperDaemon {
     /// setup offers Restart Helper.
     private func helperExited(_ pid: pid_t) {
         guard case .running(let running) = state, running == pid else { return }
+        consentHost?.stop()
+        consentHostUnverified = nil
         agentToken = nil
         hostToken = nil
         guard requestedEnabled, !quitting else {
@@ -321,10 +354,29 @@ public final class ComputerUseHelperDaemon {
     /// exit watch ends first, so this exit starts nothing.
     func stop() {
         restarts.stopped()
+        consentHost?.stop()
+        consentHostUnverified = nil
         if case .running(let pid) = state { launcher.terminate(pid) }
         state = .off
         agentToken = nil
         hostToken = nil
+    }
+
+    private func startConsentHost(agentToken: String, hostToken: String) {
+        let host = consentHost ?? ComputerUseConsentHost(
+            consent: { [upstream] in
+                let query = await MainActor.run { upstream.machineConsent }
+                return await query()
+            },
+            refused: { [upstream] surface in
+                let record = await MainActor.run { upstream.consentRefused }
+                await record(surface)
+            },
+            unverified: { [weak self] why in self?.consentHostUnverified = why })  // nil: accepted again
+        consentHost = host
+        consentHostUnverified = nil
+        host.start(AgentActivitySocketSource.Configuration(socketPath: socketPath, authToken: agentToken,
+                                                           hostAuthToken: hostToken, machineName: ""))
     }
 
     /// A process that failed its running check got the agent token in its

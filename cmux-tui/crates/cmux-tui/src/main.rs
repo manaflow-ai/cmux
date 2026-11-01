@@ -6,6 +6,8 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+use cmux_json::JsonSet as _;
+
 #[cfg(unix)]
 mod acp;
 #[cfg(unix)]
@@ -40,15 +42,23 @@ mod local_actor;
 mod page_listener;
 mod private_mode;
 #[cfg(unix)]
+mod share_room;
+#[cfg(unix)]
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[cfg(unix)]
+mod distribution;
 mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+// Decided on every Unix so its tests run off the Mac; used on macOS only.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod launchd_refresh;
 #[cfg(unix)]
 mod link;
 mod local_owner;
@@ -1043,8 +1053,8 @@ fn version_report_json() -> serde_json::Value {
     );
     // The invite wave this tester is in and what its signed flags turn off (#10).
     let (cohort, disabled_features) = feature_flags::report();
-    report["cohort"] = serde_json::json!(cohort);
-    report["disabled_features"] = serde_json::json!(disabled_features);
+    report.set("cohort", serde_json::json!(cohort));
+    report.set("disabled_features", serde_json::json!(disabled_features));
     report
 }
 
@@ -1700,8 +1710,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
-    // Before any mode can serve `identify` or `ping`.
+    // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
+    cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
+    acpmux::hub::install_build(acpmux_build_id::BUILD);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -1785,7 +1797,7 @@ fn run_main() {
     // daemon signal handler.
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
-        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
+        if let Err(error) = cmux_holder::serve(raw_args.get(1..).unwrap_or_default()) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
         }
@@ -1823,9 +1835,9 @@ fn run_main() {
     // device list over every store (plans/cmux-next/add-device-DESIGN.md).
     // `cmux device add` without `--yes` is the app's Add Device card. Both
     // surfaces: the app runs its bundled `cmux-tui device list --json`.
-    if devices::handles(&raw_args) {
+    if let Some(device_args) = devices::device_args(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(devices::run(&raw_args[1..]));
+        client_log::exit(devices::run(&device_args));
     }
     // `cmux route` was removed with the route CLI. Refuse it before the generic
     // unknown-command app fallback or daemon skew re-exec can touch a socket or
@@ -2251,6 +2263,8 @@ fn run_server(
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
+    #[cfg(unix)]
+    let mut link_startup = link::DaemonEntryStartup::capture();
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
@@ -2268,6 +2282,16 @@ fn run_server(
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
     let headless::WsToken { token: ws_token, minted: ws_token_minted } =
         headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
+    // Whether clients find this owner only through its socket's folder (the
+    // lost-paths watch, headless/lost_paths.rs): not a Cloud daemon's remote
+    // runtime or link entry, not a provider management socket from systemd,
+    // and no WebSocket listener but a loopback one whose token is minted into
+    // a file beside the socket.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let reached_only_by_socket = !args.remote
+        && !args.link_entry
+        && provider_management_listener.is_none()
+        && (ws_addr.is_none() || ws_token_minted);
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
@@ -2402,6 +2426,8 @@ fn run_server(
     // exits before it touches the registry or a terminal host.
     // A saved state this build cannot open fails before the bind, so its
     // recovery text can still tell whether another server holds the socket.
+    // Each start's steps to its first answer (startup-timings.jsonl in the session directory).
+    let mut startup_timings = cmux_tui_core::startup_timings::StartupTimings::start();
     if let Some(root) = state_root.as_deref()
         && let Err(error) =
             cmux_tui_core::WorkspaceRegistry::check_supported_schema(root, &args.session)
@@ -2411,6 +2437,7 @@ fn run_server(
     let restoring_server =
         cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
             .serve_restoring()?;
+    startup_timings.lap("socket.bind");
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2456,6 +2483,10 @@ fn run_server(
             ));
         }
     };
+    match mux.take_startup_timings() {
+        Some(open) => startup_timings.absorb(open, "open.other"),
+        None => startup_timings.lap("open.in_memory"),
+    }
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2493,10 +2524,14 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = restoring_server.attach(mux.clone());
+    let pending_server = hook_helper::resume(restoring_server.attach(mux.clone()), &socket_path);
+    // From here the restoring server's waiting clients get answers.
+    startup_timings.lap("server.attach");
+    mux.record_startup_timings(&startup_timings);
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
-    let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
+    let _link_entry = link_startup
+        .start_entry(args.link_entry, &mux, &socket_path)
         .inspect_err(|_| mux.shutdown())?;
 
     #[cfg(unix)]
@@ -2615,6 +2650,8 @@ fn run_server(
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
+    #[cfg(unix)]
+    cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
     // has always left the terminal running unplaced, and clients built
@@ -2674,12 +2711,27 @@ fn run_server(
             config.machine_sidebar.create_sources.clone(),
         )
     });
+    // Read before the readiness byte: once `server ensure` has it, the
+    // process that started this owner may exit and remove the owner's root
+    // at once (headless/lost_paths.rs).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let reachable = (args.headless && reached_only_by_socket)
+        .then(|| headless::lost_paths::Reachable::for_owner(&mux, &socket_path))
+        .flatten();
     let result = if args.headless {
         mux.mark_server_lifecycle_ready();
         if let Some(fd) = args.owner_ready_fd {
             local_owner::signal_ready(fd);
         }
-        #[cfg(unix)]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            run_headless(&mux, &socket_path, args.exit_with_pid, reachable, || {
+                remote_runtime
+                    .as_ref()
+                    .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
+            })
+        }
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
         {
             run_headless(&mux, &socket_path, args.exit_with_pid, || {
                 remote_runtime
@@ -2971,28 +3023,7 @@ fn start_detached_owner_session(
     };
     let progress = local_owner::RestoreProgress::new(&report);
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
-        match error {
-            local_owner::EnsureError::Spawn(_error) => {
-                anyhow::bail!("{}", messages.owner_spawn_failed())
-            }
-            local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
-            local_owner::EnsureError::RestoreTimeout => {
-                anyhow::bail!("{}", messages.owner_restore_timeout)
-            }
-            local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
-            local_owner::EnsureError::DifferentSession => {
-                anyhow::bail!("{}", messages.different_session)
-            }
-            local_owner::EnsureError::DifferentState => {
-                anyhow::bail!("{}", messages.different_state)
-            }
-            local_owner::EnsureError::InvalidIdentity => {
-                anyhow::bail!("{}", messages.invalid_identity)
-            }
-            local_owner::EnsureError::UnsupportedProtocol => {
-                anyhow::bail!("{}", messages.unsupported_protocol)
-            }
-        }
+        anyhow::bail!("{}", messages.ensure_failed(&error));
     }
     let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;

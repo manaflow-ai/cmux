@@ -59,7 +59,7 @@ import Testing
     /// where its last trailing mark ends (the title's end in a row with no mark), and where that
     /// mark is centered (nil with no mark).
     private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat, lastMidX: CGFloat?) {
-        let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots, row.disclosureButton] as [NSView]
+        let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots] as [NSView]
         guard let last = marks.filter({ !$0.isHidden && $0.frame.width > 0 }).max(by: { $0.frame.maxX < $1.frame.maxX }) else {
             return (row.icon.frame.minX, row.bounds.width - row.title.frame.maxX, nil)
         }
@@ -71,9 +71,12 @@ import Testing
         let unread = try Self.row(sidebar, Self.unreadID), selected = try Self.row(sidebar, Self.selectedID)
         #expect(selected.isSelected && !unread.isSelected)
         let gutter = SidebarStyle.horizontalInset
-        // A status glyph centers on the trailing column (10990df76a738), whose slot ends at the inset. A row with
-        // no mark (the selected row: `.working` with no agent at work shows idle) runs its title to the inset.
-        let columnTrailing = gutter + (SidebarStyle.trailingSlotSide - SidebarStyle.statusGlyphSize) / 2
+        // A status glyph centers on the trailing column (10990df76a738), whose slot ends `trailingColumnInset` in: the
+        // larger of the row's inset and the resize band's clearance (#27954, 9a79771762c4; 7 pt at compact, the row's
+        // 8 pt at comfortable). A row with no mark (the selected row: `.working` with no agent at work shows idle) runs
+        // its title to the slot's end.
+        let slotEnd = SidebarStyle.trailingColumnInset
+        let columnTrailing = slotEnd + (SidebarStyle.trailingSlotSide - SidebarStyle.statusGlyphSize) / 2
         for (name, row) in [("unselected", unread), ("selected", selected)] {
             let (leading, trailing, lastMidX) = try Self.insets(row)
             if row === unread { #expect(lastMidX != nil, "the unread row shows its count and status glyph") }
@@ -83,7 +86,7 @@ import Testing
                 #expect(abs(lastMidX - column) < 0.5, "\(name): the last mark centers at \(lastMidX), the trailing column at \(column)")
                 #expect(abs(trailing - columnTrailing) < 0.5, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in, column \(columnTrailing)")
             } else {
-                #expect(leading == trailing, "\(name): icon slot \(leading) pt in, title ends \(trailing) pt in")
+                #expect(trailing == slotEnd, "\(name): title ends \(trailing) pt in, the column's slot \(slotEnd) pt in")
             }
             #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.

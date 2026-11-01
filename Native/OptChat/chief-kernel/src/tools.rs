@@ -8,8 +8,9 @@ use crate::prompt::{
     CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
     PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION,
     REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
-    SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
-    VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION, STOP_DESCRIPTION,
+    TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION, WATCH_DESCRIPTION,
+    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 
 /// Most attachments one `send` takes.
@@ -19,6 +20,18 @@ pub const MAX_SEND_ATTACHMENTS: usize = 10;
 pub const SLEEP_MIN_SECONDS: u64 = 30;
 /// Longest `sleep`: a day.
 pub const SLEEP_MAX_SECONDS: u64 = 86_400;
+
+/// A `watch` with no `timeout_seconds` fires as timed out after 30 min.
+pub const WATCH_DEFAULT_SECONDS: u64 = 1_800;
+/// Shortest `watch` timeout.
+pub const WATCH_MIN_SECONDS: u64 = 10;
+/// Longest `watch` timeout: a day.
+pub const WATCH_MAX_SECONDS: u64 = 86_400;
+/// How long a `watch` waits before it runs a command that exited without
+/// matching `until` again.
+pub const WATCH_POLL_SECONDS: u64 = 15;
+/// Most watches pending at once.
+pub const WATCHES_KEPT: usize = 8;
 
 /// The kinds of sign-in `escalate_auth` takes.
 pub const AUTH_KINDS: [&str; 4] = ["password", "passkey", "2fa", "oauth"];
@@ -37,7 +50,7 @@ pub const PLACES: [&str; 5] = [
 ];
 
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 10] = [
+pub const CONTROL_ACTIONS: [&str; 13] = [
     "status",
     "interrupt",
     "answer",
@@ -46,8 +59,11 @@ pub const CONTROL_ACTIONS: [&str; 10] = [
     "cancel",
     "restart",
     "priority",
+    "show",
+    "hide",
     "cap",
     "cloud",
+    "sessions",
 ];
 
 /// The sizes `cmux cloud new-machine --size` takes.
@@ -128,7 +144,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
     }
     if !subagent && allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": PLACES, "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here."}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": PLACES, "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
     }
     if !subagent && allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
@@ -192,6 +208,14 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
             "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
           "required": ["seconds"], "additionalProperties": false}}));
+        list.push(json!({"name": "watch", "description": WATCH_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "command": {"type": "string", "minLength": 1, "description": "A shell command (sh -c) the host runs on this machine, off your turn: a streaming one (tail -f, gh run watch) or a short check, run again every 15 s while `until` does not match."},
+            "until": {"type": "string", "minLength": 1, "description": "A regex on its output lines (stdout and stderr): the watch fires at the first match. Without it, the watch fires when the command exits."},
+            "timeout_seconds": {"type": "integer", "minimum": WATCH_MIN_SECONDS, "maximum": WATCH_MAX_SECONDS, "description": "The watch fires as timed out after this (default 1800, at most 86400)."},
+            "note": {"type": "string", "description": "What to do when it fires: shown to you in the watch message."},
+            "cancel": {"type": "string", "minLength": 1, "description": "A watch id (w<N>) or all: cancels instead of starting one. With no command and no cancel, lists the pending watches."}},
+          "additionalProperties": false}}));
         list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "minLength": 1, "maxLength": REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
@@ -208,6 +232,7 @@ const ONCE: &[&str] = &[
     "tell",
     "control",
     "sleep",
+    "watch",
     "profile",
     "chiefs",
     "move",
@@ -215,8 +240,9 @@ const ONCE: &[&str] = &[
 ];
 
 /// Tools only a host on the person's machine can do: the Mac's app
-/// (`version`) and moving the Chief's home (`move`).
-const HOST_ONLY: &[&str] = &["version", "move"];
+/// (`version`), moving the Chief's home (`move`) and running a command off
+/// the turn (`watch`).
+const HOST_ONLY: &[&str] = &["version", "move", "watch"];
 
 /// The engines that take specs; a cloud engine drops the host-only tools.
 const SPEC_ENGINES: &[(&str, bool)] = &[

@@ -1,13 +1,15 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Live receipt of #22829 on a DEV build (2026-10-21): Home and App Store draw in the list's top block,
 /// so a tile drag there is the list's one drag (`dragTile`), not the band's own reorder the band test
 /// covers. A press on App Store while a Home drag was still held ended the drag, but Home's slot stayed
-/// empty: the tile the drag hid never showed again until something else reloaded the list.
-@MainActor @Suite(.serialized)
+/// empty: the tile the drag hid never showed again until something else reloaded the list. Home no longer drags
+/// (`LayoutItem.isMovable`, Lawrence 2026-10-30): the dragged tile is the App Store and the press lands on Home.
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarListTilePressTests {
     static let home = LayoutItemID("itm_home"), store = LayoutItemID("itm_app_store")
     static let topKey = SidebarRowKey.block(SidebarLayoutDocument.topSectionID.rawValue)
@@ -70,48 +72,48 @@ struct SidebarListTilePressTests {
     @Test func aPressOnAnotherTileShowsTheTileAStaleDragHid() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
-        let home = try h.tile(Self.home)
-        home.mouseDown(with: try h.event(.leftMouseDown, on: home))
-        home.mouseDragged(with: try h.event(.leftMouseDragged, on: home, dy: 40))
-        #expect(h.list.drag != nil, "the fixture's tile drag did not start")
-
-        // The release never came (it went to another window); the next press lands on App Store.
+        defer { h.window.close() }
         let store = try h.tile(Self.store)
         store.mouseDown(with: try h.event(.leftMouseDown, on: store))
-        store.mouseUp(with: try h.event(.leftMouseUp, on: store))
+        store.mouseDragged(with: try h.event(.leftMouseDragged, on: store, dy: 40))
+        #expect(h.list.drag != nil, "the fixture's tile drag did not start")
+
+        // The release never came (it went to another window); the next press lands on Home.
+        let home = try h.tile(Self.home)
+        home.mouseDown(with: try h.event(.leftMouseDown, on: home))
+        home.mouseUp(with: try h.event(.leftMouseUp, on: home))
+        h.list.endLanding() // the cancelled card lands in the App Store's slot (its flight's completion, now)
         h.settle()
 
         #expect(h.list.drag == nil, "the stale drag is still held under the new press")
-        let shown = try h.tile(Self.home)
-        #expect(shown.isDescendant(of: h.window.contentView!), "Home's tile left the window")
-        #expect(shown.alphaValue == 1, "Home's tile stays hidden after the stale drag ended (alpha \(shown.alphaValue))")
-        #expect(!shown.isHidden, "Home's tile is hidden after the stale drag ended")
+        let shown = try h.tile(Self.store)
+        #expect(shown.isDescendant(of: h.window.contentView!), "the App Store's tile left the window")
+        #expect(shown.alphaValue == 1, "the App Store's tile stays hidden after the stale drag ended (alpha \(shown.alphaValue))")
+        #expect(!shown.isHidden, "the App Store's tile is hidden after the stale drag ended")
     }
 
-    /// The live press landed where App Store rested before the drag: the drag had moved App Store up into
-    /// Home's slot, so the press hit the list, not a tile. The list's own press ends the stale drag
-    /// (`endPointerGesture`) and the tile the drag hid must show again then too.
+    /// The live press landed on the list, not a tile (the drag had moved the rows under the pointer). The list's own
+    /// press ends the stale drag (`endPointerGesture`) and the tile the drag hid must show again then too.
     @Test func aPressOnTheListShowsTheTileAStaleDragHid() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
-        let restingStore = try h.event(.leftMouseDown, on: h.tile(Self.store))
-        let home = try h.tile(Self.home)
-        home.mouseDown(with: try h.event(.leftMouseDown, on: home))
-        home.mouseDragged(with: try h.event(.leftMouseDragged, on: home, dy: 40))
+        defer { h.window.close() }
+        let store = try h.tile(Self.store)
+        let below = try h.event(.leftMouseDown, on: store, dy: 60)
+        store.mouseDown(with: try h.event(.leftMouseDown, on: store))
+        store.mouseDragged(with: try h.event(.leftMouseDragged, on: store, dy: 40))
         #expect(h.list.drag != nil, "the fixture's tile drag did not start")
 
-        h.list.mouseDown(with: restingStore)
-        h.list.mouseUp(with: try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: restingStore.locationInWindow, modifierFlags: [],
+        h.list.mouseDown(with: below)
+        h.list.mouseUp(with: try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: below.locationInWindow, modifierFlags: [],
                                                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: h.window.windowNumber,
                                                              context: nil, eventNumber: 0, clickCount: 1, pressure: 0)))
-        h.list.endLanding() // the cancelled card lands in Home's slot (its flight's completion, now)
+        h.list.endLanding() // the cancelled card lands in the App Store's slot (its flight's completion, now)
         h.settle()
 
         #expect(h.list.drag == nil, "the stale drag is still held under the new press")
-        let shown = try h.tile(Self.home)
-        #expect(shown.isDescendant(of: h.window.contentView!), "Home's tile left the window")
-        #expect(shown.alphaValue == 1, "Home's tile stays hidden after the list's press ended the stale drag (alpha \(shown.alphaValue))")
+        let shown = try h.tile(Self.store)
+        #expect(shown.isDescendant(of: h.window.contentView!), "the App Store's tile left the window")
+        #expect(shown.alphaValue == 1, "the App Store's tile stays hidden after the list's press ended the stale drag (alpha \(shown.alphaValue))")
     }
 }

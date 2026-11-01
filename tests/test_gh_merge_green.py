@@ -747,7 +747,9 @@ jobs:
     def test_refusal_prints_repair_guidance(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
-            result = self.run_helper(directory, marker, check_name="other-check")
+            # Into feat-cmux-next ci-status is not required (ci.yml skips it there); a red cmux-next run refuses.
+            result = self.run_helper(directory, marker, check_name="other-check",
+                                     cmux_next_runs=(("completed", "failure", 1),))
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("fix:", result.stderr)
@@ -1388,28 +1390,49 @@ class MergedHeadChecksRegression(unittest.TestCase):
         bun.chmod(0o755)
         return work, head, directory / "bin"
 
-    def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), changed_files=None, **kwargs):
+    def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), changed_files=None,
+                  policy_status=0, policy_payload=None, check_conclusion="success",
+                  cmux_next_runs=(("completed", "success", 1),), **kwargs):
         global HEAD
         work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
         Path(directory, "pr-head").write_text(head)
         log = Path(directory) / "checks.log"
         log.touch()
-        saved = HEAD, os.environ.get("GH_MERGE_GREEN_REPO_DIR"), os.environ["PATH"], os.environ.get("CHECK_LOG")
+        workspace = Path(directory) / "workspace"
+        policy = workspace / "tools/host_policy.py"
+        policy.parent.mkdir(parents=True)
+        if policy_status is not None:
+            if policy_payload is None:
+                policy_payload = json.dumps({
+                    "host": "fixture",
+                    "policy": {0: "heavy-ok", 3: "no-build", 4: "unknown"}.get(policy_status, "error"),
+                    "reason": f"fixture host policy status {policy_status}",
+                })
+            policy.write_text(
+                "import sys\n"
+                "assert sys.argv[1:] == ['heavy-local-ok', '--json']\n"
+                f"print({policy_payload!r})\n"
+                + ("import os, signal; os.kill(os.getpid(), signal.SIGTERM)\n" if policy_status == -15
+                   else f"sys.exit({policy_status})\n")
+            )
+        saved = HEAD, os.environ.get("GH_MERGE_GREEN_REPO_DIR"), os.environ["PATH"], os.environ.get("CHECK_LOG"), os.environ.get("LEO_WORKSPACE")
         HEAD = head
         os.environ.update(
             GH_MERGE_GREEN_REPO_DIR=str(work),
             CHECK_LOG=str(log),
+            LEO_WORKSPACE=str(workspace),
             PATH=f"{directory}{os.pathsep}{bin_dir}{os.pathsep}{os.environ['PATH']}",
         )
         try:
             marker = Path(directory) / "merged"
             result = InstalledHelperRegression.run_helper(
                 self, directory, marker, changed_files=tuple(changed_files or pr_files), is_cross_repository=fork,
+                check_conclusion=check_conclusion, cmux_next_runs=cmux_next_runs,
                 extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args))
         finally:
             HEAD = saved[0]
             os.environ["PATH"] = saved[2]
-            for name, value in (("GH_MERGE_GREEN_REPO_DIR", saved[1]), ("CHECK_LOG", saved[3])):
+            for name, value in (("GH_MERGE_GREEN_REPO_DIR", saved[1]), ("CHECK_LOG", saved[3]), ("LEO_WORKSPACE", saved[4])):
                 if value is None:
                     os.environ.pop(name, None)
                 else:
@@ -1574,6 +1597,68 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertTrue(marker.exists())
             self.assertIn("bun x vp check", log)
             self.assertNotIn("--only swift", log)
+
+    def test_host_policy_skip_never_starts_bun_and_records_exact_tree(self):
+        for policy_status in (3, 4, None):
+            with self.subTest(policy_status=policy_status), tempfile.TemporaryDirectory() as directory:
+                result, marker, log = self.run_merge(
+                    directory, {"webviews/BAD.tsx": "x\n"}, policy_status=policy_status)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
+                self.assertNotIn("bun", log)
+                self.assertIn("skipped merged-head web check", result.stderr)
+                work = Path(directory) / "work"
+                tree = self.git("rev-parse", "refs/gh-merge-green/head^{tree}", cwd=work)
+                self.assertIn(tree, result.stderr)
+                self.assertIn("not checked", result.stderr)
+                if policy_status is not None:
+                    self.assertIn(f"fixture host policy status {policy_status}", result.stderr)
+                else:
+                    self.assertIn("missing", result.stderr)
+
+    def test_host_policy_error_or_crash_skips_without_starting_bun(self):
+        for policy_status in (1, 2, 77, -15):
+            with self.subTest(policy_status=policy_status), tempfile.TemporaryDirectory() as directory:
+                result, marker, log = self.run_merge(
+                    directory, {"webviews/BAD.tsx": "x\n"}, policy_status=policy_status)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
+                self.assertNotIn("bun", log)
+                self.assertIn("skipped merged-head web check", result.stderr)
+                self.assertIn("not checked", result.stderr)
+
+    def test_malformed_host_policy_skips_without_starting_bun(self):
+        for policy_status, payload in ((0, "not json"), (3, "not json"),
+                                       (0, '{"host":"fixture","policy":"no-build","reason":"denied"}'),
+                                       (0, '{} {"host":"fixture","policy":"heavy-ok","reason":"allowed"}')):
+            with self.subTest(status=policy_status, payload=payload), tempfile.TemporaryDirectory() as directory:
+                result, marker, log = self.run_merge(
+                    directory, {"webviews/BAD.tsx": "x\n"},
+                    policy_status=policy_status, policy_payload=payload)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
+                self.assertNotIn("bun", log)
+                self.assertIn("skipped merged-head web check", result.stderr)
+                self.assertIn("not checked", result.stderr)
+
+    def test_host_policy_skip_preserves_swift_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"webviews/Good.tsx": "x\n", "Packages/macOS/CmuxNext/Sources/GOD.swift": "x\n"},
+                policy_status=3)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("--only swift --base", log)
+            self.assertNotIn("bun", log)
+
+    def test_host_policy_skip_preserves_github_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"webviews/Good.tsx": "x\n"}, policy_status=3,
+                cmux_next_runs=(("completed", "failure", 1),))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertNotIn("bun", log)
 
 
 class GhMergeGreenRestFallbackTests(unittest.TestCase):

@@ -1,51 +1,86 @@
 // Settings > Chief > Look: how the Chief looks, one glass card. The floating pet after ChatGPT's
 // Mini & Pets, then the chat's Bubble Style (`home.chiefBubbleStyle`, which before stood alone below
-// as a one-row "Chief Chat" card). A preview of the pet over
+// as a one-row "Chief Chat" card) and the bubble colors every chat starts with (`home.bubbleColors.*`,
+// whose unset value is Bubble Style's color, so they sit under it), then Show the Feed in Chief
+// (`home.feedInChief`, the chat's other Chief Chat row, so no one-row Chief Chat card comes back). A preview of the pet over
 // its rail with Show Pet / Hide Pet, then every character (the Chief Dock's pixel mascots) as a
 // card with its name and a line about it. The character is the Chief's avatar on every Chief
 // surface (Home, the sidebar, message cards) whether or not the pet floats, so the chosen one is
 // always checked, and a click swaps it everywhere without showing or hiding the pet (that is Show
 // Pet / Hide Pet's job). Hovering or focusing a character previews it on the rail. It draws the category's
-// three rows (`home.chiefPetEnabled`, `home.chiefPetMascot`, `home.chiefBubbleStyle`), so SectionView
-// leaves them out of the group list; search, the palette and `cmux settings` still reach them.
+// Look rows (`home.chiefPetEnabled`, `home.chiefPetMascot`, `home.chiefBubbleStyle`, the four
+// `home.bubbleColors.*` and `home.feedInChief`), so SectionView leaves them out of the group list; search, the palette and
+// `cmux settings` still reach them.
 import { useRef, useState } from "react";
 import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
 import { rowsByKey } from "../schema";
 import { RowStatus, SettingRow } from "./SettingRow";
-import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
-import mascotOrbSpark from "../../../agent-session/acpmux/mascots/ChiefMascotOrbSpark.png";
-import mascotOrbHood from "../../../agent-session/acpmux/mascots/ChiefMascotOrbHood.png";
+import mascotFox from "../../../agent-session/acpmux/mascots/ChiefMascotFox.png";
 import mascotMachine from "../../../agent-session/acpmux/mascots/ChiefMascotMachine.png";
 import mascotMachineCyan from "../../../agent-session/acpmux/mascots/ChiefMascotMachineCyan.png";
 import mascotMachineBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMachineBlue.png";
 import mascotMoon from "../../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
 import mascotMoonBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMoonBlue.png";
-import mascotFox from "../../../agent-session/acpmux/mascots/ChiefMascotFox.png";
 import mascotMochi from "../../../agent-session/acpmux/mascots/ChiefMascotMochi.png";
+import mascotFoxArctic from "../../../agent-session/acpmux/mascots/ChiefMascotFoxArctic.png";
+import mascotMachineViolet from "../../../agent-session/acpmux/mascots/ChiefMascotMachineViolet.png";
+import mascotMachineGold from "../../../agent-session/acpmux/mascots/ChiefMascotMachineGold.png";
+import mascotMoonRose from "../../../agent-session/acpmux/mascots/ChiefMascotMoonRose.png";
+import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
+import mascotOrbSpark from "../../../agent-session/acpmux/mascots/ChiefMascotOrbSpark.png";
+import mascotOrbHood from "../../../agent-session/acpmux/mascots/ChiefMascotOrbHood.png";
 
 export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
 export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
 export const CHIEF_BUBBLE_STYLE = "home.chiefBubbleStyle";
+/** The bubble colors every chat starts with (`HomeBubbleColorsSetting`), in the schema's order. */
+export const CHIEF_BUBBLE_COLORS: readonly string[] = ["sent", "sentText", "received", "receivedText"].map(
+  (role) => `home.bubbleColors.${role}`,
+);
+/** Whether the main Chief's chat shows the Feed's notices (`HomeFeedRowsSetting`). */
+export const CHIEF_FEED_IN_CHIEF = "home.feedInChief";
 /** The rows this card draws in place of their group. */
-export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([CHIEF_PET_ENABLED, CHIEF_PET_MASCOT, CHIEF_BUBBLE_STYLE]);
+export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([
+  CHIEF_PET_ENABLED,
+  CHIEF_PET_MASCOT,
+  CHIEF_BUBBLE_STYLE,
+  ...CHIEF_BUBBLE_COLORS,
+  CHIEF_FEED_IN_CHIEF,
+]);
 
-/** The characters in the setting's order (`HomeChiefPetSetting.mascots`), with their art. Imported,
+/** The characters in the setting's order (`HomeChiefPetSetting.mascots`: Series 1 without the orbs,
+ * Mochi, Series 2, then the orbs), with their art. Imported,
  * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP
  * allows `img-src data:` only, so its bundler (bundle.mjs) inlines each PNG as a data URL. */
 export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string; art: string }> = [
-  { id: "orb", art: mascotOrb },
-  { id: "orb-spark", art: mascotOrbSpark },
-  { id: "orb-hood", art: mascotOrbHood },
+  { id: "fox", art: mascotFox },
   { id: "machine", art: mascotMachine },
   { id: "machine-cyan", art: mascotMachineCyan },
   { id: "machine-blue", art: mascotMachineBlue },
   { id: "moon", art: mascotMoon },
   { id: "moon-blue", art: mascotMoonBlue },
-  { id: "fox", art: mascotFox },
   { id: "mochi", art: mascotMochi },
+  { id: "fox-arctic", art: mascotFoxArctic },
+  { id: "machine-violet", art: mascotMachineViolet },
+  { id: "machine-gold", art: mascotMachineGold },
+  { id: "moon-rose", art: mascotMoonRose },
+  { id: "orb", art: mascotOrb },
+  { id: "orb-spark", art: mascotOrbSpark },
+  { id: "orb-hood", art: mascotOrbHood },
 ];
+
+/** The default character, orb (`HomeChiefPetSetting.defaultMascot`): by id, not the list's first. */
+export const CHIEF_PET_DEFAULT_MASCOT = "orb";
+
+/** The character `id` names; an unset or unknown id is the default, wherever it sits in the list. */
+export function chiefPetMascot(id: unknown): { id: string; art: string } {
+  return (
+    CHIEF_PET_MASCOTS.find((entry) => entry.id === id) ??
+    CHIEF_PET_MASCOTS.find((entry) => entry.id === CHIEF_PET_DEFAULT_MASCOT)!
+  );
+}
 
 /** The rail under the pet, as the pet draws it: compose and the chevron. */
 function Rail() {
@@ -89,7 +124,7 @@ export function ChiefPetCard({
   const gridLocked = locked(character);
   const enabled = shown.value === true;
   const value = character.value;
-  const mascot = CHIEF_PET_MASCOTS.find((entry) => entry.id === value) ?? CHIEF_PET_MASCOTS[0];
+  const mascot = chiefPetMascot(value);
   // A locked grid previews nothing: a disabled card may never get its mouseleave or blur.
   const live = gridLocked ? null : previewed;
   const preview = CHIEF_PET_MASCOTS.find((entry) => entry.id === live) ?? mascot;
@@ -97,6 +132,13 @@ export function ChiefPetCard({
   const showPetToggle = visibleRows === null || visibleRows.has(CHIEF_PET_ENABLED);
   const showMascot = visibleRows === null || visibleRows.has(CHIEF_PET_MASCOT);
   const showBubbleStyle = visibleRows === null || visibleRows.has(CHIEF_BUBBLE_STYLE);
+  const colors = CHIEF_BUBBLE_COLORS.flatMap((key) => {
+    const row = rowsByKey.get(key);
+    return row && (visibleRows === null || visibleRows.has(key)) ? [row] : [];
+  });
+  const bubbleRow = showBubbleStyle ? bubbles : undefined;
+  const feed = rowsByKey.get(CHIEF_FEED_IN_CHIEF);
+  const feedRow = visibleRows === null || visibleRows.has(CHIEF_FEED_IN_CHIEF) ? feed : undefined;
   return (
     <section className="group chief-pet ui-glass" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
       <h3 className="group-title">{t("settingsPage.chief.look")}</h3>
@@ -158,9 +200,13 @@ export function ChiefPetCard({
           </div>
         </>
       )}
-      {bubbles && showBubbleStyle && (
+      {(bubbleRow || colors.length > 0 || feedRow) && (
         <div className="rows">
-          <SettingRow row={bubbles} query={query} focused={focus === CHIEF_BUBBLE_STYLE} />
+          {bubbleRow && <SettingRow row={bubbleRow} query={query} focused={focus === CHIEF_BUBBLE_STYLE} />}
+          {colors.map((row) => (
+            <SettingRow key={row.key} row={row} query={query} focused={focus === row.key} />
+          ))}
+          {feedRow && <SettingRow row={feedRow} query={query} focused={focus === CHIEF_FEED_IN_CHIEF} />}
         </div>
       )}
     </section>

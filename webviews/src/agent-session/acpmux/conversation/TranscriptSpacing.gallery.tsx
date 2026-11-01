@@ -61,21 +61,25 @@ function TranscriptSpacing({ gap, emptyFooter }: SpacingProps) {
   );
 }
 
-// Measure the real virtual rows, including their padding, the received line's margin and its chip.
-// The chip is 20px inside a 26px line with a 2px top margin: 5px beyond the shared turn gap.
+// Measure the real virtual rows, including their padding and the received line's margin: the 26px
+// disclosure line sits under a 2px top margin, 2px beyond the shared turn gap. The footer's line sits
+// FOOTER_DROP lower in its own row, taken off its bottom padding, so it is centred between the reply
+// and the sender (conversation.css `--cv-footer-drop`, #29860; Leo, 2026-10-31: "padding after ==
+// padding before that kinda thing all around").
+const FOOTER_DROP = 4;
 const checkSpacing =
   (gap: number, emptyFooter = false): Play =>
   async (ctx) => {
     const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
     const footer = (suffix: string) => `[data-row-id="spacing-footer-${suffix}"] .cv-turn-actions`;
-    const chip = (suffix: string) => `[data-row-id="spacing-received-${suffix}"] .cv-received__name`;
+    const chip = (suffix: string) => `[data-row-id="spacing-received-${suffix}"] .cv-disclosure__toggle`;
     const measure = () => ["a", "b"].map((suffix) => rect(chip(suffix)).top - rect(footer(suffix)).bottom);
     await ctx.waitFor(() => ctx.document.querySelector(chip("b")));
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
     await ctx.waitFor(() => rect(footer("a")).height > 0 && rect(chip("b")).height > 0);
     const before = measure();
     for (const value of before) {
-      const expected = gap + 5;
+      const expected = gap + 2 - FOOTER_DROP;
       if (Math.abs(value - expected) > 0.5) throw new Error(`Footer-to-sender gap ${value}px; expected ${expected}px`);
     }
 

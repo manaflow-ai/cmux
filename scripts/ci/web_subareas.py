@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from functools import lru_cache
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -179,10 +181,14 @@ REACT_EXACT = {
     "scripts/build-webviews-app.sh",
     # react-apps-check runs the webviews tests through it.
     "scripts/ci/run-webviews-tests.sh",
+    # and splits and orders its files by recorded duration through this.
+    "scripts/ci/webviews_test_shards.py",
     # and compares its reds with the base's through these.
     "scripts/ci/webviews-tests-new-reds.sh",
     "scripts/ci/webviews_test_results.py",
     "scripts/ci/guards_new_reds.py",
+    # and the base's flake history that keeps a test flipping there a warning.
+    "scripts/ci/webviews_test_history.py",
     # It also runs the test of the PR scoping of ui-rules and gallery coverage.
     "scripts/tests/test_pr_scoped_webviews_checks.py",
     "scripts/check-webviews-bun-version.sh",
@@ -209,6 +215,33 @@ REACT_PREFIXES = (
     "config/vite-plus/",
     "webviews/",
 )
+
+# Every other input of the web bundles (the settings schema, the What's New
+# highlights, the model catalog, the string catalogs the pages read...) runs
+# react-apps-check too, as web-bundle-key.py derives them (`--routed`); the same
+# derivation routes the web area in detect_ci_change_areas.py.
+WEB_BUNDLE_KEY = Path(__file__).resolve().parents[1] / "cmux-next" / "web-bundle-key.py"
+
+
+@lru_cache(maxsize=None)
+def web_bundle_input_matcher(root: str):
+    """A predicate for the paths web-bundle-key.py routes the web checks on, for
+    the tree at `root`; the key's declared inputs when it cannot derive them,
+    None without the key script."""
+    try:
+        spec = importlib.util.spec_from_file_location("cmux_web_bundle_key", WEB_BUNDLE_KEY)
+        if spec is None or spec.loader is None:
+            return None
+        key = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(key)
+    except (OSError, SyntaxError, ImportError) as error:
+        print(f"web bundle inputs unavailable ({error})", file=sys.stderr)
+        return None
+    try:
+        return key.pathspec_matcher(key.routed_inputs(root))
+    except (Exception, SystemExit) as error:  # noqa: BLE001  (fall back, never fail the router)
+        print(f"web bundle inputs not derived ({error}); using the key's declared inputs", file=sys.stderr)
+        return key.pathspec_matcher(key.INPUTS)
 
 
 def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubareas:
@@ -245,6 +278,8 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
             production_build = True
 
         if path in REACT_EXACT or path.startswith(REACT_PREFIXES):
+            react_apps = True
+        elif (matcher := web_bundle_input_matcher(str(root.resolve()))) is not None and matcher(path):
             react_apps = True
 
         if path in TYPECHECK_EXACT or (

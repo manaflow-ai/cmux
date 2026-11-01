@@ -25,6 +25,8 @@ const rows = [
       }),
       tool("Read the coordination note", "read", "completed", {
         locations: [{ path: "coordination.md" }],
+        output:
+          "coordination-note.txt: The reviewed head is ready; keep the receipt on the exact SHA and preserve transcript order while the tools settle. This long first line deliberately reaches beneath the top-right Wrap lines and Copy controls so the output needs a readable right lane, never a wrapper plate.\n\nSecond line: checks remain green.",
       }),
     ],
     1,

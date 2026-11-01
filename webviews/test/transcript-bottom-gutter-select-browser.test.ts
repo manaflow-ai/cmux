@@ -92,7 +92,7 @@ await requireBrowserLane("transcript-bottom-gutter-select-browser.test.ts", asyn
           strip: { x: strip.left + 22, y: strip.top + strip.height / 2 },
           left: { x: column.left / 2, y: strip.top + strip.height / 2 },
           right: { x: (column.right + view.right) / 2, y: strip.top + strip.height / 2 },
-          // The first line's start, so the drag's selection runs from "Alpha" down to the strip.
+          // End at the first line's start so the drag selects "Alpha" through the gutter.
           end: { x: column.left + 1, y: column.top + 4 },
         };
       });
@@ -105,6 +105,17 @@ await requireBrowserLane("transcript-bottom-gutter-select-browser.test.ts", asyn
         expect(await selected(page), zone).toContain("Alpha keeper.");
         await page.evaluate(() => window.getSelection()?.removeAllRanges());
       }
+      await page.mouse.click(
+        ...(await page.evaluate(() => {
+          const rect = document
+            .querySelector<HTMLElement>('[data-testid="bottom-selection-control"]')!
+            .getBoundingClientRect();
+          return [rect.left + rect.width / 2, rect.top + rect.height / 2] as const;
+        })),
+      );
+      expect(
+        await page.evaluate(() => (window as unknown as { __controlPresses: () => number }).__controlPresses()),
+      ).toBe(1);
       await page.close();
     });
   }

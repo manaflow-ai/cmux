@@ -46,6 +46,8 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case queueUpdated(promptId: String, text: String)
     /// The waiting prompts' order (`queue_order`, Move up / Move down).
     case queueOrder([String])
+    /// The daemon retried the failed turn under a new attempt id.
+    case turnRetried(previousTurnID: String, turnID: String)
     case turnStarted(turnId: String, at: Date)
     case turnResult(turnId: String, status: AgentTurn.Status, errorText: String?, at: Date)
     /// The agent's request to its model failed and it is trying again (Claude Code's
@@ -56,8 +58,16 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// A permission request that maps to a question (AskUserQuestion, Codex user input).
     case question(AgentQuestion)
     /// `permission_decision`: the prompt was resolved (here or by another client).
-    case permissionDecision(permissionId: String, optionId: String?)
+    /// `answers`: a question's answers as the owner recorded them (harness-shaped).
+    case permissionDecision(permissionId: String, optionId: String?, answers: AgentQuestionJSON? = nil)
     case questionAnswered(questionId: String, answer: AgentQuestionAnswer)
+    /// The history a chat opened on leaves out older records (the attach's cap): its first
+    /// turn is not where the session started.
+    case earlierHistory(Bool)
+    /// Older history read as the reader scrolled up (``AgentSessionSource/loadEarlierHistory()``):
+    /// whole turns, oldest first, all older than what the chat shows. `hasEarlier`: older records
+    /// are still on the Mac. An empty page is a read that failed or found no prompt yet.
+    case earlierPage([AgentSessionEvent], hasEarlier: Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
@@ -80,16 +90,21 @@ public enum AgentSessionEvent: Hashable, Sendable {
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:
-/// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model`,
+/// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model` (and Retry with another model),
 /// `session/set_mode`, `session/set_config_option`, `_acpmux/queue_remove`, `_acpmux/queue_edit`.
 public enum AgentClientIntent: Hashable, Sendable {
     /// `promptID`: `_meta.acpmux.promptId`, which acpmux runs once; `resend`: the same prompt
     /// sent again after its reply was lost (acpmux also looks for the id in the session log).
     case prompt(text: String, attachments: [AgentAttachment], steer: Bool, promptID: String, resend: Bool)
+    case retryFailedTurn
     case cancel
     case respondPermission(permissionId: String, optionId: String?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
     case setModel(String)
+    /// Retry with another model (the Mac's turn menu, cx-ncc.62): `session/set_model`, then
+    /// the prompt again, with its attachments, under `promptID`. A refused model sends nothing
+    /// (the chat says why).
+    case retryWithModel(model: String, text: String, attachments: [AgentAttachment], promptID: String)
     case setMode(String)
     case setConfigOption(id: String, value: String)
     case removeQueued(promptId: String)
@@ -108,12 +123,19 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     public var kind: Kind
     public var name: String
     public var data: Data?
+    /// A picked file too large to hold in memory: streamed from here at send.
+    public var fileURL: URL?
+    /// The file's size when its bytes are not held (`fileURL`).
+    public var byteCount: Int?
 
-    public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil) {
+    public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil,
+                fileURL: URL? = nil, byteCount: Int? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
         self.data = data
+        self.fileURL = fileURL
+        self.byteCount = byteCount
     }
 
     /// The image MIME type from the data's signature (nil: not an image an
@@ -129,7 +151,7 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     }
 
     /// The attachment as a preview reads it (composer and sent message alike).
-    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image) }
+    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image, fileURL: fileURL) }
 
     /// The id prefix of an image a recorded prompt names (acpmux's `images[].id`, its bytes' hash).
     public static let recordedImagePrefix = "acpmux-image:"
@@ -180,10 +202,14 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The chat reached the oldest turn it shows: read the page before it, delivered as
+    /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
+    func loadEarlierHistory()
 }
 
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func loadEarlierHistory() {}
 }
 
 extension AgentSessionSource {
@@ -239,8 +265,16 @@ public final class DisconnectedAgentSource: AgentSessionSource {
         return stream
     }
 
-    /// Nothing to send to: say why again.
+    /// Nothing to send to: return prompts to the composer instead of dropping them.
     public func send(_ intent: AgentClientIntent) {
-        for continuation in continuations { continuation.yield(.clientError(message)) }
+        let event: AgentSessionEvent
+        switch intent {
+        case .prompt(let text, let attachments, _, let promptID, _):
+            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                   reason: "Mac offline. Not sent.")
+        default:
+            event = .clientError(message)
+        }
+        for continuation in continuations { continuation.yield(event) }
     }
 }

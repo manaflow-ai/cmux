@@ -21,6 +21,7 @@ import { AgentMark, ageLabel } from "../NewTabPage";
 import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
+import { AllChatsLoading } from "./AllChatsLoading";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -71,6 +72,8 @@ type State = {
   ready: boolean;
   /// The last first-page read failed (the daemon did not answer): the list says so and offers Try again.
   failed: boolean;
+  /// The cursor page that last failed. The loader stays in place, so it must expose its own retry.
+  failedCursor?: string;
   /// The query `rows` answer; a failed read for another query drops them rather than show them under it.
   rowsQuery: string;
   design: AllChatsDesign;
@@ -159,7 +162,7 @@ function listEntries(rows: AllChatsRow[], view: "chats" | "projects", folded: Re
 /// at once, so no page of the old query is asked for again); a reply for an older query is
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
 /// latest one in a ref, so a parent render never restarts the list.
-function useChatPages(load: LoadChatsPage) {
+export function useChatPages(load: LoadChatsPage) {
   const [state, setState] = useState<State>(initialState);
   // Rows from the settled first page: the mount reads only a change pushed since (see below).
   const [seeded] = useState(() => state.loaded);
@@ -179,7 +182,11 @@ function useChatPages(load: LoadChatsPage) {
     if (inFlight.current === marker) return;
     inFlight.current = marker;
     const atPush = devicePushCount();
-    setState((s) => (cursor ? { ...s, loading: true } : { ...s, query, nextCursor: undefined, loading: true }));
+    setState((s) =>
+      cursor
+        ? { ...s, loading: true, failedCursor: undefined }
+        : { ...s, query, nextCursor: undefined, loading: true, failedCursor: undefined },
+    );
     void latestLoad
       .current({ ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), limit: PAGE })
       .catch(() => undefined)
@@ -187,14 +194,14 @@ function useChatPages(load: LoadChatsPage) {
         if (ticket !== generation.current) return;
         if (inFlight.current === marker) inFlight.current = undefined;
         setState((s) => {
-          // A failed page keeps the cursor, so the loader row asks again when it comes back into view.
+          // A failed page keeps the cursor. The loader may still be in view, so the row exposes Retry.
           if (!page)
             return {
               ...s,
               loading: false,
               loaded: true,
               ...(cursor
-                ? { nextCursor: cursor }
+                ? { nextCursor: cursor, failedCursor: cursor }
                 : { failed: true, rows: s.rowsQuery === query ? s.rows : [], nextCursor: undefined }),
             };
           const fresh = rowsOf(page);
@@ -221,6 +228,7 @@ function useChatPages(load: LoadChatsPage) {
             loaded: true,
             ready: page.ready !== false,
             failed: false,
+            failedCursor: undefined,
             rowsQuery: query,
             design: design(page.design) ?? s.design,
           };
@@ -266,11 +274,17 @@ function useChatPages(load: LoadChatsPage) {
               const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
               return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
             }
+            // An index-ready first page without a cursor is the whole list: rows omitted from it
+            // were deleted or archived. A paged first page cannot distinguish those from rows
+            // that merely moved to a later page, so retain older fetched rows in that case.
+            const complete = page.ready !== false && !page.nextCursor;
             const named = new Set(fresh.map((row) => row.key));
-            const rows = mergeFirstPage(
-              fresh,
-              replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
-            );
+            const rows = complete
+              ? fresh
+              : mergeFirstPage(
+                  fresh,
+                  replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
+                );
             // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
             const same =
               rows.length === s.rows.length &&
@@ -281,8 +295,9 @@ function useChatPages(load: LoadChatsPage) {
                     row.updatedAt === s.rows[i]?.updatedAt &&
                     row.title === s.rows[i]?.title &&
                     row.cwd === s.rows[i]?.cwd),
-              );
-            return same ? s : { ...s, rows };
+              ) &&
+              (!complete || (s.nextCursor === undefined && s.ready));
+            return same ? s : { ...s, rows, ...(complete ? { nextCursor: undefined, ready: true } : {}) };
           });
         }
         const again = refreshing.current === "again";
@@ -425,7 +440,11 @@ export function AllChatsList({
     if (!onBring || selected.length === 0) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (event.defaultPrevented || target?.closest("input, textarea, [role=menu]")) return;
+      // Let focused controls keep their native keyboard action. In particular, the inline
+      // later-page retry is a button: swallowing Enter here would open the current selection
+      // instead of retrying the failed page.
+      const control = target?.closest("button, input, textarea, select, a, [role=menu]");
+      if (event.defaultPrevented || (control && !control.classList.contains("nt-all-row"))) return;
       if (event.key === "Enter") {
         event.preventDefault();
         onBring(selected);
@@ -450,8 +469,25 @@ export function AllChatsList({
   );
   const renderRow = (index: number, style: React.CSSProperties) => {
     const entry = entries[index];
-    if (!entry)
+    if (!entry) {
+      const failedPage = nextCursor !== undefined && state.failedCursor === nextCursor;
+      if (failedPage) {
+        return (
+          <output key={`more-${nextCursor}`} className="nt-all-item nt-chats-failed" style={style}>
+            {nt("chatsLoadFailed")}
+            <button
+              type="button"
+              className="nt-chats-retry"
+              disabled={state.loading}
+              onClick={() => fetchPage(state.query, nextCursor)}
+            >
+              {t("picker.tryAgain")}
+            </button>
+          </output>
+        );
+      }
       return <div key={`more-${nextCursor}`} ref={loadMore} className="nt-all-item is-loader" style={style} />;
+    }
     if (entry.kind === "project") {
       const { project, open } = entry;
       const label = project.label ?? nt("noProject");
@@ -531,8 +567,14 @@ export function AllChatsList({
           <span className="nt-all-glyph">
             <AgentMark harness={row.harness} />
           </span>
-          <span className="nt-all-title">{title}</span>
-          {project && state.design !== "quiet" && view === "chats" && <span className="nt-all-project">{project}</span>}
+          <span className="nt-all-title" title={title}>
+            {title}
+          </span>
+          {project && state.design !== "quiet" && view === "chats" && (
+            <span className="nt-all-project" title={row.cwd}>
+              {project}
+            </span>
+          )}
           {age && <span className="nt-all-meta">{age}</span>}
         </button>
       </div>
@@ -630,7 +672,9 @@ export function AllChatsList({
                   <span className="nt-all-glyph">
                     <AgentMark harness={chat.harness} />
                   </span>
-                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-title" title={chat.title}>
+                    {chat.title}
+                  </span>
                   <span className="nt-all-state">{chat.label}</span>
                 </button>
               </ContextMenu>
@@ -640,6 +684,8 @@ export function AllChatsList({
       )}
       {!indexed ? (
         activeShown.length === 0 && <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
+      ) : rows.length === 0 && (!state.loaded || state.loading || (!state.ready && !state.failed)) ? (
+        <AllChatsLoading rowHeight={ROW_HEIGHT} design={state.design} view={view} />
       ) : state.loaded && rows.length === 0 ? (
         state.failed ? (
           <output className="nt-chats-empty nt-chats-failed">

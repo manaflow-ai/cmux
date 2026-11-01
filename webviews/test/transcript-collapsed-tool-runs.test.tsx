@@ -78,7 +78,11 @@ const live = (work: AcpmuxActivity[]) => [
   row("now", "activity", { items: [command("git status"), command("bun test", { status: "in_progress" })] }),
 ];
 const shaped = (work: AcpmuxActivity[]) => turnView(live(work), new Set(), { working: true, liveRuns: true });
-const words = (entry: AcpmuxRow) => renderToStaticMarkup(<ToolRows row={entry} />).replace(/<[^>]+>/g, " ");
+// Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
+const words = (entry: AcpmuxRow) =>
+  renderToStaticMarkup(<ToolRows row={entry} />)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
 const toggles = (entry: AcpmuxRow) =>
   (renderToStaticMarkup(<ToolRows row={entry} />).match(/aria-expanded/g) ?? []).length;
 

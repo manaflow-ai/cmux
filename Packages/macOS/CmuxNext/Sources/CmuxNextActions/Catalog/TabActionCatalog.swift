@@ -104,7 +104,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "macScreen.open",
-                title: String(localized: "action.macScreen.open", defaultValue: "New Mac Screen Tab", bundle: .module),
+                title: String(localized: "action.macScreen.open", defaultValue: "Screen Sharing", bundle: .module),
                 keywords: ["mac", "screen", "remote", "control", "screen sharing", "vnc", "pair", "share this mac"],
                 category: .tab, symbol: "display", surfaces: [.palette, .menu, .contextMenu],
                 targets: [.pane], cliName: "tab new-mac-screen", mainMenu: .file
@@ -174,7 +174,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tab.restart",
                 title: String(localized: "action.tab.restart", defaultValue: "Restart Shell Here", bundle: .module),
-                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell"], category: .tab,
+                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell", "recover", "reconnect", "stuck", "ssh"], category: .tab,
                 symbol: "arrow.clockwise", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab restart"
             ),
             ActionDescriptor(
@@ -205,8 +205,8 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab clear-name"
             ),
             // Previous / Next (Leo 2026-10-09): the focused pane's tabs when it has 2+, else the
-            // sidebar rows (`PreviousNext`). No default key: the Chrome tab keys select sidebar
-            // items (`KeyBindingDefaults.tabSwitching`, Leo 2026-10-12).
+            // sidebar rows (`PreviousNext`). No default key: the tab keys and Ghostty's
+            // `next_tab` / `previous_tab` run Next / Previous Tab in Pane (Lawrence 2026-10-20).
             ActionDescriptor(
                 id: "navigate.next",
                 title: String(localized: "action.navigate.next", defaultValue: "Next Tab or Workspace", bundle: .module),
@@ -393,20 +393,20 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.copyIdentifiers",
-                title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy Identifiers", bundle: .module),
-                keywords: ["id", "ref"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
+                title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy IDs", bundle: .module),
+                keywords: ["id", "ref", "identifiers"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
             ),
-            // A PNG of the tab's content, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu, palette and automation. Automation gets no
-            // browser tab's pixels here: the browser host's guarded capture masks its secrets.
+            // A PNG of the tab's content as on screen, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette and automation. An agent's or a
+            // script's capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "tab.screenshot",
                 title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
                 keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
-                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
+                surfaces: [.palette], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
                 cliName: "tab screenshot",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.tab, .inspect, 510, folder: .copy)])
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .pointerMenuTrim)
             ),
             ActionDescriptor(
                 id: "palette.copyPaneID",

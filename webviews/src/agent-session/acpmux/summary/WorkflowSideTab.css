@@ -1,0 +1,64 @@
+/* Full-height workflow side tab: glass surface, instant open, and no motion that delays the click.
+   The timeline is the shipped layout; lanes and table are gallery-only alternatives. */
+.acpmux-workflow-side-tab {
+  position: absolute;
+  z-index: var(--layer-overlay);
+  inset: 0 0 0 auto;
+  width: min(390px, 100%);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  box-sizing: border-box;
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 78%, transparent);
+  border-left: var(--cmux-hairline, .5px) solid var(--agent-border);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  backdrop-filter: blur(24px) saturate(1.2);
+}
+/* Leave the native shared tab row and its trailing-tools hole clear. */
+.acpmux-shell[data-tab-row] .acpmux-workflow-side-tab {
+  top: var(--acpmux-tab-row-height, 0px);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-workflow-side-tab { background: var(--cmux-surface-solid, var(--agent-page-bg)); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+:root[data-reduce-transparency] .acpmux-workflow-side-tab { background: var(--cmux-surface-solid, var(--agent-page-bg)); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.acpmux-workflow-side-tab__head { flex: none; display: flex; align-items: center; gap: var(--ds-space-2); height: calc(var(--ds-control-primary) + var(--ds-space-1)); padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-3) + 2px); border-bottom: var(--cmux-hairline, .5px) solid var(--agent-border); }
+.acpmux-workflow-side-tab__title { min-width: 0; display: flex; align-items: center; gap: calc(var(--ds-space-1) + 2px); color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-workflow-side-tab__title strong { min-width: 0; overflow: hidden; color: var(--agent-text); font-size: var(--text-control); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-workflow-side-tab__title svg { flex: none; color: var(--agent-accent); }
+.acpmux-workflow-side-tab__close { flex: none; display: grid; place-items: center; width: var(--ds-control-compact); height: var(--ds-control-compact); margin-left: auto; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--agent-muted); }
+.acpmux-workflow-side-tab__close:hover { background: var(--acpmux-pill-hover); color: var(--agent-text); }
+.acpmux-workflow-side-tab__close:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 1px; }
+.acpmux-workflow-side-tab__body { flex: 1; min-height: 0; overflow: auto; padding: var(--ds-space-3) var(--ds-space-2) calc(var(--ds-space-5) - var(--ds-space-1)); }
+.acpmux-workflow-side-tab__summary { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--ds-space-1) + 2px) calc(var(--ds-space-2) + 2px); padding-bottom: calc(var(--ds-space-2) + 2px); color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; }
+.acpmux-workflow-side-tab__state { display: inline-flex; align-items: center; gap: 4px; color: var(--agent-text); font-weight: 600; }
+.acpmux-workflow-side-tab__state[data-state="running"] { color: var(--agent-accent); }
+.acpmux-workflow-side-tab__state[data-state="failed"] { color: var(--agent-status-failure); }
+.acpmux-workflow-side-tab__state svg { flex: none; }
+.acpmux-workflow-side-tab__summary .acpmux-session-info-stop { margin-left: auto; }
+.acpmux-workflow-side-tab__description { margin: 0 0 14px; color: var(--agent-soft); font-size: var(--text-detail); line-height: 18px; }
+.acpmux-workflow-side-tab__timeline { position: relative; display: flex; flex-direction: column; gap: var(--ds-space-3); margin: 0; padding: 0; list-style: none; }
+.acpmux-workflow-side-tab__timeline::before { content: ""; position: absolute; top: 10px; bottom: 10px; left: 6px; width: 1px; background: var(--agent-border); }
+.acpmux-workflow-side-tab__phase { position: relative; display: flex; gap: calc(var(--ds-space-2) + 2px); min-width: 0; }
+.acpmux-workflow-side-tab__phase-marker { z-index: var(--layer-raised); display: grid; place-items: center; width: calc(var(--ds-space-3) + 1px); height: calc(var(--ds-space-3) + 1px); border-radius: 50%; background: var(--agent-page-bg); color: var(--agent-muted); }
+.acpmux-workflow-side-tab__phase[data-state="running"] .acpmux-workflow-side-tab__phase-marker { color: var(--agent-accent); }
+.acpmux-workflow-side-tab__phase[data-state="failed"] .acpmux-workflow-side-tab__phase-marker { color: var(--agent-status-failure); }
+.acpmux-workflow-side-tab__phase-body { flex: 1; min-width: 0; }
+.acpmux-workflow-side-tab__phase-head { display: flex; align-items: baseline; gap: var(--ds-space-2); min-height: calc(var(--ds-space-2) + var(--ds-space-1) + 2px); color: var(--agent-text); font-size: var(--text-control); line-height: var(--text-control); }
+.acpmux-workflow-side-tab__phase-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-workflow-side-tab__phase-head span { flex: none; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; }
+.acpmux-workflow-side-tab__agents { margin: 4px 0 0; padding: 0; list-style: none; }
+.acpmux-workflow-side-tab__agents .acpmux-workflow-agent { padding-left: 0; padding-right: 0; }
+.acpmux-workflow-side-tab__model { padding: 0 0 calc(var(--ds-space-1) - 1px); color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-workflow-side-tab__lanes { display: flex; gap: var(--ds-space-2); overflow-x: auto; padding: calc(var(--ds-space-1) / 2) 0 var(--ds-space-2); scroll-snap-type: x proximity; }
+.acpmux-workflow-side-tab__lane { flex: 0 0 260px; min-height: calc(5 * var(--ds-space-5)); padding: calc(var(--ds-space-2) + 2px); border: var(--cmux-hairline, .5px) solid var(--agent-border); border-radius: 8px; scroll-snap-align: start; }
+.acpmux-workflow-side-tab__lane header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--agent-text); font-size: var(--text-detail); }
+.acpmux-workflow-side-tab__lane header span:last-child { color: var(--agent-muted); }
+.acpmux-workflow-side-tab__table { display: grid; gap: 0; width: 100%; font-size: var(--text-detail); }
+.acpmux-workflow-side-tab__table thead, .acpmux-workflow-side-tab__table tbody { display: contents; }
+.acpmux-workflow-side-tab__table-head, .acpmux-workflow-side-tab__table-row { display: grid; grid-template-columns: minmax(80px,.7fr) minmax(150px,1.7fr) minmax(64px,.7fr); align-items: center; min-width: 0; padding: calc(var(--ds-space-1) + 2px) var(--ds-space-1); border-bottom: var(--cmux-hairline, .5px) solid var(--agent-border); }
+.acpmux-workflow-side-tab__table-head { color: var(--agent-muted); font-size: var(--text-detail); font-weight: 600; }
+.acpmux-workflow-side-tab__table-head th, .acpmux-workflow-side-tab__table-row td { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.acpmux-workflow-side-tab__table-row .acpmux-workflow-agent { min-width: 0; }
+.acpmux-workflow-side-tab[data-layout="table"] .acpmux-workflow-side-tab__body { padding-inline: calc(var(--ds-space-1) + 2px); }

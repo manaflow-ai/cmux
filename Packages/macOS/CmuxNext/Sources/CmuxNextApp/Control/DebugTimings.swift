@@ -72,9 +72,6 @@ enum DebugTimings {
     }
 
     static func install() {
-        #if DEBUG
-        DebugWindowRecord.watchLaunch()
-        #endif
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in

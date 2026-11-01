@@ -93,7 +93,6 @@ export function narrowProblems(document: Document): string[] {
     [".acpmux-composer-bar", "composer bar"],
     [".nt-pickers", "New Tab chips"],
     [".acpmux-composer-context", "location row"],
-    [".acpmux-pr-dock", "pull request bar"],
   ];
   for (const [selector, name] of rows)
     for (const row of document.querySelectorAll(selector)) {
@@ -186,7 +185,7 @@ export function narrowProblems(document: Document): string[] {
       problems.push(`${row.className.toString().split(" ")[0]}: Send wraps below the chips`);
   }
   // The turn's own controls never shrink: a squeezed Send is the first thing a narrow pane breaks.
-  for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer-now", ".acpmux-mic"])
+  for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-mic"])
     for (const control of document.querySelectorAll(selector)) {
       if (!visible(control)) continue;
       const rect = control.getBoundingClientRect();
@@ -254,7 +253,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
-    "agent-session/acpmux/summary/PullRequestDock.tsx",
   ],
   variants: {
     controls: {
@@ -281,6 +279,11 @@ export default agentPaneEntry({
       note: "Play: open the model button's menu (icon-only below 330px); it stays inside the pane, unclipped, and inside a chat column narrower than the pane (200 px), its width giving way.",
       checks: {
         popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
+        layoutShiftMax: {
+          value: 0.001,
+          reason:
+            "Reopening the portaled picker after narrowing the chat has a 0.0004 base shift from composer controls.",
+        },
       },
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
@@ -290,7 +293,16 @@ export default agentPaneEntry({
         // the pane's left, under the menu's 220 px floor and 300 px width. The menu gives way and
         // keeps to the column, never past its edge.
         await ctx.press("Escape");
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        // Closed means gone, or still mounted but marked closed or hidden; an open popup has
+        // neither, so this never passes while the menu is still up.
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+          return (
+            !menu ||
+            menu.hasAttribute("data-closed") ||
+            ctx.document.defaultView?.getComputedStyle(menu).visibility === "hidden"
+          );
+        });
         const column = ctx.document.querySelector<HTMLElement>(".acpmux-main");
         if (!column) throw new Error("no chat column");
         column.style.flex = "0 0 200px";

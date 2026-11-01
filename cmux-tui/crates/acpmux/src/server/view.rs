@@ -48,7 +48,7 @@ fn open(conn: &Conn) -> bool {
 /// (`hub/presence.rs`): served as Peer, or, added with the dashboard token, served as Web but
 /// named `acpmux-peer` in `initialize` (`peer.rs`). Any client may take that name; it only
 /// keeps that client out of presence.
-fn a_link(conn: &Conn) -> bool {
+pub(super) fn a_link(conn: &Conn) -> bool {
     conn.origin == Origin::Peer || *conn.name.lock_or_recover() == crate::peer::CLIENT_NAME
 }
 
@@ -66,6 +66,7 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
             hub.attach_count(&s, -1, !local.hidden);
         }
         hub.presence.leave(id, &conn.id);
+        conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
     }
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
@@ -85,6 +86,10 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
         Some(opts) if opts.remote => {
             opts.remote = false;
             hub.attach_count(s, 1, !opts.hidden);
+            conn.message_notices
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .forget_others(None, &s.id);
         }
         Some(_) => {}
     }
@@ -93,6 +98,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
 /// `_acpmux/detach`.
 pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, &s.id);
     if let Some(before) = subs.remove(&s.id) {
         conn.unbind_mailbox_receipt(&s.id);
         if !before.remote {
@@ -153,7 +159,7 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
 /// `_acpmux/markUnread {sessionId}` (cx-ncc.78): the person marks a chat unread; it stays so until
 /// a client shows it again after hiding it (`hub/seen.rs`).
 pub(super) fn mark_unread(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
-    hub.mark_unread(&*hub.resolve(session_key(params)?)?);
+    hub.mark_unread_answered(&*hub.resolve(session_key(params)?)?)?;
     Ok(json!({}))
 }
 

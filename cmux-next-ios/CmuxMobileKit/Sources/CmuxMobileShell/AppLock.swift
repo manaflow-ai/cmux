@@ -35,30 +35,49 @@ final class AppLockController {
     /// Checks the owner (Face ID, else the passcode). `nil`: no passcode on this
     /// device, so nothing can check the owner and the lock cannot hold.
     @ObservationIgnored var authenticate: @MainActor () -> (@MainActor () async -> Bool)? = AppLockController.deviceOwner
+    /// The notification router has the lock state (`publish`).
+    @ObservationIgnored private var published = false
+    /// The first `setEnabled` has told the reply buttons.
+    @ObservationIgnored private var synced = false
 
+    /// Side-effect-free: `AppLock` builds one on every body pass and SwiftUI
+    /// keeps only the first, so a write here from a discarded copy would undo
+    /// an unlock (issue 25687). The kept one publishes in `attach` or `setEnabled`.
     init(enabled: Bool) {
         self.enabled = enabled
         locked = enabled
         asksOnActivate = enabled
-        NotificationRouter.shared.appLocked = enabled
-        PushReplies.shared.setRequireFaceID(enabled)
     }
 
     /// What the lock window shows: the lock, or the privacy cover while inactive.
     var covered: Bool { locked || (enabled && inactive) }
 
+    /// The setting, on appear and on every change (`AppLock`).
     func setEnabled(_ on: Bool) {
-        guard on != enabled else { return }
-        enabled = on
+        guard on != enabled || !synced else { return }
+        synced = true
+        if on != enabled {
+            enabled = on
+            // Turning it off unlocks; turning it on locks from the next background.
+            if !on { locked = false }
+        }
+        publish()
         PushReplies.shared.setRequireFaceID(on)
-        // Turning it off unlocks; turning it on locks from the next background.
-        if !on { locked = false }
         update()
+    }
+
+    /// Tells the router the lock state once; `locked`'s didSet sends every change after.
+    private func publish() {
+        guard !published else { return }
+        published = true
+        NotificationRouter.shared.appLocked = locked
     }
 
     /// The scene the app's content is in; the lock window joins it.
     func attach(_ scene: UIWindowScene) {
         guard self.scene !== scene else { return }
+        // The window can attach before the first `setEnabled`; hold replies from here.
+        publish()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         self.scene = scene
         let center = NotificationCenter.default
@@ -171,7 +190,7 @@ struct AppLock: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(SceneReader { controller.attach($0) })
-            .onChange(of: enabled) { _, on in controller.setEnabled(on) }
+            .onChange(of: enabled, initial: true) { _, on in controller.setEnabled(on) }
     }
 }
 
@@ -214,7 +233,9 @@ private struct LockScreen: View {
                     Button { controller.unlock() } label: {
                         Label("Unlock with Face ID", systemImage: "faceid")
                     }
-                    .buttonStyle(.borderedProminent)
+                    // The app's primary capsule: the lock screen sits outside
+                    // the shell's tint, where .borderedProminent drew system blue.
+                    .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary))
                     .disabled(controller.evaluating)
                     .accessibilityIdentifier("cmuxMobile.appLock.unlock")
                 }

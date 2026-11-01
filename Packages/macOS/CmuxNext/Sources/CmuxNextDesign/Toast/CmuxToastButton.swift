@@ -1,18 +1,26 @@
 public import AppKit
 
-/// A toast's action (Undo, Reopen) or close button: a clear text button in
+/// A toast's action (Undo, Reopen, Details) or close button: a clear text button in
 /// the primary text color, or a small xmark, on the toast's own surface,
 /// with the shared hover fill only under the pointer. No second capsule, no
 /// accent color.
 @MainActor
-public final class CmuxToastButton: NSButton {
+public final class CmuxToastButton: ClickableButton {
     public enum Style { case action, close }
 
     /// Horizontal padding of the action title inside its hover fill.
     static let titlePadding: CGFloat = 6
     static let closeSide: CGFloat = 20
     let style: Style
-    private let plainTitle: String
+    private var plainTitle: String
+    /// A toggle that is on (a toast's Details while they show): lit with the hover fill until off,
+    /// wherever the pointer goes and in calm mode too (`ChromeHover.State.lit`). Never the
+    /// selection fill (the accent).
+    public var isOn = false {
+        didSet { if isOn != oldValue { changeHover { $0.lit = isOn } } }
+    }
+    /// The fill the button shows now (tests): nil when it shows none.
+    var shownFill: NSColor? { ChromeHover.fillColor(hover.state) }
     private lazy var hover = ChromeHover(self, cornerRadius: Metrics.itemCornerRadius, behindContent: true)
 
     init(style: Style, title: String, target: AnyObject?, action: Selector?) {
@@ -67,6 +75,16 @@ public final class CmuxToastButton: NSButton {
                 contentTintColor = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
             }
         }
+    }
+
+    /// Shows `title` (Details while off, Hide Details while on): VoiceOver reads it and the button
+    /// sizes to it.
+    func setTitle(_ title: String) {
+        guard style == .action, title != plainTitle else { return }
+        plainTitle = title
+        setAccessibilityLabel(title)
+        applyStyle()
+        invalidateIntrinsicContentSize()
     }
 
     private func changeHover(_ change: (inout ChromeHover.State) -> Void) {

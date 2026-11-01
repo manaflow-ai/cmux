@@ -7,13 +7,14 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
+import CmuxNextTestSupport
 
 /// The Update Ready card and its popup (Leo 2026-10-13, cx-5dvig). At the sidebar's default width
 /// the card's text is whole (it read "1.0.0 nightly 3845050 · Oct 13, 2..."), the card does not
 /// repeat the popup ("See all changes" was on both), and the popup is the themed popup every
 /// cmux popover is, beside the card, not AppKit's NSPopover with its stock arrow. The update is
 /// staged the way `debug.updater stage` stages one in the app.
-@MainActor @Suite(.serialized) struct UpdateReadyCardLayoutTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateReadyCardLayoutTests {
     /// The highlights page, as the App's React surface reports it.
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
@@ -37,6 +38,15 @@ import CmuxNextWakeupsTestSupport
                 return ((view as? any ShownText).map { [$0] } ?? []) + view.subviews.flatMap(walk)
             }
             return walk(card)
+        }
+
+        /// Closes the window and the hover card window the card's popup shows in (hiding the popup
+        /// only orders it out).
+        func close() {
+            let popup = card.hoverCards()?.cardWindow
+            card.hideNotes()
+            window.close()
+            popup?.closeAfterTest()
         }
 
         /// Waits for the sidebar to show the model's card (it follows the model on a task).
@@ -72,7 +82,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func theCardsTextIsWholeAtTheDefaultSidebarWidth() async throws {
         let h = try await make()
-        defer { h.window.close() }
+        defer { h.close() }
         try #require(h.services.updater.readyCard != nil, "the staged update shows no card")
         #expect(!h.card.isHidden)
         let texts = h.texts()
@@ -88,7 +98,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func theCardLeavesSeeAllChangesToItsPopup() async throws {
         let h = try await make()
-        defer { h.window.close() }
+        defer { h.close() }
         try #require(!h.card.isHidden, "the staged update shows no card")
         let shown = h.texts().map(\.stringValue)
         #expect(!shown.contains("See all changes"), "the card repeats the popup's See all changes: \(shown)")
@@ -99,10 +109,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func thePopupIsTheThemedPopupBesideTheCardWithNoArrow() async throws {
         let h = try await make()
-        defer {
-            h.card.hideNotes()
-            h.window.close()
-        }
+        defer { h.close() }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
         h.card.highlights = Highlights()
@@ -164,9 +171,8 @@ import CmuxNextWakeupsTestSupport
     @Test func thePointerAnywhereOnTheCardOpensThePopup() async throws {
         let h = try await make()
         defer {
-            h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -190,9 +196,8 @@ import CmuxNextWakeupsTestSupport
     @Test func thePopupStaysOpenWhileThePointerTravelsToIt() async throws {
         let h = try await make()
         defer {
-            h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -236,9 +241,8 @@ import CmuxNextWakeupsTestSupport
     @Test func aPointerParkedOnTheWayClosesThePopupAtTheLimit() async throws {
         let h = try await make()
         defer {
-            h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -271,9 +275,8 @@ import CmuxNextWakeupsTestSupport
     @Test func aHiddenOrDismissedPopupStaysClosedUnderThePointer() async throws {
         let h = try await make()
         defer {
-            h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
@@ -300,10 +303,7 @@ import CmuxNextWakeupsTestSupport
     /// as wide as a menu.
     @Test func thePopupIsMenuSizedAndCappedToTheWindow() async throws {
         let h = try await make()
-        defer {
-            h.card.hideNotes()
-            h.window.close()
-        }
+        defer { h.close() }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
         let page = Highlights()
@@ -330,9 +330,8 @@ import CmuxNextWakeupsTestSupport
         defer { DisplaySleep.asleepOverride = nil }
         let h = try await make()
         defer {
-            h.card.hideNotes()
             PointerHover.setDebugPointer(nil, in: h.window)
-            h.window.close()
+            h.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)

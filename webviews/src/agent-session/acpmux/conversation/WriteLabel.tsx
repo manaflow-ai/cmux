@@ -18,6 +18,8 @@ import type { AcpmuxActivity } from "../model";
 import { editedPaths } from "../toolPaths";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { fileName } from "./toolGroups";
+import { leadingVerb, ToolLabel } from "./ToolVerb";
+import { useTranscriptReadOnly } from "./readOnly";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -52,14 +54,18 @@ export function writeCall(tool: Tool): WriteCall | undefined {
 export function WriteLabel({ tool, write, t }: { tool: Tool; write: WriteCall; t: Translate }) {
   const cwd = useContext(SessionCwdContext);
   const done = tool.status === "completed";
-  if (!write.path) return <>{t(done ? "tools.wrote.unnamed" : "tools.writing.unnamed")}</>;
+  if (!write.path) return <ToolLabel text={t(done ? "tools.wrote.unnamed" : "tools.writing.unnamed")} />;
   const [before, after = ""] = t(done ? "tools.wrote.file" : "tools.writing.file", { file: "\u0000" }).split("\u0000");
   const counts = done ? write.counts : undefined;
+  const name = <WriteFileName path={write.path} cwd={cwd} />;
   return (
     <>
-      {before}
-      <WriteFileName path={write.path} cwd={cwd} />
-      {after}
+      {/* "Wrote" in the run's verb column (ToolVerb.tsx), the file after it. */}
+      <ToolLabel verb={after ? undefined : leadingVerb(before ?? "")} subject={name}>
+        {before}
+        {name}
+        {after}
+      </ToolLabel>
       {counts && (
         <span className="cv-tool__counts">
           <span className="cv-edit-diff__add">+{counts.additions}</span>
@@ -78,7 +84,9 @@ function WriteFileName({ path, cwd }: { path: string; cwd?: string }) {
   const name = fileName(path);
   const folder = cwd?.replace(/\/+$/, "");
   const full = path.startsWith("/") || path.startsWith("~") || !folder ? path : `${folder}/${path}`;
-  if (isDeniedPath(full)) return <span className="cv-tool__file">{name}</span>;
+  // Read only, the file is on the owner's machine: its name, never a link.
+  const readOnly = useTranscriptReadOnly();
+  if (isDeniedPath(full) || readOnly) return <span className="cv-tool__file">{name}</span>;
   const open = (event: MouseEvent | KeyboardEvent) => {
     event.stopPropagation();
     event.preventDefault();

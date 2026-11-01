@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -12,7 +13,7 @@ public struct StreamedSimulatorPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
 
-    public static let unavailableText = String(localized: "Simulators aren't available from this Mac yet.")
+    public static let unavailableText = String(localized: "Simulators aren't available from this Mac.")
 
     public init(model: StreamedBrowserModel, insets: EdgeInsets) {
         self.model = model
@@ -24,17 +25,17 @@ public struct StreamedSimulatorPage: View {
             SimulatorSurface(model: model)
                 .accessibilityIdentifier("simulator.stream")
             if model.phase == .unavailable {
-                status(Self.unavailableText)
+                retryStatus(Self.unavailableText)
             } else if case let .waiting(reason) = model.phase {
                 if model.canReopen {
                     VStack(spacing: 10) {
                         Text(reason).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        Button("Reopen") { model.reopen() }.buttonStyle(.glass).accessibilityIdentifier("simulator.reopen")
+                        RetryButton(action: retry).accessibilityIdentifier("simulator.retry")
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .glassEffect(.regular, in: .rect(cornerRadius: 18))
                 } else {
-                    status(reason)
+                    retryStatus(reason)
                 }
             } else if model.phase == .connecting {
                 status(String(localized: "Opening the simulator on your Mac…"))
@@ -54,6 +55,17 @@ public struct StreamedSimulatorPage: View {
             model.reconnect()
         }
         .onDisappear { model.setVisible(false) }
+    }
+
+    func retry() async { model.reopen() }
+
+    private func retryStatus(_ text: String) -> some View {
+        VStack {
+            Text(text).font(.footnote).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            RetryButton(action: retry).accessibilityIdentifier("simulator.retry")
+        }
+        .padding(.horizontal, 16)
     }
 
     private func status(_ text: String) -> some View {

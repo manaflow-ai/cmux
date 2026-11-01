@@ -101,6 +101,7 @@ extension DaemonStore {
     private func settleIntent(_ transaction: ClientTransactionID, _ settlement: IntentSettlement) {
         guard let removed = intentLog.remove(transaction) else { return }
         intentSettlements.append((transaction, settlement))
+        noteIntentLeft(removed, rejected: settlement == .rejected)
         // A refused create held a guessed tab that was another create's: guess it again.
         if settlement == .rejected, !removed.createdConfirmed, let surface = removed.createdSurface {
             ProvisionalTab.reguess(surface, in: self)
@@ -118,8 +119,10 @@ extension DaemonStore {
         let result = body()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
+            noteIntentLeft(intent, rejected: false)
         }
         releaseSettledProvisionalPanes()
+        releaseStandInTargets()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
@@ -134,6 +137,8 @@ extension DaemonStore {
         intentSettlements.removeAll()
         for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
         CancelledCreation.requestCloses(in: self)
+        // A create waiting for a stand-in's daemon pane goes on once this apply made or refused it.
+        resolveStandInWaits()
         return result
     }
 
@@ -145,7 +150,6 @@ extension DaemonStore {
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
-        releaseStandInTargets()
     }
 
     /// A stand-in handle stays resolvable while a pending create names it as its target.
@@ -153,6 +157,7 @@ extension DaemonStore {
         guard !standInTargets.isEmpty else { return }
         let targets = Set(intentLog.entries.compactMap { entry -> PaneID? in
             if case .splitPane(let target, _, _, _) = entry.kind { return target }
+            if case .createTab(let target, _) = entry.kind { return target }
             return nil
         })
         standInTargets = standInTargets.filter { targets.contains($0.key) }
@@ -166,6 +171,23 @@ extension DaemonStore {
     /// stand-in is not confirmed yet (a create pressed on a create still in flight waits for it).
     public func daemonHandle(showing handle: PaneID) -> PaneID? {
         ProvisionalSplit.daemonHandle(showing: handle, in: self)
+    }
+
+    /// The pane a create about `handle` sends (rule b: a stand-in id never leaves for the daemon): `handle` for a daemon
+    /// pane; for a stand-in, the daemon's pane that took it over. One seam for every create (Cmd-D, New Column, New Row,
+    /// New Terminal Tab): a stand-in whose own create is still in flight (Cmd-N's first pane, a split) is a valid
+    /// target, and the create waits here, off the key's turn, until the daemon's pane takes it over (the store resumes
+    /// it from the reconcile that applies it; no timer). A stand-in whose create failed or was closed was never made:
+    /// ``PendingPaneNotCreated``, which the action shows as a refusal. P0 STATUS 2080: Ctrl-` right after Cmd-N was
+    /// refused here ("still opening; try again"), and no terminal opened.
+    public func daemonTarget(_ handle: PaneID) async throws -> PaneID {
+        guard handle.rawValue >= ProvisionalPane.firstHandle else { return handle }
+        let origin = standInTargets[handle] ?? ProvisionalSplit.standInOrigin(of: handle, in: self)
+        switch StandInWait.state(of: handle, origin: origin, in: self) {
+        case .adopted(let pane): return pane
+        case .notCreated: throw PendingPaneNotCreated()
+        case .opening: return try await waitForDaemonPane(of: handle, origin: origin)
+        }
     }
 
     func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
@@ -221,4 +243,29 @@ extension DaemonStore {
             if !intentLog.setUndo(IntentOverlay.restore(entry, to: self), at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
+}
+
+/// A command named a stand-in pane whose create never made the daemon's pane (it was refused or closed first).
+public struct PendingPaneNotCreated: Error, CustomStringConvertible {
+    public init() {}
+    /// Plain English, as every ``DaemonError`` text of this module (it has no string catalog).
+    public var description: String { "the pane it was for was not created" }
+}
+
+/// A pane verb (zoom, rename, swap, a page in it) named a pane that is still opening (a pending create's stand-in): it was
+/// not sent, since the daemon does not know that pane yet. The app shows it as a refusal (`DaemonService.onPaneNotReady`).
+public struct PaneNotReady: Error, CustomStringConvertible {
+    public let command: String
+    public let reference: String
+    /// The person saw this refusal already (the connection showed it: `DaemonConnection.observePaneNotReady`), so no
+    /// caller shows it again.
+    public var shown = false
+    public init(command: String, reference: String) {
+        self.command = command
+        self.reference = reference
+    }
+    /// Plain English for the log (this module has no string catalog); the app shows a localized text.
+    public var description: String { "\(command): the pane is still opening (\(reference)); not sent" }
+    /// The person's sentence in English, with no id (`DaemonService.paneNotReadyText` replaces it with the app's).
+    public var reason: String { "This pane is still opening; try again in a moment." }
 }

@@ -112,12 +112,17 @@ struct HomeSidebarHeaderTests {
             #expect(image !== before.image, "\(name) kept its dark glyph image")
             let tint = try #require(button.glyphTint)
             #expect(tint != before.tint, "\(name) kept its dark tint")
-            #expect(tint == button.performWithTheme { Palette.textSecondary })
+            // The list's quiet compose glyph is the secondary text; the Unread filter's, on its
+            // glass circle, the primary text (Messages' white glyph on glass).
+            let expected = button === home.unreadToggle ? button.performWithTheme { Palette.textPrimary }
+                : button.performWithTheme { Palette.textSecondary }
+            #expect(tint == expected)
             #expect(button.contentTintColor == tint)
         }
-        // The glyph keeps its size across the switch: 14 pt in the 28 pt Unread toggle. The list's compose button is
+        // The glyph keeps its size across the switch: half the Unread toggle's height. The list's compose button is
         // hidden and zero-sized since 1cc2f1b57d133 (compose is the chat's at every width), so its glyph is the 10 pt floor.
-        #expect(home.unreadToggle.frame.height == HomeSidebarHeaderLayout.side && home.unreadToggle.glyphSize == 14)
+        #expect(home.unreadToggle.frame.height == HomeSidebarHeaderLayout.side
+            && home.unreadToggle.glyphSize == HomeSidebarHeaderLayout.side / 2)
         #expect(home.compose.frame.size == .zero && home.compose.glyphSize == 10)
     }
 }

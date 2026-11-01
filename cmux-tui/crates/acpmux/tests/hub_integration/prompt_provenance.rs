@@ -24,7 +24,7 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
-fn hub_env(env: Value) -> Arc<Hub> {
+pub(super) fn hub_env(env: Value) -> Arc<Hub> {
     hub_policy(env, "approve-all")
 }
 
@@ -36,11 +36,13 @@ fn hub_policy(env: Value, policy: &str) -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
 
-fn hub() -> Arc<Hub> {
+pub(super) fn hub() -> Arc<Hub> {
     hub_env(json!({}))
 }
 
@@ -50,7 +52,12 @@ fn provenance(to: &str) -> Value {
            "msgId": "msg-1", "threadId": "thread-1", "replyTo": "msg-0"})
 }
 
-fn prompt(session: &str, prompt_id: &str, text: &str, provenance: Option<&Value>) -> Value {
+pub(super) fn prompt(
+    session: &str,
+    prompt_id: &str,
+    text: &str,
+    provenance: Option<&Value>,
+) -> Value {
     let mut mux = json!({"promptId": prompt_id});
     if let Some(p) = provenance {
         mux["provenance"] = p.clone();
@@ -58,10 +65,10 @@ fn prompt(session: &str, prompt_id: &str, text: &str, provenance: Option<&Value>
     json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
 }
 
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+pub(super) struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
-    fn open(hub: &Arc<Hub>) -> Self {
+    pub(super) fn open(hub: &Arc<Hub>) -> Self {
         Self::open_as(hub, Origin::Local)
     }
 
@@ -73,14 +80,14 @@ impl Client {
     }
 
     /// Sends a request without waiting for its reply; returns its id.
-    async fn send(&mut self, method: &str, params: Value) -> i64 {
+    pub(super) async fn send(&mut self, method: &str, params: Value) -> i64 {
         self.2 += 1;
         self.0.send(Message::request(self.2, method, params).to_line()).await.unwrap();
         self.2
     }
 
     /// The first message that matches `pred`; every other one is dropped.
-    async fn until(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
+    pub(super) async fn until(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
@@ -94,22 +101,22 @@ impl Client {
     }
 
     /// The raw reply to request `id` (an error is returned, not asserted).
-    async fn reply_to(&mut self, id: i64) -> Value {
+    pub(super) async fn reply_to(&mut self, id: i64) -> Value {
         self.until(|v| v.get("id") == Some(&json!(id))).await
     }
 
-    async fn reply(&mut self, method: &str, params: Value) -> Value {
+    pub(super) async fn reply(&mut self, method: &str, params: Value) -> Value {
         let id = self.send(method, params).await;
         self.reply_to(id).await
     }
 
-    async fn call(&mut self, method: &str, params: Value) -> Value {
+    pub(super) async fn call(&mut self, method: &str, params: Value) -> Value {
         let value = self.reply(method, params).await;
         assert!(value.get("error").is_none(), "{method}: {value}");
         value["result"].clone()
     }
 
-    async fn new_session(&mut self, mux: Value) -> String {
+    pub(super) async fn new_session(&mut self, mux: Value) -> String {
         let created = self
             .call(
                 "session/new",
@@ -120,25 +127,25 @@ impl Client {
     }
 
     /// The session's records of `kind`, oldest first (their `msg`).
-    async fn records(&mut self, session: &str, kind: &str) -> Vec<Value> {
+    pub(super) async fn records(&mut self, session: &str, kind: &str) -> Vec<Value> {
         let page =
             self.call("_acpmux/events", json!({"sessionId": session, "kinds": [kind]})).await;
         page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
     }
 
-    async fn user_message(&mut self, session: &str, prompt_id: &str) -> Value {
+    pub(super) async fn user_message(&mut self, session: &str, prompt_id: &str) -> Value {
         let found = self.records(session, "user_message").await;
         found.into_iter().find(|m| m["promptId"] == prompt_id).expect("its user_message")
     }
 
     /// Starts an "until-cancel" turn and waits until it runs.
-    async fn busy(&mut self, session: &str) {
+    pub(super) async fn busy(&mut self, session: &str) {
         self.send("session/prompt", prompt(session, "p-run", "until-cancel", None)).await;
         self.until(|v| v.pointer("/params/update/content/text") == Some(&json!("running"))).await;
     }
 
     /// Queues a prompt behind the running turn; returns its request id.
-    async fn queue(&mut self, params: Value) -> i64 {
+    pub(super) async fn queue(&mut self, params: Value) -> i64 {
         let prompt_id = params["_meta"]["acpmux"]["promptId"].clone();
         let id = self.send("session/prompt", params).await;
         self.until(|v| {
@@ -150,7 +157,7 @@ impl Client {
         id
     }
 
-    async fn cancel(&mut self, session: &str) {
+    pub(super) async fn cancel(&mut self, session: &str) {
         let note = Message::notification("session/cancel", json!({"sessionId": session}));
         self.0.send(note.to_line()).await.unwrap();
     }
@@ -464,15 +471,128 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
 
     let from_lane = person.user_message(&receiver, "p-lane").await;
     assert_eq!(from_lane["text"], "report from the lane", "{from_lane}");
-    let stamped =
-        json!({"kind": "session_message", "from": sender, "fromName": name, "to": receiver});
+    // With the sending session's id and harness family, bound from its caller token.
+    let stamped = json!({"kind": "session_message", "from": sender, "fromName": name, "to": receiver,
+                         "fromSessionId": sender, "fromHarness": "codex"});
     assert_eq!(from_lane.pointer("/_meta/provenance"), Some(&stamped), "{from_lane}");
     let own = person.user_message(&sender, "p-self").await;
     assert!(own.pointer("/_meta/provenance").is_none(), "{own}");
     let theirs = person.user_message(&receiver, "p-person").await;
     assert!(theirs.pointer("/_meta/provenance").is_none(), "{theirs}");
     let kept = person.user_message(&receiver, "p-given").await;
-    assert_eq!(kept.pointer("/_meta/provenance"), Some(&given), "{kept}");
+    let mut bound = given.clone();
+    bound["fromSessionId"] = json!(sender);
+    bound["fromHarness"] = json!("codex");
+    assert_eq!(kept.pointer("/_meta/provenance"), Some(&bound), "{kept}");
+}
+
+/// A queued agent message shows its sender's session and harness on its queue row, and reads back
+/// whole by its prompt id (`_acpmux/queue_text`): the row carries a 200-character preview only.
+/// Leo, 2026-10-29: "If I expand it, I expect to see the whole thing" and "why are some of these
+/// icons still only placeholders?"
+#[tokio::test]
+async fn a_queued_agent_message_reads_whole_and_names_its_senders_session_and_harness() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let sender = person.new_session(json!({"harness": "fake"})).await;
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    person.busy(&receiver).await;
+    let whole = format!("report: {}end", "x".repeat(1200));
+    let mut lane = open_in_session(&hub, &sender).await;
+    let waiting = lane.queue(prompt(&receiver, "p-long", &whole, None)).await;
+
+    let s = hub.resolve(&receiver).unwrap();
+    let rows = hub.session_summary(&s)["queue"].clone();
+    let row = rows.as_array().unwrap().iter().find(|q| q["promptId"] == "p-long").unwrap();
+    assert!(row["prompt"].as_str().unwrap().chars().count() < whole.len(), "{row}");
+    assert_eq!(row["fromSessionId"], json!(sender), "{row}");
+    assert_eq!(row["fromHarness"], "codex", "{row}");
+    let composers = hub.composers_view(&s)["queue"][0].clone();
+    assert_eq!(
+        (&composers["fromSessionId"], &composers["fromHarness"]),
+        (&json!(sender), &json!("codex"))
+    );
+
+    let read = person
+        .call("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-long"}))
+        .await;
+    assert_eq!(read["text"], json!(whole), "{read}");
+    assert_eq!(read["prompt"][0]["text"], json!(whole), "{read}");
+    assert_eq!(read["turnId"], row["turnId"], "{read}");
+    assert_eq!((&read["fromSessionId"], &read["fromHarness"]), (&json!(sender), &json!("codex")));
+    let queued = person.records(&receiver, "queued").await;
+    let queued = queued.iter().find(|m| m["promptId"] == "p-long").expect("its queued record");
+    assert_eq!(queued.pointer("/_meta/provenance/fromHarness"), Some(&json!("codex")), "{queued}");
+    let missing = person
+        .reply("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-none"}))
+        .await;
+    assert_eq!(reason(&missing), "queue.not_found", "{missing}");
+    assert_eq!(missing.pointer("/error/code"), Some(&json!(-32002)), "{missing}");
+
+    person.cancel(&receiver).await;
+    lane.reply_to(waiting).await;
+    let ran = person.user_message(&receiver, "p-long").await;
+    assert_eq!(ran.pointer("/_meta/provenance/fromSessionId"), Some(&json!(sender)), "{ran}");
+    assert_eq!(ran.pointer("/_meta/provenance/fromHarness"), Some(&json!("codex")), "{ran}");
+    // Once it ran it waits no more: its user_message has the text.
+    let gone = person
+        .reply("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-long"}))
+        .await;
+    assert_eq!(reason(&gone), "queue.not_found", "{gone}");
+}
+
+/// The sender's session and harness are the daemon's word, never a client's: bound from the
+/// caller token, else taken from a peer link for a prompt the peer sent as its own (no `via`).
+/// A claim from anywhere else is dropped, and a bound value replaces a claimed one.
+#[tokio::test]
+async fn a_senders_session_and_harness_come_from_a_proven_caller_or_a_peer_link_only() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let sender = person.new_session(json!({"harness": "fake"})).await;
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let claimed = |id: &str, via: Option<&str>| {
+        let mut p = prompt(&receiver, id, "report", None);
+        let mux = &mut p["_meta"]["acpmux"];
+        mux["fromAgent"] = json!("codex-lane");
+        mux["fromSessionId"] = json!("s-remote");
+        mux["fromHarness"] = json!("claude");
+        if let Some(via) = via {
+            mux["via"] = json!(via);
+        }
+        p
+    };
+    for (origin, id, via) in [
+        (Origin::Peer, "p-peer", None),
+        (Origin::Peer, "p-peer-app", Some("app")),
+        (Origin::Local, "p-cli", None),
+    ] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", claimed(id, via)).await;
+    }
+    let mut lane = open_in_session(&hub, &sender).await;
+    lane.call("session/prompt", claimed("p-lane", None)).await;
+
+    let p = |m: &Value| m["_meta"]["provenance"].clone();
+    let peer = p(&person.user_message(&receiver, "p-peer").await);
+    assert_eq!(
+        (&peer["fromSessionId"], &peer["fromHarness"]),
+        (&json!("s-remote"), &json!("claude")),
+        "{peer}"
+    );
+    for id in ["p-peer-app", "p-cli"] {
+        let other = p(&person.user_message(&receiver, id).await);
+        assert_eq!(other["fromName"], "codex-lane", "{id}: {other}");
+        assert!(
+            other.get("fromSessionId").is_none() && other.get("fromHarness").is_none(),
+            "{id}: {other}"
+        );
+    }
+    let bound = p(&person.user_message(&receiver, "p-lane").await);
+    assert_eq!(
+        (&bound["fromSessionId"], &bound["fromHarness"]),
+        (&json!(sender), &json!("codex")),
+        "{bound}"
+    );
 }
 
 /// claude-sr2, 2026-10-24: lanes on other machines reached its daemon over the peer link, or ran
@@ -604,14 +724,14 @@ fn anas() -> Value {
 }
 
 /// `params` with `author` in `_meta.acpmux`.
-fn by(mut params: Value, author: Option<&Value>) -> Value {
+pub(super) fn by(mut params: Value, author: Option<&Value>) -> Value {
     if let Some(author) = author {
         params["_meta"]["acpmux"]["author"] = author.clone();
     }
     params
 }
 
-fn reason(value: &Value) -> &Value {
+pub(super) fn reason(value: &Value) -> &Value {
     value.pointer("/error/data/reason").unwrap_or(&Value::Null)
 }
 
@@ -730,6 +850,15 @@ async fn only_the_sender_changes_a_waiting_prompt() {
         );
         let value = c.reply("_acpmux/queue_remove", remove).await;
         assert_eq!(reason(&value), "queue.not_author", "{id} remove by {author:?}: {value}");
+        // Asked for agents' messages only (`session queue clear --from-agents`): still refused,
+        // never a "kept" that tells them whose prompt it is.
+        let agents_only = by(
+            json!({"sessionId": session, "promptId": id, "fromAgentsOnly": true,
+                   "_meta": {"acpmux": {}}}),
+            author.as_ref(),
+        );
+        let value = c.reply("_acpmux/queue_remove", agents_only).await;
+        assert_eq!(reason(&value), "queue.not_author", "{id} agents-only by {author:?}: {value}");
     }
     // `resume` changes no one prompt.
     c.call("_acpmux/queue_edit", edit("p-ana", "resume", Some(&bo()))).await;

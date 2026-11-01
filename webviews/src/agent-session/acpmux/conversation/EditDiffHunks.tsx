@@ -17,7 +17,14 @@ const paneThemeType = () =>
 /// Pierre paints its host in the page color; here it is clear, so the card's fill and ring show
 /// around the lines. Changed lines keep their tints, which mix with transparent.
 const cardUnsafeCSS = `${diffUnsafeCSS}
-:host { --diffs-dark-bg: transparent; --diffs-light-bg: transparent; background: transparent; }
+:host {
+  --diffs-dark-bg: transparent;
+  --diffs-light-bg: transparent;
+  --diffs-font-size: var(--cv-codeblock-size, var(--cmux-diff-font-size, var(--text-detail)));
+  --diffs-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
+  --diffs-font-family: var(--cv-mono);
+  background: transparent;
+}
 ${PIERRE_BLOCK_CSS}`;
 
 /// Pierre's options for an edit placed in its file (numbered) and for a bare fragment; `wrap` wraps

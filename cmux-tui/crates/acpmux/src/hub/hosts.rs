@@ -11,6 +11,8 @@ use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
 use crate::store::RecordHead;
+use cmux_json::JsonSet as _;
+use futures_util::StreamExt;
 
 /// How long adoption waits for the next replayed entry of one host to be
 /// logged before it recovers from the log as it is.
@@ -25,6 +27,21 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// That turn's line on the summary (`turn_started` `promptLine`, `prompt_line.rs`); `None`
+    /// for an older record.
+    turn_line: Option<String>,
+    turn_trigger: bool,
+    /// That turn was carried on from the turn before (`turn_started` `carried`,
+    /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
+    turn_carried: bool,
+    /// The person's own prompt started this turn (`turn_started` `persons`).
+    turn_persons: bool,
+    /// The last turn ended naming the turn it carried into (`turn_result` `carriedTo`), which
+    /// never logged its start: the restart came in between.
+    carry_next: Option<(String, Value)>,
+    /// A Web steer raised the turn the open one carried into, before the open one's end was
+    /// logged (`turn_control` for another turn): that turn is a Web turn (`carried_turn.rs`).
+    next_raised: bool,
     /// When that turn started and when its model last showed a sign of work
     /// (`tap.rs` `logged_from_the_model`; 0 for none), Unix ms: the
     /// recovered turn keeps its age and its stalled count (`stalled_turn.rs`).
@@ -82,6 +99,10 @@ pub(super) struct OpenWork {
     /// What that turn does, from its logged updates under this incarnation: its tool calls in
     /// flight, its latest tool and its plan step (`hub/activity.rs`).
     doing: super::activity::TurnActivity,
+    /// Whether the adopted host's main Claude turn was compacting when the
+    /// previous controller stopped. Recovered from its logged `compaction`
+    /// updates so Stop keeps the prompt-first path after a restart.
+    compacting: bool,
 }
 
 /// What the host records say (`Hub::read_host_records`).
@@ -286,53 +307,12 @@ impl Hub {
                 return;
             }
         };
-        for (_, record) in good {
-            if agent_host::liveness(&dir, &record.session_id, &record.start_nonce) == Liveness::Dead
-            {
-                agent_host::remove_artifacts(&dir, &record);
-                continue;
-            }
-            let Some(session) = self.session_by_id(&record.session_id) else {
-                // A host for a session this daemon does not know (purged):
-                // nothing can show it, so end it.
-                let ended = end_host_blocking(
-                    dir.clone(),
-                    record.session_id.clone(),
-                    Some(record.start_nonce.clone()),
-                    Some(record.host_pid),
-                )
-                .await;
-                if ended {
-                    agent_host::remove_artifacts(&dir, &record);
-                } else {
-                    self.hold_unresolved(Some(&record.session_id)).await;
-                }
-                continue;
-            };
-            // This runs after the ready line, so a prompt can reach the host
-            // first (`ensure_child` -> `readopt`, under the spawn lock). One
-            // adoption per host: a second link would replace the first
-            // child, and the requests open on it would be lost.
-            let _spawning = session.spawn_lock.lock().await;
-            if let Some(child) = session.child.lock().await.as_ref()
-                && child.is_alive().await
-            {
-                continue;
-            }
-            // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
-            // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
-            // end failed is not adopted either (review 51), and may still write a line the previous
-            // daemon handed it: held until it is proven gone (`hold_unresolved`).
-            if self.ends_before_adoption(&session, off.off()).await {
-                if !Self::host_record_gone(&session.id) {
-                    self.hold_unresolved(Some(&session.id)).await;
-                }
-                continue;
-            }
-            if let Err(e) = self.adopt_one(&session, record, &off).await {
-                tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
-            }
-        }
+        // Each host has its own spawn lock, replay and recovery. A slow host must not hold
+        // every following chat behind its replay deadline. Keep at most eight in flight;
+        // this pass ends once the records are drained and owns no detached adoption tasks.
+        futures_util::stream::iter(good)
+            .for_each_concurrent(8, |(_, record)| self.adopt_record(&dir, record, &off))
+            .await;
         for unreadable in bad {
             // Nothing proves what it may still write: held until its host is proven gone.
             if !Self::host_record_gone(&unreadable.session_id) {
@@ -356,9 +336,66 @@ impl Hub {
         }
     }
 
+    async fn adopt_record(
+        self: &Arc<Self>,
+        dir: &std::path::Path,
+        record: agent_host::HostRecord,
+        off: &OffLatch,
+    ) {
+        if agent_host::liveness(dir, &record.session_id, &record.start_nonce) == Liveness::Dead {
+            agent_host::remove_artifacts(dir, &record);
+            return;
+        }
+        let Some(session) = self.session_by_id(&record.session_id) else {
+            // A host for a session this daemon does not know (purged):
+            // nothing can show it, so end it.
+            let ended = end_host_blocking(
+                dir.to_owned(),
+                record.session_id.clone(),
+                Some(record.start_nonce.clone()),
+                Some(record.host_pid),
+            )
+            .await;
+            if ended {
+                agent_host::remove_artifacts(dir, &record);
+            } else {
+                self.hold_unresolved(Some(&record.session_id)).await;
+            }
+            return;
+        };
+        // This runs after the ready line, so a prompt can reach the host
+        // first (`ensure_child` -> `readopt`, under the spawn lock). One
+        // adoption per host: a second link would replace the first
+        // child, and the requests open on it would be lost.
+        let _spawning = session.spawn_lock.lock().await;
+        if let Some(child) = session.child.lock().await.as_ref()
+            && child.is_alive().await
+        {
+            return;
+        }
+        // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
+        // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
+        // end failed is not adopted either (review 51), and may still write a line the previous
+        // daemon handed it: held until it is proven gone (`hold_unresolved`).
+        if self.ends_before_adoption(&session, off.off()).await {
+            if !Self::host_record_gone(&session.id) {
+                self.hold_unresolved(Some(&session.id)).await;
+            }
+            return;
+        }
+        if let Err(e) = self.adopt_one(&session, record, off).await {
+            tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
+        }
+    }
+
     /// End the host of a session that has no adopted child, when one runs
     /// (a host this build cannot adopt, or one whose link was lost).
     pub(super) async fn end_unadopted_host(&self, session: &Session) {
+        // A lost home's hosts folder may be another daemon's now: its records name that daemon's
+        // agents. This daemon's own hosts end with their folder (`agent_host`), so none is read.
+        if crate::config::home_path_lost() {
+            return;
+        }
         let dir = agent_host::hosts_dir();
         let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
         let record = good.iter().find(|(_, r)| r.session_id == session.id).map(|(_, r)| r.clone());
@@ -446,6 +483,9 @@ impl Hub {
             return Ok(());
         }
         let resume_after = self.last_host_seq(session, &record.incarnation);
+        // The subagents the host still runs, before its first replayed line reaches the tap:
+        // a child's line is tagged with its session from the first one (`work_below.rs`).
+        self.seed_subagents_from_log(session);
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
@@ -461,6 +501,18 @@ impl Hub {
         let (child, adopted) = match attached {
             Attached::Ready(child, adopted, _) => (child, adopted),
             Attached::Incompatible { min, max, host_build } => {
+                // Its replay is never read, so what it kept while no daemon was attached is
+                // unknown: under MDM's off it counts as full access, now and at any later off
+                // (`unjudged_host`), and ends by its nonce. A host whose end fails stays held and
+                // is never reached (`FullAccessEnd::StillRunning`). With MDM unset it runs on,
+                // unadoptable, as before (#26337).
+                session.floor.unjudged_host.store(true, Ordering::SeqCst);
+                let ended = off.off()
+                    && self.end_managed_full_access(session).await == FullAccessEnd::Ended;
+                if ended {
+                    hold.take();
+                    return Ok(());
+                }
                 self.mark_unadoptable(
                     session,
                     json!({"hostProtocol": [min, max], "hostBuild": host_build}),
@@ -484,6 +536,8 @@ impl Hub {
             (all, profile.map(|p| p.kind))
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        // What the daemon that started it kept of its MCP servers (`hub/idle_census.rs`).
+        self.restore_launch(session, &child, &incarnation);
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
@@ -549,14 +603,29 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
-        self.set_status(session, SessionStatus::Ready);
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
+        let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
+        // The status after recovery, not before it: set before, `ready` was logged and shown
+        // between `host_adopted` and a turn the host still runs (an idle chat that was working).
+        // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
+        // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
+        // also have ended by now; a permission asked again), it stands. Else the status loaded from
+        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // something still asks the person, `ready` otherwise, read under the permissions lock
+        // that an answer takes.
+        if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            let status = if asking { SessionStatus::Waiting } else { SessionStatus::Ready };
+            self.set_status(session, status);
+            drop(state);
+        }
         self.restart_unproven(session, proven);
         self.save_meta(session);
         Ok(())
@@ -701,8 +770,13 @@ impl Hub {
         let mut canary_passed = false;
         // Which logged updates are a subagent's, as the tap tells them live: by the subagents
         // the log itself started, never by an update's own `_meta`.
+        // The chat's native roots, current and earlier, are never subagents (as the tap seeds them).
         let mut subagents = crate::subagents::SubagentTree::default();
-        subagents.set_own(session.meta().agent_session_id.as_deref());
+        let meta = session.meta();
+        subagents.set_own(meta.agent_session_id.as_deref());
+        subagents.set_roots(
+            meta.agent_session_id.iter().chain(&meta.retired_agent_session_ids).map(String::as_str),
+        );
         // Only the log's last turn can be open when the scan ends: an earlier turn's records
         // (most of a long log) are folded away at its `turn_result`. Found from the end, on the
         // heads of the records after that turn's marker.
@@ -812,6 +886,10 @@ impl Hub {
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
+                    // A new harness runs no carried turn of the old one's.
+                    work.carry_next = None;
+                    work.turn_carried = false;
+                    work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
                     work.doing = Default::default();
@@ -820,15 +898,31 @@ impl Hub {
                     let field = |k: &str| {
                         e.msg.get(k).and_then(Value::as_str).unwrap_or_default().to_owned()
                     };
+                    // A carried turn raised to Web before its start was logged keeps it.
+                    let raised = work.carry_next.as_ref().is_some_and(|(_, next)| {
+                        next.get("turnId") == e.msg.get("turnId")
+                            && next.get("control").and_then(Value::as_str) == Some("web")
+                    });
                     work.turn = Some((
                         e.seq,
                         field("turnId"),
                         field("promptId"),
                         field("prompt"),
                         field("client"),
-                        Control::from_recorded(e.msg.get("control").and_then(Value::as_str)),
+                        if raised {
+                            Control::Web
+                        } else {
+                            Control::from_recorded(e.msg.get("control").and_then(Value::as_str))
+                        },
                     ));
+                    work.turn_line =
+                        e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
+                    work.turn_trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
+                    work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                     work.turn_at = e.at;
+                    work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
+                    work.carry_next = None;
+                    work.next_raised = false;
                     work.heard_at = 0;
                     work.open_tools.clear();
                     work.prompt_request = None;
@@ -837,14 +931,37 @@ impl Hub {
                     work.doing = Default::default();
                 }
                 ("mux", "turn_control") => {
-                    if let Some(t) = work.turn.as_mut()
-                        && e.msg.get("turnId").and_then(Value::as_str) == Some(t.1.as_str())
+                    if let Some(t) = work.turn.as_mut() {
+                        if e.msg.get("turnId").and_then(Value::as_str) == Some(t.1.as_str()) {
+                            t.5 = Control::from_recorded(
+                                e.msg.get("control").and_then(Value::as_str),
+                            );
+                        } else {
+                            // The turn it carried into, put in place before its end was logged.
+                            work.next_raised = true;
+                        }
+                    }
+                    // A Web steer into a carried turn not started yet (`carried_turn.rs`).
+                    if let Some((_, next)) = work.carry_next.as_mut()
+                        && e.msg.get("turnId") == next.get("turnId")
                     {
-                        t.5 = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+                        next.set("control", json!(Control::Web.as_str()));
                     }
                 }
                 ("mux", "turn_result") => {
+                    work.carry_next = e.msg.get("carriedTo").filter(|c| !c.is_null()).map(|c| {
+                        let from = work.turn.as_ref().map(|t| t.1.clone());
+                        let from = from.or_else(|| {
+                            e.msg.get("turnId").and_then(Value::as_str).map(str::to_owned)
+                        });
+                        (from.unwrap_or_default(), c.clone())
+                    });
                     work.turn = None;
+                    work.turn_line = None;
+                    work.turn_carried = false;
+                    work.turn_persons = false;
+                    work.next_raised = false;
+                    work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
                     // (`open_work_reads`), so none of them may outlive it here.
                     work.heard_at = 0;
@@ -859,6 +976,13 @@ impl Hub {
                     if current && work.turn.is_some() && !subagents_own =>
                 {
                     work.doing.note(&e.msg["params"]["update"]);
+                }
+                ("in", "compaction") if current && work.turn.is_some() && !subagents_own => {
+                    match e.msg.pointer("/params/update/state").and_then(Value::as_str) {
+                        Some("running") => work.compacting = true,
+                        Some("completed") | Some("failed") => work.compacting = false,
+                        _ => {}
+                    }
                 }
                 ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
@@ -923,13 +1047,16 @@ impl Hub {
                     let id = e.msg.get("id").cloned();
                     // A steer into the running turn is not the turn's prompt: its
                     // answer (Claude Code's `steered`) does not end the turn.
-                    if e.msg.pointer("/params/_meta/steer").and_then(Value::as_bool) == Some(true)
-                        && work.prompt_request.is_some()
-                    {
+                    let steer =
+                        e.msg.pointer("/params/_meta/steer").and_then(Value::as_bool) == Some(true);
+                    if steer && (work.prompt_request.is_some() || work.turn_carried) {
                         work.steers.extend(id.map(|id| (id, None)));
                     } else {
                         work.prompt_request = id;
-                        work.steers.clear();
+                        // A carried turn's steers may go in before its prompt.
+                        if !work.turn_carried {
+                            work.steers.clear();
+                        }
                     }
                 }
                 ("in", "response") if current => {
@@ -1025,8 +1152,34 @@ impl Hub {
         work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
+        session.compacting.store(work.compacting, Ordering::SeqCst);
         self.rebuild_processes(session);
-        if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
+        // A carried turn the restart cut before its prompt went out (or before it started):
+        // the agent runs it still, and it goes on (`carried_turn.rs`).
+        if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
+            && work.turn_carried
+            && work.prompt_request.is_none()
+        {
+            let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
+            if let Some(line) = &work.turn_line {
+                turn.show(line);
+            }
+            turn.trigger = work.turn_trigger;
+            turn.turn_seq = turn_seq;
+            if work.turn_at > 0 {
+                turn.started_at = work.turn_at;
+            }
+            self.recover_carried(session, child, turn, None, Default::default());
+        } else if work.turn.is_none()
+            && let Some((from, record)) = &work.carry_next
+            && let Some(next) = super::carried_turn::NextTurn::from_record(record)
+        {
+            let super::carried_turn::NextTurn { carried, next, continues } = next;
+            let begin = Some((from.clone(), carried));
+            self.recover_carried(session, child, next, begin, continues);
+        } else if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) =
+            work.turn.clone()
+        {
             // A steer whose logged answer ended the turn settles it like the turn's own answer.
             let answer = work.prompt_response.clone().or_else(|| {
                 work.steers.iter().find_map(|(_, a)| a.clone().filter(steer_answer_ends_turn))
@@ -1036,18 +1189,26 @@ impl Hub {
                 // it): nothing can answer it any more.
                 (None, _) => {
                     let error = "the agent host never received this turn's prompt";
-                    self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error}));
+                    self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error, "trigger": work.turn_trigger}));
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
+                    let outcome = super::prompt_ledger::recover(session, &prompt_id);
                     // Before anything can force its end (`turn_answer`).
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
                     let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
+                    // Its line on the summary as the turn showed it (`prompt_line.rs`); an older
+                    // record's as its client tells it.
+                    let line = work
+                        .turn_line
+                        .clone()
+                        .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
                     *session.turn.lock().unwrap() = Some(TurnInfo {
+                        trigger: work.turn_trigger,
                         started_at,
                         client,
-                        masked_preview: crate::secret_scan::mask(&prompt),
+                        masked_preview: super::auto_resume::shown_line(&line),
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
@@ -1055,7 +1216,14 @@ impl Hub {
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         doing: work.doing.clone(),
+                        // A restart keeps no provenance of the turn: its History line stays.
+                        notice: false,
+                        // As logged (`turn_started` `persons`); an older record's takes notices.
+                        persons: work.turn_persons,
                     });
+                    if work.turn_trigger {
+                        self.restore_trigger_background(session, &turn_id);
+                    }
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not
                     // start does not go on (tools that do not ask).
@@ -1071,6 +1239,8 @@ impl Hub {
                         work.open_tools.clone();
                     self.watch_stalled_turn(session, Some(work.heard_at.max(started_at)));
                     self.set_status(session, SessionStatus::Running);
+                    // Its cap counts from its start, as logged (`turn_cap.rs`).
+                    self.arm_turn_cap(session, &turn_id);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
                     let rx = match answer {
@@ -1087,6 +1257,7 @@ impl Hub {
                         }
                     }
                     let hub = self.clone();
+                    let next_raised = work.next_raised;
                     let s = session.clone();
                     let c = child.clone();
                     tokio::spawn(async move {
@@ -1099,11 +1270,50 @@ impl Hub {
                             }
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
-                        let _ = hub
-                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None)
+                        // Its agent ended it and runs on with steers it read after: the next turn
+                        // starts as this one ends (`carried_turn.rs`).
+                        let mut carried = hub.next_carried(&s, &turn_id, &result);
+                        // A Web steer raised the turn it carried into before the restart.
+                        let raised = next_raised && carried.is_some();
+                        if let Some(c) = carried.as_mut().filter(|_| next_raised) {
+                            c.next.control = Control::Web;
+                        }
+                        let next = carried.as_deref();
+                        let mut result = hub
+                            .finish_turn(
+                                &s,
+                                &c,
+                                result,
+                                &prompt_id,
+                                &turn_id,
+                                turn_seq,
+                                None,
+                                work.turn_trigger,
+                                next,
+                            )
                             .await;
+                        if let Ok(value) = &mut result {
+                            super::merge_mux_meta(
+                                value,
+                                json!({"promptId": prompt_id,
+                                "turnId": turn_id, "turnSeq": turn_seq}),
+                            );
+                        }
+                        outcome.send_replace(Some(result));
+                        super::prompt_ledger::prune(
+                            &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
+                        );
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
+                        if let Some(carried) = &carried {
+                            // Its task takes the turn lock once this one lets it go.
+                            hub.start_carried(&s, &c, &turn_id, carried, None);
+                            if raised {
+                                hub.recovered_floor(&s, Control::Web);
+                            }
+                            drop(guard);
+                            return;
+                        }
                         // A route switch or an update asked for a restart
                         // during the turn (route_switch.rs): the process ends
                         // now and the next prompt starts it again, resuming
@@ -1112,6 +1322,11 @@ impl Hub {
                         if s.route_switch.swap(false, Ordering::SeqCst) {
                             hub.detach_child(&s).await;
                         }
+                        // A Stop ended its agent (`cancel.rs`). Not started again here, for the
+                        // reason above, nor on a task of its own: that start would run inside
+                        // this adoption's future (not `Send`). The next prompt starts it, on the
+                        // same conversation, as after any agent exit.
+                        s.stop_respawn.store(0, Ordering::SeqCst);
                         drop(guard);
                     });
                 }
@@ -1346,7 +1561,7 @@ impl Hub {
             let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
             let mut decision = json!({"permissionId": permission_id, "outcome": outcome.clone()});
             if let Some(by) = answered_by {
-                decision["answeredBy"] = by;
+                decision.set("answeredBy", by);
             }
             hub.append(&s, "mux", "permission_decision", decision);
             {
@@ -1489,7 +1704,7 @@ fn permission_answer(mut outcome: Value) -> Value {
     }
     let mut out = json!({"outcome": outcome});
     if let Some(m) = out["outcome"].get("_meta").cloned() {
-        out["_meta"] = m;
+        out.set("_meta", m);
         if let Some(o) = out["outcome"].as_object_mut() {
             o.remove("_meta");
         }
@@ -1565,6 +1780,13 @@ impl Hub {
         let codex_bridge = command_line.is_none()
             && translator.is_none()
             && crate::codex_app_server::is_profile_launch(&profile.argv);
+        // Host launches receive a complete environment snapshot. It must be
+        // current when that snapshot is made, including on credential revocation.
+        if !crate::login_env::machine_env_fresh_before_spawn().await {
+            return Err(RpcError::internal(
+                "machine environment changed; login env refresh failed",
+            ));
+        }
         let cmd = crate::agent::harness_command(
             &meta.harness,
             profile,
@@ -1576,15 +1798,21 @@ impl Hub {
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
         let hosts = crate::agent_host::hosts_dir();
-        let spec = crate::agent_host::SpawnSpec {
+        let env = if meta.remote_origin {
+            crate::agent::command_env_cleared(&cmd)
+        } else {
+            crate::agent::command_env(&cmd)
+        };
+        // The class it runs at once its start is over, from the harness's own env: its profile's
+        // value as resolved (`cpu_class.rs`). It starts at normal class.
+        let run_class = crate::cpu_class::CpuClass::for_session(
+            env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
+        let mut spec = crate::agent_host::SpawnSpec {
             session_id: session.id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: if meta.remote_origin {
-                crate::agent::command_env_cleared(&cmd)
-            } else {
-                crate::agent::command_env(&cmd)
-            },
+            env,
             cwd: meta.cwd.clone(),
             codex_bridge,
             translator,
@@ -1593,13 +1821,18 @@ impl Hub {
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
+            orphan_exit: None,
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
-        let servers = LaunchServers::read(&launch, meta.family.clone().unwrap_or_default()).await;
+        let servers =
+            LaunchServers::read(&launch, meta.family.clone().unwrap_or_default(), profile.kind)
+                .await;
+        spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
             child.record_launch(servers.clone());
+            child.set_run_class(run_class);
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
@@ -1639,9 +1872,18 @@ impl Hub {
         spec: &crate::agent_host::SpawnSpec,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, HostStartFailed> {
+        // A start runs only once the session's old host is gone (`ensure_child`), so a host this
+        // build could not speak to no longer counts: cleared before the new host's record is
+        // live, so no off push in between ends the new one for it (#26337).
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
+        // Not at a background class another process set (`cpu_class.rs`, item 1). Its host reaps
+        // it: a harness that already ended leaves the pid to a process of this user at most.
+        if let Some(pid) = record.harness_pid {
+            crate::cpu_class::clear_running(pid);
+        }
         self.forget_adopted_caller(&session.id);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.
@@ -1651,7 +1893,7 @@ impl Hub {
             "hostBuild": record.host_build.clone()
         });
         if meta.remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
@@ -1749,18 +1991,8 @@ fn open_work_reads(head: &RecordHead<'_>, current: bool, turn_open: bool) -> boo
         "in" => {
             // An open turn's records: the model's signs of work, its tools, steers' answers.
             turn_open
-                // Every subagent the log starts, which a later turn's update may belong to
-                // (`SubagentTree::annotate`, replayed history included; Codex's legacy ones are
-                // a `spawnAgent` call or a `_meta.codex.subagent` object).
-                || matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "subagent_spawned" | "subagent_state_update" | "subagent_progress"
-                )
-                || (matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "tool_call" | "tool_call_update"
-                ) && (head.may_contain(b"\"spawnAgent\"")
-                    || head.may_contain(b"\"subagent\":{")))
+                // Every subagent the log starts, which a later turn's update may belong to.
+                || super::work_below::names_subagents(head)
                 // An agent request (an `id` and a `method`), answered or not.
                 || (current && head.may_contain(b"\"id\":") && head.may_contain(b"\"method\":"))
         }

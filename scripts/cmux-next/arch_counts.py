@@ -101,7 +101,8 @@ rewrites the json without comparing totals: reviewers compare the definitions):
                           `// blocking-allow:` comment and every `allowBlocking(` call (not a
                           `func allowBlocking(` declaration); ratchets down only (Performance Lead
                           2026-10-24)
-  app_lines               physical lines (newlines) of CmuxNextApp Swift (report only here)
+  app_lines               physical lines (newlines) of CmuxNextApp Swift; ratchets down only (reward-hacking
+                          audit, cmux-ad 2026-10-30: it rose 143,610 -> 164,014 while it was report only)
 
 Every row reads the whole closure: a Shared package's static or observer counts under its module, and its
 targets are placed (layer_unplaced) and their edges classified like CmuxNext's.
@@ -242,7 +243,7 @@ ROWS = (
     Row("app_broadcast_names", "app-internal Notification.Name broadcasts", True),
     Row("observer_sites", "NotificationCenter/KVO observer sites", True),
     Row("blocking_allow_escapes", "main-thread blocking allowances (`// blocking-allow:`, allowBlocking()", True),
-    Row("app_lines", "CmuxNextApp Swift lines", False),
+    Row("app_lines", "CmuxNextApp Swift lines", True),
 )
 ROW_IDS = tuple(row.id for row in ROWS)
 LAYER_ROWS = ("layer_hard", "layer_soft", "layer_upward", "layer_unplaced")
@@ -3488,38 +3489,50 @@ class ReadPaths:
         return cls(rev, tuple(packages), dict(manifests), {m: tuple(p) for m, p in modules.items()})
 
 
-class _ObjectReader:
-    """One `git cat-file --batch` asked in rounds: the closure walk learns a manifest's dependencies only after it
-    reads it, and one process for every round costs one spawn, not one per round."""
+GIT_BATCH_TIMEOUT = 60.0  # seconds one `cat-file --batch` round may take; a stuck git fails the count open, not the push
 
-    def __init__(self, repo: Path) -> None:
-        self.proc = subprocess.Popen(["git", "-C", str(repo), "cat-file", "--batch"], stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+class _ObjectReader:
+    """`git cat-file --batch` asked in rounds: the closure walk learns a manifest's dependencies only after it
+    reads it. Each round's request goes through a file and the answers are drained whole (never `stdin=PIPE`
+    written before reading): a round of many manifests and Sources trees is bigger than a pipe, and writing it
+    while git sat blocked writing answers into a full stdout pipe deadlocked every push's arch ratchet on
+    2026-10-28 (a796, a801, a804, a808: "ran past 20s"). One spawn per round; the rounds are the closure's depth."""
+
+    def __init__(self, repo: Path, timeout: float = GIT_BATCH_TIMEOUT) -> None:
+        self.repo = repo
+        self.timeout = timeout
 
     def ask(self, specs: list[str]) -> list[tuple[str, str, bytes] | None]:
-        """[(object id, type, content) or None (missing)] for SPECS (`rev:path`). A round's request is a few kB,
-        so writing it whole before reading cannot block on a full pipe."""
-        assert self.proc.stdin is not None and self.proc.stdout is not None
-        self.proc.stdin.write("".join(f"{s}\n" for s in specs).encode())
-        self.proc.stdin.flush()
+        """[(object id, type, content) or None (missing)] for SPECS (`rev:path`).
+
+        Raises subprocess.TimeoutExpired when git does not answer within the timeout (the ratchet fails open)."""
+        if not specs:
+            return []
+        with tempfile.TemporaryFile() as stdin:
+            stdin.write("".join(f"{s}\n" for s in specs).encode())
+            stdin.seek(0)
+            data = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch"], stdin=stdin,
+                                  capture_output=True, timeout=self.timeout).stdout
         out: list[tuple[str, str, bytes] | None] = []
+        at = 0
         for _ in specs:
-            header = self.proc.stdout.readline().decode(errors="replace").split()
+            nl = data.find(b"\n", at)
+            if nl < 0:
+                out.append(None)  # git died early: the rest are unanswered
+                continue
+            header = data[at:nl].decode(errors="replace").split()
+            at = nl + 1
             if len(header) < 3 or not header[-1].isdigit():
-                out.append(None)  # `<spec> missing` (or an empty answer when git died)
+                out.append(None)  # `<spec> missing`
                 continue
             size = int(header[2])
-            data = self.proc.stdout.read(size)
-            self.proc.stdout.read(1)
-            out.append((header[0], header[1], data))
+            out.append((header[0], header[1], data[at:at + size]))
+            at += size + 1
         return out
 
     def close(self) -> None:
-        if self.proc.stdin is not None:
-            self.proc.stdin.close()
-        if self.proc.stdout is not None:
-            self.proc.stdout.close()
-        self.proc.wait()
+        """Nothing to release: each round's git process has exited when ask() returns."""
 
 
 def _tree_dirs(data: bytes, oid_bytes: int) -> list[str]:
@@ -4432,8 +4445,10 @@ def _count_statics(base, head, files, facts, net, redeclared, tables, lookup, be
 # The json record
 
 
-def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None) -> dict:
-    """The arch-ratchet.json object for a full count."""
+def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None,
+           escape_reviews: list | None = None) -> dict:
+    """The arch-ratchet.json object for a full count. ESCAPE_REVIEWS (the record of who reviewed each
+    blocking_allow_escapes site, its owner and expiry) is kept as the old record has it: --update never writes it."""
     packages: dict[str, dict[str, int]] = collections.defaultdict(dict)
     for row in ROW_IDS:
         for pkg, n in sorted(counts.rows[row].items()):
@@ -4445,14 +4460,19 @@ def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None
                  "defines every row). A push may not raise a ratcheted row's total, in the code or in this file's "
                  "totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The "
                  "one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, "
-                 "\"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next "
+                 "\"why\": \"...\", \"author\": \"<who wrote it>\", \"owner\": \"<who removes it>\", "
+                 "\"receipt\": \"Review (<reviewer, not the author>): SHIP at <40-hex sha>\", \"expiry\": "
+                 "\"YYYY-MM-DD\"} to exceptions (an entry with no independent receipt, owner or expiry allows "
+                 "nothing); the push that adds it may raise that row by n, and the next "
                  "--update folds it into the totals and marks it with applied_sha (an applied entry is never edited "
                  "or removed). --update refuses a rise that no pending exception covers, except a rise that "
                  "commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it "
                  "records that one with a generated applied entry whose raised_by names those commits. A generated "
                  "entry allows no rise in any push's code, and the push that brings it is re-checked: its commits "
                  "must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no "
-                 "other entry, and its allow at most their rise. Never CI."),
+                 "other entry, and its allow at most their rise. Every blocking_allow_escapes site also needs an "
+                 "escape_reviews entry (path, text, owner, author, receipt, expiry, state): a push that adds a site "
+                 "with no reviewed entry is refused, and --audit lists unreviewed and expired ones. Never CI."),
         "method": "arch_counts",
         "method_version": METHOD_VERSION,
         "measured_sha": sha,
@@ -4467,6 +4487,7 @@ def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None
             "unplaced": lay.unplaced,
         },
         "exceptions": exceptions if exceptions is not None else [],
+        "escape_reviews": escape_reviews if escape_reviews is not None else [],
         # A speed hint for the observer count's first search (Observers.hint_names), never trusted.
         "observer_wrappers": sorted(counts.observer_wrappers),
     }

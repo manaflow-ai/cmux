@@ -5,8 +5,9 @@ public import CmuxNextDesign
 /// sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace,
 /// a link or an agent opening one).
 /// `top` (the default; the daemon places a new workspace by the same rule in
-/// its create): right below the workspace the window shows when that one is in
-/// a group; outside a group, first in the workspace list, below the Pinned
+/// its create): first in the group of the workspace the window shows when that
+/// one is in a group, and first in a group the new workspace is made in (its
+/// header's +, a Chief subagent's group; Lawrence 2026-10-28); outside a group, first in the workspace list, below the Pinned
 /// section and the Home row, above every group. `afterCurrent` (cmux classic's
 /// default): right after the workspace the window shows, inside its group when
 /// it has one (top when that workspace is pinned, Home, or on another machine).
@@ -67,7 +68,7 @@ nonisolated enum WorkspaceListSettingsSchema {
                 CmuxConfigSnapshot.newWorkspacePlacementPath, section: .general, group: sidebar,
                 title: SettingsText.keyed("settings.workspaces.newPlacement", "New Workspace Position"),
                 help: SettingsText.keyed("settings.workspaces.newPlacement.help",
-                                        "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."),
+                                        "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."),
                 kind: .choice([
                     SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
                     SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue,

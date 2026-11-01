@@ -98,13 +98,15 @@ enum SidebarCardFeed {
         }
     }
 
-    /// The "cmux Updated!" card (cx-7py7): its button runs the palette's
-    /// `updates.whatsNew` as the user's (it opens the page and marks this
-    /// version seen); its x marks this version seen, so the card and the
+    /// The "cmux Updated!" card (cx-7py7): its See What's New opens the What's New tab for the
+    /// span this update crossed and marks it seen, as the update island's button does
+    /// (``UpdaterService/openWhatsNewForLastUpdate()``). Not the palette's `updates.whatsNew`:
+    /// that entry stays a Labs preview, and the card shows with Labs off (user 13935), so its
+    /// button did nothing (Leo 2026-10-29). Its x marks this version seen, so the card and the
     /// What's New dot go together. Share cmux is the palette's (`app.shareCmux`).
     static func route(_ intent: SidebarIntent, registry: ActionRegistry, updater: UpdaterService) {
         switch intent {
-        case .openWhatsNew: _ = registry.perform("updates.whatsNew", invocation: ActionInvocation(origin: .user))
+        case .openWhatsNew: _ = updater.openWhatsNewForLastUpdate()
         case .dismissUpdated: updater.whatsNew.dismissUpdated()
         default: break
         }
@@ -196,11 +198,17 @@ enum SidebarCardFeed {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
         // A found update gets the Hide button (remind me later on right-click); a result keeps the x.
         let closes = shown.actions.contains(.update)
-        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
+        // A status card: the text starts at the card's padding, with no small glyph before it, and
+        // its control sits on the right (Leo 2026-10-31: "WHY NOT JUST LEFT ALIGN THE TEXT PUT A
+        // BIGGER SYMBOL ON THE RIGHT").
+        var notice = SidebarNoticeCard(id: updateCardID, symbol: nil, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
+                                 trailing: shown.trailing.map { SidebarNoticeCard.Trailing(id: $0.rawValue, symbol: $0.symbol, label: $0.title) },
                                  dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateCloseLabel : UpdaterService.cardDismissLabel) : nil,
                                  dismissTitle: closes && shown.dismissible ? UpdaterService.updateHideTitle : nil, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [],
                                  userAsked: asked)
+        notice.leadingSpinner = false
+        return notice
     }
 
     /// The staged update card (UPDATE-CARD; nil while checking or downloading).

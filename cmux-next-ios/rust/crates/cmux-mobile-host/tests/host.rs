@@ -207,7 +207,6 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         pairing: None,
         agent_tab_host: Some("install:mac-test".into()),
         uploads_dir: uploads.path().to_path_buf(),
-        upload_max_bytes: 1024 * 1024,
         browser: cmux_mobile_host::browser::BrowserConfig::new(
             Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
             4,
@@ -374,6 +373,55 @@ impl RdReader {
     }
 }
 
+/// `localhost`: a phone's native browser tab reaches a web server on this Mac's
+/// loopback, one channel per connection, keep-alive requests and all; a port
+/// with nothing listening and a bad port are refused with a reason.
+async fn localhost_forward(link: &cmux_mobile_link::Link) {
+    // A dev server on the Mac's loopback: answers each request on a kept-alive connection.
+    let server = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = server.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (stream, _) = server.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut lines = BufReader::new(read).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.is_empty() {
+                let body = "served on the Mac's loopback";
+                let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+                write.write_all(reply.as_bytes()).await.unwrap();
+            }
+        }
+    });
+    // The port as the iPhone sends it (text), two requests on one connection.
+    let mut channel = link.open("localhost", serde_json::json!({"port": port.to_string()})).await.unwrap();
+    for _ in 0..2 {
+        channel.send(Bytes::from_static(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")).await.unwrap();
+        let mut reply = Vec::new();
+        while !reply.ends_with(b"loopback") {
+            match channel.recv().await {
+                Some(ChannelEvent::Data(bytes)) => reply.extend_from_slice(&bytes),
+                other => panic!("the forwarded connection ended early: {other:?}"),
+            }
+        }
+        assert!(reply.starts_with(b"HTTP/1.1 200 OK"), "{}", String::from_utf8_lossy(&reply));
+    }
+    channel.close("done", "").await;
+
+    // Nothing listening: refused with a sentence the phone can show.
+    let unused = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let closed = unused.local_addr().unwrap().port();
+    drop(unused);
+    let mut channel = link.open("localhost", serde_json::json!({"port": closed})).await.unwrap();
+    assert_eq!(
+        close_reason(&mut channel).await,
+        ("unavailable".to_owned(), format!("Nothing is listening on port {closed} on this Mac."))
+    );
+    // The phone names a port only, never a host.
+    let mut channel =
+        link.open("localhost", serde_json::json!({"host": "10.0.0.2", "port": "0"})).await.unwrap();
+    assert_eq!(close_reason(&mut channel).await.0, "bad_request");
+}
+
 async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     exercise_services_with(fixture, kind, &options()).await;
 }
@@ -398,8 +446,19 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     // may offer browser tabs and stream phone tabs.
     assert_eq!(
         value["capabilities"],
-        serde_json::json!(["removal-v1", "browser-stream-v1", "browser-video-track-v1", "surface-stream-v1"])
+        serde_json::json!([
+            "removal-v1",
+            "file-preview-v1",
+            "localhost-forward-v1",
+            "cloud-directory-v1",
+            "cloud-acpmux-v1",
+            "browser-stream-v1",
+            "browser-video-track-v1",
+            "surface-stream-v1"
+        ])
     );
+
+    localhost_forward(link).await;
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
     // and responses stay whole lines in order.
@@ -476,6 +535,26 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
         .unwrap();
     assert_eq!(drain(&mut secret).await, (Vec::new(), "forbidden".into()));
 
+    // Preview metadata precedes the same raw contents; the legacy service above
+    // remains raw. Forbidden paths must not disclose even their file size.
+    let mut preview = link
+        .open("file-preview", serde_json::json!({"path": fixture.root.join("notes.md").to_str().unwrap()}))
+        .await
+        .unwrap();
+    assert_eq!(json_frame(preview.recv().await), serde_json::json!({"size": 8}));
+    assert_eq!(drain(&mut preview).await, (b"# hello\n".to_vec(), "eof".into()));
+    let mut secret_preview = link
+        .open("file-preview", serde_json::json!({"path": fixture.outside.join("secret").to_str().unwrap()}))
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut secret_preview).await, (Vec::new(), "forbidden".into()));
+    let empty_path = fixture.root.join("empty-preview.bin");
+    std::fs::write(&empty_path, []).unwrap();
+    let mut empty_preview =
+        link.open("file-preview", serde_json::json!({"path": empty_path.to_str().unwrap()})).await.unwrap();
+    assert_eq!(json_frame(empty_preview.recv().await), serde_json::json!({"size": 0}));
+    assert_eq!(drain(&mut empty_preview).await, (Vec::new(), "eof".into()));
+
     // acpmux: one data frame per WebSocket message.
     let mut acp = link.open("acpmux", serde_json::json!({})).await.unwrap();
     acp.send(Bytes::from_static(br#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#)).await.unwrap();
@@ -540,15 +619,12 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
     let root = std::fs::canonicalize(&fixture.root).unwrap();
     assert!(path.starts_with(root.join(".cmux/attachments")), "{path:?}");
-    // A folder that is no tab's and outside the roots, or too large: refused.
+    // A folder that is no tab's and outside the roots: refused.
     let mut outside = link
         .open("upload", serde_json::json!({"name": "x", "size": 1, "cwd": fixture.outside.to_str().unwrap()}))
         .await
         .unwrap();
     assert_eq!(drain(&mut outside).await.1, "forbidden");
-    let mut large =
-        link.open("upload", serde_json::json!({"name": "x", "size": 2 * 1024 * 1024})).await.unwrap();
-    assert_eq!(drain(&mut large).await.1, "too_large");
     // browser: hostd sends the hello, the phone reads the host's carrier.
     let tab = format!("s{}", kind as u8);
     let mut first =
@@ -892,6 +968,36 @@ async fn services_over_wireguard_turn_tls_with_udp_blocked() {
     assert!(turn.stream_connections() >= 1, "the phone never connected to TURN over TLS");
 }
 
+/// A phone attachment has no size cap (Leo, 2026-10-26: "WE NEED ARBITARRILY LARGE FILES
+/// OF ANY TYPE"): a file just past the old 100 MiB default, streamed in chunks, is saved
+/// whole. The test never holds the file in memory; it checks the saved length.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
+    const CHUNK: usize = 256 * 1024;
+    let size: u64 = 100 * 1024 * 1024 + 1;
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut upload =
+        connected.link.open("upload", serde_json::json!({"name": "big.bin", "size": size})).await.unwrap();
+    let chunk = Bytes::from(vec![0x5a_u8; CHUNK]);
+    let mut sent: u64 = 0;
+    while sent < size {
+        let take = usize::try_from(size - sent).unwrap_or(CHUNK).min(CHUNK);
+        if upload.send(chunk.slice(..take)).await.is_err() {
+            break;
+        }
+        sent += take as u64;
+    }
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
+    assert_eq!(sent, size);
+    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    assert_eq!(reply["size"].as_u64(), Some(size));
+    let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
+    assert!(path.starts_with(&fixture.uploads), "{path:?}");
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), size);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dials_without_a_stamped_user_are_refused() {
     let fixture = fixture(FakeOptions { omit_from_user_id: true, ..FakeOptions::default() }).await;
@@ -1024,7 +1130,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
     let link = &connected.link;
 
     // Before auth: every service is refused.
-    for service in ["daemon", "acpmux", "file", "echo"] {
+    for service in ["daemon", "acpmux", "file", "file-preview", "echo", "localhost"] {
         let mut channel = link.open(service, serde_json::json!({})).await.unwrap();
         assert_eq!(drain(&mut channel).await.1, "unpaired", "{service}");
     }
@@ -1404,5 +1510,71 @@ async fn a_busy_terminal_channel_the_phone_closes_still_releases_its_size() {
         }
         assert!(std::time::Instant::now() < deadline, "no release after a busy channel closed: {lines:?}");
         tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A Mac file opened for preview has no size cap (Leo, 2026-10-26: "WE NEED ARBITARRILY
+/// LARGE FILES OF ANY TYPE"): a sparse file past the old 64 MiB cap streams whole, and no
+/// message the phone receives is larger than one link data chunk, so neither side holds
+/// the file in memory. The test hashes as it reads and checks the length and SHA-256.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_file_past_the_old_64_mib_cap_streams_whole_in_bounded_chunks() {
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Seek, SeekFrom, Write};
+
+    let size: u64 = (64 << 20) + (1 << 20) + 7;
+    let fixture = fixture(FakeOptions::default()).await;
+    let path = fixture.root.join("big.bin");
+    {
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.set_len(size).unwrap();
+        // Marks at the start, across the old cap and at the end, so the hash sees order.
+        for (offset, mark) in [(0, b"start".as_slice()), (64 << 20, b"cap"), (size - 3, b"end")] {
+            file.seek(SeekFrom::Start(offset)).unwrap();
+            file.write_all(mark).unwrap();
+        }
+    }
+    let expected = {
+        let mut hasher = Sha256::new();
+        let mut file = std::fs::File::open(&path).unwrap();
+        let mut buffer = vec![0u8; 1 << 20];
+        loop {
+            let read = file.read(&mut buffer).unwrap();
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        hasher.finalize()
+    };
+
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    for service in ["file", "file-preview"] {
+        let mut channel =
+            connected.link.open(service, serde_json::json!({"path": path.to_str().unwrap()})).await.unwrap();
+        if service == "file-preview" {
+            assert_eq!(json_frame(channel.recv().await), serde_json::json!({"size": size}));
+        }
+        let mut hasher = Sha256::new();
+        let (mut received, mut largest): (u64, usize) = (0, 0);
+        let code = loop {
+            match tokio::time::timeout(Duration::from_secs(30), channel.recv()).await.expect("in time") {
+                Some(ChannelEvent::Data(data)) => {
+                    largest = largest.max(data.len());
+                    received += data.len() as u64;
+                    hasher.update(&data);
+                }
+                Some(ChannelEvent::Closed(info)) => break format!("{} {}", info.code, info.reason),
+                None => break "none".into(),
+            }
+        };
+        assert_eq!(code.trim(), "eof", "the Mac refused or cut the file");
+        assert_eq!(received, size);
+        assert_eq!(hasher.finalize(), expected);
+        assert!(
+            largest <= cmux_mobile_link::link::DATA_CHUNK,
+            "a message of {largest} bytes: the file must stream in chunks of at most {}",
+            cmux_mobile_link::link::DATA_CHUNK
+        );
     }
 }

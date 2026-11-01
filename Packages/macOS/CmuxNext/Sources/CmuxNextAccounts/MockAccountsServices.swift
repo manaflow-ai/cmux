@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import CmuxNextCodeRouter
 public import CmuxNextCloud
 public import Foundation
@@ -6,7 +7,7 @@ public import Observation
 /// Sample data for the demo and tests: a signed-in Codex and Claude Code,
 /// one env key, Ollama running, and one CodeRouter account. Records calls.
 @MainActor @Observable
-public final class MockAccountsServices: AccountsServices {
+public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
     public var detections: [ProviderDetection] = [
         ProviderDetection(provider: .codex, status: .signedIn, account: AccountLabel.demo("codex", display: "pro"), plan: "pro",
                           sources: [.file("~/.codex/auth.json")]),
@@ -30,11 +31,38 @@ public final class MockAccountsServices: AccountsServices {
         get { teamSource.failure }
         set { teamSource.failure = newValue }
     }
+    /// What the next team create, rename, delete or detail read throws, if anything.
+    public var teamManagementFailure: (any Error)? {
+        get { teamSource.managementFailure }
+        set { teamSource.managementFailure = newValue }
+    }
+    /// The teams the demo person administers (the others they are a member of).
+    public var adminTeamIDs: Set<String> {
+        get { teamSource.adminTeams }
+        set { teamSource.adminTeams = newValue }
+    }
+    /// Teams with an active subscription: deleting one is refused.
+    public var subscribedTeamIDs: Set<String> {
+        get { teamSource.subscribedTeams }
+        set { teamSource.subscribedTeams = newValue }
+    }
+    /// Member teams whose members hold update, delete and invite permissions (still not admins).
+    public var permissiveMemberTeamIDs: Set<String> {
+        get { teamSource.permissiveMemberTeams }
+        set { teamSource.permissiveMemberTeams = newValue }
+    }
+    /// Answer memberships without roles, as the sign-in service alone does.
+    public var rolesUnknown = false
     public var failure: (any Error)?
     /// Fails only the account list (CodeRouter answered the add or remove, then not the reload).
     public var linkedFailure: (any Error)?
     /// False: no local pane, so a login or logout opens nothing.
     public var opensTabs = true
+    /// Optional async tab opener for exercising delayed workspace creation.
+    @ObservationIgnored public var openProviderTab: ((ReauthPlan) async -> Bool)?
+    /// Optional gate before a detection result is produced. Tests use this to
+    /// reproduce a refresh completing after a local login has started.
+    @ObservationIgnored public var beforeDetect: (() async -> Void)?
     public private(set) var calls: [String] = []
 
     public init() {
@@ -42,6 +70,7 @@ public final class MockAccountsServices: AccountsServices {
     }
 
     public func detect() async -> [ProviderDetection] {
+        if let beforeDetect { await beforeDetect() }
         calls.append("detect")
         let found = Dictionary(uniqueKeysWithValues: detections.map { ($0.provider, $0) })
         return AIProvider.allCases.map { found[$0] ?? .missing($0) }
@@ -70,6 +99,35 @@ public final class MockAccountsServices: AccountsServices {
         }
     }
 
+    public var teamBackend: (any AccountsTeamBackend)? { self }
+
+    public func teamMemberships() async throws -> CMUXTeamMemberships {
+        calls.append("teams")
+        let list = teamSource.memberships
+        guard rolesUnknown else { return list }
+        return CMUXTeamMemberships(teams: list.teams.map { CMUXTeamMembership(team: $0.team) }, selectedTeamID: list.selectedTeamID)
+    }
+
+    public func teamDetail(id: String) async throws -> CMUXTeamDetail {
+        calls.append("team:\(id)")
+        return try teamSource.detail(id: id)
+    }
+
+    public func createTeam(named name: String) async throws -> CMUXAuthTeam {
+        calls.append("createTeam")
+        return try teamSource.create(name)
+    }
+
+    public func renameTeam(id: String, to name: String) async throws {
+        calls.append("renameTeam:\(id)")
+        try teamSource.rename(id, to: name)
+    }
+
+    public func deleteTeam(id: String) async throws {
+        calls.append("deleteTeam:\(id)")
+        try teamSource.delete(id)
+    }
+
     public func linkedAccounts() async throws -> [LinkedAccount] {
         calls.append("linked")
         if let failure = failure ?? linkedFailure { throw failure }
@@ -92,8 +150,9 @@ public final class MockAccountsServices: AccountsServices {
     }
 
     @discardableResult
-    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool {
+    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) async -> Bool {
         calls.append(plan == provider.signOutPlan ? "signOut:\(provider.rawValue)" : "reauth:\(provider.rawValue)")
+        if let openProviderTab { return await openProviderTab(plan) }
         return opensTabs
     }
 

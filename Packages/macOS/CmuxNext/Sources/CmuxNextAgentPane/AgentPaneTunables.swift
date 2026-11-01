@@ -90,14 +90,19 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
     }
 }
 
-/// Alternative harness placements for the model picker (DEV/NIGHTLY).
+/// Harness placements for the model picker. `symbols`, the default, is one row of harness symbols
+/// at the top, each name on hover (Leo 2026-10-30: "honestly we had a pretty good thing going with
+/// teh symbols of the harneses at the top :("); the others are alternatives (DEV/NIGHTLY).
 public nonisolated enum AgentPaneHarnessPlacement: String, Sendable, CaseIterable, TunableChoice {
+    case symbols
     case left
     case top
     case compact
 
     public var tunableTitle: String {
         switch self {
+        case .symbols:
+            String(localized: "agentPane.harnessPlacement.symbols", defaultValue: "Top row of harness symbols", bundle: .module)
         case .left:
             String(localized: "agentPane.harnessPlacement.left", defaultValue: "Left rail with names", bundle: .module)
         case .top:
@@ -159,14 +164,18 @@ public nonisolated struct AgentPaneTunables {
         "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
         help: "New agent tabs show in Chromium instead of WebKit, on the page host, when the browser engine is Chromium.",
         default: true, code: "AgentPaneTunables.chromium")
-    /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
+    /// Session Info at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
-    /// with a header toggle that shows and hides it. Off by default; on replaces the summary card.
+    /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
+    /// It is the shipped Session Info, not a dev-only surface: #26390 switched it off with those, which
+    /// put the old summary card back in every build (Leo, 2026-10-31: "omfg we already previouls
+    /// yfucking built that shit").
     /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
-    public static let inspector = Tunable<Bool>.toggle(
+    /// Its key stays `agent.inspector`: it is the saved Debug Settings key, and renaming it would drop a saved choice.
+    public static let sessionInfo = Tunable<Bool>.toggle(
         "agent.inspector", PageTunables.section, "Session Info",
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
-        default: false, code: "AgentPaneTunables.inspector")
+        default: true, code: "AgentPaneTunables.sessionInfo")
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
@@ -215,12 +224,12 @@ public nonisolated struct AgentPaneTunables {
         default: false, code: "AgentPaneTunables.sessionStatus")
 
     /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
-    /// beside it.
-    /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
+    /// beside it, and the palette offers Ask a Side Question… when the gate is on.
+    /// On by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
     public static let sideSessions = Tunable<Bool>.toggle(
         "agentPane.debug.sideSessions", PageTunables.section, "Side sessions (/btw)",
-        help: "The composer's /btw opens a read-only side session beside the chat.",
-        default: false, code: "AgentPaneTunables.sideSessions")
+        help: "The composer's /btw opens a read-only side session beside the chat, and the palette offers Ask a Side Question….",
+        default: true, code: "AgentPaneTunables.sideSessions")
 
     /// Thoughts fold once done (webviews conversation/ThoughtRow.tsx): the thoughts
     /// ``thoughtFoldThreshold`` picks fold to one line that opens to their text. On by default (Leo
@@ -306,7 +315,7 @@ public nonisolated struct AgentPaneTunables {
         String(localized: "agentPane.harnessPlacement.title", defaultValue: "Model picker harness placement", bundle: .module),
         help: String(localized: "agentPane.harnessPlacement.help",
                      defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
-        default: .left, code: "AgentPaneTunables.harnessPlacement")
+        default: .symbols, code: "AgentPaneTunables.harnessPlacement")
 
     /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
     /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs
@@ -473,7 +482,6 @@ public nonisolated struct AgentPaneTunables {
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             updatePeersAutomatically.descriptor,
-            restartUnresponsiveAcpmux.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             scrollerFade.descriptor,

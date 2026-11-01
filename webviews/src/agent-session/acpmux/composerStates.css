@@ -274,7 +274,7 @@
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-steer:hover {
@@ -376,9 +376,23 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 
 /* Shell mode (`!` first, Composer.tsx): the prompt becomes a plain monospace field behind a `!`
    glyph in the theme's magenta (ANSI 5), and the box takes a quiet edge of it. Same padding and
-   line height as the markdown prompt, so entering or leaving moves nothing. */
+   line height as the markdown prompt, so entering or leaving moves nothing.
+   The glyph stands on the column the caret had and the command's first line is the prompt's line,
+   so one set of insets draws both: these are the markdown prompt's own (markdownField.css), and a
+   look that gives the prompt other ones re-points these (composerLocation.css) instead of writing
+   the padding again. They follow the chrome scale, as the prompt's do; literal px here left the
+   glyph and the shell caret where scale 1 put them, so entering shell mode moved the line (2.75 px
+   down and 1.75 px left at the 1.25 chrome size). */
 .acpmux-composer {
   --acpmux-shell-accent: var(--agent-ansi-5, #d670d6);
+  --acpmux-shell-inset-top: calc(15px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-right: calc(16px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-bottom: calc(8px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-left: calc(16px * var(--cmux-interface-scale, 1));
+  /* The glyph's own column: it takes the first character cell of the field's monospace font, the
+     command starts in the second. In `ch` of that font, not px, so a larger Chat Display size moves
+     the command out of the glyph's way instead of printing over it. */
+  --acpmux-shell-glyph-column: 2ch;
 }
 .acpmux-composer-prompt.is-hidden {
   display: none;
@@ -388,8 +402,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 .acpmux-shell-glyph {
   position: absolute;
-  left: 16px;
-  top: 15px;
+  left: var(--acpmux-shell-inset-left);
+  top: var(--acpmux-shell-inset-top);
   font: var(--weight-emphasis) var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--acpmux-shell-accent);
   pointer-events: none;
@@ -398,10 +412,14 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  min-height: 45px;
-  max-height: calc(var(--text-content--line-height) * 8 + 23px);
+  /* One line in those insets, and eight at most: the markdown prompt's own height and cap. */
+  min-height: calc(var(--text-content--line-height) + var(--acpmux-shell-inset-top) + var(--acpmux-shell-inset-bottom));
+  max-height: calc(
+    var(--text-content--line-height) * 8 + var(--acpmux-shell-inset-top) + var(--acpmux-shell-inset-bottom)
+  );
   margin: 0;
-  padding: 15px 16px 8px 32px;
+  padding: var(--acpmux-shell-inset-top) var(--acpmux-shell-inset-right) var(--acpmux-shell-inset-bottom)
+    calc(var(--acpmux-shell-inset-left) + var(--acpmux-shell-glyph-column, 2ch));
   border: 0;
   outline: 0;
   background: transparent;
@@ -600,19 +618,16 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   margin-right: 6px;
   color: var(--agent-accent);
 }
-/* Another agent's message: its received line (conversation.css .cv-received) across the row,
-   its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
-   stays about as tall as one of the person's. */
-.acpmux-queued .cv-received {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin: -3px 0;
+/* acpmux's ask to resume a failed subagent (ComposerQueue.tsx `entry.retry`): "Resume subagent"
+   before the subagent's name, the prompt's own words never drawn (Leo, 2026-10-30: "this looks weird
+   and unrendered"). Opened, the error follows on its own line. */
+.acpmux-queued-kind[data-kind="retry"] {
+  vertical-align: top;
+  margin-right: 6px;
 }
-.acpmux-queued .cv-received__line {
-  padding-right: 0;
-}
-.acpmux-queued .cv-received__line > .acpmux-queued-actions {
-  margin: 0 0 0 auto;
+.acpmux-queued-detail {
+  display: block;
+  color: var(--acpmux-composer-dim);
 }
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
@@ -633,9 +648,17 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    the transcript do not jump a row in one frame. Reduce Motion and the host's zero-duration policy
    still apply it at once. */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-composer-queue[data-fit-ready] {
+  .acpmux-composer-queue[data-fit-ready]:not([data-held]) {
     transition: max-height var(--agent-motion-move) var(--agent-ease-out);
   }
+}
+/* A row the pointer opens or closes: its actions sit on its last line, and the list grows or shrinks
+   at its top by exactly the row's change, at once (ComposerQueue.tsx `resized`), so nothing under
+   the pointer moves (Leo, 2026-10-30: "its expansion animation makes the hovered buttons shift
+   layout"). A one-line row is unchanged. */
+.acpmux-queued > .acpmux-queued-actions,
+.acpmux-queued > .acpmux-queued-menu > .acpmux-queued-actions {
+  align-self: end;
 }
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {

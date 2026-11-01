@@ -3,6 +3,7 @@
 use super::driver::{INTERNAL_TIMEOUT, Inner};
 use super::state::TabState;
 use crate::protocol::{DriverError, WaitUntil, required_f64, required_str, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -132,7 +133,7 @@ impl Inner {
         if let Ok(reply) = reply
             && let Some(status) = reply["result"]["value"].as_u64().filter(|s| *s > 0)
         {
-            answer["status"] = json!(status);
+            answer.set("status", json!(status));
         }
         answer
     }

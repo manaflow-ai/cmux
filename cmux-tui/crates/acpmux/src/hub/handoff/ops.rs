@@ -588,7 +588,10 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
+            cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
+            message_id: None,
+            message_sender: None,
             on_accepted: Some(Box::new(move |v: Value| {
                 let _ = tx.send(v);
             })),
@@ -603,11 +606,16 @@ impl Hub {
             interrupt_turn: None,
             provenance: None,
             agent: None,
+            class: None,
             after_turn: None,
             supersede: None,
             display_parts: None,
             full_access_device: None,
             no_queue: false,
+            admitted: false,
+            send_now: false,
+            thread: None,
+            inbox: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

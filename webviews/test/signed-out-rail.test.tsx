@@ -216,6 +216,34 @@ test("a signed-out harness offers Log In, never its models", async () => {
   expect(sent).toEqual([]);
 });
 
+// Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
+// their own api key". cmux credits pay only for the cmux model router: buying a plan signs no local
+// harness in, so a signed-out Claude Code, Codex or Gemini tab offers its own Log In alone, even where
+// the pane can run Add Credits… (the turn card offers that on the router's refusal). Its API key goes in
+// through that Log In; a key saved in Settings > Accounts never reaches the harness's process.
+test("a signed-out harness offers its own Log In alone, never credits or a key that cannot sign it in", async () => {
+  const asked: string[] = [];
+  const signIn = {
+    signedOut: { codex: "codex login" },
+    logIn: () => undefined,
+    access: { addCredits: () => asked.push("credits") },
+  };
+  const { sent, catalog } = await mount({ harness: "claude", signIn });
+  const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
+  await act(async () => {
+    openQuickPicker();
+  });
+  await act(async () => tabFor(codex.name)!.click());
+  const labels = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .acpmux-quick-item")].map(
+    (item) => item.textContent,
+  );
+  expect(labels).toContain("Log In");
+  expect(labels).not.toContain("Add Credits…");
+  expect(labels).not.toContain("Add API Key…");
+  expect(asked).toEqual([]);
+  expect(sent).toEqual([]);
+});
+
 test("a search never lists a signed-out harness's models", async () => {
   const { sent } = await mount({
     harness: "claude",
@@ -235,6 +263,8 @@ test("a search never lists a signed-out harness's models", async () => {
   expect(modelRows().every((row) => !row.querySelector(".acpmux-quick-value")?.textContent?.includes("Codex"))).toBe(
     true,
   );
+  const headings = [...dom.window.document.querySelectorAll(".acpmux-quick-menu .ui-menu-group-label")];
+  expect(headings.map((heading) => heading.textContent)).not.toContain("Codex");
   expect(sent).toEqual([]);
 });
 

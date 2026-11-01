@@ -96,7 +96,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       entry: "agent-pane.new-tab",
       // Cards (composer-mic pins it), the first dot, whose box and quiet row these checks read.
       variant: "composer-mic",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       box: ".nt-box",
       row: ":is(.nt-pickers, .acpmux-composer-foot)",
       foot: ".nt-composer .acpmux-composer-foot",
@@ -108,7 +108,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       name: "New Tab stage composer",
       entry: "agent-pane.new-tab",
       variant: "reasoning-chip-stage",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       box: ".nt-box",
       row: ":is(.nt-box .nt-pickers, .nt-foot .acpmux-composer-foot)",
       foot: ".nt-foot .acpmux-composer-foot",
@@ -275,13 +275,20 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
             const mark = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button .agent-mark");
             const model = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
             // The model button names its effort after the model (Leo 2026-10-20): the name is as
-            // muted as that effort label.
+            // muted as that effort label, except in the quiet row under the box, where the name is in
+            // the button's muted ink and the effort one step back of it (#24151: secondary ink).
             const name = model.querySelector<HTMLElement>(".acpmux-model-name") ?? model;
             const effort = model.querySelector<HTMLElement>(".acpmux-model-detail");
+            const nameColor = getComputedStyle(name).color;
+            const quietRow = bar.classList.contains("acpmux-composer-foot");
             return {
               look: bar.dataset.footerLook ?? "",
               mark: mark ? getComputedStyle(mark).display : "none",
-              muted: !effort || getComputedStyle(name).color === getComputedStyle(effort).color,
+              muted: !effort
+                ? true
+                : quietRow
+                  ? nameColor === getComputedStyle(model).color && getComputedStyle(effort).color !== nameColor
+                  : nameColor === getComputedStyle(effort).color,
             };
           },
           { foot: stage.foot },

@@ -51,6 +51,24 @@ public struct HostCLI: Sendable {
         return Data(result.stdout.utf8)
     }
 
+    /// One short `cmux-tui <arguments>` run that reads `secret` as one line on its stdin (a cmux
+    /// access token for `--cloud-token-stdin`), so no argv, environment or log carries it. Its status
+    /// and output, or nil when it did not start or passed `deadline`.
+    public func run(_ arguments: [String], secret: String, deadline: Duration = .seconds(20), label: String) async -> SSHProcessResult? {
+        let line = Data((secret + "\n").utf8)
+        return try? await SSHProcessRunner.run([binary.path] + arguments, input: .writer { fd in
+            line.withUnsafeBytes { bytes in
+                guard let base = bytes.baseAddress else { return }
+                var offset = 0
+                while offset < bytes.count {
+                    let wrote = write(fd, base + offset, bytes.count - offset)
+                    if wrote <= 0 { return }
+                    offset += wrote
+                }
+            }
+        }, environment: await Self.grouped(environment()), deadline: deadline, label: label, stop: Self.stop)
+    }
+
     /// The stdout lines of `cmux-tui <arguments>` (an `acp host enroll|doctor --json` run). A run that
     /// exits non-zero ends the stream with ``HostCLIStop``; a run whose report says not ok exits
     /// non-zero too, after its report line.

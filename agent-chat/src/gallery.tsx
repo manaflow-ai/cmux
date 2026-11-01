@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Tooltip } from "@base-ui-components/react/tooltip";
 import { CmdkMenu, type CmdkGroup } from "./components/CmdkMenu";
+import { QuestionCard } from "./components/QuestionCard";
 import { StatusRow } from "./components/StatusRow";
 import { ActivityIndicatorBlock, AgentMessageRow, Blocks, ToolBlock, TurnActions, type ToolBlockVariant } from "./components/Transcript";
 import { BarsIcon, PinwheelSpinner, ProviderIcon } from "./components/icons";
@@ -10,6 +11,7 @@ import type { OptionValue, SessionOption } from "./session";
 import {
   agentMessageBlocks,
   queuedAgentMessages,
+  galleryQuestions,
   activityScenarios,
   galleryActions,
   galleryCommands,
@@ -357,6 +359,17 @@ export function GalleryApp() {
                 {queuedAgentMessages.map((message) => <AgentMessageRow key={message.id} message={message} />)}
               </div>
             </div>
+          </div>
+        </Section>
+
+        <Section id="agent-questions" title="Agent questions">
+          <div className="gallery-grid two">
+            {galleryQuestions.map((question) => (
+              <div className="gallery-question" key={question.questionId}>
+                <div className="gallery-label">{question.items.some((item) => item.secret) ? "Secret answer" : "Options, Other and typed text"}</div>
+                <QuestionCard question={question} onAnswer={(id, answers) => { console.log("gallery answer", id, answers); return true; }} />
+              </div>
+            ))}
           </div>
         </Section>
 

@@ -43,6 +43,7 @@ final class SidebarSelectionHold {
     private func apply(_ selected: SidebarItem?) {
         guard model.selectedItem != selected else { return }
         model.selectedItem = selected
-        model.selection = model.activeWorkspaceID.map { [$0] } ?? []
+        // A pinned workspace's tile is selected as its row is: it starts the selection (and a Shift range).
+        model.selection = model.shownWorkspaceID.map { [$0] } ?? []
     }
 }

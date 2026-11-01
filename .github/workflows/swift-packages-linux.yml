@@ -1,6 +1,6 @@
 name: Swift packages (portable)
 
-# Builds and tests the SwiftPM packages under Packages/ on Linux runners.
+# Builds and tests portable SwiftPM packages and the Stack Auth SDK fixtures on Linux runners.
 # Each group runs its packages one after another in the swift.org toolchain
 # container (the ECR Public mirror of the Docker official image, same
 # digest); the Mac jobs keep what needs Apple frameworks.
@@ -19,11 +19,13 @@ on:
     branches: [feat-cmux-next]
     paths:
       - Packages/**
+      - vendor/stack-auth-swift-sdk-prerelease/**
       - .github/workflows/swift-packages-linux.yml
   push:
     branches: [feat-cmux-next]
     paths:
       - Packages/**
+      - vendor/stack-auth-swift-sdk-prerelease/**
       - .github/workflows/swift-packages-linux.yml
   workflow_dispatch:
 
@@ -37,7 +39,9 @@ concurrency:
 jobs:
   packages:
     name: swift test ${{ matrix.group }} (portable)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
+    # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
     strategy:
@@ -63,6 +67,10 @@ jobs:
               Packages/Shared/CmuxFeedPushCore
               Packages/Shared/CmuxInstallAuthCore
               Packages/Shared/CmuxTextConfirmCore
+          # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
+          - group: stack-auth
+            packages: vendor/stack-auth-swift-sdk-prerelease
+            test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -77,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          manifests="$(find Packages -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+          manifests="$(find Packages vendor/stack-auth-swift-sdk-prerelease -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
             -type f \( -name Package.swift -o -name Package.resolved \) -print0 |
             LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
           {
@@ -90,21 +98,27 @@ jobs:
         id: build_cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
-          path: Packages/**/.build
+          path: |
+            Packages/**/.build
+            vendor/stack-auth-swift-sdk-prerelease/.build
           key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}
           restore-keys: |
             swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}-
             swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-
 
       - name: Build and test
+        shell: bash
         env:
           PACKAGES: ${{ matrix.packages }}
+          TEST_FILTER: ${{ matrix.test_filter }}
           # The manifests' Linux-only changes (CmuxSentryTelemetry, CmuxMobilePairedMac, the crypto
           # group's swift-crypto) apply only with this: the fleet reads the same manifests on Linux
           # hosts to build for macOS.
           CMUX_SWIFTPM_TARGET_LINUX: "1"
         run: |
           failed=""
+          filter=()
+          [ -z "${TEST_FILTER:-}" ] || filter=(--filter "$TEST_FILTER")
           echo "| Package | Result |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
           for package in $PACKAGES; do
@@ -112,8 +126,8 @@ jobs:
             result=pass
             if ! swift build --package-path "$package" --build-tests; then
               result="build failed"
-            elif [ -d "$package/Tests" ] && ! swift test --package-path "$package" --skip-build --parallel; then
-              result="tests failed"
+            elif [ -d "$package/Tests" ] && ! timeout --kill-after=30 600 swift test --package-path "$package" --skip-build --parallel "${filter[@]}"; then
+              result="tests failed or timed out"
             fi
             echo "::endgroup::"
             echo "| \`$package\` | $result |" >> "$GITHUB_STEP_SUMMARY"
@@ -131,5 +145,7 @@ jobs:
         if: success() && github.event_name == 'push' && steps.build_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
-          path: Packages/**/.build
+          path: |
+            Packages/**/.build
+            vendor/stack-auth-swift-sdk-prerelease/.build
           key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}

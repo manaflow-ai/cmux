@@ -18,6 +18,8 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
+use cmux_json::JsonSet as _;
+
 #[cfg(test)]
 use crate::mux::DaemonHandoffRequest;
 #[cfg(test)]
@@ -131,10 +133,16 @@ mod agent_inventory;
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
-    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource,
+    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
+};
+#[cfg(unix)]
+pub(crate) use agent_session_attach::{
+    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -187,6 +195,9 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+#[cfg(unix)]
+mod native_owner;
 mod new_screen;
 mod personal;
 mod raw_tab;
@@ -262,6 +273,7 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
@@ -470,6 +482,8 @@ pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
 /// (`{reason, at_ms}`). Viewing the tab keeps it; the agent's clear, a browser
 /// tab's navigation to another page, or the tab's close clears it.
 pub const TAB_ATTENTION_CAPABILITY: &str = "tab-attention-v1";
+/// Persisted request identities and compare-and-clear for tab attention.
+pub const TAB_ATTENTION_REQUEST_ID_CAPABILITY: &str = "tab-attention-request-id-v1";
 /// A workspace's description: `description` on `workspace.update` (null
 /// clears it) and the workspace snapshot's `extra.description` while set.
 pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
@@ -480,6 +494,11 @@ pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
 /// `workspace.create` takes `focus`: a created workspace becomes the focused
 /// one only with `focus: true` (the app sends it for the person's creations).
 pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
+/// `workspace.create` takes `placement` (`top`, `after_current`, `bottom`):
+/// the new workspace's sidebar place for that create, over the
+/// `workspaces.newPlacement` setting; and `workspace.move {index}` moves the
+/// workspace in the sidebar document's order too (#29875).
+pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-placement-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -1815,6 +1834,8 @@ enum Command {
     /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
     /// server's identity of the person (no fields).
     CloudSelfhostInfo(cloud_conversations::NoParams),
+    /// The cloud environment editor; the signed-in person only.
+    CloudEnvironment(cloud_conversations::EnvironmentParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
@@ -2626,10 +2647,14 @@ use connection_scheduler::{
 mod bounded_outbound;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, claim_watched_connection,
+    claim_watched_terminal_connection, write_line_outbound_item,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
+use bounded_outbound::{
+    ControlOutbound, MAX_TERMINAL_CONNECTIONS, claim_terminal_connection,
+    claim_terminal_connection_from, websocket_server_frame_header,
+};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;
@@ -2649,6 +2674,7 @@ pub use listen::{
     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
 mod restoring;
+mod terminal_sessions;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 pub use restoring::RestoringServer;
@@ -2712,6 +2738,7 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod incognito_orphans;
 mod resource_connection;
 use resource_connection::{
     handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
@@ -2745,7 +2772,7 @@ fn node_json(
                 "b": node_json(b, active_pane, split_ids),
             });
             if let Some(public_id) = split_ids.get(id) {
-                value["split_id"] = json!(public_id);
+                value.set("split_id", json!(public_id));
             }
             value
         }
@@ -2854,9 +2881,9 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
-    workspaces["registry_id"] = json!(registry_id);
-    workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
+    workspaces.set("registry_id", json!(registry_id));
+    workspaces.set("generation", json!(generation));
+    workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
 }
 
@@ -2914,6 +2941,9 @@ mod pinned_columns_tests;
 mod rows_tests;
 
 #[cfg(test)]
+#[path = "server/column_left_tests.rs"]
+mod column_left_tests;
+#[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;
 
@@ -2931,3 +2961,6 @@ mod browser_profile_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(unix)]
+mod cloud_repos;

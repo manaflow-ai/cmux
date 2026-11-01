@@ -1,8 +1,10 @@
-//! `acpmux chats list|open|roots` (also `cmux chats …`): the device-wide
+//! `acpmux chats list|search|open|roots` (also `cmux chats …`): the device-wide
 //! chat index (ALL-CHATS-ON-DEVICE C7) from the command line.
 //!
 //! - `list`: one page of `_acpmux/chats`, newest first. Titles and folders
 //!   are user data: they go to stdout only, never to a log.
+//! - `search WORDS…`: `_acpmux/chats_search`, the chats whose prompts or
+//!   answers hold every word, each with the newest such message's snippet.
 //! - `roots`: `_acpmux/chat_roots`, with the refused roots and their reasons.
 //! - `open KEY [--cwd DIR]`: `_acpmux/chat_open`. An `adopt` plan creates the
 //!   daemon session (`session/new` with the plan's params) and attaches to
@@ -22,6 +24,7 @@ use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
 use crate::client::Client;
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum ChatsCmd {
@@ -42,6 +45,21 @@ pub enum ChatsCmd {
         query: Option<String>,
         /// The most chats to print.
         #[arg(long, short = 'n', default_value_t = 50)]
+        limit: usize,
+    },
+    /// Chats whose prompts or answers hold every word, newest first, each with a snippet.
+    Search {
+        /// The words, in any case and order, within one prompt or one answer.
+        #[arg(required = true)]
+        words: Vec<String>,
+        /// Only this harness: claude-code, codex, opencode, pi, gemini, cursor-agent, amp.
+        #[arg(long)]
+        harness: Option<String>,
+        /// Only chats in this folder or a folder inside it.
+        #[arg(long)]
+        folder: Option<String>,
+        /// The most chats to print.
+        #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
     /// Open a chat again: KEY is `<harness>:<session id>` from `chats list`.
@@ -109,7 +127,7 @@ pub fn open_params(key: &str, cwd: Option<&Path>) -> Result<Value, AppError> {
         if !cwd.is_absolute() {
             return Err(AppError::usage(format!("--cwd {} must be absolute", cwd.display())));
         }
-        params["cwd"] = json!(cwd);
+        params.set("cwd", json!(cwd));
     }
     Ok(params)
 }
@@ -222,6 +240,17 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
+        ChatsCmd::Search { words, harness, folder, limit } => {
+            let mut params = list_params(harness.as_deref(), folder.as_deref(), None, None, limit);
+            params.set("query", json!(words.join(" ")));
+            let found = search_all(&client, params, limit).await?;
+            if json_out {
+                print_json(&found);
+            } else {
+                print!("{}", search_text(&found));
+            }
+            Ok(())
+        }
         ChatsCmd::Roots => {
             let view = client.request("_acpmux/chat_roots", json!({})).await?;
             if json_out {
@@ -297,6 +326,76 @@ pub fn list_text(page: &Value, now_ms: i64) -> String {
     }
     if page.get("nextCursor").and_then(Value::as_str).is_some() {
         out.push_str(&format!("(more: {} shown; raise --limit)\n", chats.len()));
+    }
+    out
+}
+
+/// `_acpmux/chats_search` page after page (each answer is bounded in time), until `limit` chats
+/// are found or every chat was searched: one answer with every page's hits.
+async fn search_all(client: &Client, mut params: Value, limit: usize) -> Result<Value> {
+    let limit = limit.max(1);
+    let mut hits: Vec<Value> = Vec::new();
+    let (mut unreadable, mut scanned) = (0_u64, 0_u64);
+    loop {
+        params.set("limit", json!(limit.saturating_sub(hits.len())));
+        let mut page = client.request("_acpmux/chats_search", params.clone()).await?;
+        let next = page.get("nextCursor").and_then(Value::as_str).map(str::to_owned);
+        if let Some(Value::Array(found)) = page.get_mut("hits").map(Value::take) {
+            hits.extend(found);
+        }
+        unreadable =
+            unreadable.saturating_add(page.get("unreadable").and_then(Value::as_u64).unwrap_or(0));
+        scanned = scanned.saturating_add(page.get("scanned").and_then(Value::as_u64).unwrap_or(0));
+        let done = page.get("ready").and_then(Value::as_bool) != Some(true)
+            || page.get("enabled").and_then(Value::as_bool) == Some(false);
+        match next {
+            Some(cursor) if !done && hits.len() < limit => {
+                params.set("cursor", json!(cursor));
+            }
+            next => {
+                page.set("hits", Value::Array(hits));
+                page.set("unreadable", json!(unreadable));
+                page.set("scanned", json!(scanned));
+                page.set("nextCursor", json!(next));
+                page.set("partial", json!(false));
+                return Ok(page);
+            }
+        }
+    }
+}
+
+/// The `search` text: each chat's key and title, then its newest matching message's snippet.
+pub fn search_text(found: &Value) -> String {
+    let mut out = String::new();
+    if found.get("enabled").and_then(Value::as_bool) == Some(false) {
+        out.push_str("chats are turned off (agents.chats.enabled)\n");
+        return out;
+    }
+    if found.get("ready").and_then(Value::as_bool) == Some(false) {
+        out.push_str("the chat index is still scanning; try again in a moment\n");
+        return out;
+    }
+    let hits = found.get("hits").and_then(Value::as_array).cloned().unwrap_or_default();
+    let text = |v: &Value, ptr: &str| v.pointer(ptr).and_then(Value::as_str).map(one_line);
+    for hit in &hits {
+        let title = text(hit, "/chat/title").filter(|t| !t.is_empty());
+        out.push_str(&format!(
+            "{}  {}\n    {}: {}\n",
+            text(hit, "/chat/key").unwrap_or_default(),
+            title.unwrap_or_else(|| "(untitled)".to_owned()),
+            text(hit, "/role").unwrap_or_default(),
+            text(hit, "/snippet").unwrap_or_default(),
+        ));
+    }
+    if hits.is_empty() {
+        out.push_str("no chat says that\n");
+    }
+    let unreadable = found.get("unreadable").and_then(Value::as_u64).unwrap_or(0);
+    if unreadable > 0 {
+        out.push_str(&format!("({unreadable} chats could not be read)\n"));
+    }
+    if found.get("nextCursor").and_then(Value::as_str).is_some() {
+        out.push_str(&format!("(the first {} found; raise --limit for more)\n", hits.len()));
     }
     out
 }
@@ -381,5 +480,26 @@ fn outcome_text(outcome: &OpenOutcome) -> String {
         OpenOutcome::ReadOnly { path } => {
             format!("read-only transcript: {}\n(no harness can resume this chat)\n", path.display())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_text_prints_each_chat_with_its_snippet_and_what_was_left_out() {
+        let found = json!({"ready": true, "enabled": true, "unreadable": 1,
+            "nextCursor": "k1.2", "hits": [
+            {"chat": {"key": "codex:a", "title": "Bump\nit"}, "role": "answer", "snippet": "…to 1.2…"},
+            {"chat": {"key": "claude-code:b", "title": null}, "role": "prompt", "snippet": "bump"},
+        ]});
+        assert_eq!(
+            search_text(&found),
+            "codex:a  Bump it\n    answer: …to 1.2…\nclaude-code:b  (untitled)\n    prompt: bump\n\
+             (1 chats could not be read)\n(the first 2 found; raise --limit for more)\n"
+        );
+        let none = json!({"ready": true, "enabled": true, "hits": [], "nextCursor": null});
+        assert_eq!(search_text(&none), "no chat says that\n");
     }
 }

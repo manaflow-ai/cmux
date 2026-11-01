@@ -426,12 +426,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var onInstalled: [(ChatController) -> Void] = []
     /// cmux: the host's shared stop action (Home: stop the Chief's turn).
     var onStop: (() -> Void)?
+    /// cmux: after an accepted stop, the same button offers Continue until
+    /// the next person message or turn.
+    var onContinue: (() -> Void)?
     /// cmux: the host's Stop all agents (Option-click on the stop button);
     /// nil: Option-click stops as a click does.
     var onStopAll: (() -> Void)?
     /// cmux: the stop button's tooltip while the Chief works (the host's
     /// words, naming Option-click); nil: "Stop".
     var stopToolTip: String? { didSet { updateStopButton() } }
+    /// True after `chief.stop` accepted the running turn and before a new
+    /// message or turn clears the action.
+    var continueAvailable = false { didSet { if continueAvailable != oldValue { updateStopButton() } } }
     /// cmux: whether a pasteboard holds text the field pastes (Cmd+V from the
     /// pane, PaneHost+Keyboard.swift); tests stub it.
     var pasteboardHasText: (NSPasteboard) -> Bool = { $0.availableType(from: [.string]) != nil }
@@ -599,6 +605,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func dispatch(_ a: Action) {
         guard let store else { return }
+        if case .reply(let ref) = a, intents?.canInteract(with: ref.messageId) == false { return }
         thread.note(a)
         forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
@@ -818,11 +825,24 @@ final class ChatController: NSObject, NSTextViewDelegate {
             if openLink(hit, at: p) { return }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
             if quoteClicked(hit, at: p) { return }
+            // cmux: an agent-message fold or notes row opens or closes (HomeStore.toggleAgentMessages).
+            if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
+            // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).
+            if let url = intents?.feedRowURL(hit.row.ref.messageId) {
+                if url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else { onOpenLink(url, false) }
+                return
+            }
             switch hit.row.part {
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an
             // app is in the context menu); other attachments open.
-            case let .attachment(a) where a.kind == "video": intents?.toggleVideo(hit.row.ref, a.id)
+            // cmux: its expand button (shown once it played) opens the large viewer (the user, 2026-10-30).
+            case let .attachment(a) where a.kind == "video":
+                if intents?.videoState(hit.row.ref) != .poster, HomeVideo.expandRect(body: hit.body).insetBy(dx: -4, dy: -4).contains(p) {
+                    intents?.openVideo(hit.row.ref, a.id)
+                } else {
+                    intents?.toggleVideo(hit.row.ref, a.id)
+                }
             case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
             // cmux: a plain click on a bubble (no selection made) leaves the field ready to type
             // (Lawrence 2026-10-18: Home focused means the message box has the keyboard).
@@ -836,14 +856,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     /// Real Messages (MessagesLab 7f1a811): a double-click on a bubble selects
     /// the word under the cursor; the picker is press and hold.
+    /// cmux: a double-click on a video opens it in the large viewer (the user, 2026-10-30: "i want to
+    /// double click it and see it bigger").
     func doubleClicked(_ p: CGPoint) {
-        guard demo?.hit(p) != nil else { return }
+        guard let hit = demo?.hit(p) else { return }
+        if case let .attachment(a) = hit.row.part, a.kind == "video" { intents?.openVideo(hit.row.ref, a.id); return }
         if selection.selectWord(at: p) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
     // MARK: Tapback picker
 
     func showPicker(for hit: MessagesWindowView.Hit) {
+        guard intents?.canInteract(with: hit.row.ref.messageId) != false else { return }
         closePicker()
         let mine = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let p = TapbackPickerView(ref: hit.row.ref, selected: mine) { [weak self] kind in

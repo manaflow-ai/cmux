@@ -7,7 +7,25 @@ import Observation
 public final class AppStore {
     public var teams: [Team] { didSet { refreshAttentionCount() } }
     public var activeTeamID: String { didSet { refreshAttentionCount() } }
-    public var workspaces: [Workspace] { didSet { refreshAttentionCount() } }
+    /// Every Mac's workspaces. Setting the same value again changes nothing
+    /// and notifies no one: a Mac's whole list arrives on every tree update,
+    /// and a view reading it rebuilt itself for an unchanged list.
+    public var workspaces: [Workspace] {
+        get {
+            access(keyPath: \.workspaces)
+            return workspaceStorage
+        }
+        set {
+            guard newValue != workspaceStorage else { return }
+            withMutation(keyPath: \.workspaces) { workspaceStorage = newValue }
+            workspacesRevision &+= 1
+            refreshAttentionCount()
+        }
+    }
+    @ObservationIgnored private var workspaceStorage: [Workspace]
+    /// Moves on every change of `workspaces`: what reads them can key a memo
+    /// on it instead of comparing every workspace (read it with `workspaces`).
+    @ObservationIgnored public private(set) var workspacesRevision = 0
     /// The active team's workspaces that need attention (the Workspaces tab
     /// badge). Kept as a value that changes only with the count: the
     /// workspaces change on every Mac tree update while an agent works, and a
@@ -28,9 +46,11 @@ public final class AppStore {
     public var teamDataState: LoadState = .loaded
     /// Whether the device has network (drives the offline banner).
     public var isOffline = false
-    /// Live link status per Mac id ("Connected · WireGuard relay · 27 ms"),
+    /// Plain live link status per Mac id ("Connected", "Reconnecting…"),
     /// shown in the Workspaces Mac section header. Empty in mock mode.
     public var macLinkStatus: [String: String] = [:]
+    /// Raw connection and service details, shown only in Settings diagnostics.
+    public var macLinkDiagnostics: [String: String] = [:]
     /// Live mode: where each Mac's workspaces came from (cached, live, ...).
     /// Empty states read this, never `workspaces` alone (`macDataPhase`).
     public var macData: [String: MacDataMachine] = [:]
@@ -72,7 +92,7 @@ public final class AppStore {
         lastTabByWorkspace = tabMemory.load()
         self.teams = teams
         self.activeTeamID = activeTeamID
-        self.workspaces = workspaces
+        workspaceStorage = workspaces
         self.feed = feed
         refreshAttentionCount()
     }
@@ -154,6 +174,19 @@ public final class AppStore {
         groupEdits.apply(to: &next, now: now())
         let merged = Self.reconciled(workspaces, macID: macID, with: next, keeping: pendingWorkspaceIDs)
         if merged != workspaces { workspaces = merged }
+    }
+
+    /// Reconciles metadata for existing rows without rebuilding or comparing
+    /// every tab on the Mac. Topology changes still use `replaceWorkspaces`.
+    public func updateWorkspaces(macID: String, rows: [Workspace]) {
+        var rows = rows
+        groupEdits.apply(to: &rows, now: now())
+        for row in rows {
+            guard !pendingWorkspaceIDs.contains(row.id),
+                  let index = workspaces.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
+                  workspaces[index] != row else { continue }
+            workspaces[index] = row
+        }
     }
 
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's

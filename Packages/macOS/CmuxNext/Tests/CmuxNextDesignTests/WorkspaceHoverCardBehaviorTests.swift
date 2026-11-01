@@ -34,7 +34,7 @@ struct WorkspaceHoverCardBehaviorTests {
         let token = try #require(machine.armedToken)
         #expect(effects == [.schedule(token: token, after: Self.delay)], "no card yet, only the delay: \(effects)")
         #expect(machine.shownTarget == nil)
-        #expect(Self.delay > .zero && Self.delay <= .milliseconds(500), "a short delay: \(Self.delay)")
+        #expect(Self.delay == .milliseconds(400), "the fast cold delay (Leo 2026-11-01): \(Self.delay)")
         #expect(machine.reduce(.deadline(token: token)) == [.show(Self.row(1), sliding: false)])
         #expect(machine.shownTarget == Self.row(1))
     }
@@ -129,5 +129,39 @@ struct WorkspaceHoverCardBehaviorTests {
         // Another row starts one again, after the delay.
         let next = machine.reduce(.hit(Self.row(2), moved: true))
         #expect(next.contains { if case .schedule(_, let after) = $0 { after == Self.delay } else { false } }, "\(next)")
+    }
+
+    /// Leo 2026-11-01: "for my mouse to be able to reliably go across them". A pointer heading
+    /// from its row into the card beside it, across the next row, keeps the card (the safe
+    /// triangle); the row it crosses takes the card only if the pointer stops on it.
+    @Test func aimingIntoTheCardAcrossAnotherRowKeepsTheCard() throws {
+        var machine = Self.shownOnRowOne()
+        let aimed = machine.reduce(.hit(Self.row(2), moved: true, aiming: true))
+        #expect(!aimed.contains { if case .show = $0 { true } else { false } }, "crossing row 2 swapped the card: \(aimed)")
+        #expect(machine.shownTarget == Self.row(1))
+        // Still heading in, across row 3: the aim restarts.
+        _ = machine.reduce(.hit(Self.row(3), moved: true, aiming: true))
+        #expect(machine.shownTarget == Self.row(1))
+        // On the card: no target; it stays while the pointer rests there.
+        _ = machine.reduce(.hit(nil, moved: true, bridging: true))
+        _ = machine.reduce(.pointerOnCard(true))
+        let token = try #require(machine.armedToken)
+        _ = machine.reduce(.deadline(token: token))
+        #expect(machine.shownTarget == Self.row(1), "the card went with the pointer on it")
+    }
+
+    @Test func stoppingOnACrossedRowHandsItTheCard() throws {
+        var machine = Self.shownOnRowOne()
+        _ = machine.reduce(.hit(Self.row(2), moved: true, aiming: true))
+        _ = machine.reduce(.pointerOnCard(false))
+        let token = try #require(machine.armedToken)
+        #expect(machine.reduce(.deadline(token: token)) == [.show(Self.row(2), sliding: true)])
+        #expect(machine.shownTarget == Self.row(2))
+    }
+
+    /// Moving down the list (not toward the card) still swaps at once.
+    @Test func aRowReachedWithoutAimingSwapsAtOnce() {
+        var machine = Self.shownOnRowOne()
+        #expect(machine.reduce(.hit(Self.row(2), moved: true, aiming: false)) == [.show(Self.row(2), sliding: true)])
     }
 }

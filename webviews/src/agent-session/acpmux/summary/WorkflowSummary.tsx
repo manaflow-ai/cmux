@@ -18,6 +18,7 @@ export type WorkflowActions = {
   onStop?: () => void;
   onSave?: () => void;
   onOpenTranscript?: (rowId: string) => void;
+  onOpenAgent?: (agent: WorkflowAgent) => void;
   onPullAgent?: (request: WorkflowDetailRequest) => Promise<unknown>;
   onDraftWorkflow?: (resume: boolean) => boolean;
 };
@@ -160,7 +161,7 @@ export function WorkflowSummaryRow({
           {workflow.tokens !== undefined &&
             ` · ${t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}`}
         </span>
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
       </button>
       {open && (
         <div className="acpmux-workflow__detail">
@@ -172,7 +173,7 @@ export function WorkflowSummaryRow({
           {workflow.projectedTokens !== undefined && (
             <p className="acpmux-summary-meta">{t("workflow.projectedTokens", { tokens: workflow.projectedTokens })}</p>
           )}
-          {workflow.runId && !actions.onPullAgent && (
+          {workflow.runId && !actions.onPullAgent && !actions.onOpenAgent && (
             <p className="acpmux-summary-meta">
               <output>{t("workflow.detailUnavailable")}</output>
             </p>
@@ -228,14 +229,16 @@ export function WorkflowSummaryRow({
                         )}
                       </span>
                       <span className="acpmux-summary-meta">{localizedState(t, agent.state)}</span>
-                      {agent.tokens !== undefined && <span className="acpmux-summary-meta">{agent.tokens}</span>}
                       {workflowDetailRequest(workflow, agent) && (
                         <button
                           type="button"
-                          disabled={!actions.onPullAgent}
-                          title={!actions.onPullAgent ? t("workflow.detailUnavailable") : undefined}
+                          disabled={!actions.onPullAgent && !actions.onOpenAgent}
+                          title={
+                            !actions.onPullAgent && !actions.onOpenAgent ? t("workflow.detailUnavailable") : undefined
+                          }
                           aria-label={`${t("transcript.label")}: ${agent.name}`}
                           onClick={() => {
+                            if (actions.onOpenAgent) return actions.onOpenAgent(agent);
                             if (!actions.onPullAgent) return;
                             const request = workflowDetailRequest(workflow, agent)!;
                             const ticket = ++detailTicket.current;
@@ -250,7 +253,7 @@ export function WorkflowSummaryRow({
                             );
                           }}
                         >
-                          <Icon name="disclosure.collapsed" size={11} />
+                          <Icon name="disclosure.collapsed" size={12} />
                         </button>
                       )}
                       {agent.transcriptRowId && actions.onOpenTranscript && (
@@ -260,7 +263,7 @@ export function WorkflowSummaryRow({
                           aria-label={`${t("transcript.label")}: ${agent.name}`}
                           onClick={() => actions.onOpenTranscript?.(agent.transcriptRowId!)}
                         >
-                          <Icon name="disclosure.collapsed" size={11} />
+                          <Icon name="disclosure.collapsed" size={12} />
                         </button>
                       )}
                     </li>

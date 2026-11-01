@@ -47,7 +47,13 @@ pub(super) async fn handle(
             Some(Value::String(m)) => Some(m.as_str()),
             Some(_) => return Err(RpcError::invalid_params("model must be a string")),
         };
-        return hub.btw(&s, question, model, &conn.label(), opts()).await;
+        let inline = match params.get("inline") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(inline)) => *inline,
+            Some(_) => return Err(RpcError::invalid_params("inline must be a boolean")),
+        };
+        // Boxed: the side-question state machine is too large for a debug build's request stack.
+        return Box::pin(hub.btw(&s, question, model, &conn.label(), inline, opts())).await;
     }
     if m == method::MUX_COMPOSERS {
         return Ok(hub.composers_view(&s));
@@ -65,7 +71,7 @@ pub(super) async fn handle(
     let text =
         str_param(params, "text").ok_or_else(|| RpcError::invalid_params("text is required"))?;
     if m == method::MUX_DRAFT_SET {
-        let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
+        let draft = hub.set_composer_draft(&s, text)?;
         return Ok(json!({"sessionId": s.id, "draft": draft}));
     }
     // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).

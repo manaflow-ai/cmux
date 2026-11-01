@@ -33,6 +33,7 @@
 //! for good once shutdown starts (`stop_idle_reaper`).
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// One agent request on its way to its answer (`Session::agent_requests`): counted from when the
 /// inbound loop reads it until its task ends.
@@ -93,10 +94,38 @@ impl Hub {
             && !(session.meta().claude_unstored && session.meta().turn_count > 0)
     }
 
+    /// What a host this daemon starts does once no daemon controls it (`agent_host::OrphanExit`;
+    /// its servers come from `LaunchServers::orphan_exit`): it waits [`crate::agent_host::ORPHAN_IDLE`], or this daemon's
+    /// own idle period when that is longer, and never ends while idle hibernation is off
+    /// (`ACPMUX_IDLE_CHILD_SECS=0`): an agent this daemon would keep, its host keeps too.
+    pub(super) fn orphan_exit(&self) -> Option<crate::agent_host::OrphanExit> {
+        let idle = (*self.idle_child.lock().unwrap_or_else(|e| e.into_inner()))?;
+        #[cfg_attr(not(debug_assertions), allow(unused_mut))]
+        let mut wait = idle.max(crate::agent_host::ORPHAN_IDLE);
+        // Debug builds only: `ACPMUX_TEST_HOST_ORPHAN_IDLE_MS` replaces the wait, so the
+        // integration tests can drive a host's own end. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) = std::env::var("ACPMUX_TEST_HOST_ORPHAN_IDLE_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            wait = std::time::Duration::from_millis(ms);
+        }
+        Some(crate::agent_host::OrphanExit {
+            idle_ms: u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+            servers: Vec::new(),
+            path: String::new(),
+            cwd: std::path::PathBuf::new(),
+        })
+    }
+
     /// The daemon is stopping (`_acpmux/shutdown`, SIGTERM, then
     /// `shutdown_all`): the idle reaper never stops a harness again.
     pub fn stop_idle_reaper(&self) {
         self.stopping.store(true, Ordering::SeqCst);
+        self.peer_notices_stop.send_replace(true);
+        // Reads of peer chats ahead of an open end too, before the last flush (`peer_snapshot/warm.rs`).
+        self.peer_snapshots.stop_warming();
         self.idle_wake.notify_one();
     }
 
@@ -262,7 +291,7 @@ impl Hub {
                 session = %session.id,
                 cause = "idle",
                 idle_secs = idle_for / 1_000_000_000,
-                exit_ms = began.elapsed().as_millis() as u64,
+                exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
                 "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
                  servers running under it; the harness and its MCP servers exited and the session \
                  wakes on its next prompt"
@@ -300,7 +329,7 @@ impl Hub {
     /// `record` (a `resumed` one) with `"wake": true` when the start is a wake (`waking`).
     pub(super) fn wake_marked(&self, session: &Session, mut record: Value) -> Value {
         if self.waking(session) {
-            record["wake"] = json!(true);
+            record.set("wake", json!(true));
         }
         record
     }
@@ -323,7 +352,7 @@ impl Hub {
     ) {
         // `at`: the mark when the wake began (a stop meanwhile clears the session's).
         let Some((began, at)) = began else { return };
-        let took_ms = began.elapsed().as_millis() as u64;
+        let took_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX);
         let slept_secs = (at != 0).then(|| crate::store::now_ms().saturating_sub(at) / 1000);
         let cause = *session.wake_cause.lock().unwrap_or_else(|e| e.into_inner());
         let cause = cause.unwrap_or("request");
@@ -350,6 +379,8 @@ impl Hub {
     pub fn wake_for(self: &Arc<Self>, session: &Arc<Session>, web: bool, cause: &'static str) {
         // Use: a chat being typed into or opened does not hibernate meanwhile.
         self.touch(session);
+        // The person asked for it: what a daemon start held in its protected folder goes on.
+        self.release_protected_hold(session);
         let stops = session.stops.load(Ordering::SeqCst);
         if session.hibernated_at.load(Ordering::SeqCst) == 0
             || session.status() == SessionStatus::Closed
@@ -371,6 +402,86 @@ impl Hub {
             let _ = hub.child_for_since(&session, stops).await;
         });
     }
+
+    /// What keeps this daemon in use with no client (`daemon/unused_exit.rs`), or None: its
+    /// startup, store and chat-log load or adoption still running, a peer link, a listener another machine reaches it by
+    /// (the mesh relay, WireGuard, the tailnet, a WebSocket listener off loopback), an
+    /// undelivered message or a watch, a running agent or agent host (adopted or not), a turn or
+    /// anything one waits on, a background task, or a move to another machine under way.
+    pub(crate) async fn in_use(&self) -> Option<&'static str> {
+        // Still loading: queued prompts and cut turns the last daemon left resume from the chat
+        // logs, and adoption reattaches running agents.
+        if !self.store_loaded()
+            || !*self.startup_ready.borrow()
+            || !*self.adoption_ready.borrow()
+            || !*self.logs_ready.borrow()
+        {
+            return Some("its startup");
+        }
+        // A link this daemon keeps to a peer may carry work for that peer's agents (the GitHub
+        // broker, a relay): it never passes through `serve_connection_from` here.
+        if !self.connected_peers().is_empty() {
+            return Some("a peer link");
+        }
+        if self.mesh.get().is_some() {
+            return Some("the mesh relay");
+        }
+        if self.wireguard.is_some() {
+            return Some("WireGuard");
+        }
+        #[cfg(all(unix, feature = "tailnet"))]
+        if self.tailnet_controller.get().is_some_and(|c| c.node().is_some()) {
+            return Some("the tailnet listener");
+        }
+        let listen = self.config.read().await.websocket.as_ref().map(|w| w.listen.clone());
+        if listen.is_some_and(|l| !on_loopback(&l)) {
+            return Some("a WebSocket listener off loopback");
+        }
+        if self.outbox.unsettled() > 0 {
+            return Some("an undelivered message");
+        }
+        if !self.watches.is_empty() {
+            return Some("a watch");
+        }
+        for session in self.sessions() {
+            // A move to another machine not yet committed or aborted: its watch still settles
+            // it, and the chat stays frozen here until it does (`transfer_watch.rs`).
+            if session.moving().is_some() && session.meta().moved_to.is_none() {
+                return Some("a move under way");
+            }
+            // A child being published or ended holds the lock: counted as running.
+            if session.child.try_lock().map(|c| c.is_some()).unwrap_or(true) {
+                return Some("a running agent");
+            }
+            if session.turn().is_some()
+                || session.harness_turn.load(Ordering::SeqCst)
+                || session.queued() > 0
+                || !session.pending_permissions().is_empty()
+                || session.asks_in_flight.load(Ordering::SeqCst) > 0
+                || session.agent_requests.load(Ordering::SeqCst) > 0
+                || self.continuation_pending(&session)
+            {
+                return Some("a turn");
+            }
+            if self.bg_running(&session) {
+                return Some("a background task");
+            }
+        }
+        // An agent host still running, adopted or not, would lose its daemon; records that
+        // cannot be read may hide one.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
+        if live.is_none_or(|live| !live.is_empty()) {
+            return Some("an agent host");
+        }
+        None
+    }
+}
+
+/// Whether a listen address (`127.0.0.1:47811`, `[::1]:0`, `localhost:8080`) is loopback only;
+/// one that does not parse is not.
+fn on_loopback(listen: &str) -> bool {
+    listen.parse::<std::net::SocketAddr>().is_ok_and(|a| a.ip().is_loopback())
+        || listen.strip_prefix("localhost:").is_some_and(|port| port.parse::<u16>().is_ok())
 }
 
 #[cfg(test)]

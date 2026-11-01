@@ -19,9 +19,7 @@ extension WindowManager {
     /// the workspace id (`WorkspaceSpawner.start`).
     func startWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                         frame: CGRect? = nil) -> () async throws -> String {
-        var spawn = spawn
-        spawn.followClassicMode(services)
-        return WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
+        WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
     }
 }
 
@@ -47,15 +45,16 @@ struct WorkspaceSpawner {
     /// The key and the name are fixed at the press, so a close pressed while
     /// this create waits its turn or is in flight takes exactly this
     /// workspace, and the window shows its final row from the press
-    /// (`PendingWorkspaceRows`), at the slot the setting gives against the
-    /// workspace the window shows now. With no name asked for, the create
+    /// (`PendingWorkspaceRows`), at the slot the setting gives against the workspace the window shows now (`row`; a
+    /// create that places itself, New Workspace in New Group: where the daemon lists it). With no name asked for, the create
     /// sends the daemon's own next default (`SidebarMapping.defaultWorkspaceName`),
     /// so the row's title is the daemon's from the first frame.
     func start() -> () async throws -> String {
         guard daemon.connection != nil else { return { throw DaemonError.notConnected } }
-        let key = WorkspaceKey.generate()
-        let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
-        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        let key = WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent { row?.current = nil }
+        let rule = spawn.placesBySetting ? row : nil
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
@@ -66,7 +65,7 @@ struct WorkspaceSpawner {
             let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: name, opensPage: opensPage)
             SidebarNewRowTimer.shared.began(key.rawValue)
             PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
-                                                  slot: spawn.slot, byDefault: rule), name: name)
+                                                  slot: spawn.slot, byDefault: row), name: name)
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
@@ -130,6 +129,7 @@ struct WorkspaceSpawner {
             } catch {
                 shown.abandon()
                 windows.pendingPlacements[key.rawValue] = nil
+                windows.pendingPlacementOrder.removeAll { $0 == key.rawValue }
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }
@@ -195,7 +195,8 @@ struct WorkspaceSpawner {
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
-            _ = try await connection.request(CreateTerminalRequest(
+            // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).
+            _ = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
                 workspace: .key(created), command: command, cwd: cwd,
                 terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))
             return created.rawValue

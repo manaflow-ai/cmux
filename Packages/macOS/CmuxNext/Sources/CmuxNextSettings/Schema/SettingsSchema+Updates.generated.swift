@@ -34,6 +34,9 @@ extension UpdatesSettings {
     /// `updates.showWhatsNew`: The bottom-left "cmux Updated!" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.
     public nonisolated static let showWhatsNewPath = ["updates", "showWhatsNew"]
     public nonisolated static let showWhatsNewDefault = true
+    /// `updates.showFeatureTips`: Feature tips: one small callout per launch at a new feature's control, from its What's New highlight (leo-workspace design/feature-tips.md). Followed by the agent chat (AgentPaneDisplaySetting.followedAppPaths).
+    public nonisolated static let showFeatureTipsPath = ["updates", "showFeatureTips"]
+    public nonisolated static let showFeatureTipsDefault = true
     /// `updates.idleInstallMaxWaitSeconds`: Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.
     public nonisolated static let idleInstallMaxWaitPath = ["updates", "idleInstallMaxWaitSeconds"]
     public nonisolated static let idleInstallMaxWaitDefault: Double = 600
@@ -171,6 +174,16 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.showWhatsNewDefault),
                 keywords: ["whats new", "release notes", "changelog", "update", "sidebar"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.showFeatureTipsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.showFeatureTips", "Show Feature Tips"),
+                help: SettingsText.keyed("settings.updates.showFeatureTips.help", "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.showFeatureTipsDefault),
+                keywords: ["tips", "whats new", "new feature", "hint", "callout"]
             ),
             SettingDescriptor(
                 UpdatesSettings.idleInstallMaxWaitPath,

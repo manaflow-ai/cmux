@@ -1,6 +1,8 @@
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { writeConfig } from "../chief-brain/brain-store.ts"
 import { CcError, freestyle, vmName } from "./vm.ts"
+import { freestyleCustomer } from "../providers/freestyle/customer.ts"
+import { freestyleIdleSeconds } from "../auto-pause.ts"
 import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
 import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
@@ -30,6 +32,7 @@ const DEFAULT_CAP = 2
 const MAX_CAP = 10
 const TTL_S = 12 * 3600
 const MAX_TTL_S = 72 * 3600
+/** The default idle pause of a sandbox, only with CLOUD_IDLE_PAUSE on (auto-pause.ts); otherwise -1, never. An explicit --idle-seconds still applies. */
 const IDLE_S = 1800
 const EXEC_MAX_MS = 300_000
 const OWNER_KEY = "cmux_chief_sandbox"
@@ -53,7 +56,7 @@ const save = (b: ChiefBrainDO, xs: ReadonlyArray<Sandbox>) => writeConfig(b.sql,
 /** The Chief's sandboxes object (one per Chief). */
 export const sandboxesOf = (env: Env, agent: string) =>
   env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as {
-    ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<Sandbox>): Promise<Out>
+    ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<Sandbox>, owner: string | null): Promise<Out>
     ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }>
     ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }>
   }
@@ -247,7 +250,7 @@ const VM_ACTIONS = ["get", "update", "resize", "pause", "start", "stop", "exec",
 const SNAP_ACTIONS = ["snapshots", "snapshot_get", "snapshot_rename", "snapshot_delete"]
 
 /** Makes a sandbox (size, settings, snapshot), grants the Chief's identity on it, then grows it to the size asked. */
-const create = async (b: ChiefBrainDO, agent: string, req: Req): Promise<Out> => {
+const create = async (b: ChiefBrainDO, agent: string, owner: string | null, req: Req): Promise<Out> => {
   const env = b.doEnv
     const size = sizeOf(env, req)
     if (typeof size === "string") return { status: 400, json: { error: size } }
@@ -269,11 +272,12 @@ const create = async (b: ChiefBrainDO, agent: string, req: Req): Promise<Out> =>
     const res = await freestyle(env, "POST", "/v5/vms", {
       slug: name,
       snapshotId: snapshot,
-      idleTimeoutSeconds: IDLE_S,
+      idleTimeoutSeconds: freestyleIdleSeconds(env, IDLE_S),
       ttlSeconds: TTL_S,
       automaticRestart: false,
       ...rest,
       metadata: { ...(metadata ?? {}), [OWNER_KEY]: agent },
+      ...freestyleCustomer(owner),
       firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
     }, 120_000)
     const body = (await res.json().catch(() => null)) as { id?: string; vmId?: string } | null
@@ -289,7 +293,7 @@ const create = async (b: ChiefBrainDO, agent: string, req: Req): Promise<Out> =>
     await grant(b, id).catch(() => undefined)
     // Both images have the `chief` user exec --user chief runs as (Freestyle's Ubuntu has only ubuntu).
     await execAs(b, id, { command: CHIEF_USER, timeout_ms: 30_000, user: "root" }).catch(() => undefined)
-    const made = { vm: s, ttl_seconds: rest.ttlSeconds ?? TTL_S, idle_pause_seconds: rest.idleTimeoutSeconds ?? IDLE_S }
+    const made = { vm: s, ttl_seconds: rest.ttlSeconds ?? TTL_S, idle_pause_seconds: rest.idleTimeoutSeconds ?? freestyleIdleSeconds(env, IDLE_S) }
     const v = await fetchVm(b, id)
     const vm = v && v !== "unknown" ? v : null
     if (!hasSize(size) || !vm) return { status: 200, json: { ...made, resources: vm?.resources ?? null, cost: costOf(vm?.resources ?? null) } }
@@ -299,7 +303,8 @@ const create = async (b: ChiefBrainDO, agent: string, req: Req): Promise<Out> =>
     return { status: 200, json: { ...made, ...(g.status === 200 ? { resources: gj.resources, cost: gj.cost, ...(gj.df ? { df: gj.df } : {}) } : { resources: vm.resources, cost: costOf(vm.resources), resize_error: gj.error }) } }
 }
 
-export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, legacy: ReadonlyArray<Sandbox> = []): Promise<Out> {
+/** `owner`: the Chief's owner, the Freestyle customer of the sandboxes it makes (customer.ts). */
+export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, legacy: ReadonlyArray<Sandbox> = [], owner: string | null = null): Promise<Out> {
   const req = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Req
   const env = b.doEnv
   if (legacy.length) {
@@ -309,7 +314,7 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
   try {
     if (req.action === "list") return { status: 200, json: { vms: await live(b), max: capOf(b, agent), plan: planOf(env) } }
     if (req.action === "cap") return { status: 200, json: { cap: capOf(b, agent), live: (await live(b)).length, plan: planOf(env) } }
-    if (req.action === "create") return await create(b, agent, req)
+    if (req.action === "create") return await create(b, agent, owner, req)
     if (SNAP_ACTIONS.includes(String(req.action))) return await snapshotVerb(b, String(req.action), req)
     if (!VM_ACTIONS.includes(String(req.action))) return { status: 400, json: { error: `action must be ${ACTIONS}` } }
     const o = await own(b, agent, req.id)
@@ -374,7 +379,7 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
         if ((await liveCount(b)) >= capOf(b, agent)) return { status: 429, json: { error: `at most ${capOf(b, agent)} sandboxes; delete one first (chief-vm delete ID)` } }
         const t = await takeSnapshot(b, vm.id, { name: typeof req.name === "string" ? `fork of ${vm.id}: ${req.name}` : `fork of ${vm.id}` })
         if (!t.snap) return { status: t.status, json: t.json }
-        const made = await create(b, agent, { ...req, snapshot: t.snap.id })
+        const made = await create(b, agent, owner, { ...req, snapshot: t.snap.id })
         return made.status === 200 ? { status: 200, json: { ...(made.json as object), forked_from: vm.id, snapshot: t.snap.id } } : made
       }
       case "exec": {

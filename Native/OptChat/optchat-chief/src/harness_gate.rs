@@ -74,6 +74,7 @@ pub use cmux_chief::policy::harness::TEAM_SUBROUTER_URLS;
 /// The profile `requested` runs on, from an `_acpmux/harnesses` answer, or
 /// why the Chief refuses it.
 pub fn admit(answer: &Value, requested: &str) -> Result<Admitted, String> {
+    refuse_chief_harness(answer, requested)?;
     // A profile asked for by name (a configured `claude-cr`, say) whose
     // launcher acpmux marked unavailable is refused here, as a route is,
     // instead of failing at the first turn.
@@ -92,7 +93,35 @@ pub fn admit(answer: &Value, requested: &str) -> Result<Admitted, String> {
 /// A profile by its exact name (a session's harness after acpmux resolved
 /// it): refused when it is Claude and not kind `claude-stdio`.
 pub fn admit_profile(answer: &Value, profile: &str) -> Result<Admitted, String> {
+    refuse_chief_harness(answer, profile)?;
     cmux_chief::policy::harness::admit_profile(answer, profile).map(|a| admitted(profile, a))
+}
+
+/// acpmux's family of its built-in Chief harness (`cmux-tui chief acp`,
+/// acpmux `config::CHIEF_FAMILY`).
+pub const CHIEF_HARNESS_FAMILY: &str = "chief";
+
+/// Whether acpmux's profile `name` is the Chief harness: the person's chat
+/// with a Chief, offered in the agent chat's picker.
+pub fn is_chief_harness(answer: &Value, name: &str) -> bool {
+    answer
+        .get("harnesses")
+        .and_then(|h| h.get(name))
+        .and_then(|p| p.get("family"))
+        .and_then(Value::as_str)
+        == Some(CHIEF_HARNESS_FAMILY)
+}
+
+/// A Chief never runs a turn, compactor, prewarm or subagent on the Chief
+/// harness: each prompt would be a message from the person in its own
+/// conversation, which wakes it again without end.
+fn refuse_chief_harness(answer: &Value, name: &str) -> Result<(), String> {
+    if is_chief_harness(answer, name) {
+        return Err(format!(
+            "{name} is the Chief harness (the person's chat with a Chief); a Chief's own turns and agents cannot run on it"
+        ));
+    }
+    Ok(())
 }
 
 /// The shared rule's admission (cmux_chief::policy::harness, the corpus's

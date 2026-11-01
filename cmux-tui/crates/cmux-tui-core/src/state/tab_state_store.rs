@@ -5,6 +5,10 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
+#[cfg(test)]
+#[path = "tab_attention_request_tests.rs"]
+mod attention_request_tests;
+
 use crate::workspace_registry::presentation_store::{
     SavedTabGroupRecord, SavedTabMember, TabGroupState, delete_saved_tab_group_in,
     put_saved_tab_group_in, read_saved_tab_groups, write_tab_group_state,
@@ -105,7 +109,44 @@ pub(crate) fn add_tab_attention_column(transaction: &Transaction<'_>) -> anyhow:
     if !has_column {
         transaction.execute_batch("ALTER TABLE tab_state ADD COLUMN attention_json TEXT;")?;
     }
+    // Upgrade pre-token marks once. The identity lives in the same JSON as
+    // the mark, so a restart preserves it; legacy writers may replace the
+    // JSON, in which case the next upgrade issues a new identity.
+    let legacy = transaction
+        .prepare("SELECT tab_id, attention_json FROM tab_state WHERE attention_json IS NOT NULL")?
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (tab, stored) in legacy {
+        let Ok(mut value) = serde_json::from_str::<Value>(&stored) else { continue };
+        let Some(object) = value.as_object_mut() else { continue };
+        if object.get("reason").and_then(Value::as_str).is_none()
+            || object.get("at_ms").and_then(Value::as_u64).is_none()
+            || object
+                .get("request_id")
+                .and_then(Value::as_str)
+                .is_some_and(valid_attention_request_id)
+        {
+            continue;
+        }
+        object.insert("request_id".into(), Value::String(new_attention_request_id()?));
+        transaction.execute(
+            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
+            params![tab, value.to_string()],
+        )?;
+    }
     Ok(())
+}
+
+fn valid_attention_request_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Owner-issued 128-bit identity, independent of the clock and row lifetime.
+/// Entropy failure aborts the transaction; there is no time-based fallback.
+fn new_attention_request_id() -> anyhow::Result<String> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| anyhow::anyhow!("random attention id: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// UTF-8 bytes an attention reason holds at most (the catalog's max_length unit).
@@ -117,14 +158,17 @@ pub(crate) const MAX_ATTENTION_REASON_BYTES: usize = 200;
 /// clears once the tab is on another page, decided in the clearing
 /// transaction ([`clear_attention_off_page`]), so a mark set on the new page
 /// survives a navigation event that arrives after it.
-pub(crate) fn attention_value(reason: &str, at_ms: u64, page: Option<&str>) -> Value {
-    match page {
-        Some(page) => json!({"reason": reason, "at_ms": at_ms, "page": page}),
-        None => json!({"reason": reason, "at_ms": at_ms}),
-    }
+fn attention_value(reason: &str, at_ms: u64, page: Option<&str>) -> anyhow::Result<Value> {
+    let request_id = new_attention_request_id()?;
+    Ok(match page {
+        Some(page) => {
+            json!({"reason": reason, "at_ms": at_ms, "request_id": request_id, "page": page})
+        }
+        None => json!({"reason": reason, "at_ms": at_ms, "request_id": request_id}),
+    })
 }
 
-/// The mark as `extra.attention` shows it: `{reason, at_ms}`, without the
+/// The mark as `extra.attention` shows it: `{reason, at_ms, request_id}`, without the
 /// page it was set on.
 pub(crate) fn shown_attention(stored: &str) -> anyhow::Result<Value> {
     let mut value: Value = serde_json::from_str(stored)?;
@@ -160,6 +204,9 @@ pub(crate) struct TabStateUpdate {
     /// the tab keeps it; the agent's clear, a browser tab's navigation to
     /// another page, or the tab's close clears it.
     pub(crate) attention: Option<Option<String>>,
+    /// With attention:null, clear only the request with this identity.
+    /// Omission preserves the legacy unconditional clear API.
+    pub(crate) attention_request_id: Option<String>,
     /// The page a browser tab shows when a new attention mark is set, stored
     /// with it. Filled by `state_update_tab` from the tab's surface, never
     /// from the request.
@@ -196,6 +243,12 @@ impl TabStateUpdate {
                 "bad request: an attention reason is one line of text"
             );
         }
+        if let Some(id) = &self.attention_request_id {
+            anyhow::ensure!(
+                matches!(self.attention, Some(None)) && valid_attention_request_id(id),
+                "bad request: attention_request_id requires attention:null and 32 lowercase hex bytes"
+            );
+        }
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
                 list.len() <= MAX_HISTORY_URLS,
@@ -216,6 +269,15 @@ pub(crate) fn update_tab_state(
     transaction: &Transaction<'_>,
     tab_id: &str,
     update: &TabStateUpdate,
+) -> anyhow::Result<()> {
+    update_tab_state_at_time(transaction, tab_id, update, crate::mux::now_ms())
+}
+
+fn update_tab_state_at_time(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+    update: &TabStateUpdate,
+    at_ms: u64,
 ) -> anyhow::Result<()> {
     transaction.execute("INSERT OR IGNORE INTO tab_state(tab_id) VALUES(?1)", [tab_id])?;
     if let Some(zoom) = update.zoom {
@@ -246,13 +308,19 @@ pub(crate) fn update_tab_state(
         )?;
     }
     if let Some(attention) = &update.attention {
-        let stored = attention.as_deref().map(|reason| {
-            attention_value(reason.trim(), crate::mux::now_ms(), update.attention_page.as_deref())
-                .to_string()
-        });
+        let stored = attention
+            .as_deref()
+            .map(|reason| {
+                attention_value(reason.trim(), at_ms, update.attention_page.as_deref())
+                    .map(|value| value.to_string())
+            })
+            .transpose()?;
+        // Compare in the writing transaction, never against an earlier snapshot.
+        // A stale identity is a no-op; other requested fields still update.
         transaction.execute(
-            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
-            params![tab_id, stored],
+            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1
+             AND (?3 IS NULL OR json_extract(attention_json, '$.request_id') = ?3)",
+            params![tab_id, stored, update.attention_request_id],
         )?;
     }
     for (column, list) in [("back_json", &update.back), ("forward_json", &update.forward)] {

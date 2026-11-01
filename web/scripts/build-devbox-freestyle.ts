@@ -93,6 +93,7 @@ import {
   CMUX_TUI_HOOK_PROVIDERS,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
@@ -111,6 +112,14 @@ import {
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
+  devboxAgentDesktopInstallCommand,
+  devboxAgentDesktopSha256,
+  devboxAgentDesktopUrl,
+  devboxAgentDesktopVersion,
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
@@ -301,12 +310,16 @@ try {
   // Cloud terminal.
   await step("work-user", devboxWorkUserSetupCommand());
 
-  // The Dockerfile's devtools list, bubblewrap included: codex's Linux sandbox
-  // prerequisite, so codex uses the distro's bwrap instead of warning on every
-  // launch that it is falling back to its bundled copy.
+  // The Dockerfile's devtools list.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config locales jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs && locale-gen C.UTF-8 >/dev/null && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
+  );
+
+  // Muse needs the pinned upstream bubblewrap, rather than Ubuntu's 0.9.0.
+  await step(
+    "bubblewrap",
+    devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion()),
   );
 
   await step(
@@ -335,6 +348,15 @@ try {
   await step(
     "cua-driver",
     `curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=${cuaVersion} CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version`,
+  );
+
+  // agent-desktop: the Dockerfile's pinned release archive (URL and SHA-256)
+  // through the same install command (a test keeps them identical). It acts
+  // on the desktop through /etc/cmux/desktop-env.sh, like cua-driver; the
+  // verifier proves a snapshot of a desktop window.
+  await step(
+    "agent-desktop",
+    devboxAgentDesktopInstallCommand(devboxAgentDesktopUrl(), devboxAgentDesktopSha256(), devboxAgentDesktopVersion()),
   );
 
   // Pinned coding agents on the base's Node: the exact Dockerfile pins
@@ -515,6 +537,10 @@ try {
   // bake and the attach-time heal can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
+  // Keep the guest daemon alive across logout and image resume. This writes
+  // the same canonical user unit as `acpmux host setup`, then enables it once
+  // the binary and its state home are present.
+  await step("acpmux-service", cmuxTuiServiceInstallCommand());
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,

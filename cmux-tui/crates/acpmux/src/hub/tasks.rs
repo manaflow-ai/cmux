@@ -31,6 +31,7 @@
 
 use super::{Hub, PromptOptions};
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -104,7 +105,7 @@ pub(crate) fn result(params: &Value, state: &str, by: &str) -> Result<Value, Rpc
         "at": crate::store::now_ms(), "by": by,
     });
     if let Some(why) = why {
-        result["why"] = json!(why);
+        result.set("why", json!(why));
     }
     Ok(result)
 }
@@ -265,11 +266,14 @@ impl Hub {
     /// Whether chat `id` moved to another daemon: its log's latest move record is its commit
     /// here (`transferred`), not an arrival (`transferred_in`). Read from the log, so it holds
     /// after a restart, when `moving` is gone.
-    fn moved_on(&self, id: &str) -> anyhow::Result<bool> {
+    pub(super) fn moved_on(&self, id: &str) -> anyhow::Result<bool> {
         let mut away = false;
         let kinds = ["transferred", "transferred_in"];
         self.store.scan_kinds(id, &kinds, &mut |e: crate::store::EventRecord| {
-            away = e.kind == "transferred";
+            // The daemon's own records only: an agent's update may carry any kind.
+            if e.dir == "mux" {
+                away = e.kind == "transferred";
+            }
             true
         })?;
         Ok(away)
@@ -321,7 +325,7 @@ impl Hub {
             let mut mine = false;
             let row = self.briefs.update(id, |r| {
                 if owed(r) && (start || r["result"]["cardSending"] != true) {
-                    r["result"]["cardSending"] = json!(true);
+                    r.set_path(&["result", "cardSending"], json!(true));
                     mine = true;
                 }
             });
@@ -360,7 +364,7 @@ impl Hub {
     fn result_undelivered(&self, id: &str, at: &Value, why: &str) {
         self.briefs.update(id, |r| {
             if &r["result"]["at"] == at {
-                r["result"]["undelivered"] = json!(why);
+                r.set_path(&["result", "undelivered"], json!(why));
             }
         });
         // An owed card stays owed, for a later pass.

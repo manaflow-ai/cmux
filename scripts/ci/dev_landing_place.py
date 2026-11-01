@@ -18,7 +18,8 @@ The order (the rulebook's routing order):
 2. otherwise any free owned runner: the side label when a side runner is free, else a free root
    runner (that host is cold for this tree and warms from now on);
 3. otherwise, after looking again every POLL_SECONDS for WAIT_SECONDS (about two minutes), the
-   Blacksmith overflow label. Runners that cannot be read (no token, an API error) overflow at
+   Blacksmith overflow label (OVERFLOW_LABEL, or the other Blacksmith macOS 26 size while the queue
+   janitor's snapshot sees it stalled: overflow_label()). Runners that cannot be read (no token, an API error) overflow at
    once: a landing never waits on a queue nobody saw free.
 
 Placement reserves nothing, so the landings in flight are read once (in_flight()): a root runner
@@ -31,6 +32,22 @@ GITHUB_REPOSITORY_ID, GITHUB_RUN_ID, SHA, SIDE_LABEL, OVERFLOW_LABEL, WAIT_SECON
 GAP_REPO and GAP_REMOTE (a bare repository and the remote to fetch commits into it).
 `gap FROM TO` prints the commits between two commits (either direction), or nothing; every fetch
 has a deadline, so a stalled network never holds the job.
+
+`place` with FRESH_LABEL set places a DEV daily's Release compile (cmux-next.yml, dev-daily-place, for
+cmux-scheme-compile; place_daily()). Of 15 DEV compiles on 2026-10-28, 4 hit a warm cache, every one on
+the same host: the DEV slot label went to whichever slot was idle. It reads one runner listing, nothing
+else, and never waits:
+1. a host is occupied while any of its runners is busy: whatever holds the host lock runs on one of them,
+   so the busy flags cover every holder, with no job names to keep in step;
+2. a pick claims a host only when its label resolves to exactly one idle runner: an idle DEV slot or root
+   runner pinned by its static label, or the one idle DEV slot when there is only one; the nearest record
+   wins, a slot first at equal distance;
+3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once;
+4. with nothing owned idle, the shared DEV slot label while a DEV slot is online: it waits there behind feed work
+   only (the slots admit nothing else), never at the back of the side label's queue, which GitHub hands out
+   oldest first (2026-10-30: five DEV daily compiles queued there from 13:55Z behind about 184 PR and side
+   jobs); with no DEV slot online, or the runners unreadable, it prints an empty runs_on and the compile keeps
+   its route.
 """
 from __future__ import annotations
 
@@ -52,6 +69,8 @@ HOLDER_PREFIX = "cmux-next-dev-cas-holder-"
 BRANCH = "feat-cmux-next"
 COMPILE_JOB = "cmux NEXT DEV Release compile (landing)"
 RUNNER_LABEL_PREFIX = "glaeda-runner-"
+# A DEV daily placement that places nothing: the compile keeps macos-placement's route.
+DAILY_KEEP = {"runs_on": "", "runner_label": "", "pool": "", "host": "", "holder_sha": "", "gap": ""}
 SHA = re.compile(r"^[0-9a-f]{40}$")
 FETCH_SECONDS = 45
 # In-flight landings older than this are not read (a compile takes minutes).
@@ -194,16 +213,51 @@ def choose(roots: Sequence[str], sides: Sequence[str], side_label: str,
     return None
 
 
+def overflow_label(configured: str, read_snapshot: Callable[[], Mapping[str, Any] | None],
+                   now: dt.datetime | None = None) -> tuple[str, str]:
+    """The Blacksmith macOS label the compile overflows to, and why: OVERFLOW_LABEL while its queue moves.
+
+    blacksmith-12vcpu-macos-26 started nothing from about 02:11Z on 2026-10-28 while landings kept overflowing
+    onto it. The nightly signing jobs' pick (nightly_sign_runner.py, the one Blacksmith stall rule) skips a label
+    the queue janitor's snapshot saw stalled. No snapshot, or an unreadable one, keeps OVERFLOW_LABEL.
+    """
+    try:
+        import nightly_sign_runner  # noqa: PLC0415 - scripts/ci, next to this file
+    except Exception as error:  # noqa: BLE001 - placement never fails the job
+        print(f"dev_landing_place: stall rule unavailable: {error}", file=sys.stderr)
+        return configured, ""
+    if not nightly_sign_runner.BLACKSMITH_MACOS.fullmatch(configured):
+        return configured, ""
+    try:
+        snapshot = read_snapshot()
+    except Exception as error:  # noqa: BLE001 - the configured label keeps its say
+        print(f"dev_landing_place: pool snapshot unreadable: {error}", file=sys.stderr)
+        snapshot = None
+    try:
+        label, why = nightly_sign_runner.pick(configured, snapshot, now or dt.datetime.now(dt.timezone.utc))
+    except Exception as error:  # noqa: BLE001 - placement never fails the job; the configured label stands
+        print(f"dev_landing_place: stall pick failed: {error}", file=sys.stderr)
+        return configured, ""
+    return label, f"; Blacksmith overflow {why}"
+
+
 def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[str, Any]]],
           read_holders: Callable[[str], Sequence[Mapping[str, Any]]],
           read_in_flight: Callable[[], tuple[set[str], set[str]]] = lambda: (set(), set()),
-          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> dict[str, str]:
+          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+          read_snapshot: Callable[[], Mapping[str, Any] | None] = lambda: None,
+          now: dt.datetime | None = None) -> dict[str, str]:
     side_label = env.get("SIDE_LABEL", "")
-    overflow = env.get("OVERFLOW_LABEL") or "blacksmith-12vcpu-macos-26"
-    overflowed = {"runs_on": json.dumps(overflow), "runner_label": overflow, "pool": "blacksmith",
-                  "host": "", "holder_sha": "", "gap": ""}
+    def overflowed(reason: str) -> dict[str, str]:
+        label, why = overflow_label(env.get("OVERFLOW_LABEL") or "blacksmith-12vcpu-macos-26", read_snapshot, now)
+        return {"runs_on": json.dumps(label), "runner_label": label, "pool": "blacksmith",
+                "host": "", "holder_sha": "", "gap": "", "reason": reason + why}
+
+    fresh_label = (env.get("FRESH_LABEL") or "").strip()
     if not side_label.startswith("glaeda-side-"):
-        return {**overflowed, "reason": f"owned pools are off for this run (side route {side_label or 'unset'})"}
+        if fresh_label:  # a DEV daily keeps the route its run already has
+            return {**DAILY_KEEP, "reason": f"owned pools are off for this run (side route {side_label or 'unset'})"}
+        return overflowed(f"owned pools are off for this run (side route {side_label or 'unset'})")
     head, repo_id = env.get("SHA", ""), env.get("GITHUB_REPOSITORY_ID", "")
     gap_repo, gap_remote = env.get("GAP_REPO", ""), env.get("GAP_REMOTE", "")
     wait, poll = float(env.get("WAIT_SECONDS") or 120), max(1.0, float(env.get("POLL_SECONDS") or 30))
@@ -219,6 +273,8 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
             holders[host] = (sha, git_distance(gap_repo, sha, head, gap_remote) if sha else None)
         return holders[host]
 
+    if fresh_label:
+        return place_daily(side_label, fresh_label, read_runners, distance_of)
     try:
         taken, busy_hosts = read_in_flight()
     except Exception as error:  # noqa: BLE001 - unknown in-flight landings: place on the live state
@@ -231,13 +287,59 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
         try:
             roots, sides = free_runners(read_runners(), side_label, taken)
         except Exception as error:  # noqa: BLE001 - nobody saw an owned runner free
-            return {**overflowed, "reason": f"owned runners unreadable ({error}); overflow at once"}
+            return overflowed(f"owned runners unreadable ({error}); overflow at once")
         picked = choose(roots, sides, side_label, distance_of, busy_hosts)
         if picked:
             return picked
         if clock() - started + poll > wait:
-            return {**overflowed, "reason": f"no owned runner was free in {reads} looks over {int(clock() - started)}s"}
+            return overflowed(f"no owned runner was free in {reads} looks over {int(clock() - started)}s")
         sleep(poll)
+
+
+def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Sequence[Mapping[str, Any]]],
+                distance_of: Callable[[str], tuple[str, int | None]]) -> dict[str, str]:
+    """A DEV daily's compile: the idle runner nearest its cache, from one runner listing (see the module doc)."""
+    root_label = side_label.replace("glaeda-side-", "glaeda-root-", 1)
+    try:
+        runners = list(read_runners())
+    except Exception as error:  # noqa: BLE001 - nobody saw an owned runner idle: keep the route
+        return {**DAILY_KEEP, "reason": f"owned runners unreadable ({error}); the compile keeps its route"}
+    online = [runner for runner in runners if runner.get("name") and runner.get("status") == "online"]
+    occupied = {host_of(str(runner["name"])) for runner in online if runner.get("busy")}
+    idle = [(str(runner["name"]), {str(label.get("name")) for label in runner.get("labels") or []
+                                   if isinstance(label, Mapping)}) for runner in online if not runner.get("busy")]
+    slots = [(name, labels) for name, labels in idle if fresh_label in labels]
+    sides = [name for name, labels in idle if side_label in labels]
+    scored = []
+    for name, labels in idle:
+        if host_of(name) in occupied:
+            continue
+        pinned = static_label(name) in labels
+        if fresh_label in labels and (pinned or len(slots) == 1):
+            kind, label, runs_on = 0, fresh_label, [fresh_label, static_label(name)] if pinned else fresh_label
+        elif root_label in labels and pinned:
+            kind, label, runs_on = 1, root_label, [root_label, static_label(name)]
+        else:
+            continue
+        holder, distance = distance_of(host_of(name))
+        if distance is not None:
+            scored.append(((distance, kind, name), holder, label, runs_on))
+    if scored:
+        (distance, _, name), holder, label, runs_on = min(scored, key=lambda item: item[0])
+        return {"runs_on": json.dumps(runs_on), "runner_label": label, "pool": "owned", "host": host_of(name),
+                "holder_sha": holder, "gap": str(distance),
+                "reason": f"{name} is idle on {host_of(name)}, whose cache is {distance} commits from this commit"}
+    if slots:
+        return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
+                "reason": f"no idle runner on a free host with a cache record; {len(slots)} DEV slots are idle"}
+    if sides:
+        return {**DAILY_KEEP, "runs_on": json.dumps(side_label), "runner_label": side_label, "pool": "owned",
+                "reason": f"no idle runner on a free host with a cache record; {len(sides)} side runners are idle"}
+    if any(fresh_label in {str(label.get("name")) for label in runner.get("labels") or [] if isinstance(label, Mapping)}
+           for runner in online):
+        return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
+                "reason": "no owned runner is idle; the compile waits on a busy DEV slot, behind feed work only"}
+    return {**DAILY_KEEP, "reason": "no owned runner is idle and no DEV slot is online; the compile keeps its route"}
 
 
 def gap_main(source: str, head: str) -> int:
@@ -284,7 +386,11 @@ def main(argv: Sequence[str]) -> int:
         return in_flight(runs, lambda run_id: api.get(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
                          .get("jobs") or [], env.get("GITHUB_RUN_ID", ""), dt.datetime.now(dt.timezone.utc))
 
-    outputs = place(env, read_runners, read_holders, read_in_flight)
+    def read_snapshot() -> Mapping[str, Any] | None:
+        # The queue janitor's pool snapshot (an artifact; the routing token has actions: read).
+        return api.snapshot(now=dt.datetime.now(dt.timezone.utc)) if api is not None else None
+
+    outputs = place(env, read_runners, read_holders, read_in_flight, read_snapshot=read_snapshot)
     print(f"::notice title=DEV landing placement::{outputs['reason']}", file=sys.stderr)
     for key in ("runs_on", "runner_label", "pool", "host", "holder_sha", "gap", "reason"):
         print(f"{key}={' '.join(str(outputs.get(key, '')).split())}")

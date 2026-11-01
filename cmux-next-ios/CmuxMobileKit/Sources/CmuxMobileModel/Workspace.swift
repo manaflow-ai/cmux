@@ -47,6 +47,12 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     /// The Mac's workspace group the workspace is in (its personal sidebar
     /// group, `list-personal`), if any.
     public var group: MacWorkspaceGroup?
+    /// The workspace's panes on its Mac, from the Mac's live tree (never saved: a snapshot
+    /// shows no Panes page until the Mac lists the workspace again).
+    public var layout: WorkspaceLayout?
+    /// The workspace's screens on the Mac, in its screen bar's order (`MacScreen`). Empty when
+    /// the Mac's tree has not listed them (mock data, an old saved copy).
+    public var screens: [MacScreen] = []
 
     public init(
         id: String, macID: String, title: String, directory: String, branch: String? = nil,
@@ -76,7 +82,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
-        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group, screens
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -107,6 +113,7 @@ extension Workspace {
         hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
         isHome = try c.decodeIfPresent(Bool.self, forKey: .isHome) ?? false
         group = try c.decodeIfPresent(MacWorkspaceGroup.self, forKey: .group)
+        screens = try c.decodeIfPresent([MacScreen].self, forKey: .screens) ?? []
     }
 }
 
@@ -176,12 +183,40 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         public var color: String
         /// Saved ("Pin Group" on the Mac): `saved_id` is set.
         public var isSaved: Bool
+        /// The group's icon on the Mac (`tab-group-icon-v1`): an SF Symbol or one emoji.
+        public var icon: String?
+        /// Collapsed in the Mac's tab strip (Collapse Tab Group).
+        public var isCollapsed: Bool
 
-        public init(id: String, name: String = "", color: String = "grey", isSaved: Bool = false) {
+        public init(id: String, name: String = "", color: String = "grey", isSaved: Bool = false, icon: String? = nil,
+                    isCollapsed: Bool = false) {
             self.id = id
             self.name = name
             self.color = color
             self.isSaved = isSaved
+            self.icon = icon
+            self.isCollapsed = isCollapsed
+        }
+
+        enum CodingKeys: String, CodingKey { case id, name, color, isSaved, icon, isCollapsed }
+
+        /// Copies saved before `icon` and `isCollapsed` existed still load.
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(id: try c.decode(String.self, forKey: .id),
+                      name: try c.decodeIfPresent(String.self, forKey: .name) ?? "",
+                      color: try c.decodeIfPresent(String.self, forKey: .color) ?? "grey",
+                      isSaved: try c.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false,
+                      icon: try c.decodeIfPresent(String.self, forKey: .icon),
+                      isCollapsed: try c.decodeIfPresent(Bool.self, forKey: .isCollapsed) ?? false)
+        }
+
+        /// The Mac's group colors (`GroupColor.allCases`), in its menu's order.
+        public static let colors = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]
+
+        /// A palette color's name as the Mac's menu shows it ("Grey"); a custom color reads "Custom".
+        public static func colorTitle(_ token: String) -> String {
+            colors.contains(token) ? token.prefix(1).uppercased() + token.dropFirst() : "Custom"
         }
 
         /// The Mac's next group color (`GroupColor.automatic`): the first of its automatic order

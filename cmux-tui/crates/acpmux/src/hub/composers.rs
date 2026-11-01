@@ -22,6 +22,7 @@
 //! durable shared draft stays `_acpmux/draft_set`.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::{BTreeMap, VecDeque};
 
 /// Longest surface id or name, in characters.
@@ -45,7 +46,7 @@ impl Surface {
     fn record(&self) -> Value {
         let mut v = json!({"surfaceId": self.id, "name": self.name});
         if let Some(kind) = &self.kind {
-            v["kind"] = json!(kind);
+            v.set("kind", json!(kind));
         }
         v
     }
@@ -53,8 +54,8 @@ impl Surface {
     /// The `composer` record for it: who, through which connection, and whether it composes.
     fn composer(&self, client: &str, composing: bool) -> Value {
         let mut v = self.record();
-        v["client"] = json!(client);
-        v["composing"] = json!(composing);
+        v.set("client", json!(client));
+        v.set("composing", json!(composing));
         v
     }
 }
@@ -208,7 +209,7 @@ impl Hub {
             }
         }
         let mut rec = surface.composer(client, false);
-        rec["promptId"] = json!(prompt_id);
+        rec.set("promptId", json!(prompt_id));
         self.append(session, "mux", "composer", rec);
     }
     /// `_acpmux/composers {sessionId}`: every surface's unsent text (latest first), the running
@@ -221,8 +222,8 @@ impl Hub {
             .into_iter()
             .map(|d| {
                 let mut v = d.surface.record();
-                v["text"] = json!(d.text);
-                v["updatedAt"] = json!(d.updated_at);
+                v.set("text", json!(d.text));
+                v.set("updatedAt", json!(d.updated_at));
                 v
             })
             .collect();
@@ -234,6 +235,8 @@ impl Hub {
             .queue()
             .into_iter()
             .map(|q| {
+                let (from_session_id, from_harness) =
+                    crate::prompt_provenance::sender_of(q.run.provenance.as_ref());
                 json!({
                     "promptId": q.prompt_id,
                     "turnId": q.turn_id,
@@ -241,8 +244,14 @@ impl Hub {
                     "prompt": q.preview,
                     "queuedAt": q.queued_at,
                     "held": q.held,
+                    "awaitingOwner": q.awaiting_owner,
+                    "revision": q.revision,
                     "fromAgent": q.run.agent,
+                    "fromSessionId": from_session_id,
+                    "fromHarness": from_harness,
+                    "class": q.run.class,
                     "author": crate::author::listed(q.run.provenance.as_ref()),
+                    "subagentRetry": super::subagent_retry::listed(q.run.provenance.as_ref()),
                     "surface": label(&q.prompt_id),
                 })
             })

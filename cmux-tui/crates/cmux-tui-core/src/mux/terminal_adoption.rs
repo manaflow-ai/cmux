@@ -176,7 +176,7 @@ impl Mux {
                 && !template_claimed
                 && options.adopt_template_terminal
                 && detached_terminals::names_a_workspace(&record.workspace_key)
-                && self.state.lock().unwrap().workspaces.is_empty()
+                && self.template_claimable(&record.workspace_key)
                 && terminal_host_record_liveness(&record_path, &record)
                     == TerminalHostLiveness::Live
             {
@@ -347,6 +347,11 @@ impl Mux {
         self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
         // The threads start after this pass: their registry commits would
         // otherwise queue each read above behind them (745 ms for 60 hosts).
+        // The workspace the user sees adopts first (startup_adoption_gate.rs).
+        let visible = self.with_state(|state| {
+            state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
+        });
+        deferred.sort_by_key(|(record, _)| Some(&record.workspace_key) != visible.as_ref());
         for (record, record_path) in deferred {
             self.schedule_terminal_adoption_after(
                 options.clone(),
@@ -471,6 +476,23 @@ impl Mux {
             "terminal.adopt-template",
             serde_json::json!({}),
         )?;
+        // The host's own record (its recovery mirror, which a rehost copies) names this machine's
+        // workspace now, not the key every clone of the snapshot shares.
+        let surface = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state
+                .surfaces
+                .values()
+                .find(|surface| {
+                    surface
+                        .terminal_host_identity()
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                })
+                .cloned()
+        };
+        if let Some(surface) = surface {
+            let _ = surface.persist_host_workspace(&terminal.workspace_key);
+        }
         let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
         if let Some(path) = bound_file.filter(|_| is_template_terminal(&terminal)) {
             self.publish_template_binding(terminal_id, &path)?;
@@ -480,8 +502,8 @@ impl Mux {
 
     /// Claim a Cloud snapshot's warm terminal host as the first terminal of
     /// this fresh registry (SurfaceOptions::adopt_template_terminal). The
-    /// host's workspace is recreated under its recorded key and named from
-    /// the options; the durable row is marked as a template terminal so
+    /// host's workspace is created under this machine's own key
+    /// (`template_workspace_key`) and named from the options; the durable row is marked as a template terminal so
     /// finish_terminal_adoption gives it a new placement with fresh public
     /// ids. The ordinary adoption handshake follows.
     #[cfg(any(unix, windows))]
@@ -490,14 +512,25 @@ impl Mux {
         options: &SurfaceOptions,
         record: &crate::terminal_host_runtime::TerminalHostRecord,
     ) -> anyhow::Result<RegistryTerminal> {
-        self.create_empty_workspace(
-            options.template_workspace_name.clone(),
-            Some(record.workspace_key.clone()),
-            None,
-        )?;
+        // This machine's own key, never the builder's (`template_workspace_key`). A claim cut short
+        // after the workspace's commit finds its workspace again on the next start.
+        let workspace_key = self.template_workspace_key(&record.workspace_key);
+        if self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .workspace_by_key(&workspace_key)
+            .is_none()
+        {
+            self.create_empty_workspace(
+                options.template_workspace_name.clone(),
+                Some(workspace_key.clone()),
+                None,
+            )?;
+        }
         let claimed = RegistryTerminal {
             terminal_id: record.terminal_id.clone(),
-            workspace_key: record.workspace_key.clone(),
+            workspace_key,
             incarnation: None,
             lifecycle: TerminalLifecycle::Launching,
             launch_spec: template_terminal_launch_spec(),
@@ -513,6 +546,27 @@ impl Mux {
         )?;
         self.emit_terminal_registry_changed(&registry, revision);
         Ok(claimed)
+    }
+
+    /// The template workspace's key on this machine. Every clone of a snapshot holds the warm host
+    /// with the builder's workspace key, and machines that share a key are one workspace to an app
+    /// that shows several (one clone's row drew under every machine's section). So the key comes
+    /// from this session and the builder's key: each clone has its own, and a restart of this one
+    /// derives the same, so a claim cut short between its two commits finishes on the next start.
+    pub(super) fn template_workspace_key(&self, builder_key: &str) -> String {
+        derive_template_workspace_key(self.session_public_id().as_str(), builder_key)
+    }
+
+    /// Whether the warm host may be claimed: this registry has no workspace yet, or only the one an
+    /// earlier claim on this machine created before it was cut short (no terminal row yet).
+    fn template_claimable(&self, builder_key: &str) -> bool {
+        let key = self.template_workspace_key(builder_key);
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        match state.workspaces.as_slice() {
+            [] => true,
+            [only] => only.key == key,
+            _ => false,
+        }
     }
 
     /// Tell the warm template shell its new identity. The shell was spawned
@@ -659,6 +713,9 @@ impl Mux {
 
         let before = state.clone();
         let restored_public_id = surface.terminal_public_id().cloned();
+        // Kept to publish the replayed reports once the terminal is live;
+        // `surface` itself moves into state below.
+        let adopted = surface.clone();
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
@@ -718,6 +775,11 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // The host's replay carries the shell's last directory and progress
+        // reports, pending until the terminal is live: publish them now, as
+        // a reconnect does. An idle shell prints nothing that would.
+        adopted.publish_pending_directory();
+        adopted.publish_pending_progress();
         self.publish_adopted_detached_terminal(terminal_id);
         // Clients read tab liveness from the tree: an adopting tab is live now.
         if self.clear_pending_terminal(terminal_id) {
@@ -826,6 +888,8 @@ impl Mux {
         }
         let cleanup_id = terminal_id.clone();
         let mux = self.clone();
+        // A start's adoption (no first delay) takes a turn for its first attempt.
+        let ticket = first_delay.is_zero().then(|| self.startup_adoption_gate.ticket());
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
@@ -837,11 +901,7 @@ impl Mux {
                     let deadline = Instant::now() + STARTUP_READY_WAIT;
                     while !mux.server_lifecycle_ready()
                         && !mux.startup_adoptions_released.load(Ordering::Acquire)
-                        && !mux
-                            .terminal_adoptions_now
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .contains(&terminal_id)
+                        && !mux.terminal_adoption_wanted_now(&terminal_id)
                         && !mux.shutting_down.load(Ordering::Acquire)
                         && Instant::now() < deadline
                     {
@@ -857,9 +917,33 @@ impl Mux {
                 {
                     std::thread::sleep(Duration::from_millis(ms));
                 }
+                // A terminal a request waits on (a reopen) gives its place up
+                // and adopts at once, without a turn.
+                let mut turn = ticket.and_then(|ticket| {
+                    mux.startup_adoption_gate.turn(ticket, || {
+                        mux.shutting_down.load(Ordering::Acquire)
+                            || mux.terminal_adoption_wanted_now(&terminal_id)
+                    })
+                });
+                // Test seam: a slow first attempt, held inside its turn (debug only).
+                #[cfg(debug_assertions)]
+                if turn.is_some()
+                    && let Some(ms) = std::env::var("CMUX_TUI_TEST_ADOPT_TURN_DELAY_MS")
+                        .ok()
+                        .and_then(|value| value.parse::<u64>().ok())
+                {
+                    std::thread::sleep(Duration::from_millis(ms.min(5_000)));
+                }
+                let mut first_attempt = true;
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {
+                    // Only the first attempt holds the turn: a retry waits on its
+                    // own backoff without blocking the next host.
+                    if !std::mem::take(&mut first_attempt) {
+                        turn = None;
+                    }
+                    let _ = &turn;
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
@@ -1075,13 +1159,16 @@ impl Mux {
     }
 
     /// Waits, at most `bound`, until the adoption of `terminal_id` (a host id)
-    /// ended, and has it start at once instead of after the owner says ready.
-    /// Holds no other lock while it waits.
+    /// ended, and has it start at once instead of after the owner says ready
+    /// or after its turn in the start's adoption gate. Holds no other lock
+    /// while it waits.
     pub(crate) fn wait_for_terminal_adoption(&self, terminal_id: &str, bound: Duration) {
         self.terminal_adoptions_now
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(terminal_id.to_owned());
+        // An adoption waiting for its turn re-checks and gives its place up.
+        self.startup_adoption_gate.wake_all();
         let deadline = Instant::now() + bound;
         let mut adoptions = self.terminal_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
         while adoptions.contains(terminal_id) {
@@ -1100,6 +1187,15 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(terminal_id);
+    }
+
+    /// Whether a request waits on the adoption of `terminal_id`
+    /// (`wait_for_terminal_adoption`): it then skips the start's waits.
+    fn terminal_adoption_wanted_now(&self, terminal_id: &str) -> bool {
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
     }
 
     /// The running terminal `terminal_id` names, for a reopen that gives it a
@@ -1149,5 +1245,49 @@ impl Drop for AdoptionSlot {
     fn drop(&mut self) {
         *ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
         ADOPTION_SLOT_FREED.notify_one();
+    }
+}
+
+/// The template workspace key for session `session_id` and builder key `builder_key`: a UUIDv8
+/// (RFC 9562, custom) from the first 16 bytes of `SHA-256(session_id, 0, builder_key)`, in the
+/// lowercase 8-4-4-4-12 form every workspace key takes. A restart derives the same key, so the
+/// derivation must never change.
+fn derive_template_workspace_key(session_id: &str, builder_key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+    let digest = Sha256::new()
+        .chain_update(session_id)
+        .chain_update([0])
+        .chain_update(builder_key)
+        .finalize();
+    let mut bytes = [0u8; 16];
+    for (byte, digest_byte) in bytes.iter_mut().zip(digest.iter()) {
+        *byte = *digest_byte;
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let mut key = String::with_capacity(36);
+    for (index, byte) in bytes.iter().enumerate() {
+        if matches!(index, 4 | 6 | 8 | 10) {
+            key.push('-');
+        }
+        // Writing to a String cannot fail.
+        let _ = write!(key, "{byte:02x}");
+    }
+    key
+}
+
+#[cfg(test)]
+mod template_workspace_key_tests {
+    use super::derive_template_workspace_key;
+
+    /// The key the first derivation (#27895) gave: a restart of a claim cut short finds its
+    /// workspace by this key, so the derivation's output must stay byte for byte the same.
+    #[test]
+    fn the_template_workspace_key_is_the_same_uuidv8_as_the_first_derivation() {
+        assert_eq!(
+            derive_template_workspace_key("sess-0123", "6b0c1a52-7d3e-4f6a-9b1c-2d3e4f5a6b7c"),
+            "c20bfc16-7d4f-8de7-a6a2-8ec42b62a821"
+        );
     }
 }

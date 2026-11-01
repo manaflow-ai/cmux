@@ -7,20 +7,27 @@ BAD), installs the hooks with scripts/install-git-hooks.sh, and pushes to a
 bare `origin` through the real `git push`, so the installed trusted hook copy is
 what runs.
 """
+import io
+import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import tempfile
 import sys
 import unittest
+from unittest import mock
 import git_fixture_env  # disables git auto maintenance
 
 
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
-              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON")
+              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_LOCAL_HEAVY_CHECKS")
+# A host that runs no heavy checks, outside CI: CI (CI or GITHUB_ACTIONS=true) always runs every piece, so a test
+# run on a CI runner must clear both or it would test CI's behaviour instead.
+LIGHT_HOST = {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "", "GITHUB_ACTIONS": ""}
 
 # Two `&&` pieces, as webviews' real check script has many; each fails on BAD.
 WEBVIEWS_PACKAGE = """{
@@ -204,7 +211,7 @@ class WebLintPrePushTests(unittest.TestCase):
                                 capture_output=True)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("webviews: sh check-lanes.sh && sh check-format.sh", result.stdout)
+        self.assertIn("webviews: sh check-lanes.sh\nwebviews: sh check-format.sh\n", result.stdout)
         self.assertEqual(trees(), [])
 
     def remote_head(self):
@@ -450,6 +457,452 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn("not linted here", result.stderr)
         self.assertIn("webviews/check-lanes.sh", result.stderr)
 
+    # webviews' check, cut down: a light python3 check, a nested script that mixes an allowlisted bun source check
+    # with a type-aware lint (as check:effect-cleanup is), the formatter check, and the type check.
+    HEAVY_CHECK = ('"python3 scripts/check_lanes.py && bun run check:nested && vp fmt --check && vp check --no-fmt --no-lint"')
+    NESTED = '"bun scripts/check-design.ts && vp lint --config scripts/lint/x.json src"'
+    CHECK_LANES_PY = "import pathlib, sys\nsys.exit(1 if 'BAD_LANE' in pathlib.Path('src/app.ts').read_text() else 0)\n"
+
+    # webviews' real shape since #24438: `check` is the run-check-pieces.py runner and the chain is `check:pieces`.
+    RUNNER_CHECK = ('"python3 ../scripts/cmux-next/run-check-pieces.py", "check:pieces": ' + HEAVY_CHECK)
+
+    def heavy_fixture(self, check=None):
+        """webviews' check gains the heavy pieces; stand-ins for vp and bun log each call with its niceness and Go
+        thread cap. Seeded on origin, so the push under test changes only source; returns that push's env (outside
+        CI) and the log."""
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', check or self.HEAVY_CHECK).replace(
+            '"check:fix": "sh fix-format.sh"', f'"check:fix": "vp check --fix", "check:nested": {self.NESTED}'))
+        self.write("webviews/scripts/check_lanes.py", self.CHECK_LANES_PY)
+        self.commit("heavy pieces")
+        seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: seed the heavy pieces on origin first")
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        bin_dir = self.repo / "webviews/node_modules/.bin"
+        bin_dir.mkdir(parents=True)
+        for name in ("vp", "bun"):
+            (bin_dir / name).write_text(f'#!/bin/sh\necho "{name} $* nice=$(ps -o nice= -p $$ | tr -d " ") GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n')
+            (bin_dir / name).chmod(0o755)
+        self.write("webviews/src/app.ts", "export const app = 7;\n")
+        self.commit("source change")
+        log = self.root / "vp.log"
+        env = {key: value for key, value in self.env.items() if key not in ("GITHUB_ACTIONS", "CI")}
+        env["VP_LOG"] = str(log)
+        return env, log
+
+    def push_with(self, env):
+        return subprocess.run(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
+                              env=env, text=True, capture_output=True)
+
+    def logged(self, log):
+        return [line.split(" nice=")[0] for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_a_host_that_runs_no_heavy_checks_runs_only_the_allowlist(self):
+        env, log = self.heavy_fixture()
+
+        result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.logged(log)), ["bun scripts/check-design.ts", "vp fmt --check"])
+        self.assertIn("not run on this host (CMUX_LOCAL_HEAVY_CHECKS=0): vp lint --config scripts/lint/x.json src, "
+                      "vp check --no-fmt --no-lint", result.stderr)
+        self.assertIn("cmux-ci test", result.stderr, "must say where to run it instead")
+        self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
+
+    def test_a_host_that_runs_no_heavy_checks_runs_only_the_allowlisted_pieces_of_the_check_runner(self):
+        # webviews' `check` is `python3 ../scripts/cmux-next/run-check-pieces.py` (#24438). The light host resolves
+        # it through `check:pieces` and runs only the allowlisted pieces, never the runner as one opaque command
+        # (which would run vp lint and vp check too).
+        env, log = self.heavy_fixture(self.RUNNER_CHECK)
+
+        result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.logged(log)), ["bun scripts/check-design.ts", "vp fmt --check"])
+        self.assertIn("not run on this host (CMUX_LOCAL_HEAVY_CHECKS=0): vp lint --config scripts/lint/x.json src, "
+                      "vp check --no-fmt --no-lint", result.stderr)
+        self.assertNotIn("run-check-pieces.py", result.stderr)
+
+    def test_light_pieces_still_refuse_a_bad_push_on_a_host_that_runs_no_heavy_checks(self):
+        env, log = self.heavy_fixture()
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
+        self.commit("bad lane")
+
+        result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("python3 scripts/check_lanes.py", result.stderr)
+        self.assertNotIn("vp check --no-fmt --no-lint", self.logged(log))
+
+    def test_a_build_host_runs_every_piece_niced_and_capped(self):
+        env, log = self.heavy_fixture()
+
+        result = self.push_with(env)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = log.read_text().splitlines()
+        self.assertIn("bun run check:nested", [c.split(" nice=")[0] for c in calls])
+        self.assertIn("vp check --no-fmt --no-lint", [c.split(" nice=")[0] for c in calls])
+        for call in calls:
+            self.assertRegex(call, r" nice=\d+ GOMAXPROCS=\d+$")
+            self.assertGreaterEqual(int(call.split("nice=")[1].split()[0]), 10, call)
+
+    def spawned(self, argv, heavy):
+        """Run the lint in process with every subprocess.run recorded and none but git executed (a stand-in answers
+        the rest, failing the python3 check when the tree it runs in has BAD_LANE); returns (exit code, the commands
+        spawned, nice stripped)."""
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        seen = []
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if words and Path(words[0]).name == "nice":
+                words = words[3:]
+            if words and Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            seen.append(" ".join(Path(words[0]).name if i == 0 else w for i, w in enumerate(words)))
+            cwd = Path(kwargs.get("cwd") or ".")
+            failed = words[:1] == ["python3"] and "BAD_LANE" in (cwd / "src/app.ts").read_text()
+            return subprocess.CompletedProcess(command, 1 if failed else 0,
+                                               "src/app.ts:1:1: error lane\n" if failed else "", "")
+
+        env = {"CMUX_LOCAL_HEAVY_CHECKS": "1" if heavy else "0", "GITHUB_ACTIONS": "", "CI": ""}
+        with mock.patch.dict(os.environ, env), mock.patch.object(lint.subprocess, "run", spy), \
+                mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+            code = lint.main(["--repo", str(self.repo), *argv])
+        return code, seen
+
+    def test_no_mode_spawns_more_than_the_allowlist_on_a_host_that_runs_no_heavy_checks(self):
+        self.heavy_fixture()
+        (self.repo / "web/node_modules").mkdir(exist_ok=True)
+        self.write("web/app/page.tsx", "export const page = 3;\n")
+        self.commit("web change")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
+        self.write("webviews/package.json", (self.repo / "webviews/package.json").read_text().replace(
+            '"name": "webviews-fixture"', '"name": "webviews-changed"'))  # a base tree cannot share node_modules
+        self.commit("red change")
+        red = self.git("rev-parse", "HEAD").stdout.strip()
+        allowed = {"python3 scripts/check_lanes.py", "bun scripts/check-design.ts", "vp fmt --check",
+                   "eslint --quiet --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-web-lint/ "
+                   "app/page.tsx", "eslint --quiet --no-warn-ignored app/page.tsx",
+                   "eslint --quiet --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-web-lint/ "
+                   "--fix app/page.tsx"}  # web/'s ESLint is syntax-only (no type information)
+        modes = {
+            "checked-out --head": ["--base", "HEAD~1", "--head", red],
+            "another commit (lint tree)": ["--base", "HEAD~2", "--head", head],
+            "--new-only on a red change": ["--base", "HEAD~1", "--head", red, "--new-only"],
+            "--all": ["--all", "--base", red, "--head", red],
+            "--fix": ["--fix", "--base", "HEAD~2"],
+        }
+        for name, argv in modes.items():
+            with self.subTest(mode=name):
+                code, seen = self.spawned(argv, heavy=False)
+                self.assertTrue(seen, "the allowlisted checks must still run")
+                self.assertLessEqual(set(seen), allowed, seen)
+        code, seen = self.spawned(modes["--new-only on a red change"], heavy=False)
+        self.assertEqual(code, 1, "with no base comparison the red stays the change's")
+
+    def test_a_dry_run_lists_exactly_what_a_run_spawns(self):
+        # Reviews of 91644bb and 7d129c5: the dry run skipped light_plan() and the --fix passes. Both now come from
+        # plan_steps(). For every cell of {light, full} x {fix, no fix} x {checked-out head, lint tree}, the dry run's
+        # lines equal the commands the run spawns: setup and fix passes in order, then the checks (which run in
+        # parallel) as a set. A package without node_modules is in neither in light mode.
+        self.heavy_fixture()
+        self.write("web/app/page.tsx", "export const page = 4;\n")
+        self.write("webviews/src/app.ts", "export const app = 9;\n")
+        self.write("cmux-tui/frontends/web/package.json", '{"name": "tui", "scripts": {"check": "vp fmt --check"}}\n')
+        self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 1;\n")  # no node_modules
+        self.commit("web, webviews and tui changes")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        lint = load_lint(self.repo)
+
+        def normal(area, words):
+            return f"{Path(area).name}: {' '.join([Path(words[0]).name, *words[1:]])}"
+
+        def phase(line):
+            area, command = line.split(": ", 1)
+            if area == "typescript":
+                return 0  # the bindings build
+            if command.startswith(("bun install", "npm ci")):
+                return 1
+            if "--fix" in command.split():
+                return 2
+            return 3
+
+        def spy_run(argv, env):
+            real = subprocess.run
+            spawned = []
+
+            def spy(command, *args, **kwargs):
+                words = command.split() if isinstance(command, str) else [str(w) for w in command]
+                if words and Path(words[0]).name == "nice":
+                    words = words[3:]
+                if words[:2] == ["/bin/sh", "-c"]:
+                    words = words[2].split()
+                if Path(words[0]).name == "git":
+                    return real(command, *args, **kwargs)
+                spawned.append(normal(kwargs["cwd"], words))
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with mock.patch.dict(os.environ, env), mock.patch.object(lint.subprocess, "run", spy), \
+                    mock.patch.object(lint, "build_current", lambda repo, build: False), \
+                    mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                lint.main(["--repo", str(self.repo), *argv])
+            return spawned
+
+        cells = 0
+        for heavy in ("0", "1"):
+            for fix in (False, True):
+                for where in ("checked-out head", "lint tree"):
+                    if fix and where == "lint tree":
+                        continue  # --fix edits the working tree itself, never a lint tree
+                    argv = (["--fix", "--base", "HEAD~1"] if fix else
+                            ["--base", "HEAD~1" if where == "checked-out head" else "HEAD~2", "--head", head])
+                    with self.subTest(heavy=heavy, fix=fix, where=where):
+                        if where == "lint tree":
+                            self.git("checkout", "--quiet", "HEAD~1")
+                        env = {"CMUX_LOCAL_HEAVY_CHECKS": heavy, "GITHUB_ACTIONS": "", "CI": ""}
+                        # The dry run first: the run writes build and install stamps, which change what comes next.
+                        with mock.patch.dict(os.environ, env), \
+                                mock.patch.object(lint, "build_current", lambda repo, build: False), \
+                                mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
+                                mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                            lint.main(["--repo", str(self.repo), "--dry-run", *argv])
+                        spawned = spy_run(argv, env)
+                        listed = [normal(line.split(": ", 1)[0], shlex.split(line.split(": ", 1)[1]))
+                                  for line in out.getvalue().splitlines()]
+                        self.assertTrue(listed)
+                        self.assertEqual(sorted(listed), sorted(spawned))
+                        # Phases, as run_plan runs them: builds (in order), installs (in parallel), fix passes (in
+                        # order), checks (in parallel). Each list keeps the phases in that order, and the in-order
+                        # phases match line for line.
+                        for commands in (listed, spawned):
+                            phases = [phase(line) for line in commands]
+                            self.assertEqual(phases, sorted(phases), commands)
+                        for ordered in (0, 2):
+                            self.assertEqual([c for c in listed if phase(c) == ordered],
+                                             [c for c in spawned if phase(c) == ordered])
+                        if heavy == "0":
+                            self.assertFalse([line for line in listed if line.startswith("web: vp")], listed)
+                            self.assertFalse([line for line in listed if " install" in line], listed)
+                        if fix:
+                            self.assertTrue(ordered, "a --fix run lists its fix passes")
+                        self.git("checkout", "--quiet", "feat-cmux-next")
+                        cells += 1
+        self.assertEqual(cells, 6)
+
+    def test_every_spawn_on_a_build_host_is_niced_and_capped(self):
+        self.heavy_fixture()
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        spawned = []
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name != "git":
+                spawned.append((words, kwargs.get("env") or {}))
+                return subprocess.CompletedProcess(command, 0, "", "")
+            return real(command, *args, **kwargs)
+
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": "", "CI": ""}), \
+                mock.patch.object(lint.subprocess, "run", spy), \
+                mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+            lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head])
+        self.assertTrue(spawned)
+        for words, env in spawned:
+            self.assertEqual(Path(words[0]).name, "nice", words)
+            self.assertIn("GOMAXPROCS", env)
+            self.assertIn("GOMEMLIMIT", env)
+            self.assertIn("--max-old-space-size", env.get("NODE_OPTIONS", ""))
+
+    def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
+        # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,
+        # so it gets the same nice and caps as the first.
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', '"vp lint"'))
+        self.commit("a heavy check")
+        vp = self.repo / "webviews/node_modules/.bin/vp"
+        vp.parent.mkdir(parents=True)
+        vp.write_text('#!/bin/sh\necho "vp nice=$(ps -o nice= -p $$ | tr -d " ") GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n'
+                      'echo "src/app.ts:1:1: error same-finding"; exit 1\n')
+        vp.chmod(0o755)
+        self.write("webviews/src/app.ts", "export const app = 8;\n")
+        self.commit("a change on a red base")
+        log = self.root / "vp.log"
+        env = {key: value for key, value in self.env.items() if key not in ("GITHUB_ACTIONS", "CI")}
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+
+        result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD~1", "--head", head,
+                                 "--new-only"], cwd=self.repo, env={**env, "VP_LOG": str(log)}, text=True,
+                                capture_output=True)
+
+        calls = log.read_text().splitlines()
+        self.assertEqual(len(calls), 2, (calls, result.stderr))
+        for call in calls:
+            self.assertRegex(call, r"^vp nice=\d+ GOMAXPROCS=\d+$")
+            self.assertGreaterEqual(int(call.split("nice=")[1].split()[0]), 10, call)
+
+    def test_the_allowlist_is_exact(self):
+        lint = load_lint(self.repo)
+        webviews = lint.SCRIPT_PACKAGES[0]
+        scripts = {"check:effect-cleanup": "vp lint --config scripts/lint/effect-cleanup.json src dev-server",
+                   "check:nested": "bun run check:effect-cleanup", "check:fixed-waits": "bun scripts/check-fixed-waits.ts",
+                   "check:layers": "python3 ../scripts/cmux-next/check-layers.py", "loop": "bun run loop"}
+        light, rest = lint.light_leaves(webviews, [
+            "bun run check:fixed-waits", "bun run check:layers", "vp fmt --check", "bun run check:nested",
+            "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py ..",
+            "vp lint", "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
+            "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install",
+            "vp fmt --check --write", "vp fmt"], scripts)
+        self.assertEqual(light, ["bun scripts/check-fixed-waits.ts", "python3 ../scripts/cmux-next/check-layers.py",
+                                 "vp fmt --check", "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py .."])
+        self.assertEqual(rest, ["vp lint --config scripts/lint/effect-cleanup.json src dev-server", "vp lint",
+                                "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
+                                "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install",
+                                "vp fmt --check --write", "vp fmt"])
+
+    def test_ci_runs_every_piece_even_where_the_host_says_no_heavy_checks(self):
+        lint = load_lint(self.repo)
+        for ci in ({"CI": "true"}, {"GITHUB_ACTIONS": "true"}):
+            with self.subTest(ci=ci), mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "",
+                                                                    "GITHUB_ACTIONS": "", **ci}):
+                self.assertTrue(lint.local_heavy_checks())
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "", "GITHUB_ACTIONS": ""}):
+            self.assertFalse(lint.local_heavy_checks())
+
+    def test_a_bun_found_through_a_relative_path_entry_installs(self):
+        lint = load_lint(self.repo)
+        ran = []
+        found = lambda name: "node_modules/.bin/bun" if name in ("bun", "node_modules/.bin/bun") else None
+        with mock.patch.object(lint.shutil, "which", found), mock.patch.object(
+                lint, "run_leaving_no_lockfile",
+                lambda command, cwd: ran.append(command) or subprocess.CompletedProcess(command, 0, "", "")):
+            self.assertIsNone(lint.ensure_deps(self.repo, "webviews", force=True))
+        self.assertEqual(ran[0][0], "node_modules/.bin/bun")
+        with mock.patch.object(lint.shutil, "which", lambda name: None):
+            missing = lint.ensure_deps(self.repo, "webviews", force=True)
+        self.assertIn("bun is not on PATH", missing.output)
+
+    def test_a_nested_check_runner_resolves_to_its_pieces(self):
+        lint = load_lint(self.repo)
+        webviews = lint.SCRIPT_PACKAGES[0]
+        scripts = {"check:sub": "python3 ../scripts/cmux-next/run-check-pieces.py",
+                   "check:sub:pieces": "vp fmt --check && vp lint"}
+        self.assertEqual(lint.light_leaves(webviews, ["bun run check:sub"], scripts), (["vp fmt --check"], ["vp lint"]))
+
+    def test_python3_and_bun_are_light_only_for_a_guarded_source_check_script(self):
+        # Review of 3811e05: any shell-free `python3 ...` was light, so `python3 -m pip install ..` ran there.
+        lint = load_lint(self.repo)
+        webviews = lint.SCRIPT_PACKAGES[0]
+        for piece in ("python3", "python3 -I", "python3 -m pip install requests", "python3 -m compileall .",
+                      "python3 -c print(1)", "python3 -u scripts/x.py", "python3 -I -m pip install x",
+                      "python3 check.py", "python3 src/check.py", "python3 /tmp/scripts/x.py",
+                      "python3 ../../x/scripts/x.py", "python3 ../web/scripts/x.py", "python3 scripts/x.sh",
+                      "python3 scripts/", "bun", "bun scripts/x.js", "bun -e scripts/x.ts",
+                      "bun ../escape/scripts/x.ts", "bun x.ts", "bun scripts/../x.ts",
+                      # Review of bead8b5: under src/, test/ or tests/ a push may change the script and still be
+                      # linted, so the hook would run the changed code.
+                      "bun src/scripts/evil.ts", "python3 test/scripts/x.py", "bun tests/scripts/x.ts",
+                      "python3 -I src/lint/scripts/x.py"):
+            with self.subTest(piece=piece):
+                self.assertFalse(lint.is_light(piece, webviews))
+        for piece in ("python3 scripts/check.py", "python3 -I scripts/check.py --root ..",
+                      "python3 ../scripts/cmux-next/check-layers.py", "bun scripts/check-fixed-waits.ts",
+                      "bun scripts/lint/x.ts"):
+            with self.subTest(piece=piece):
+                self.assertTrue(lint.is_light(piece, webviews))
+
+    def test_every_light_script_is_one_the_hook_refuses_to_lint_when_a_push_changes_it(self):
+        lint = load_lint(self.repo)
+        for package in lint.SCRIPT_PACKAGES:
+            for piece in ("bun scripts/a.ts", "bun src/scripts/a.ts", "python3 test/scripts/a.py",
+                          "python3 ../scripts/cmux-next/a.py", "bun dev-server/scripts/a.ts"):
+                argv = lint.light_argv(piece)
+                if not lint.light_script(package, argv):
+                    continue
+                path = lint.posixpath.normpath(lint.posixpath.join(package.directory, argv[-1]))
+                with self.subTest(package=package.directory, piece=piece):
+                    plan = lint.make_plan(self.repo, [path], guard_executed=True, exists=lambda rel: True)
+                    self.assertIn(package.directory, [directory for directory, _ in plan.untrusted], path)
+
+    def test_a_light_prefix_cannot_carry_another_command(self):
+        lint = load_lint(self.repo)
+        for piece in ("python3 noop.py ; vp lint", "python3 a.py | vp lint", "python3 $(vp lint)", "python3 `vp lint`",
+                      "python3 a.py || vp lint", "python3 a.py & vp lint", "python3 a.py\nvp lint",
+                      "vp fmt --check > /dev/null; vp check", "python3 'a.py' ; tsc", "bun scripts/a.ts;tsc"):
+            with self.subTest(piece=piece):
+                self.assertFalse(lint.is_light(piece, lint.SCRIPT_PACKAGES[0]))
+                self.assertEqual(lint.light_leaves(lint.SCRIPT_PACKAGES[0], [piece], {}), ([], [piece]))
+
+    def test_a_shell_bypass_runs_nothing_heavy_on_a_host_that_runs_no_heavy_checks(self):
+        # The reviewer's repro: an allowlisted prefix followed by `; vp lint`. Light pieces run as argument lists,
+        # never through a shell, so the second command cannot start.
+        env, log = self.heavy_fixture()
+        package = (self.repo / "webviews/package.json").read_text().replace(
+            '"python3 scripts/check_lanes.py && ',
+            '"python3 scripts/check_lanes.py ; vp lint && python3 scripts/check_lanes.py && ')
+        self.write("webviews/package.json", package)
+        self.commit("a shell bypass in the check script")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        code, seen = self.spawned(["--base", "HEAD~1", "--head", head], heavy=False)
+        self.assertNotIn("vp lint", " ".join(seen))
+        self.assertIn("python3 scripts/check_lanes.py", seen)
+
+    def test_light_pieces_spawn_with_no_shell(self):
+        self.heavy_fixture()
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        shells = []
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            shells.append((isinstance(command, str) or kwargs.get("shell", False), " ".join(words)))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "GITHUB_ACTIONS": "", "CI": ""}), \
+                mock.patch.object(lint.subprocess, "run", spy), \
+                mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+            lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head])
+        self.assertTrue(shells)
+        self.assertEqual([c for shell, c in shells if shell], [], "a light piece must never run through a shell")
+
+    def test_a_niced_shell_string_keeps_its_meaning_and_every_command_is_niced(self):
+        # `nice` in front of a shell string read `VAR=1` as the program (exit 127), and niced only the first
+        # command of `a; b`. The whole shell runs niced instead.
+        lint = load_lint(self.repo)
+        probe = self.root / "probe.py"
+        probe.write_text("import os, sys\nprint(os.environ.get('CHECK_MODE', '-'), os.nice(0))\n")
+        env = {"PATH": os.environ["PATH"]}
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": ""}):
+            assigned = lint.spawn(f"CHECK_MODE=1 {sys.executable} {probe}", self.root, env)
+            compound = lint.spawn(f"true; {sys.executable} {probe}", self.root, env)
+        self.assertEqual(assigned.returncode, 0, assigned.stderr)
+        mode, nice = assigned.stdout.split()
+        floor = min(19, os.nice(0) + 10)  # relative to this process, which may itself run niced
+        self.assertEqual(mode, "1")
+        self.assertGreaterEqual(int(nice), floor)
+        self.assertGreaterEqual(int(compound.stdout.split()[1]), floor, compound.stdout)
+
+    def test_ci_spawns_as_is_and_a_caller_cap_is_kept(self):
+        lint = load_lint(self.repo)
+        with mock.patch.object(lint.subprocess, "run") as run, \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            lint.spawn("vp lint", self.repo, {"PATH": os.environ["PATH"]})
+        self.assertEqual(run.call_args.args[0], "vp lint")
+        self.assertNotIn("GOMAXPROCS", run.call_args.kwargs["env"])
+        with mock.patch.object(lint.subprocess, "run") as run, \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": ""}):
+            lint.spawn(["vp", "lint"], self.repo, {"GOMAXPROCS": "3", "NODE_OPTIONS": "--max-old-space-size=1024"})
+        argv, env = run.call_args.args[0], run.call_args.kwargs["env"]
+        self.assertEqual(argv[-2:], ["vp", "lint"])
+        self.assertEqual((env["GOMAXPROCS"], env["NODE_OPTIONS"]), ("3", "--max-old-space-size=1024"))
+        self.assertEqual(env["GOMEMLIMIT"], lint.HEAVY_GOMEMLIMIT)
+
 
 # cmux-tui/frontends/web imports `cmux` from file:../../bindings/typescript, whose exports point at a
 # tsc-built dist/. Without that build its check printed 85 TS2307 "cannot find module 'cmux/raw'" errors.
@@ -498,6 +951,10 @@ exit 0
 """
 
 
+# An allowlisted light piece (python3) that logs its call.
+FMT_PY = "import os, pathlib\nwith open(os.environ['TOOL_LOG'], 'a') as log:\n    log.write(f'fmt {pathlib.Path.cwd().name}\\n')\n"
+
+
 class TuiBindingsTests(unittest.TestCase):
     """The tui frontend's check runs only after its TypeScript bindings are installed and built."""
 
@@ -534,6 +991,34 @@ class TuiBindingsTests(unittest.TestCase):
                                 text=True, capture_output=True)
         return result, self.tool_log.read_text().splitlines()
 
+    def test_a_stale_build_with_no_build_tool_stops_the_run_even_when_nothing_else_needs_setup(self):
+        # Review of 9fee5123: with neither npm nor bun, a stale bindings build spawns nothing, and a frontend that has
+        # node_modules and no bun.lock installs nothing, so setup_steps() was empty and run_plan() skipped
+        # prepare_builds(): the check ran against the old bindings. ensure_build()'s failure must stop the run, and
+        # the dry run must say so instead of listing checks the run never reaches.
+        self.add_tui_packages(npm=False)
+        (self.repo / "cmux-tui/frontends/web/node_modules/cmux").mkdir(parents=True)
+        lint = load_lint(self.repo)
+        # The frontend's copy came from these very inputs, so it needs no install; the build output is gone.
+        stamp = lint.installed_stamp(self.repo, "cmux-tui/frontends/web", lint.TUI_BINDINGS)
+        stamp.parent.mkdir(parents=True)
+        stamp.write_text(lint.build_digest(self.repo, lint.TUI_BINDINGS))
+        plan = lint.make_plan(self.repo, ["cmux-tui/frontends/web/src/main.ts"], guard_executed=False)
+        real = shutil.which
+        no_tools = lambda name, *a, **k: None if name in ("npm", "bun") else real(name, *a, **k)
+        with mock.patch.object(lint.shutil, "which", no_tools), \
+                mock.patch.dict(os.environ, {"TOOL_LOG": str(self.tool_log), "CI": "", "GITHUB_ACTIONS": ""}):
+            self.tool_log.write_text("")
+            _, setup, fixes, jobs = lint.plan_steps(self.repo, plan, False, True, True, "web-lint")
+            results = lint.run_plan(self.repo, plan, fix=False)
+
+        self.assertEqual([(r.label, r.returncode) for r in results], [("cmux-tui/bindings/typescript", 127)])
+        self.assertIn("neither npm nor bun is on PATH", results[0].output)
+        self.assertNotIn("check web", self.tool_log.read_text(), "the check must not run against stale bindings")
+        self.assertEqual((fixes, jobs), ([], []))
+        self.assertEqual(len(setup), 1)
+        self.assertIn("neither npm nor bun is on PATH", lint.shown(setup[0]))
+
     def test_an_all_run_builds_the_bindings_before_the_frontend_check_and_is_clean(self):
         self.add_tui_packages()
 
@@ -545,6 +1030,101 @@ class TuiBindingsTests(unittest.TestCase):
         tui = [c for c in calls if not c.endswith("@ webviews")]
         self.assertEqual(tui, ["npm ci --no-audit --no-fund @ typescript", "npm run build @ typescript",
                                "bun install --silent --no-save @ web", "check web"])
+
+    def test_a_host_that_runs_no_heavy_checks_installs_and_builds_nothing(self):
+        # The bindings build is `npm ci` plus tsc: on such a host no npm, no bun install, no build and no tsc runs.
+        # A package that already has node_modules still runs its light pieces; one with none is left to CI, named.
+        self.add_tui_packages()
+        self.write("cmux-tui/frontends/web/package.json", TUI_FRONTEND_PACKAGE.replace(
+            '"check": "sh check.sh"', '"check": "python3 scripts/fmt.py && vp check --no-fmt --no-lint && tsc -p ."'))
+        self.write("cmux-tui/frontends/web/scripts/fmt.py", FMT_PY)
+        self.commit("a heavy frontend check")
+        tools = Path(self.env["PATH"].split(os.pathsep)[0])
+        for name in ("tsc", "vp"):
+            (tools / name).write_text(f'#!/bin/sh\necho "{name} $*" >> "$TOOL_LOG"\n')
+            (tools / name).chmod(0o755)
+
+        result, calls = self.lint_all(**LIGHT_HOST)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [], "nothing may install, build or check a package that has no node_modules")
+        self.assertIn("cmux-tui/frontends/web: not linted here, it has no node_modules", result.stderr)
+
+        (self.repo / "cmux-tui/frontends/web/node_modules").mkdir()
+        result, calls = self.lint_all(**LIGHT_HOST)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c for c in calls if not c.endswith("@ webviews")], ["fmt web"])
+        self.assertIn("cmux-tui/bindings/typescript: not built here", result.stderr)
+
+    def test_the_bindings_build_runs_niced_and_capped_outside_ci(self):
+        self.add_tui_packages()
+        tools = Path(self.env["PATH"].split(os.pathsep)[0])
+        npm = tools / "npm"
+        npm.write_text(FAKE_NPM.replace('echo "npm $* @ $(basename "$PWD")" >> "$TOOL_LOG"',
+                                        'echo "npm $* @ $(basename "$PWD") nice=$(ps -o nice= -p $$ | tr -d " ") GOMAXPROCS=$GOMAXPROCS" '
+                                        '>> "$TOOL_LOG"'))
+
+        result, calls = self.lint_all(GITHUB_ACTIONS="", CI="")  # outside CI, even on a CI runner
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        built = [c for c in calls if c.startswith("npm")]
+        self.assertEqual(len(built), 2, calls)
+        for call in built:
+            self.assertRegex(call, r"nice=\d+ GOMAXPROCS=\d+$")
+            self.assertGreaterEqual(int(call.split("nice=")[1].split()[0]), 10, call)
+
+    def test_a_lint_tree_on_a_host_that_runs_no_heavy_checks_shares_the_frontend_node_modules(self):
+        # --head of a commit other than the checkout's runs in a lint tree; with nothing built there, the frontend
+        # shares the checkout's node_modules and its light piece still runs.
+        self.add_tui_packages()
+        self.write("cmux-tui/frontends/web/package.json", TUI_FRONTEND_PACKAGE.replace(
+            '"check": "sh check.sh"', '"check": "python3 scripts/fmt.py && vp check --no-fmt --no-lint"'))
+        self.write("cmux-tui/frontends/web/scripts/fmt.py", FMT_PY)
+        self.commit("a heavy frontend check")
+        (self.repo / "cmux-tui/frontends/web/node_modules").mkdir()
+        self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 2;\n")
+        self.commit("frontend change")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "HEAD~1")
+        self.tool_log.write_text("")
+
+        result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD", "--head", head],
+                                cwd=self.repo, env={**self.env, **LIGHT_HOST}, text=True,
+                                capture_output=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("fmt web", self.tool_log.read_text().splitlines())
+        self.assertNotIn("not linted here", result.stderr)
+
+    def test_a_dry_run_for_a_lint_tree_lists_the_builds_and_installs_that_tree_needs(self):
+        # Review of c146f28: with the bindings built and installed in the checkout, a dry run of a commit that runs in
+        # a fresh lint tree listed only the check, while the run built and installed first (the tree has no dist/
+        # and no node_modules of its own). The dry run now plans that tree.
+        self.add_tui_packages()
+        self.assertEqual(self.lint_all()[0].returncode, 0)  # the checkout's bindings built and installed
+        self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 2;\n")
+        self.commit("frontend change")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write("notes.txt", "dirty\n")  # not exactly HEAD: the run happens in a lint tree
+
+        dry = subprocess.run(["scripts/web-lint.sh", "--dry-run", "--base", "HEAD~1", "--head", head], cwd=self.repo,
+                             env=self.env, text=True, capture_output=True)
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        listed = [(line.split(": ", 1)[0], " ".join([Path(shlex.split(line.split(": ", 1)[1])[0]).name,
+                                                    *shlex.split(line.split(": ", 1)[1])[1:]]))
+                  for line in dry.stdout.splitlines()]
+        self.tool_log.write_text("")
+        ran = subprocess.run(["scripts/web-lint.sh", "--base", "HEAD~1", "--head", head], cwd=self.repo,
+                             env=self.env, text=True, capture_output=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        calls = self.tool_log.read_text().splitlines()
+        self.assertEqual([c for c in calls if c.startswith(("npm", "bun install"))],
+                         ["npm ci --no-audit --no-fund @ typescript", "npm run build @ typescript",
+                          "bun install --silent --no-save @ web"], "the run in a lint tree builds and installs")
+        self.assertEqual([command for directory, command in listed],
+                         ["npm ci --no-audit --no-fund", "npm run build", "bun install --silent --no-save", "sh check.sh"])
+        self.assertEqual([directory for directory, _ in listed][:2], ["cmux-tui/bindings/typescript"] * 2)
 
     def test_a_current_bindings_build_is_not_rebuilt_and_a_source_change_rebuilds_it(self):
         self.add_tui_packages()
@@ -633,6 +1213,48 @@ class TuiBindingsTests(unittest.TestCase):
 
                 self.assertEqual(plan.script_packages, [])
                 self.assertEqual(plan.untrusted, [("cmux-tui/frontends/web", [path])])
+
+
+class CheckPiecesTests(unittest.TestCase):
+    """`bun run check` runs every piece and fails at the end: a red text-focus guard (2026-10-22) stopped the
+    `&&` chain before fmt, lint and the type check, so they never reported."""
+
+    RUNNER = SOURCE / "scripts/cmux-next/run-check-pieces.py"
+
+    def run_pieces(self, chain):
+        with tempfile.TemporaryDirectory(prefix="cmux-check-pieces-") as temporary:
+            package = Path(temporary)
+            (package / "package.json").write_text(json.dumps({"scripts": {"check:pieces": chain}}))
+            return subprocess.run([sys.executable, "-I", str(self.RUNNER)], cwd=package, text=True,
+                                  capture_output=True)
+
+    def test_a_red_piece_does_not_stop_the_ones_after_it(self):
+        result = self.run_pieces("echo first && false && echo after-the-red && sh -c 'exit 3' && echo last")
+        self.assertEqual(result.returncode, 1)
+        for line in ("first", "after-the-red", "last"):
+            self.assertIn(line, result.stdout)
+        self.assertIn("2 red:", result.stderr)
+        self.assertIn("  false", result.stderr)
+        self.assertIn("  sh -c 'exit 3'", result.stderr)
+
+    def test_all_green_passes(self):
+        result = self.run_pieces("true && echo ok")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_webviews_check_runs_its_pieces_and_the_list_keeps_fmt_lint_and_types(self):
+        scripts = json.loads((SOURCE / "webviews/package.json").read_text())["scripts"]
+        self.assertEqual(scripts["check"], "python3 ../scripts/cmux-next/run-check-pieces.py")
+        pieces = [piece.strip() for piece in scripts["check:pieces"].split("&&")]
+        for piece in ("bun run check:text-focus", "vp fmt --check", "vp lint", "vp check --no-fmt --no-lint"):
+            self.assertIn(piece, pieces)
+
+    def test_the_prepush_lint_reads_the_pieces_list(self):
+        lint = load_lint(SOURCE)
+        package = lint.ScriptPackage(directory="webviews", triggers=("webviews/",), executed=())
+        manifest = json.dumps({"scripts": {"check": "python3 run.py", "check:pieces": "a && b"}})
+        self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
+        manifest = json.dumps({"scripts": {"check": "a && b"}})
+        self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
 
 
 if __name__ == "__main__":

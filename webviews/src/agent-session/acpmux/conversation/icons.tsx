@@ -2,6 +2,8 @@
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";
+// Spinner's own default (the dot hidden, the ring turning), wherever it draws (spinner.css).
+import "./spinner.css";
 
 export type CvIconProps = {
   size?: number;
@@ -211,6 +213,14 @@ export const Speaker = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A rounded square in a ring: Stop reading, on the Read aloud button while it reads. */
+export const StopReading = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <rect x="5.9" y="5.9" width="4.2" height="4.2" rx="0.8" fill="currentColor" stroke="none" data-glyph="stop" />
+  </Svg>
+);
+
 /** A clock: a prompt still on its way (conversation/PromptDelivery.tsx), or a steer waiting for the
  * agent's current step to end (PendingSteer.tsx). */
 export const Clock = (p: CvIconProps) => (
@@ -253,10 +263,18 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
+/** The working spinner's spokes: eight, like the macOS activity indicator (the native rows' mark,
+ * CmuxNextDesign `NativeSpinnerImage`), the top one leading at full strength and the rest fading
+ * counter-clockwise behind it. `cv-spinner` steps them round one spoke at a time. */
+const SPINNER_SPOKES = Array.from({ length: 8 }, (_, index) => ({
+  angle: index * 45,
+  opacity: index === 0 ? 1 : Math.max(0.25, 1 - (8 - index) * 0.11),
+}));
+
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning ring,
- * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
- * work) always draws the turning ring. `cv-spinner` turns the ring on the shared clock. */
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the stepping
+ * spokes, or a still dot while the row's words shimmer. `loading` (a check or a page loading, not
+ * agent work) always draws the turning ring. `cv-spinner` turns either on the shared clock. */
 export const Spinner = ({
   size = 16,
   className,
@@ -274,13 +292,21 @@ export const Spinner = ({
     aria-hidden="true"
     data-working={loading ? undefined : ""}
   >
-    <path
-      className="cv-spinner__arc"
-      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-    />
+    {loading ? (
+      <path
+        className="cv-spinner__arc"
+        d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+    ) : (
+      <g className="cv-spinner__spokes" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round">
+        {SPINNER_SPOKES.map(({ angle, opacity }) => (
+          <line key={angle} x1="8" y1="1.75" x2="8" y2="4.75" opacity={opacity} transform={`rotate(${angle} 8 8)`} />
+        ))}
+      </g>
+    )}
     {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
   </svg>
 );
@@ -382,8 +408,9 @@ export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** ⌘ glyph of computer-use / app tool rows ("Inspect the Atlas Fixtures window"). */
-export const CommandKey = (p: CvIconProps) => (
+/** Four small rings joined by one diagonal: a collapsed run that did more than one kind of work
+ *  ("Edited 2 files, read 2 files, ran 2 commands"). */
+export const MultiTool = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <circle cx="4.5" cy="4.5" r="2.05" />
     <circle cx="11.5" cy="4.5" r="2.05" />
@@ -464,5 +491,12 @@ export const PauseCircle = (p: CvIconProps) => (
 export const ArrowRight = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
+  </Svg>
+);
+
+/** Opens somewhere else: the cue on a chip that opens another chat (AgentTag.tsx). */
+export const ArrowUpRight = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M5.25 10.75 10.75 5.25M6.25 5.25h4.5v4.5" />
   </Svg>
 );

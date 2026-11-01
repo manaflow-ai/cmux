@@ -25,6 +25,17 @@ extension BrowserChromeView {
     public var pageViewportScale: CGFloat {
         (tab.contentView as? any BrowserPageViewportProviding)?.presentedPageScale ?? 1
     }
+
+    /// Everything under the toolbar that can show the page's pixels: the page, a docked
+    /// DevTools or Web Inspector, a sleeping page's picture and the page's overlays. An
+    /// agent's window capture masks the whole chrome, this view included (`ScreenshotMask`).
+    public var pageArea: NSView { contentContainer }
+
+    /// Whether `view` is a browser tab's page content (a WebKit or Chromium page, with its
+    /// docked tools), wherever it sits: a capture masks one even outside a chrome view.
+    public static func isPageContent(_ view: NSView) -> Bool {
+        view is WebKitPageContainer || view is CEFTabContentView
+    }
 }
 
 extension WebKitPageContainer: BrowserPageViewportProviding {

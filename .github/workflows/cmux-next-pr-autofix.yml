@@ -55,7 +55,7 @@ jobs:
   # request that changes neither the catalog nor the settings never takes a Mac.
   action-areas:
     name: action export areas
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -151,10 +151,11 @@ jobs:
     name: action exports (Mac)
     needs: action-areas
     if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
-    # The exports need a logged-in session, not the console gui token, so once the
-    # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
-    # takes it and runs beside a console GUI job; until then the gui label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # The exports need a logged-in session, which the gui label's runners have. They never
+    # name the session label: it held jobs for hours with its runners online and busy
+    # (cmux#24295, 2026-10-29), and this job has no placement to judge its queue
+    # (tests/test_ci_runs_on_fallback.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6' || vars.CI_PR_POOL_OWNED == '1' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -653,7 +654,7 @@ jobs:
   generated-drift:
     name: generated drift
     needs: [action-areas]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok') }}
     permissions:
@@ -699,7 +700,7 @@ jobs:
     # push after a cancelled areas job (its fetch timing out) or failed exports
     # would leave the exports stale for every later run (#21814, run 39315375602).
     if: ${{ github.event_name != 'pull_request' && !cancelled() && needs.action-areas.result == 'success' && (needs.action-exports.result == 'success' || needs.action-exports.result == 'skipped') && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:
       contents: read

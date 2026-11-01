@@ -20,6 +20,7 @@ use crate::resource::{
     AgentPublicId, BrowserPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
 };
 use crate::{CursorShape, DefaultColors, Rgb};
+use cmux_json::JsonSet as _;
 
 const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 
@@ -64,7 +65,7 @@ pub struct RegistryAgentProjection {
 pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
     let mut extra = json!({"agent": agent});
     if let Some(agent_session_id) = agent_session_id {
-        extra["agent_session_id"] = json!(agent_session_id);
+        extra.set("agent_session_id", json!(agent_session_id));
     }
     extra
 }
@@ -306,28 +307,19 @@ impl WorkspaceRegistry {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         let mut reads = self.durable_notification_reads()?;
-        {
-            // Marks for notifications outside the retained window are dead
-            // weight after a restart (the in-memory prune queue did not
-            // survive). Drop them here so the table stays bounded.
-            let retained_ids = rows
-                .iter()
-                .filter_map(|(outcome_json, _)| {
-                    serde_json::from_str::<Value>(outcome_json)
-                        .ok()
-                        .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
-                })
-                .collect::<HashSet<String>>();
-            let stale =
-                reads.keys().filter(|id| !retained_ids.contains(*id)).cloned().collect::<Vec<_>>();
-            for id in &stale {
-                self.connection.get().execute(
-                    "DELETE FROM resource_notification_reads WHERE notification_id = ?1",
-                    [id.as_str()],
-                )?;
-                reads.remove(id);
-            }
-        }
+        // Marks for notifications outside the retained window are dead
+        // weight; the open drops them from the table
+        // (`prune_stale_notification_reads_at_open`). A read never writes
+        // (it runs under the registry lock), so here they are only skipped.
+        let retained_ids = rows
+            .iter()
+            .filter_map(|(outcome_json, _)| {
+                serde_json::from_str::<Value>(outcome_json)
+                    .ok()
+                    .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
+            })
+            .collect::<HashSet<String>>();
+        reads.retain(|id, _| retained_ids.contains(id));
         let acked = self.acked_notification_ids()?;
         let mut notifications = Vec::with_capacity(rows.len());
         for (outcome_json, idempotency_key) in rows {
@@ -674,8 +666,8 @@ impl WorkspaceRegistry {
                     "frontend projection {subject_key} has invalid revision {projection_revision}"
                 );
                 anyhow::ensure!(
-                    payload.len() <= MAX_PROJECTION_BYTES,
-                    "frontend projection {subject_key} exceeds {MAX_PROJECTION_BYTES} bytes"
+                    payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
+                    "frontend projection {subject_key} exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
                 );
                 let projection = serde_json::from_str(&payload).with_context(|| {
                     format!("frontend projection {subject_key} contains invalid JSON")
@@ -774,3 +766,32 @@ fn parse_rgb(value: &str) -> anyhow::Result<Rgb> {
 
 #[cfg(test)]
 mod tests;
+
+/// Drop the read marks of notifications outside the retained window (the
+/// newest [`NOTIFICATION_LEDGER_CAPACITY`] committed, uncleared ones, as
+/// `durable_notifications` reads them). At runtime the in-memory prune
+/// queue drops them; it does not survive a restart, so the open drops what
+/// it left. Before, every snapshot read deleted them under the registry lock.
+pub(crate) fn prune_stale_notification_reads_at_open(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "DELETE FROM resource_notification_reads
+         WHERE notification_id NOT IN (
+           SELECT id FROM (
+             SELECT json_extract(outcome_json, '$.value.id') AS id
+             FROM resource_effect_receipts
+             WHERE operation = 'notification.create'
+               AND state = 'committed'
+               AND json_extract(outcome_json, '$.kind') = 'success'
+               AND json_extract(outcome_json, '$.value.id') NOT IN (
+                 SELECT notification_id FROM resource_notification_clears
+               )
+             ORDER BY committed_revision DESC, idempotency_key DESC
+             LIMIT ?1
+           ) WHERE id IS NOT NULL
+         )",
+        [i64::try_from(NOTIFICATION_LEDGER_CAPACITY)?],
+    )?;
+    Ok(())
+}

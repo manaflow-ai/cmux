@@ -9,7 +9,7 @@ same environment, waits for restore to settle, snapshots again and prints a PASS
 item.
 
   scripts/cmux-next/restore-journey.py --socket /tmp/cmux-debug-<tag>-capslot<N>.sock \\
-      [--variants quit,update] [--out DIR] [--fake-agent PATH] [--src STAGED_APP]
+      [--variants quit,update] [--out DIR] [--fake-agent PATH] [--src STAGED_APP] [--update-to STAGED_APP_B]
 
 Run it on the GUI host where the app already runs: a capture slot started by `capture-host
 launch` (scripts/cmux-next/restore-journey-slot.sh does the whole slot run), or another tagged DEV
@@ -26,6 +26,10 @@ Variants:
           default is pressed, as Return does, and the row records whether that keeps sessions);
   update  what Sparkle does before it relaunches into an update
           (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate);
+          with --update-to STAGED_APP_B the relaunch opens build B: once the app has ended, B is
+          put at the installed copy's path with its identity (bundle id, tag, lease environment),
+          as an update installs it (rj_update.py), so the state seeded on build A must come back
+          on B (restore-journey-slot.sh JOB_A --update-to JOB_B OUT -- --variants update);
   crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs;
   daemon  the app keeps running and its cmux-tui daemon is killed (SIGKILL) while an agent chat
           turn is in flight, as a daemon crash: the app must start a new one, reconnect and
@@ -69,6 +73,8 @@ The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
             frame;
   window 2: rj-w2 (a terminal with a marker line and a browser tab zoomed in three Cmd-+ steps
             from 100%), at another frame;
+  window 3: rj-w3 (the new workspace Open Space in New Window opens on a new space rj-room-<run>,
+            renamed, a terminal with a marker line), at a third frame;
   agents:   rj-chats (agent chats with the test agent as a Claude Code harness, a non-default
             model picked, and as a Codex harness: two turns and an unsent draft each) and
             rj-tagents (terminal tabs running `claude` and `codex` stand-ins,
@@ -105,6 +111,8 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh copies both)
+import rj_rows  # noqa: E402  (next to this script, copied the same way)
+import rj_update  # noqa: E402  (next to this script, copied the same way)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
@@ -117,8 +125,11 @@ parser.add_argument("--continuity", action="store_true",
 parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
+parser.add_argument("--update-to", metavar="STAGED_APP_B",
+                    help="the update variant installs this build in place of the app's copy before it relaunches "
+                         "(build A's state, restored by build B); needs --src (build A, staged)")
 parser.add_argument("--settle", type=float, default=90, help="seconds restore may take to settle")
-parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,cloud,agents")
+parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,w3,cloud,agents")
 parser.add_argument("--agents-per-kind", type=int, default=2,
                     help="the agents part: chats per harness (Claude, Codex) and terminal agents per CLI (claude, codex)")
 parser.add_argument("--break-cloud", choices=["moved_chat", "move_retry", "bring_back_retry", "grant", "dismissed"],
@@ -139,6 +150,11 @@ if opts.continuity:
     opts.variants = opts.variants or "quit,crash,daemon,daemon-stop,reboot"
     opts.skip, opts.agents_per_kind = "web,w2,cloud,split", 1
 opts.variants = opts.variants or "quit,update,crash"
+if opts.update_to:
+    if "update" not in [v.strip() for v in opts.variants.split(",")]:
+        sys.exit("--update-to needs the update variant (--variants update)")
+    if not os.path.isdir(opts.update_to) or not opts.src:
+        sys.exit("--update-to needs a staged build B and --src, the staged build A the slot's copy was made from")
 os.makedirs(opts.out, exist_ok=True)
 SKIP = {s.strip() for s in opts.skip.split(",") if s.strip()}
 AGENTS_N = max(1, opts.agents_per_kind)
@@ -206,8 +222,9 @@ def dump(name, value):
 
 # The slow variant's daemon: each terminal's first 3 attaches fail, every attach waits 1 s.
 SLOW_ATTACH = "3:1000"
-# The quit deadline (QuitDeadline.engineStopLimit, 15 s) plus margin for a loaded mini.
-WEDGED_QUIT_BOUND = 30
+# The quit deadline (QuitDeadline.keepQuitLimit, 4 s after a keep quit is decided) plus
+# margin for a loaded mini.
+WEDGED_QUIT_BOUND = 10
 
 
 class App:
@@ -430,6 +447,11 @@ class App:
     def ensure_bundle(self):
         if os.path.isdir(self.bundle):
             return True
+        if UPDATED.get("identity"):
+            # After the update the copy is build B with the copy's identity (tag, lease environment), not a bare clone.
+            say(f"  re-installing {opts.update_to} -> {self.bundle} (the updated copy's identity)")
+            rj_update.reinstall(self.bundle, opts.update_to, opts.src, UPDATED["identity"])
+            return True
         if not opts.src:
             say(f"  the app copy {self.bundle} is gone and no --src was given")
             return False
@@ -467,6 +489,43 @@ class App:
         self.refresh()
         say(f"  relaunched: pid {self.pid}")
         return True
+
+
+UPDATED = {}  # --update-to: what rj_update.install reported, once build B is in place
+
+
+def update_build():
+    """--update-to: build B in place of the ended app's copy, as an update installs it (rj_update.py).
+    Rows: B is installed with the copy's identity (same names, so A's saved state is B's), and it is
+    another build than A. False stops the journey (the copy is left as it was)."""
+    answer = rpc("system.identify", timeout=5)
+    if APP.alive() or (isinstance(answer, dict) and answer.get("pid")):
+        RESULTS.append(("update: build B is installed in place", False, f"an app still runs (pid {APP.pid}, socket {answer})", "update"))
+        return False
+    UPDATED["from_version"] = [APP.info.get("version"), APP.info.get("build")]
+    try:
+        report = rj_update.install(APP.bundle, opts.update_to, opts.src)
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+        RESULTS.append(("update: build B is installed in place", False, str(error)[:300], "update"))
+        return False
+    UPDATED.update(report)
+    dump("update-install.json", {k: v for k, v in UPDATED.items() if k != "identity"})
+    say(f"  update: {report['from_commit']} -> {report['to_commit']} at {APP.bundle}; {'; '.join(report['notes']) or 'same identity'}")
+    RESULTS.append(("update: build B is installed in place with the copy's names", report["names_before"] == report["names_after"],
+                    f"{report['names_after']['session']}; {'; '.join(report['notes']) or 'same identity'}", "update"))
+    RESULTS.append(("update: build B is another build than A", rj_update.different_builds(report["from_commit"], report["to_commit"]),
+                    f"{report['from_commit']} -> {report['to_commit']}", "update"))
+    return True
+
+
+def updated_rows():
+    """After the relaunch into B: the running app is a new process of B's version, at the same path."""
+    want = UPDATED.get("to_version") or [None, None]
+    got = [APP.info.get("version"), APP.info.get("build")]
+    same_place = APP.info.get("app_bundle_path") == APP.bundle and APP.info.get("bundle_id") == APP.bundle_id
+    RESULTS.append(("update: the relaunched app runs build B", same_place and got == want,
+                    f"version {UPDATED.get('from_version')} -> {got} (B ships {want}), pid {APP.pid}, {APP.info.get('app_bundle_path')}",
+                    "update"))
 
 
 # ---- the tag's daemon (bundled CLI) and acpmux ----------------------------------------------
@@ -516,12 +575,20 @@ def acpmux_socket_of(home):
 
 
 def acpmux_home():
-    """The app's acpmux home: <account home>/.acpmux/builds/<build key> (the account's real home,
-    not a slot HOME; build_names.py has the app's rule), or, for a build from before per-build
+    """The app's acpmux home: <the app's HOME>/.acpmux/builds/<build key> (a slot's home on a capture
+    slot), else <account home>/.acpmux/builds/<build key> (build_names.py has the app's rule), or, for a build from before per-build
     isolation, builds/com.cmuxterm.app.debug.<tag slug>. Never /tmp/acpmux-<uid> as such: other
     apps' daemons live there."""
     slug = re.sub(r"[^a-z0-9]+", "-", (APP.tag or "").lower()).strip("-")
-    homes = [APP.names()["acpmux_home"]] if APP.names() else []
+    homes = []
+    # A capture slot launches the app with the slot's home as HOME (capture-host since hq#4961): its
+    # acpmux home is under that home, by the same build key.
+    if APP.bundle and APP.env.get("HOME"):
+        try:
+            homes.append(build_names.of_app(APP.bundle, APP.env["HOME"])["acpmux_home"])
+        except ValueError:
+            pass
+    homes += [APP.names()["acpmux_home"]] if APP.names() else []
     for base in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
         if base:
             homes.append(os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip(".")))
@@ -648,6 +715,7 @@ def restore_acpmux_config():
 REPORTS = {}  # page name -> latest {path, scrollY, at}
 LIVE_READ = {}  # the seeded history page's outside-folder read probe, before the first quit
 SINCE = 0.0  # when the last quit ended: reports older than this are stale
+CHAT_CONNECT_BOUND = 10  # seconds a shown chat page may take to connect after a relaunch
 SERVED = set()
 REPORT_LOG = []  # (page name, time) of every report: when each page first reported after a relaunch
 PAGE_LOADS = []  # (page name, time) of every page the server sent: a reopened page loads once
@@ -977,9 +1045,13 @@ CHAT_PROFILES = {
 }
 CHAT_PICKS = {"rj-claude": {"model": "claude-sonnet-5-5"}, "rj-codex": {}}  # the test agent keeps picks only as Claude
 CLI_AGENTS = {
-    "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5"},
-    # Each resumes by itself after a reboot ("Resume Agents After Restart" is on by default), also
-    # Claude's with its approval bypass: a resumed session waits for the person's next prompt.
+    # After a reboot a respawned terminal resumes its agent with its flags and account ("Resume
+    # Agents After Restart" is on by default). Claude's runs with its approvals off, so its resume
+    # is typed on the new prompt without Return (#22292: a respawn never starts an agent with its
+    # approvals off by itself); the journey checks it waits there, then presses Return as a
+    # person does. Codex's resume runs by itself.
+    "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5",
+               "resume_waits": True},
     "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
@@ -1229,6 +1301,16 @@ def tagent_items(label, items, raw):
         def current():
             starts = [e for e in agent_events(agent["session"]) if e.get("event") == "start"]
             return starts[-1] if starts and _pid_alive(starts[-1].get("pid")) else None
+        if getattr(APP, "rebooted", False) and CLI_AGENTS[agent["provider"]].get("resume_waits"):
+            # Its resume is typed on the new prompt and does not run by itself: the command with
+            # its session on screen, no agent started for it. Then Return, as a person presses it.
+            typed = wait(lambda: f"--resume {agent['session']}" in screen_text(agent["terminal"])[-600:], 30, 1)
+            ran = current()
+            ran = ran if ran and ran.get("pid") != agent.get("pid") else None
+            items[f"{a}.resume_waits"] = (bool(typed) and not ran) or \
+                (f"started by itself: {ran}" if ran else f"no resume typed; screen ends {screen_text(agent['terminal'])[-200:]!r}")
+            if typed and not ran:
+                write(agent["terminal"], "\r")
         start = wait(current, 60, 1)
         raw[f"{a}.start"] = start
         raw[f"{a}.text"] = screen_text(agent["terminal"])[-4000:]
@@ -1289,9 +1371,45 @@ def seed_w2(base):
         rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[1]})
 
 
+def seed_w3():
+    """A third window on its own space, as a person makes one: a new space, then Open Space in New
+    Window, which opens a window on the space with a new workspace there (rj-w3). (Its sidebar stays:
+    `toggleSidebar` acts on the key window, and a no-activate slot has none; MultiWindowRestoreTests
+    covers a hidden sidebar.)"""
+    answer = cli("room", "create", "--name", f"rj-room-{RUN}")
+    room = answer.get("value", answer) if isinstance(answer, dict) else {}
+    room_id = room.get("id") or room.get("room_id") or (room.get("room") or {}).get("id")
+    if not room_id:
+        say(f"  w3: no room: {json.dumps(answer)[:160]}")
+        return
+    # The app learns of the room through the daemon's personal-changed event: wait for the action to accept it.
+    wait(lambda: not (action("space.openInNewWindow", args={"space": room_id}) or {}).get("error"), 15, 1)
+    def space_window():
+        report = rpc("debug.windows")
+        for entry in (report or {}).get("windows", []) if isinstance(report, dict) else []:
+            if entry.get("profile") == room_id and entry.get("open") is not False:
+                return entry
+        return None
+    entry = wait(space_window, 20)
+    topo = topology() or {}
+    window = entry and next((w for w in topo.get("windows", []) if w.get("key") == entry.get("id") and w.get("workspace")), None)
+    if not window:
+        say(f"  w3: no window on the space: {json.dumps(rpc('debug.windows'))[:300]}")
+        return
+    ws_id = window["workspace"]
+    cli("workspace", ws_id, "rename", "rj-w3")
+    workspace = next((w for w in topo.get("workspaces", []) if w.get("id") == ws_id), {})
+    term = next((t.get("terminal") for s_ in workspace.get("screens", []) for p in s_.get("panes", []) for t in p.get("tabs", [])
+                 if t.get("kind") == "terminal" and t.get("terminal")), None)
+    if term:
+        write(term, f"echo rj-w3-marker-{RUN}\n")
+    rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[2]})
+    say(f"  w3: window {window.get('key')} workspace {ws_id} terminal {term}")
+
+
 # Window frames (AppKit points, bottom-left origin), inside a 1080p screen's visible frame (above
 # the Dock), so a restore that keeps a window on screen has no reason to move them.
-FRAMES = [[80, 220, 1100, 700], [260, 280, 820, 560]]
+FRAMES = [[80, 220, 1100, 700], [260, 280, 820, 560], [520, 120, 760, 520]]
 
 
 def seed_cloud():
@@ -1323,13 +1441,17 @@ def cleanup_earlier():
     for ws in rj_workspaces(topology()):
         cli("workspace", ws["id"], "close")
     wait(lambda: not rj_workspaces(topology()), 20)
+    rooms = cli("room", "list", quiet=True)
+    for room in (rooms.get("value", rooms) if isinstance(rooms, dict) else rooms) or []:
+        if isinstance(room, dict) and str(room.get("name", "")).startswith("rj-room-"):
+            cli("room", room.get("id"), "delete")
 
 
 def seed(base):
     say("seeding")
     cleanup_earlier()
     for part, run in (("term", seed_term), ("split", seed_split), ("web", lambda: seed_web(base)),
-                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("cloud", seed_cloud),
+                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("w3", seed_w3), ("cloud", seed_cloud),
                       ("agents", seed_chats), ("agents", seed_tagents)):
         if part not in SKIP:
             try:
@@ -1375,14 +1497,40 @@ def history(term):
     return rows
 
 
+HISTORY_BY_SHA = {}  # history_sha -> the rows it hashes, for the history_sha row's compare
+
+
 def terminal_items(term):
     rows = history(term)
     screen = cli("terminal", term, "screen", "read", quiet=True)
     text = "\n".join(rows or []) + "\n" + (screen.get("text", "") if isinstance(screen, dict) else "")
     numbered = [int(n) for n in re.findall(rf"rj-line-(\d+)-{RUN}", text)]
+    HISTORY_BY_SHA[sha("\n".join(rows or []))] = rows or []
     return {"history_rows": len(rows) if rows is not None else None, "history_sha": sha("\n".join(rows or [])),
             "numbered_lines": len(set(numbered)), "numbered_max": max(numbered) if numbered else 0,
             "ticks": [int(t) for t in re.findall(r"rj-tick-(\d+)", text)]}
+
+
+def pane_active_tab(pane_id):
+    """The tab pane `pane_id` shows, from its screen's layout export (`active_tab_id` of its leaf), or None."""
+    topo = topology() or {}
+    screen = next((s_.get("id") for ws in rj_workspaces(topo) for s_ in ws.get("screens", [])
+                   if any(p.get("id") == pane_id for p in s_.get("panes", []))), None)
+    if not screen:
+        return None
+    exported = cli("screen", screen, "layout", "export", quiet=True)
+    found = []
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("pane_id") == pane_id and node.get("active_tab_id"):
+                found.append(node["active_tab_id"])
+            for item in node.values():
+                walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(exported.get("value", exported) if isinstance(exported, dict) else exported)
+    return found[0] if found else None
 
 
 def layout_shape(screen_id, pane_index):
@@ -1459,18 +1607,7 @@ class visiting:
             wait(lambda: ((topology() or {}).get("focus") or {}).get("workspace") == self.back, 10, 0.3)
 
 
-def grid_fits_view(label, pp, view):
-    """A row: the terminal renders the grid its view fits (`fit_grid`), so the shell has no rows
-    past the pane's edge. Read after the settle wait, so a grid that never follows its view fails
-    here even when it is equally wrong before and after the relaunch (cx-yt7rt)."""
-    surface = view.get("surface") or {}
-    grid, fit = surface.get("grid"), surface.get("fit_grid")
-    row = f"{label}: {pp}.view.grid_fits_view"
-    if not grid:
-        return (row, False, "no terminal grid drawn", "layout")
-    if "fit_grid" not in surface:
-        return (row, True, f"grid {grid}; this build reports no fit_grid", "layout")
-    return (row, fit is not None and fit == grid, f"grid {grid}, view fits {fit}", "layout")
+grid_fits_view = rj_rows.grid_fits_view
 
 
 def snapshot(label):
@@ -1508,6 +1645,7 @@ def snapshot(label):
         items[f"{p}.full_screen"] = shown.get("full_screen")
         items[f"{p}.sidebar_width"] = shown.get("sidebar_width")
         items[f"{p}.sidebar_hidden"] = shown.get("sidebar_hidden")
+        items[f"{p}.space"] = shown.get("profile")
         # Which display a window comes back on means something only with two to pick from; a
         # capture slot has one 1080p display, so there the row reads n/a.
         if isinstance(displays, int) and displays >= 2:
@@ -1577,6 +1715,7 @@ def snapshot(label):
     for tp, term in terms.items():
         info = terminal_items(term)
         raw[f"terminal {tp}"] = info
+        raw[f"terminal {tp} rows"] = HISTORY_BY_SHA.get(info["history_sha"])
         if info["numbered_lines"]:
             items[f"{tp}.scrollback.numbered_lines"] = info["numbered_lines"]
             items[f"{tp}.scrollback.numbered_max"] = info["numbered_max"]
@@ -1646,13 +1785,27 @@ def snapshot(label):
         # The chat's page shows only while its workspace is shown: visit it.
         with visiting("rj-agent"):
             # A page still connecting to acpmux has no session yet: wait for it to connect.
-            shown_at = time.time()
-            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting" else None)(
-                rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)), 45, 1) \
-                or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)
+            # Each ask is short (5 s): one call that hangs must not count as the page's connect time.
+            shown_at, asks = time.time(), []
+            def connected():
+                answer = rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=5)
+                asks.append([round(time.time() - shown_at, 1), (answer.get("error") or answer.get("connection")) if isinstance(answer, dict) else str(answer)])
+                return answer if isinstance(answer, dict) and "error" not in answer and answer.get("connection") != "connecting" else None
+            state = wait(connected, 90, 0.25)
+            connect_seconds = round(time.time() - shown_at, 1)
+            state = state or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=10)
         raw["agent_pane.chat_state"] = state
-        raw["agent_pane.connect_seconds"] = round(time.time() - shown_at, 1)
+        raw["agent_pane.connect_seconds"] = connect_seconds
+        raw["agent_pane.connect_asks"] = asks[-40:]
         say(f"  chat page {state.get('connection') if isinstance(state, dict) else state} {raw['agent_pane.connect_seconds']} s after it was shown")
+        if label.endswith("-after"):
+            # A person who opens the chat after a relaunch waits this long for it (before: 61 s, one
+            # 60 s debug call that hung, not the page).
+            RESULTS.append((f"{label[:-len('-after')]}: the chat page connects within {CHAT_CONNECT_BOUND} s after it is shown",
+                            isinstance(state, dict) and "error" not in state and state.get("connection") not in (None, "connecting", "disconnected")
+                            and connect_seconds <= CHAT_CONNECT_BOUND,
+                            f"{state.get('connection') if isinstance(state, dict) else state} after {connect_seconds} s; asks {json.dumps(asks[:6])[:200]}",
+                            "agent chat"))
         if isinstance(state, dict) and "error" not in state:
             items["agent.page.session"] = state.get("sessionId")
             items["agent.page.last_assistant"] = state.get("lastAssistant")
@@ -1684,7 +1837,8 @@ def snapshot(label):
             last = {}
 
             def drawn():
-                _, now = view_panes()
+                report, now = view_panes()
+                last["report"] = report
                 shown = [now.get(pid_) for _, pid_ in pane_ids[name]]
                 ok = all(v and v.get("presence") == "visible" and v.get("attach") == "live" and v.get("surface", {}).get("grid") for v in shown)
                 if not ok:
@@ -1697,12 +1851,19 @@ def snapshot(label):
                     settled = last.get("grids") == grids
                 last["grids"] = grids
                 return now if settled else None
-            now = wait(drawn, 20, 0.5) or view_panes()[1]
+            now = wait(drawn, 20, 0.5)
+            report = last.get("report")
+            if not now:
+                # Not settled: read once more, waiting out a report the app does not answer (a
+                # loaded host), so the rows name what the app drew, not a failed read.
+                report, now = wait(lambda: (lambda r: r if rj_rows.report_error(r[0]) is None else None)(view_panes()), 60, 2) \
+                    or view_panes()
+            raw[f"debug.surfaces.{name}"] = report
             for pp, pid_ in pane_ids[name]:
                 v = now.get(pid_) or {}
                 items[f"{pp}.view.size"] = v.get("content_size")
                 items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
-                RESULTS.append(grid_fits_view(label, pp, v))
+                RESULTS.append(grid_fits_view(label, pp, v, report))
     if "cloud" not in SKIP:
         items.update(cloud_items())
     if "agents" not in SKIP:
@@ -1824,13 +1985,15 @@ def seeded(before):
                      for t in TAGENTS],
                    (f"{AGENTS_N} chats per harness", len(CHATS) == AGENTS_N * len(CHAT_PROFILES)),
                    (f"{AGENTS_N} terminal agents per CLI", len(TAGENTS) == AGENTS_N * len(CLI_AGENTS))],
-        "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
+        "w2": [("second window", before.get("windows.count") == (2 if "w3" in SKIP else 3)), ("w2 page", before.get("page[w2page].path") == "/w2page"),
                ("w2 page zoomed in by three Cmd-+ steps from 100%", W2.get("steps") == 3 and (before.get("page[w2page].zoom") or 0) > 1.15)],
+        "w3": [("third window, on its own space", before.get("window[rj-w3].space") not in (None, "default")),
+               ("third window shows rj-w3", before.get("window[rj-w3].selected_workspace") == "rj-w3")],
         "cloud": [("two moved chats", len(before.get("cloud.moved_chats") or []) == 2),
                   ("three move Retries (move, show, update)",
                    sorted(r.get("kind") for r in before.get("cloud.move_retries") or []) == ["move", "show", "update"]),
                   ("a Bring Back Local Retry (ask first)", [r.get("kind") for r in before.get("cloud.bring_back_retries") or []] == ["ask_first"]),
-                  ("an Always folder grant", any(g.get("scope") == "folder" for g in before.get("cloud.grants") or [])),
+                  ("an Always folder grant", any(g.get("scope") == "account_team_origin_folder" for g in before.get("cloud.grants") or [])),
                   ("a dismissed offer matching its Retry", [d.get("matches_retry") for d in before.get("cloud.dismissed") or []] == [True])],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),
                   # The name and pin rows compare equal emptiness as a pass: they need the seed to show.
@@ -1853,6 +2016,15 @@ def compare(variant, before, after):
         if variant == "reboot" and (item.startswith(("counter.", "top.")) or item == "agent.status"):
             # A reboot ends every process: running programs and their screens cannot come back.
             RESULTS.append((f"{variant}: {item}", NA, "n/a: a reboot ends every running program", area_of(item)))
+            continue
+        if item == "agent.status" and {b, a} <= {"ready", "idle"}:
+            # acpmux hibernates a chat whose agent sat idle 2 min (`idle`: no agent process, the next
+            # prompt resumes it): the same live session as `ready`, not a lost one.
+            RESULTS.append((f"{variant}: {item}", True, f"{json.dumps(b)} -> {json.dumps(a)} (idle: hibernated, resumes on the next prompt)", area_of(item)))
+            continue
+        if item.startswith("tagent[") and item.endswith(".resume_waits"):
+            # Only after a reboot: nothing to compare with before it.
+            RESULTS.append((f"{variant}: {item}", a is True, json.dumps(a)[:200], area_of(item)))
             continue
         if item.startswith(("chat[", "tagent[")) and item.endswith((".live", ".signed_in", ".running", ".page.picked")) or item.startswith("tagent[") and item.endswith(".transcript"):
             ok = a is True and b is True
@@ -1903,8 +2075,29 @@ def compare(variant, before, after):
             ok = a == seeded_value
             detail = (f"{len(a)} records, as seeded" if ok and isinstance(a, list)
                       else f"seeded {json.dumps(seeded_value)[:160]} -> {json.dumps(a)[:160]}")
+        elif item.endswith(".scrollback.history_sha") and a in HISTORY_BY_SHA and b in HISTORY_BY_SHA:
+            # Every row exactly as before, in order; rows only after them (a respawned shell's
+            # marker line and prompt push the old screen's top rows into the history). Soft
+            # wraps must survive the replay too: a line wrapped at an older width re-flows at
+            # the new one, so the same text with other row breaks fails ("re-wrapped").
+            rows_b, rows_a = HISTORY_BY_SHA[b], HISTORY_BY_SHA[a]
+            ok = bool(rows_b) and rows_a[:len(rows_b)] == rows_b
+            if a == b:
+                detail = json.dumps(a)
+            elif ok:
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: rows kept, {len(rows_a) - len(rows_b)} rows"
+                          f" after them {json.dumps(rows_a[len(rows_b):])[:80]}")
+            else:
+                row = next((i for i, (x, y) in enumerate(zip(rows_b, rows_a)) if x != y), min(len(rows_b), len(rows_a)))
+                text_b, text_a = "".join(rows_b), "".join(rows_a)
+                rewrapped = bool(rows_b) and text_a.startswith(text_b)
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: row {row} "
+                          f"{json.dumps(rows_b[row] if row < len(rows_b) else None)[:50]} -> "
+                          f"{json.dumps(rows_a[row] if row < len(rows_a) else None)[:50]}"
+                          + (f" (re-wrapped: same text, {sum(1 for x, y in zip(rows_b, rows_a) if x != y)}"
+                             " rows with other breaks)" if rewrapped else " (the text changed)"))
         elif item.endswith(".scrollback.history_rows") and isinstance(a, int) and isinstance(b, int):
-            # A view re-attaching may add a prompt line, never drop rows.
+            # A view re-attaching may add a prompt line, never drop rows (see history_sha).
             ok = a >= b
             detail = f"{b} -> {a}"
         else:
@@ -2243,7 +2436,16 @@ def finish_turn_in_flight(variant, turn):
     if tab:
         with visiting("rj-chats"):
             pane = place_of(tab.get("id"), topo)[1]
-            shown = wait(lambda: "after-gate" in str(((page(pane, "chat_state") or {}).get("lastAssistant") or {}).get("text")), 20, 0.5)
+            # Its pane holds another chat too: show this chat's tab, and read only its own page.
+            # The tab the pane showed comes back after, so the layout rows see the seeded state.
+            shown_tab = pane_active_tab(pane)
+            cli("tab", tab["id"], "focus", quiet=True)
+            def own_page_shows():
+                state = page(pane, "chat_state") or {}
+                return state.get("sessionId") == turn["chat"]["session"] and "after-gate" in str((state.get("lastAssistant") or {}).get("text"))
+            shown = wait(own_page_shows, 20, 0.5)
+            if shown_tab and shown_tab != tab["id"]:
+                cli("tab", shown_tab, "focus", quiet=True)
     RESULTS.append((f"{variant}: the turn in flight finishes and its page shows it", stop == "end_turn" and bool(shown),
                     f"stopReason {stop}, page {'shows' if shown else 'does not show'} after-gate"
                     + (f"; {json.dumps(answer)[:200]}" if stop != "end_turn" else ""), "agents"))
@@ -2295,6 +2497,8 @@ def journey(base):
             sampler.killed = time.time() - started
         # Reports count from here: the old app's pages keep reporting until its process ends, and
         # one of those would pass for a reopened page that has not reported yet (cx-p1xs5).
+        if variant == "update" and opts.update_to and not UPDATED and not update_build():
+            return
         launched = SINCE = time.time()
         if variant in DAEMON_VARIANTS:
             # No relaunch: the running app must bring a new daemon and every view back.
@@ -2302,6 +2506,9 @@ def journey(base):
         elif not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return
+        if variant == "update" and UPDATED and "relaunched" not in UPDATED:
+            UPDATED["relaunched"] = True
+            updated_rows()
         if variant == "slow":
             # No input from here on: the terminals must come back by themselves.
             links = set()

@@ -172,8 +172,15 @@ public final class MobileKeyboardDock: NSObject {
             view.layoutIfNeeded()
             return
         }
+        // Interruptible: without `.allowUserInteraction` UIKit drops every
+        // touch on the views this pass moves until the keyboard settles, so a
+        // keyboard key tap followed by a terminal tap waited instead of
+        // reversing the keyboard mid-flight. `.beginFromCurrentState` makes the
+        // reversal start from where the stack is on screen.
         // motion: allow inherits the system keyboard's own animation; it adds no animation of its own.
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) { view.layoutIfNeeded() }
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            view.layoutIfNeeded()
+        }
     }
 
     /// A keyboard that settled with no will-change notification after a drag

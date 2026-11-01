@@ -402,7 +402,9 @@ fi
 must=()
 excuse_runs=()
 red_lanes=()
-if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
+# ci.yml skips ci-status on pull requests into feat-cmux-next: there it could
+# only pass, and that branch's verdicts are the cmux-next runs checked below.
+if [ "$has_ci" -eq 1 ] && [ "$base" != feat-cmux-next ]; then must+=("ci-status"); fi
 
 # Use a conservative path fallback until the exact-head CI routing is available.
 needs_app_compile=0
@@ -460,9 +462,9 @@ fi
 # they are never waived: --override is for base-red or flaky lanes. Any such
 # check reported on the exact head must complete green, with or without it.
 # So must `risk evidence` (risk-tier.yml on feat-cmux-next): it grades the PR's
-# own diff and description, so it is never base-red. A high-tier PR clears it
-# with an independent review SHIP receipt on the head, an approving review on
-# the head, or a maintainer's risk:human-ok label (docs/ci/risk-tiers.md on feat-cmux-next). This script is part of that gate,
+# own diff and description, so it is never base-red. It goes red only on a
+# takeback no `Takes back #N:` line owns; a missing sign-off or a BLOCK on a high
+# head only warns (docs/ci/risk-tiers.md on feat-cmux-next). This script is part of that gate,
 # so a change to it grades high.
 while IFS=$'\t' read -r name st co; do
   [ -n "$name" ] || continue
@@ -586,7 +588,7 @@ if [ "$base" = feat-cmux-next ]; then
       'retry after GitHub returns valid workflow run metadata'
   fi
   # No run is fine only for a pull request outside the workflow's pull_request
-  # paths filter; ci-status on the exact head still gates it. A change the filter
+  # paths filter; the other checks on the exact head still gate it. A change the filter
   # covers gets a run, so none yet means GitHub has not created it (#18100 merged
   # seconds after a push). Read the filter from this head and fail closed.
   if [ -z "$next_verdicts" ]; then
@@ -978,6 +980,36 @@ merged_head_checks() {
       status=1
       printf '%s\n' "$output" | grep -E 'FAIL|god|split' | sed 's/^/  /' >&2 || true
       printf 'not merged: the merged head of %s fails the Swift god-file check\n' "$ref" >&2
+    fi
+  fi
+  if [ "$web_changed" -eq 1 ] && [ "$status" -eq 0 ]; then
+    # Share the fleet registry's host policy with the workspace pre-push hook.
+    # Agent-only and unknown hosts must never install dependencies or run vp.
+    # A policy skip is not merged-tree validation: retain the exact tree receipt
+    # and all GitHub/freeze/Swift checks, and state the missing coverage plainly.
+    local policy_path policy_status=4 policy_output
+    policy_path="${LEO_WORKSPACE:-$HOME/Projects/leo-workspace}/tools/host_policy.py"
+    if [ -z "${LEO_WORKSPACE:-}" ] && [ ! -f "$policy_path" ] && [ -f "$HOME/src/leo-workspace/tools/host_policy.py" ]; then
+      policy_path="$HOME/src/leo-workspace/tools/host_policy.py"
+    fi
+    policy_output="missing host policy helper: $policy_path"
+    if [ -f "$policy_path" ]; then
+      policy_status=0
+      policy_output=$(python3 "$policy_path" heavy-local-ok --json 2>&1) || policy_status=$?
+      # Every unavailable/failed answer is no-build, not a new merge gate.
+      # Only exit 0 with one well-formed heavy-ok response permits local work.
+      if [ "$policy_status" -eq 0 ] && ! jq -se \
+          'length == 1 and (.[0] | .policy == "heavy-ok" and (.host | type == "string") and (.reason | type == "string"))' \
+          <<<"$policy_output" >/dev/null 2>&1; then
+        policy_status=4
+        policy_output="invalid host policy response: $policy_output"
+      fi
+    fi
+    if [ "$policy_status" -ne 0 ]; then
+      printf 'warning: skipped merged-head web check (host policy exit %s): %s\n' "$policy_status" "$policy_output" >&2
+      printf 'warning: web tree %s (base %s, head %s) not checked; GitHub merge checks still apply\n' \
+        "$merged_tree" "$base_sha" "$head_sha" >&2
+      web_changed=0
     fi
   fi
   if [ "$web_changed" -eq 1 ] && [ "$status" -eq 0 ]; then

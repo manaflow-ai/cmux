@@ -20,15 +20,18 @@
 //! restore ends (then `identify` reports `lifecycle_ready: false` until
 //! startup ends), so ensure reads a live but silent socket as a starting
 //! owner, waits for it outside the lock, and never mistakes it for an absent
-//! one.
+//! one. An owner at its connection limit answers with a refusal line instead
+//! of an identity; that is a live owner too, never a reason to spawn
+//! (https://github.com/manaflow-ai/cmux/issues/22311).
 
 use std::io;
-use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::platform::{self, transport};
+use cmux_tui_core::platform;
 use serde_json::Value;
 
 /// Time to reach an owner: for an owner this call spawns, from the spawn
@@ -102,11 +105,15 @@ impl<'a> RestoreProgress<'a> {
 /// client re-asks. An owner this process spawns is awaited on its pipe.
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 
+/// Probe interval while the owner refuses connections at its connection
+/// limit. A slot frees only when one of its clients leaves, so asking faster
+/// only adds refused accepts on the owner's accept loop.
+const BUSY_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
 /// Windows has no readiness pipe or `waitid`: the spawned owner is probed
 /// like a foreign one and the reaper ticks.
 #[cfg(not(unix))]
 const REAP_INTERVAL: Duration = Duration::from_secs(1);
-const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Private startup option: the detached owner writes one byte to this
 /// inherited descriptor once it accepts clients, then closes it. End of
@@ -121,6 +128,10 @@ pub(crate) use exit_with::exit_with;
 pub(crate) use exit_with::{
     EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
 };
+mod identify;
+#[cfg(all(test, unix))]
+mod recovery_tests;
+use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
 
@@ -262,6 +273,10 @@ pub(crate) enum EnsureError {
     /// An owner was alive but did not finish restoring its session within
     /// `RESTORE_DEADLINE`.
     RestoreTimeout,
+    /// The owner refused every connection at its connection limit for
+    /// `ENSURE_DEADLINE`: its clients never leave, as when the owner is
+    /// wedged and its connection threads never end.
+    Busy,
     /// The socket is served by something that is not a cmux-tui server.
     WrongOwner,
     /// The socket is served by a different session than requested.
@@ -281,12 +296,38 @@ enum Attempt {
     /// An owner seen restoring before has exited.
     Gone,
     /// A connection was accepted but closed or broke before an identity came
-    /// back: a stale or dying peer, or a live owner refusing extra clients.
+    /// back: a stale or dying peer.
     Unanswered,
     /// A cmux-tui server answered but is not lifecycle-ready yet (its pid
-    /// when its identity carried one).
+    /// when its identity carried one). Also an owner that holds the identify
+    /// unanswered, as one restoring its session does.
     Starting(Option<u64>),
+    /// The owner refused the connection at its connection limit.
+    Busy,
+    /// The identify went unanswered and the process listening on the socket
+    /// is stopped (SIGSTOP, a debugger): it restores nothing until someone
+    /// continues it, so ensure reports it unavailable now instead of waiting
+    /// out `RESTORE_DEADLINE`, and the app offers "Restart cmux-tui".
+    Stopped,
     Ready(ReadyOwner),
+}
+
+/// How long the owner has refused connections at its connection limit,
+/// reset by any other answer. A healthy owner frees a slot as soon as one of
+/// its clients leaves; one that frees none for `ENSURE_DEADLINE` is reported
+/// (`EnsureError::Busy`) instead of awaited for the restore bound.
+#[derive(Default)]
+struct BusySince(Option<Instant>);
+
+impl BusySince {
+    /// Notes one refusal; true once refusals have lasted `ENSURE_DEADLINE`.
+    fn refused(&mut self) -> bool {
+        self.0.get_or_insert_with(Instant::now).elapsed() >= ENSURE_DEADLINE
+    }
+
+    fn answered(&mut self) {
+        self.0 = None;
+    }
 }
 
 /// Connect to a ready owner for `spec.session` on `spec.socket`, spawning a
@@ -331,6 +372,14 @@ pub(crate) fn ensure_owner(
                 std::thread::sleep(POLL_INTERVAL);
                 continue;
             }
+            // A live owner: spawning would only start a second owner that
+            // loses the bind. The next turn awaits it outside the lock.
+            Attempt::Busy => {
+                drop(lock);
+                std::thread::sleep(BUSY_POLL_INTERVAL);
+                continue;
+            }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
             // The lock is released once the spawn is issued. A redundant
             // owner spawned by a racing ensure finds the socket live at its
             // bind, exits before it restores anything, and every caller
@@ -384,24 +433,34 @@ fn attempt_deadline(restore_deadline: Instant) -> Instant {
 }
 
 /// Poll while a live server reports it is still starting (restoring its
-/// session). `Ok(None)` means nothing serves the socket; the caller decides
-/// whether to spawn. `restore_deadline` bounds the wait for a live owner.
+/// session) or refuses connections at its connection limit. `Ok(None)` means
+/// nothing serves the socket; the caller decides whether to spawn.
+/// `restore_deadline` bounds the wait for a live owner, `BusySince` the wait
+/// for a full one.
 fn wait_while_starting(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
     restore_deadline: Instant,
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
+    let mut busy = BusySince::default();
     loop {
-        match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+        let interval = match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Gone | Attempt::Unanswered => return Ok(None),
-            Attempt::Starting(pid) => progress.restoring(pid),
-        }
+            Attempt::Starting(pid) => {
+                busy.answered();
+                progress.restoring(pid);
+                POLL_INTERVAL
+            }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
+            Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
+            Attempt::Busy => BUSY_POLL_INTERVAL,
+        };
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(interval);
     }
 }
 
@@ -410,7 +469,9 @@ fn wait_while_starting(
 /// but is still restoring is awaited until `restore_deadline`. An owner seen
 /// restoring that then vanishes from the socket ends the restore wait at
 /// once: the contact bound applies again, and when the spawned process has
-/// exited too (`owner_exited`) ensure fails now instead of waiting.
+/// exited too (`owner_exited`) ensure fails now instead of waiting. An owner
+/// that refuses connections continuously has the same busy bound as an
+/// existing owner, including after it has reported that it is restoring.
 fn wait_until_ready(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
@@ -420,16 +481,26 @@ fn wait_until_ready(
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut seen_alive = false;
+    let mut busy = BusySince::default();
     loop {
-        match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+        let result = attempt(spec, expected_session, attempt_deadline(restore_deadline))?;
+        let refused = matches!(result, Attempt::Busy);
+        match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Starting(pid) => {
+                busy.answered();
                 seen_alive = true;
                 progress.restoring(pid);
             }
-            // Accepted but unanswered: keep what is known about the owner.
-            Attempt::Unanswered => {}
+            Attempt::Stopped => return Err(EnsureError::NotReady),
+            // Accepted but unanswered: keep what is known about the owner,
+            // but only consecutive refusals count toward its connection-limit
+            // deadline.
+            Attempt::Unanswered => busy.answered(),
+            Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
+            Attempt::Busy => {}
             Attempt::Gone => {
+                busy.answered();
                 seen_alive = false;
                 if owner_exited() {
                     return Ok(None);
@@ -441,9 +512,9 @@ fn wait_until_ready(
             return Err(EnsureError::RestoreTimeout);
         }
         if !seen_alive && now >= contact_deadline {
-            return Ok(None);
+            return if refused { Err(EnsureError::Busy) } else { Ok(None) };
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(if refused { BUSY_POLL_INTERVAL } else { POLL_INTERVAL });
     }
 }
 
@@ -533,11 +604,17 @@ fn attempt(
             Ok(stream) => stream,
             Err(_) => return Ok(Attempt::Gone),
         };
+    let listener = stream.peer_process_key();
     let identity = match identify(stream, deadline) {
         Ok(identity) => identity,
-        // A timeout is a live but busy server; anything else on a fresh
-        // connection is a dying or stale peer (or a full one).
+        // A timeout is a live but busy server (one restoring holds its
+        // connections unanswered), unless its process is stopped; anything
+        // else on a fresh connection is a dying or stale peer.
+        Err(IdentifyError::Timeout) if replace::listener_is_stopped(listener.as_deref()) => {
+            return Ok(Attempt::Stopped);
+        }
         Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
+        Err(IdentifyError::Refused) => return Ok(Attempt::Busy),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };
     if identity["app"] != "cmux-tui" {
@@ -595,57 +672,6 @@ fn serves_requested_state(spec: &OwnerSpec, session: &str, identity: &Value) -> 
     match cmux_tui_core::WorkspaceRegistry::stored_registry_id(&root, session) {
         Ok(stored) => stored.as_deref() == Some(running),
         Err(_) => true,
-    }
-}
-
-enum IdentifyError {
-    Timeout,
-    Failed,
-}
-
-/// Run one identify exchange on a fresh connection with a bounded timeout.
-fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Value, IdentifyError> {
-    let timeout =
-        Some(deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(2)));
-    stream.set_read_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
-    stream.set_write_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
-    let mut connection = BufReader::new(stream);
-    writeln!(connection.get_mut(), "{}", serde_json::json!({"id":1,"cmd":"identify"}))
-        .and_then(|()| connection.get_mut().flush())
-        .map_err(|_| IdentifyError::Failed)?;
-    loop {
-        let mut bytes = Vec::new();
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(IdentifyError::Timeout);
-        }
-        connection
-            .get_mut()
-            .set_read_timeout(Some(remaining.min(Duration::from_secs(2))))
-            .map_err(|_| IdentifyError::Failed)?;
-        match connection.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
-            Ok(0) => return Err(IdentifyError::Failed),
-            Ok(_) => {}
-            Err(error)
-                if matches!(error.kind(), io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock) =>
-            {
-                return Err(IdentifyError::Timeout);
-            }
-            Err(_) => return Err(IdentifyError::Failed),
-        }
-        if bytes.len() > RESPONSE_LIMIT || !bytes.ends_with(b"\n") {
-            return Err(IdentifyError::Failed);
-        }
-        let Ok(response) = serde_json::from_slice::<Value>(&bytes) else {
-            return Err(IdentifyError::Failed);
-        };
-        if response.get("event").is_some() || response["id"] != 1 {
-            continue;
-        }
-        if response["ok"] == true {
-            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
-        }
-        return Err(IdentifyError::Failed);
     }
 }
 
