@@ -2902,6 +2902,11 @@ pre.cv-math-source {
   flex: 0 1 auto;
   max-width: 100%;
 }
+/* The sender's name is the line's first word: it starts on the rows' text column, its tint
+   reaching back into the icon gap (transcript-icon-column.test.ts, transcript-row-alignment.test.ts). */
+.cv-received__sender > .cv-agent-tag.is-open {
+  margin-inline-start: calc(-1 * var(--ds-space-1));
+}
 /* A sender with a chat to open is the session link chip (AgentTag.css `button.cv-agent-tag.is-open`):
    its look is that rule's alone. */
 .cv-received__preview {

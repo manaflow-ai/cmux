@@ -57,10 +57,16 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
     },
   } as const;
 
-  // Every running transition (a colour fading in after load or a hover) ends before a state is read.
+  // Every running transition (a colour fading in after load or a hover) ends before a state is read;
+  // a loop that never ends (a spinner) is not waited on.
   const settled = (page: Page) =>
     page.evaluate(() =>
-      Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+          .map((animation) => animation.finished.catch(() => undefined)),
+      ),
     );
 
   const measure = async (page: Page, row: (typeof ROWS)[keyof typeof ROWS]) => {
@@ -127,7 +133,7 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
           expect(Math.abs(rest.chipCentre - rest.iconCentre)).toBeLessThanOrEqual(0.5);
           // Sized to its name with real padding, not a tight strip.
           expect(rest.chipHeight).toBeGreaterThanOrEqual(22);
-          expect(rest.insetStart).toBeGreaterThanOrEqual(6);
+          expect(rest.insetStart).toBeGreaterThanOrEqual(4);
           expect(rest.insetEnd).toBeGreaterThanOrEqual(4);
           expect(rest.chipWidth).toBeLessThan(rest.lineWidth * 0.6);
           // The whole name shows when the line has room for it: never cut beside an empty gap.
@@ -170,6 +176,7 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       await chip.waitFor();
       expect(await chip.locator(".acpmux-started-cue").count()).toBe(1);
       await chip.hover();
+      await settled(page);
       await capture(page, "dark-reply-hover-chip");
       expect(await chip.locator(".acpmux-started-cue").evaluate((cue) => Number(getComputedStyle(cue).opacity))).toBe(
         1,

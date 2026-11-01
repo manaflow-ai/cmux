@@ -41,7 +41,7 @@ button.cv-agent-tag.is-open {
   /* The tool row's height (design/grid.md): a step under the 26px message line, so the chip has
      room above and below inside every row it sits on. */
   height: var(--cv-tool-row-height);
-  padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+  padding: 0 var(--ds-space-1);
   color: var(--agent-link, var(--agent-accent));
   background: color-mix(in srgb, var(--agent-link, var(--agent-accent)) 13%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
