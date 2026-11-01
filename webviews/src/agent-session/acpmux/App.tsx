@@ -422,7 +422,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
-import { flattenInboxRows } from "./conversation/laneNoticeBatches";
+import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
   forkRefusal,
@@ -6388,7 +6388,7 @@ function AcpmuxPane() {
       );
       // Expand inbox summaries only after turn shaping. Source rows remain the semantic anchors
       // for turn boundaries, retries and queue actions; this is a display-only projection.
-      const displayRows = turns.hasInbox ? flattenInboxRows(turns.rows) : turns.rows;
+      const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
       const subagents = subagentRowsFrom(displayRows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.

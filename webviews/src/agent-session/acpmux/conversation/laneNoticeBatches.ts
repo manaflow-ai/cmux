@@ -72,7 +72,8 @@ const phaseOf = (row: AcpmuxRow): DeliveryPhase => {
 let version = 0;
 const extensionCache = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const listCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
-const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
+type InboxProjection = { rows: readonly AcpmuxRow[]; offsets: readonly number[] };
+const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
 const inboxChildrenCache = new WeakMap<AcpmuxRow, readonly AcpmuxRow[]>();
 
 function counts(rows: readonly AcpmuxRow[]): Partial<Record<LaneNoticeVerdict, number>> {
@@ -103,116 +104,198 @@ const bodyKey = (sender: string, text: string): string =>
 const inboxDeliveries = (thread: LaneNoticeThread): readonly { sender: string; text: string; promptId?: string }[] =>
   thread.messages?.length
     ? thread.messages
-    : [{ sender: thread.sender, text: thread.preview ?? "" }];
+    : [{
+        sender: thread.sender,
+        text: thread.preview ?? "",
+        ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
+      }];
 
-/** Expand inbox notices into the message rows they announce, dropping a delivery already present
- * as a normal waiting message. This keeps the pending strip one flat run instead of a group inside
- * the waiting group, and makes the notice a quiet summary rather than a second copy of the message.
+/** Parse one immutable notice once. These are display children, never turn/queue anchors. */
+function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[] {
+  const cached = inboxChildrenCache.get(row);
+  if (cached) return cached;
+  const children: AcpmuxRow[] = [];
+  for (const thread of notice.threads ?? []) {
+    for (const [index, delivery] of inboxDeliveries(thread).entries()) {
+      children.push({
+        id: `${row.id}:inbox:${thread.id}:${index}`,
+        version: row.version,
+        at: row.at,
+        kind: "user",
+        text: delivery.text,
+        untyped: true,
+        inboxDelivery: true,
+        ...(row.steer ? { steer: row.steer } : {}),
+        ...(!thread.messages?.length
+          ? {
+              inboxThread: {
+                threadId: thread.id,
+                ...(thread.label ? { label: thread.label } : {}),
+                sender: delivery.sender,
+                preview: delivery.text,
+                count: thread.count ?? 1,
+                promptIds: thread.promptIds ?? [],
+                ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
+              },
+            }
+          : {}),
+        incoming: {
+          kind: "message",
+          message: {
+            name: delivery.sender,
+            text: delivery.text,
+            raw: delivery.text,
+            threadId: thread.id,
+            ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
+            ...(thread.fromSession && delivery.sender === thread.sender ? { sessionId: thread.fromSession } : {}),
+          },
+        },
+      });
+    }
+  }
+  inboxChildrenCache.set(row, children);
+  return children;
+}
+
+const projectedBatches = new WeakMap<AcpmuxRow, { children: readonly AcpmuxRow[]; row: AcpmuxRow }>();
+
+function projectedBatch(row: AcpmuxRow, children: readonly AcpmuxRow[]): AcpmuxRow {
+  const held = projectedBatches.get(row);
+  if (held && held.children.length === children.length && held.children.every((child, i) => child === children[i]))
+    return held.row;
+  const threads = new Map<string, { id: string; sender: string }>();
+  for (const child of children) {
+    const message = child.incoming?.kind === "message" ? child.incoming.message : undefined;
+    if (!message) continue;
+    const id = message.threadId ?? child.id;
+    threads.set(id, { id, sender: message.name });
+  }
+  const result: AcpmuxRow = {
+    ...row,
+    version: ++version,
+    text: children.map((child) => child.text ?? "").join("\n"),
+    joined: children.flatMap((child) => [child.id, ...(child.joined ?? [])]),
+    inboxDeliveryBatch: true,
+    laneNoticeBatch: { ...row.laneNoticeBatch!, rows: children, threads: [...threads.values()] },
+  };
+  projectedBatches.set(row, { children, row: result });
+  return result;
+}
+
+/** Display-only projection: every leaf shares one duplicate context, including leaves inside
+ * batches. Source rows keep their turn and queue identity. A batch keeps its one quiet fold, but
+ * its children are flat received rows; no harness wrapper is passed to the message renderer.
  */
 export function flattenInboxRows(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
   const cached = inboxFlattenCache.get(rows);
-  if (cached) return cached;
-  if (rows.some((row) => row.laneNoticeBatch?.kind === "inbox" && row.inboxDeliveryBatch !== true)) {
-    const expanded = rows.map((row) => {
-      if (row.laneNoticeBatch?.kind !== "inbox" || row.inboxDeliveryBatch === true) return row;
-      const children = flattenInboxRows(row.laneNoticeBatch.rows);
-      return {
-        ...row,
-        text: children.map((child) => child.text ?? "").join("\n"),
-        joined: children.map((child) => child.id),
-        inboxDeliveryBatch: true as const,
-        laneNoticeBatch: { ...row.laneNoticeBatch, rows: children },
-      };
-    });
-    const result = expanded;
-    inboxFlattenCache.set(rows, result);
-    return result;
-  }
-  if (!rows.some((row) => noticeOf(row)?.kind === "inbox")) {
-    inboxFlattenCache.set(rows, rows);
-    return rows;
-  }
+  if (cached) return cached.rows;
   const deliveredIds = new Set<string>();
   const deliveredBodies = new Set<string>();
-  for (const row of rows) {
-    const notice = noticeOf(row);
-    if (notice?.kind === "inbox") continue;
-    const message = row.incoming?.kind === "message" ? row.incoming.message : undefined;
-    if (!message) continue;
-    const id = row.queuedMessage?.promptId ?? row.steerPromptId ?? message.msgId;
-    if (id) deliveredIds.add(id);
-    deliveredBodies.add(bodyKey(message.name, message.text));
+  let hasInbox = false;
+  const collect = (members: readonly AcpmuxRow[]) => {
+    for (const row of members) {
+      if (row.laneNoticeBatch) {
+        if (row.laneNoticeBatch.kind === "inbox") hasInbox = true;
+        collect(row.laneNoticeBatch.rows);
+        continue;
+      }
+      if (noticeOf(row)?.kind === "inbox" || row.inboxDelivery) {
+        hasInbox = true;
+        continue;
+      }
+      const message = row.incoming?.kind === "message" ? row.incoming.message : undefined;
+      if (!message) continue;
+      for (const id of [row.queuedMessage?.promptId, row.steerPromptId, message.msgId])
+        if (id) deliveredIds.add(id);
+      deliveredBodies.add(bodyKey(message.name, message.text));
+    }
+  };
+  collect(rows);
+  if (!hasInbox) {
+    inboxFlattenCache.set(rows, { rows, offsets: rows.map((_, i) => i).concat(rows.length) });
+    return rows;
   }
-  const seenInboxIds = new Set<string>();
-  const seenInboxBodies = new Set<string>();
-  const out: AcpmuxRow[] = [];
-  const appendChild = (child: AcpmuxRow) => {
+  const seenIds = new Set<string>();
+  const seenBodies = new Set<string>();
+  const keepDelivery = (child: AcpmuxRow): boolean => {
     const message = child.incoming?.kind === "message" ? child.incoming.message : undefined;
-    if (!message) return;
+    if (!message) return false;
     const id = message.msgId;
     const body = bodyKey(message.name, message.text);
-    const duplicate = id ? deliveredIds.has(id) || seenInboxIds.has(id) : deliveredBodies.has(body) || seenInboxBodies.has(body);
-    if (duplicate) return;
-    if (id) seenInboxIds.add(id);
-    else seenInboxBodies.add(body);
-    out.push(child);
+    if (id ? deliveredIds.has(id) || seenIds.has(id) : deliveredBodies.has(body) || seenBodies.has(body)) return false;
+    if (id) seenIds.add(id);
+    else seenBodies.add(body);
+    return true;
   };
-  for (const row of rows) {
-    const notice = noticeOf(row);
-    if (notice?.kind !== "inbox") {
-      out.push(row);
-      continue;
-    }
-    const cachedChildren = inboxChildrenCache.get(row);
-    if (cachedChildren) {
-      for (const child of cachedChildren) appendChild(child);
-      continue;
-    }
-    const children: AcpmuxRow[] = [];
-    for (const [threadIndex, thread] of (notice.threads ?? []).entries()) {
-      for (const [messageIndex, delivery] of inboxDeliveries(thread).entries()) {
-        const id = `${row.id}:inbox:${thread.id}:${messageIndex}`;
-        const child: AcpmuxRow = {
-          id,
-          version: row.version + threadIndex + messageIndex,
-          at: row.at,
-          kind: "user",
-          text: delivery.text,
-          untyped: true,
-          inboxDelivery: true,
-          ...(row.steer ? { steer: row.steer } : {}),
-          ...(!thread.messages?.length
-            ? {
-                inboxThread: {
-                  threadId: thread.id,
-                  ...(thread.label ? { label: thread.label } : {}),
-                  sender: delivery.sender,
-                  preview: delivery.text,
-                  count: thread.count ?? 1,
-                  promptIds: thread.promptIds ?? [],
-                  ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
-                },
-              }
-            : {}),
-          incoming: {
-            kind: "message",
-            message: {
-              name: delivery.sender,
-              text: delivery.text,
-              raw: delivery.text,
-              ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
-            },
-          },
-        };
-        children.push(child);
-        appendChild(child);
+  const offsets: number[] = [];
+  const project = (members: readonly AcpmuxRow[], insideInbox = false): AcpmuxRow[] => {
+    const out: AcpmuxRow[] = [];
+    for (const row of members) {
+      if (!insideInbox) offsets.push(out.length);
+      if (row.laneNoticeBatch?.kind === "inbox") {
+        const children = project(row.laneNoticeBatch.rows, true);
+        if (insideInbox) out.push(...children);
+        else if (children.length) out.push(projectedBatch(row, children));
+        continue;
+      }
+      const notice = noticeOf(row);
+      if (notice?.kind === "inbox") {
+        out.push(...inboxChildren(row, notice).filter(keepDelivery));
+      } else if (row.inboxDelivery) {
+        if (keepDelivery(row)) out.push(row);
+      } else {
+        out.push(row);
       }
     }
-    inboxChildrenCache.set(row, children);
-  }
+    return out;
+  };
+  const out = project(rows);
   const result = out.length === rows.length && out.every((row, index) => row === rows[index]) ? rows : out;
-  inboxFlattenCache.set(rows, result);
+  offsets.push(out.length);
+  inboxFlattenCache.set(rows, { rows: result, offsets });
   return result;
+}
+
+/** Reuse the display projection of the turn prefix that turnViewFrom already reused. Streaming
+ * only changes assistant/tool rows: when the tail's incoming rows are the same immutable objects,
+ * no delivery index is rebuilt and historical messages are neither visited nor reparsed. A new,
+ * removed or updated message rebuilds the shared duplicate context once, across the whole list.
+ * All reuse is keyed by source object identity, never row IDs shared by different chats.
+ */
+export function projectInboxRows(
+  rows: readonly AcpmuxRow[],
+  previous?: readonly AcpmuxRow[],
+  reusedRows = 0,
+): readonly AcpmuxRow[] {
+  const cached = inboxFlattenCache.get(rows);
+  if (cached) return cached.rows;
+  const held = previous && inboxFlattenCache.get(previous);
+  if (!previous || !held || reusedRows > Math.min(rows.length, previous.length)) return flattenInboxRows(rows);
+  const relevant = (row: AcpmuxRow) =>
+    row.laneNoticeBatch !== undefined || row.incoming?.kind === "message" || row.incoming?.kind === "inbox";
+  const oldMessages: { row: AcpmuxRow; index: number }[] = [];
+  for (let i = reusedRows; i < previous.length; i += 1)
+    if (relevant(previous[i]!)) oldMessages.push({ row: previous[i]!, index: i });
+  let at = 0;
+  for (let i = reusedRows; i < rows.length; i += 1) {
+    if (!relevant(rows[i]!)) continue;
+    if (oldMessages[at++]?.row !== rows[i]) return flattenInboxRows(rows);
+  }
+  if (at !== oldMessages.length) return flattenInboxRows(rows);
+  const projected = held.rows.slice(0, held.offsets[reusedRows]);
+  const offsets = held.offsets.slice(0, reusedRows);
+  at = 0;
+  for (let i = reusedRows; i < rows.length; i += 1) {
+    offsets.push(projected.length);
+    const row = rows[i]!;
+    if (relevant(row)) {
+      const oldIndex = oldMessages[at++]!.index;
+      projected.push(...held.rows.slice(held.offsets[oldIndex], held.offsets[oldIndex + 1]));
+    } else projected.push(row);
+  }
+  offsets.push(projected.length);
+  inboxFlattenCache.set(rows, { rows: projected, offsets });
+  return projected;
 }
 
 function makeBatch(rows: readonly AcpmuxRow[], kind: LaneNoticeKind): AcpmuxRow {
