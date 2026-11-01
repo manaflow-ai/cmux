@@ -2,6 +2,7 @@
 //! and is finished by the next one.
 
 use super::*;
+use rusqlite::OptionalExtension as _;
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir()
@@ -80,5 +81,61 @@ fn a_rollback_whose_wal_cannot_be_removed_keeps_the_backup_aside() {
     finish_pending_rollback(&db_path).unwrap();
     assert_eq!(fs::read(&db_path).unwrap(), b"full");
     assert!(!rollback_pending_path(&db_path).exists());
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+fn registry_with_meta(path: &Path, entries: &[(&str, &str)]) {
+    let connection = Connection::open(path).unwrap();
+    connection
+        .execute_batch("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        .unwrap();
+    for (key, value) in entries {
+        connection.execute("INSERT INTO meta(key, value) VALUES(?1, ?2)", [key, value]).unwrap();
+    }
+}
+
+fn full_starts(db_path: &Path) -> Option<String> {
+    Connection::open(db_path)
+        .unwrap()
+        .query_row("SELECT value FROM meta WHERE key = ?1", [FULL_STARTS_META_KEY], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()
+        .unwrap()
+}
+
+#[test]
+fn a_full_start_that_cannot_read_the_backup_is_refused_not_counted_as_unswapped() {
+    // The swapped registry's backup cannot be read (a directory stands in for
+    // a file another process holds). Treating that as "not the swapped
+    // registry" would let this start serve without recording itself, and a
+    // later failed start could roll back over what it served.
+    let dir = temp_dir("backup-unreadable");
+    let db_path = dir.join("workspace-registry.sqlite3");
+    registry_with_meta(&db_path, &[("registry_id", "r1"), (DONE_META_KEY, "{\"kept\":1}")]);
+    let previous = previous_path(&db_path);
+    fs::create_dir_all(previous.join("held")).unwrap();
+
+    let error = note_full_start(&db_path).unwrap_err();
+    assert!(format!("{error:#}").contains("the start is refused"), "{error:#}");
+    assert_eq!(full_starts(&db_path), None);
+
+    // Once the backup reads again, the start is recorded.
+    fs::remove_dir_all(&previous).unwrap();
+    registry_with_meta(&previous, &[("registry_id", "r1")]);
+    note_full_start(&db_path).unwrap();
+    assert_eq!(full_starts(&db_path).as_deref(), Some("1"));
+    assert!(!rollback_possible(&db_path), "a recorded start ends the rollback window");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_full_start_beside_another_registrys_backup_is_not_counted() {
+    let dir = temp_dir("backup-other");
+    let db_path = dir.join("workspace-registry.sqlite3");
+    registry_with_meta(&db_path, &[("registry_id", "r1"), (DONE_META_KEY, "{\"kept\":1}")]);
+    registry_with_meta(&previous_path(&db_path), &[("registry_id", "r2")]);
+    note_full_start(&db_path).unwrap();
+    assert_eq!(full_starts(&db_path), None);
     fs::remove_dir_all(&dir).unwrap();
 }

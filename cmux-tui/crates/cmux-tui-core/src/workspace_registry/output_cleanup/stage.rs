@@ -130,10 +130,16 @@ fn stage_registry_until_stopped(
 }
 
 /// Live `terminal.output` rows (one index seek) or a sealed segment that
-/// holds or may hold output (the segment kind map, a few thousand rows).
+/// holds or may hold output (the segment kind map, a few thousand rows). A
+/// legacy kind backfill that started and never finished (its meta marker is
+/// not `1`) may have left a mixed segment mapped without its output kind, so
+/// the map proves nothing and the segments are staged and decoded.
 pub(super) fn output_present(source: &Connection) -> anyhow::Result<bool> {
     Ok(source.query_row(
         "SELECT EXISTS(
+                  SELECT 1 FROM meta
+                  WHERE key = 'journal_segment_kinds_backfill' AND value != '1')
+             OR EXISTS(
                   SELECT 1 FROM session_journal INDEXED BY session_journal_by_kind_sequence
                   WHERE kind = 'terminal.output')
              OR EXISTS(SELECT 1 FROM journal_segment_kinds WHERE kind = 'terminal.output')

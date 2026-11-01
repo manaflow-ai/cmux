@@ -1,6 +1,7 @@
 //! Phase A keeps every non-output record of a sealed segment, whatever its
 //! segment kind map says: a legacy kind backfill killed partway leaves a
 //! mixed segment listed as output only, and nothing later tells it apart.
+//! The presence check does not trust a map such a backfill left unfinished.
 
 use std::io::Write as _;
 
@@ -90,4 +91,37 @@ fn a_stop_cuts_the_live_row_count_short() {
     count_live_rows(&source, &staging).unwrap();
     assert_eq!(state(&staging, "live_head").unwrap(), "200000");
     assert_eq!(state(&staging, "live_output").unwrap(), "200000");
+}
+
+/// A source whose only sealed segment is mapped to a non-output kind.
+fn mapped_source(backfill: Option<&str>) -> Connection {
+    let source = Connection::open_in_memory().unwrap();
+    source
+        .execute_batch(
+            "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE journal_segments(segment_id TEXT PRIMARY KEY);
+             CREATE TABLE journal_segment_kinds(segment_id TEXT, kind TEXT);
+             CREATE TABLE session_journal(sequence INTEGER PRIMARY KEY, kind TEXT);
+             CREATE INDEX session_journal_by_kind_sequence ON session_journal(kind, sequence);
+             INSERT INTO journal_segments VALUES('mixed');
+             INSERT INTO journal_segment_kinds VALUES('mixed', 'agent.session.started');",
+        )
+        .unwrap();
+    if let Some(value) = backfill {
+        source
+            .execute("INSERT INTO meta VALUES('journal_segment_kinds_backfill', ?1)", [value])
+            .unwrap();
+    }
+    source
+}
+
+#[test]
+fn an_interrupted_kind_backfill_never_marks_the_cleanup_not_needed() {
+    // The backfill was killed after the segment's first kind row, before its
+    // terminal.output row: the map alone says "no output".
+    assert!(output_present(&mapped_source(Some("0"))).unwrap());
+    // A finished backfill's map is trusted.
+    assert!(!output_present(&mapped_source(Some("1"))).unwrap());
+    // Segments sealed with their kind map (no backfill ever ran).
+    assert!(!output_present(&mapped_source(None)).unwrap());
 }

@@ -175,7 +175,7 @@ fn build_stamp() -> String {
             format!("{}-{modified}", metadata.len())
         })
         .unwrap_or_default();
-    format!("build {} exe {exe}", crate::release::DISTRIBUTION_VERSION)
+    format!("build {} exe {exe}", crate::release::distribution_version())
 }
 
 /// True when an earlier attempt of this same build failed for a reason that

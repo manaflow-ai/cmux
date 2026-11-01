@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
-use rusqlite::{Connection, OpenFlags, Transaction, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension as _, Transaction, params};
 
 use super::super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT;
 use super::super::open_guard::sidecar_path;
@@ -227,18 +227,34 @@ pub(crate) fn refuse_open_beside_backup(db_path: &Path) -> anyhow::Result<()> {
 /// place (another id, or no record) never lets the backup be removed or
 /// counts a start for it.
 fn is_swapped_registry(db_path: &Path) -> bool {
-    let read = |path: &Path, key: &str| -> Option<String> {
-        open_registry_database_read_only(path)
-            .ok()?
+    swapped_registry(db_path).unwrap_or_else(|error| {
+        eprintln!(
+            "cmux-tui: output cleanup: could not tell whether the registry was swapped: {error:#}"
+        );
+        false
+    })
+}
+
+/// [`is_swapped_registry`] that reports a file it could not read instead of
+/// answering "not swapped": a locked or unreadable backup is not evidence that
+/// the registry is another one. A missing key reads as absent.
+fn swapped_registry(db_path: &Path) -> anyhow::Result<bool> {
+    let read = |path: &Path, key: &str| -> anyhow::Result<Option<String>> {
+        let connection = open_registry_database_read_only(path)
+            .with_context(|| format!("open {} to read {key}", path.display()))?;
+        connection.busy_timeout(Duration::from_secs(5))?;
+        connection
             .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
                 row.get::<_, String>(0)
             })
-            .ok()
+            .optional()
+            .with_context(|| format!("read {key} from {}", path.display()))
     };
-    let current = read(db_path, "registry_id");
-    current.is_some()
-        && current == read(&previous_path(db_path), "registry_id")
-        && read(db_path, DONE_META_KEY).is_some_and(|value| value.contains("\"kept\""))
+    let Some(current) = read(db_path, "registry_id")? else { return Ok(false) };
+    if read(&previous_path(db_path), "registry_id")?.as_deref() != Some(current.as_str()) {
+        return Ok(false);
+    }
+    Ok(read(db_path, DONE_META_KEY)?.is_some_and(|value| value.contains("\"kept\"")))
 }
 
 /// A previous registry exists and no owner got through a full start on the
@@ -268,7 +284,20 @@ pub(crate) fn note_full_start(db_path: &Path) -> anyhow::Result<()> {
     if !previous_path(db_path).exists() {
         return Ok(());
     }
-    if !is_swapped_registry(db_path) {
+    // A backup that cannot be read (held by another process, unreadable) is
+    // not proof the registry is another one: answering "not swapped" would
+    // let this start serve without its confirmation, and a later failed start
+    // could roll back over what it served. Once more after a failure, then
+    // the start is refused.
+    let swapped =
+        swapped_registry(db_path).or_else(|_| swapped_registry(db_path)).with_context(|| {
+            format!(
+                "check whether the registry was made from the output cleanup backup {} (the \
+                 start is refused; the next start tries again)",
+                previous_path(db_path).display()
+            )
+        })?;
+    if !swapped {
         eprintln!(
             "cmux-tui: output cleanup: the registry is not the one made from {}; it stays",
             previous_path(db_path).display()
