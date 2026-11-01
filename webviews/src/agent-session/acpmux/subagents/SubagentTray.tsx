@@ -6,10 +6,9 @@
 // started is one line (AgentLine.tsx, the summary card's rows too): its icon in the theme's accent,
 // its name, what it does now, how long it has run (ticking) and its state, Running or Waiting. A
 // click opens it: a subagent's pane or view (App.tsx `showSubagent`), a command's terminal
-// (processTerminal.ts), a chat. A running subagent, and a command the registry lists, stops from
-// its line's context menu (a right-click, or Shift-F10 and the menu key on the focused line), never
-// a Stop on every line: a control repeated down the rows is a block on Leo's visual rule (#28533's
-// review, on a tray with a Stop per line). An agent another one spawned sits right under it.
+// (processTerminal.ts), a chat. A running subagent, and a command the registry lists, has a Stop
+// square in the fixed row track and the same action in its context menu (a right-click, or Shift-F10
+// and the menu key on the focused line). An agent another one spawned sits right under it.
 //
 // One item is its line alone. Several get a header first, as the Codex and Claude desktop apps
 // head their running agents: a still running-work mark (never the spinner, which stays on each

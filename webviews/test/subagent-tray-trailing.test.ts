@@ -2,9 +2,9 @@
 // The running tray's trailing column in real Chromium (Playwright; CI fails the file when it cannot
 // launch, requireBrowserLane). Leo's open tray (2026-10-31) hung each line's Stop below and right of
 // the line, outside its box and off its centre, and put the header's chevron and the lines' in two
-// columns; his folded header floated its elapsed time far from its counts. No line carries a Stop
-// now (#28533: it is in each line's menu); every line's Stop track (its empty slot) is inside its
-// line and on the line's centre (on its controls' row when the line is narrow), every chevron
+// columns; his folded header floated its elapsed time far from its counts. Running lines carry a
+// Stop square in the fixed Stop track, while ended lines keep the slot empty; every line's Stop
+// track is inside its line and on the line's centre (on its controls' row when the line is narrow), every chevron
 // (the header's, each line's, View all's) ends on one x, and the header's time follows its counts.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
@@ -79,7 +79,7 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
 
   for (const width of [760, 300]) {
     for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
-      test(`no line has a Stop; its track sits inside its line, and every chevron shares one x at ${width}px (${theme})`, async () => {
+      test(`row Stop controls stay in their track, and every chevron shares one x at ${width}px (${theme})`, async () => {
         const port = (server.httpServer!.address() as { port: number }).port;
         const page = await browser.newPage({
           viewport: { width, height: 420 },
@@ -93,7 +93,8 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
           await settle(page);
           const geometry = await measure(page);
           expect(geometry.lines.length).toBeGreaterThanOrEqual(3);
-          expect(geometry.lines.every((line) => line.stops === 0)).toBe(true);
+          expect(geometry.lines.every((line) => line.stops <= 1)).toBe(true);
+          expect(geometry.lines.some((line) => line.stops === 1)).toBe(true);
           for (const line of geometry.lines) {
             const slot = line.slot;
             // Inside the line's box.
@@ -112,7 +113,7 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
             expect(slot.left).toBeGreaterThanOrEqual(line.time.right - 0.5);
             if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(slot.right - 0.5);
           }
-          // The empty slot never takes a click: at its centre the line's own button is under the pointer.
+          // An empty slot never takes a click: at its centre the line's own button is under the pointer.
           const hits = await page.evaluate(() =>
             [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].map((line) => {
               const slot = line.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot")!;

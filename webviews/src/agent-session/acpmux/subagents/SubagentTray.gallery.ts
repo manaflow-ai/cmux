@@ -464,11 +464,12 @@ export default agentPaneEntry({
       ),
     },
     "row-menu": {
-      note: "A running subagent's Stop is in its line's context menu, never a button on every line (#28533's review: a control repeated down the rows). A right-click opens the menu on the click, and the line stays lit under it.",
+      note: "A running subagent has a fixed Stop square in its row track and the same action in its context menu. A right-click opens the menu on the click, and the line stays lit under it.",
       play: async (ctx) => {
         await trayLines(2)(ctx);
-        if (ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__stop-slot > button"))
-          throw new Error("no tray line carries a Stop at rest: it is in the line's menu");
+        await ctx.waitFor(() =>
+          Boolean(ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__stop-slot > button")),
+        );
         await ctx.contextMenu({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
         await ctx.waitFor(() =>
           [...ctx.document.querySelectorAll('[role="menu"] [role="menuitem"]')].some((item) =>
