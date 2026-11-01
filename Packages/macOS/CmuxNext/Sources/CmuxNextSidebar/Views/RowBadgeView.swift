@@ -6,7 +6,7 @@ import QuartzCore
 /// glyph lands on the pixel grid at 1x and 2x (the 10 pt static glyphs' pixel art). Behind the
 /// glyph, a disc of the row's own backdrop color cuts a 1.5 pt ring out of whatever the badge
 /// sits on, like an avatar's presence badge.
-/// - `corner`: one glyph; the disc hugs it (around the Codex-like 6 pt dot, the dot).
+/// - `corner`: one glyph; the disc hugs it (the unread dot uses the sidebar’s shared size).
 /// - `plain`: one glyph in the trailing slot of a row without an icon: the bare glyph, no disc and
 ///   no ring (Lawrence 2026-10-18: the spinner and the blue dot had "a weird background circle
 ///   thing"; nothing sits under a trailing glyph, so there is nothing to cut a ring out of).
@@ -30,8 +30,17 @@ final class RowBadgeView: NSView {
     /// the default info ring at about 13 pt; its existing cell and center stay fixed.
     static let errorGlyphSide: CGFloat = 14
     static let ringWidth: CGFloat = 1.5
-    /// The unread dot's side (the 6 pt Codex-like dot in its 10 pt box).
+    /// The unscaled dot artwork (non-unread statuses keep this size).
     static let dotSide: CGFloat = 6
+    /// The artwork occupies only part of its glyph box. Measure that share once, so fitting
+    /// the unread mark to its token changes neither the shared art nor the row's cell geometry.
+    private static let dotArtShare = StaticStatusGlyph.dot.path(in: CGRect(x: 0, y: 0, width: 1, height: 1)).boundingBoxOfPath.width
+
+    private func unreadFrame(_ frame: CGRect, for glyph: StatusIndicatorView) -> CGRect {
+        guard glyph.state == .success, glyph.indicator.plan.glyph == .mark(.vector(.dot)) else { return frame }
+        let side = SidebarStyle.unreadDotSize / Self.dotArtShare
+        return CGRect(x: frame.midX - side / 2, y: frame.midY - side / 2, width: side, height: side)
+    }
     /// The room around a glyph in its cell: 2 pt for a corner badge (its 1.5 pt ring and half a
     /// point of air) and a plain glyph (the same cell, so the glyph keeps its place), 4 pt for a
     /// stack chip (2.5 pt of chip, then the ring).
@@ -125,13 +134,14 @@ final class RowBadgeView: NSView {
             if look == .plain {
                 // No disc: the glyph alone.
             } else if look == .corner {
-                let mark = glyphs[index].indicator.plan.glyph == .mark(.vector(.dot)) ? Self.dotSide : side
+                let mark = glyphs[index].indicator.plan.glyph == .mark(.vector(.dot))
+                    ? (glyphs[index].state == .success ? SidebarStyle.unreadDotSize : Self.dotSide) : side
                 disc(rings[index], around: center, side: mark + 2 * ring, z: z - 2)
             } else {
                 disc(rings[index], around: center, side: cellSide, z: z - 2)
                 disc(chips[index], around: center, side: cellSide - 2 * ring, z: z - 1)
             }
-            glyphs[index].frame = glyph
+            glyphs[index].frame = unreadFrame(glyph, for: glyphs[index])
             glyphs[index].layer?.zPosition = z
         }
     }
