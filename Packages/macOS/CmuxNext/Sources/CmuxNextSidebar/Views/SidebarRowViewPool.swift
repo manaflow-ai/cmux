@@ -61,7 +61,6 @@ struct SidebarRowViewPool {
         case .workspace: WorkspaceRowView.self
         case .item: SidebarItemListRowView.self
         case .block: SidebarBlockRowView.self
-        case .tab: SidebarTabRowView.self
         case .group: GroupHeaderRowView.self
         case .section: SectionHeaderRowView.self
         case .emptySection: EmptySectionRowView.self

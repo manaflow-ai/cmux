@@ -628,6 +628,7 @@ fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
             "transcript" => "Reading the chat as you see it".to_owned(),
             "stop" => "Ending the turn".to_owned(),
             "sleep" => "Setting a wake-up".to_owned(),
+            "watch" => "Watching for a change".to_owned(),
             "remember" => "Saving a preference".to_owned(),
             "cloud_workspace" => "Starting a Cloud workspace".to_owned(),
             "control" => control_line(input),

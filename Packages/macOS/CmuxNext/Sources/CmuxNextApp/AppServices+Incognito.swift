@@ -48,7 +48,7 @@ extension AppServices {
     /// New Incognito Window): a new tab in the source page's
     /// window when that is incognito, else a new incognito window.
     func openOffTheRecord(_ url: URL?, source: (any BrowserTab)?) {
-        if let source, let key = cache.key(of: source), let (_, pane) = locateTab(key),
+        if let source, let key = cache.key(of: source), let (_, pane) = locateTabOnAnyMachine(key),
            let workspace = workspaceID(of: pane), windows.isIncognito(workspace: workspace),
            let controller = paneController(for: pane) {
             controller.newBrowserTab(url: url, background: false)

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxVNC
 import Foundation
 import Security
@@ -36,7 +37,9 @@ nonisolated struct RemoteVNCCredentialStore {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
+        // No UI: the service is shared by every development build, so another build's item is
+        // refused (and the sign-in asked for again), never prompted for.
+        guard LoginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess, let data = result as? Data,
               let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return nil }
         return VNCCredentials(username: stored.username, password: stored.password)
     }

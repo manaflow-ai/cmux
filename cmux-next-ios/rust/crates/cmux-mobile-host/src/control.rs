@@ -2,6 +2,7 @@
 //! as its child and owns sign-in and the acpmux endpoint.
 //!
 //! stdin carries JSON lines from the app:
+//! - `{"type":"network_changed"}`: the Mac woke; re-register signaling and refresh live endpoints.
 //! - `{"type":"token","token":"<Stack access token>"}`: the access token to use
 //!   from now on. The app sends one at start and answers every `need_token`
 //!   (hostd asks whenever it needs one and its token is under a minute from
@@ -81,6 +82,8 @@ impl std::fmt::Debug for Secret {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
+    /// The Mac woke: refresh signaling and endpoints without dropping live links.
+    NetworkChanged,
     Token {
         token: String,
     },
@@ -240,6 +243,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             match Inbound::parse(&line) {
+                Some(Inbound::NetworkChanged) => crate::netwatch::changed(),
                 Some(Inbound::Token { token }) => {
                     token_tx.send_replace(Some(token));
                 }
@@ -339,6 +343,7 @@ mod tests {
             Inbound::parse(r#"{"type":"browser_gone","tab":"s4"}"#),
             Some(Inbound::BrowserGone { tab: "s4".into() })
         );
+        assert_eq!(Inbound::parse(r#"{"type":"network_changed"}"#), Some(Inbound::NetworkChanged));
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }

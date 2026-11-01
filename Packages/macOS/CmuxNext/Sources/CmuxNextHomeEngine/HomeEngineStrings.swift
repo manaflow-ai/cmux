@@ -185,6 +185,19 @@ public nonisolated enum HomeEngineStrings {
                                   table: "Home", bundle: .module), reason)
         }
     }
+    /// Move and Scale's title: the editor a chosen or dropped Chief picture opens in.
+    static var cropTitle: String {
+        String(localized: "home.engine.cropTitle", defaultValue: "Move and Scale", table: "Home", bundle: .module)
+    }
+    static var cropHint: String {
+        String(localized: "home.engine.cropHint", defaultValue: "Drag to move the picture. Scroll or pinch to zoom.", table: "Home", bundle: .module)
+    }
+    static var cropZoom: String {
+        String(localized: "home.engine.cropZoom", defaultValue: "Zoom", table: "Home", bundle: .module)
+    }
+    static var cropSave: String {
+        String(localized: "home.engine.cropSave", defaultValue: "Save", table: "Home", bundle: .module)
+    }
     static var pictureUnreadable: String {
         String(localized: "home.engine.pictureUnreadable", defaultValue: "That picture could not be used. Choose a PNG, JPEG, HEIC, WebP, or a GIF up to 1 MB.",
                table: "Home", bundle: .module)

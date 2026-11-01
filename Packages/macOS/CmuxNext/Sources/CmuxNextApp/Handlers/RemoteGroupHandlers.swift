@@ -2,7 +2,10 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextServer
 import CmuxNextSidebar
+import CmuxNextWakeups
+import Foundation
 
 /// New Remote Group (remote-groups-DESIGN.md slice 4): one action from a host name to a remote group.
 /// It connects the host through `SSHService` as `remote.connect` does (an existing machine for the same
@@ -11,19 +14,39 @@ import CmuxNextSidebar
 /// with the host's name and status, in one list. New workspaces in it run on the host.
 @MainActor
 enum RemoteGroupHandlers {
+    static func shouldContinueMarking(status: SSHConnectionMachine.Status) -> Bool {
+        status != .offline
+    }
+
+    /// A focus request makes an automated run interactive for this action even
+    /// while the registry is capturing its refusal output.
+    static func shouldOfferInteractiveFlow(_ invocation: ActionInvocation) -> Bool {
+        invocation.allowsViewChange
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let ssh = context.services.ssh
         CloudHandlers.bind("remote.newGroup", registry, reason: { ssh.unavailableReason }) { invocation in
-            let interactive = !registry.isCapturingRefusal
+            let interactive = shouldOfferInteractiveFlow(invocation)
+            // `cmux workspace group create --remote HOST --name N` names the group's header.
+            let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             let make = { (text: String) throws in
-                let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive)
-                markWhenNamed(session)
+                let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive, byPerson: invocation.isPersonsRequest)
+                markWhenNamed(session, name: name)
                 if interactive { RemoteHandlers.showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue { return try make(text) }
             // The host as a Cmd-Shift-P step; Return runs this again with it.
             registry.ask("remote.newGroup", invocation, ActionArgumentAsk(argument: "destination"))
         }
+        // The host step lists connected machines, Tailscale peers and ~/.ssh/config aliases (slice E).
+        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: SSHService.environment) }
+        let work = context.services.work, home = FileManager.default.homeDirectoryForCurrentUser
+        let hosts = RemoteHostCatalog(connected: { context.services.machines.ssh.map(\.host.destination.description) }, peers: { await cli?.candidates(probe: false).flatMap { try? HostCandidate.parseList($0) } }, aliases: { (try? await work.run(.bestEffort, mayBlock: .files) { SSHConfigHosts.aliases(in: home.appending(path: ".ssh"), home: home) { try? String(blockingContentsOfFile: $0, encoding: .utf8) } }) ?? [] })
+        // task-owner: one warm-up read so the first ask lists every host; bounded by the CLI's deadline.
+        Task(priority: WorkPriority.bestEffort.taskPriority) { await hosts.reload() }
+        let otherSuggestions = registry.argumentSuggestions
+        registry.argumentSuggestions = { $0 == ActionSuggestions.remoteHosts ? hosts.choices().map { ActionEnumCase(value: $0.destination, title: $0.title) } : otherSuggestions?($0) ?? [] }
         // Back to rows of the one list; the host stays connected and its workspaces stay.
         registry.bind("remote.removeGroup", run: { invocation in
             guard let session = session(invocation, context) else {
@@ -48,7 +71,7 @@ enum RemoteGroupHandlers {
             switch route(machine, machines) {
             case .wakeServer: machines.server(machine)?.wake()
             case .retryCloud: machines.session(machine)?.retry()
-            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine)))
+            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: invocation.origin))
             case .none: throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
         })
@@ -84,26 +107,24 @@ enum RemoteGroupHandlers {
 
     /// Marks `session`'s machine section a remote group once its daemon names its session; gives up
     /// when the machine stops connecting.
-    static func markWhenNamed(_ session: SSHMachineSession) {
-        let daemon = session.daemon
+    static func markWhenNamed(_ session: SSHMachineSession, name: String? = nil) {
+        let daemon = session.daemon, groupName = name
         // task-owner: ends when the daemon names its session or the machine stops connecting
         Task { @MainActor in
             for await (name, status) in ObservationStream({ (daemon.store.registryID, session.linkStatus) }) {
-                if let name {
-                    mark(session: name)
+                if let registryID = name {
+                    mark(session: registryID, name: groupName)
                     return
                 }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed: return
-                }
+                if Self.shouldContinueMarking(status: status) { continue }
+                return
             }
         }
     }
 
     /// Makes the machine section of daemon session `session` a remote group; nothing for an unnamed session.
     /// New Remote Group, New Cloud Workspace and a new Cloud machine call it: a Cloud machine's workspaces sit in one group.
-    static func mark(session: String?) {
-        if let session, SidebarDocWiring.isActive { SidebarDocStore.current?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle) }
+    static func mark(session: String?, name: String? = nil) {
+        if let session, SidebarDocWiring.isActive { SidebarDocStore.current?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle, name: name) }
     }
 }
