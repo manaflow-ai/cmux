@@ -3024,7 +3024,9 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ !cancelled() }}" in block
+    # Runs after a failure (so a red needs reports), but not on pull requests into feat-cmux-next.
+    assert ("if: ${{ !cancelled() && !(github.event_name == 'pull_request' && "
+            "github.event.pull_request.base.ref == 'feat-cmux-next') }}") in block
     assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
