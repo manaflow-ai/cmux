@@ -802,6 +802,17 @@ function emptySnapshot(): AcpmuxSnapshot {
   };
 }
 
+/// The remote Cloud handshake identifies the machine even when its acpmux summary predates the
+/// host-kind field. Keep the daemon's host/name fields intact and add only the missing kind so every
+/// Session Info consumer treats the chat as Cloud.
+export function withCloudMachineSummary(
+  summary: AcpmuxSnapshot["summary"],
+  cloudMachineID?: string,
+): AcpmuxSnapshot["summary"] {
+  if (!summary || !cloudMachineID || summary.hostKind === "cloud") return summary;
+  return { ...summary, hostKind: "cloud" };
+}
+
 /// The latest snapshot, kept for a reload of the page (`cachedSnapshot`). A streaming reply sends
 /// one a display frame, and serializing the whole transcript each frame took main-thread time that
 /// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
@@ -6887,6 +6898,10 @@ function AcpmuxPane() {
     () => (cardRows === snapshot.rows ? snapshot : { ...snapshot, rows: cardRows }),
     [snapshot, cardRows],
   );
+  const sessionInfoSnapshot = useMemo(() => {
+    const summary = withCloudMachineSummary(cardSnapshot.summary, cloudMachineID);
+    return summary === cardSnapshot.summary ? cardSnapshot : { ...cardSnapshot, summary };
+  }, [cardSnapshot, cloudMachineID]);
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [cardRows, chatSubsessions, workflows],
@@ -7534,7 +7549,7 @@ function AcpmuxPane() {
       route: {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
-        hostKind: cloudMachineID ? "cloud" : snapshot.summary?.hostKind,
+        hostKind: withCloudMachineSummary(snapshot.summary, cloudMachineID)?.hostKind,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
       // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
@@ -8180,7 +8195,7 @@ function AcpmuxPane() {
   }, [scopedOwn, scopedTasks, scopedRows, registryProcesses, registryListed, transcriptWork, workflows.length]);
   // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
-  const sessionInfoSummary = snapshot.summary;
+  const sessionInfoSummary = sessionInfoSnapshot.summary;
   const sessionInfoLocal =
     sessionInfoSummary !== undefined &&
     !sessionInfoSummary.peer &&
@@ -8285,7 +8300,7 @@ function AcpmuxPane() {
     [restartChat, compactOffered],
   );
   const sessionInfo = useSessionInfo({
-    snapshot: cardSnapshot,
+    snapshot: sessionInfoSnapshot,
     machineName,
     repository: githubRepository,
     cloudRepositoryAvailable,
