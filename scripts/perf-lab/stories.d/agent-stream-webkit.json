@@ -1,0 +1,18 @@
+{
+  "id": "agent-stream-webkit",
+  "tier": "T1",
+  "description": "A streamed agent reply into a 2,000-row transcript at full render rate, WebKit arm (agent-stream-e2e.py, the bundle's own agent page; the Chromium arm is agent-stream): every frame's interval, layout and React time, and per run the dropped, detached-from-bottom and content-growing frames.",
+  "command": ["scripts/cmux-next/agent-stream-e2e.py", "--engine", "webkit", "--story", "agent-stream-webkit", "--runs", "3"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "agent_stream\\.(frame_interval|layout|react)", "unit": "ms", "better": "lower"},
+    {"name": "agent_stream\\.((dropped|detached|growing)_frames(\\.missed_runs)?|engine_fallback)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 90,
+  "needs": ["debug:debug.agent_pane", "debug:debug.key", "env:CMUX_NEXT_DEBUG_TUNABLES_FILE"],
+  "owner": "Performance Lead",
+  "component": "Agents>Stream"
+}

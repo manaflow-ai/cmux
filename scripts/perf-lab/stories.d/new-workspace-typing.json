@@ -1,0 +1,19 @@
+{
+  "id": "new-workspace-typing",
+  "tier": "T2",
+  "description": "No key lost right after an action that opens a New Tab page (new-workspace-real-typing-e2e.py, cx-kql5h): real HID key events at 30 keys/s, the first 40 ms after Cmd-N (cold, a relaunch before each, and warm), Cmd-T, Cmd-D from a New Tab page and New Tab Page from the palette; per run the characters the new page's field lost, and per flow the failed runs, light session. The host must allow this bench to post events (a privilege, as purge).",
+  "command": ["scripts/cmux-next/new-workspace-real-typing-e2e.py", "--story", "new-workspace-typing", "--cold", "3",
+              "--warm", "5", "--others", "3"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "new_workspace_typing\\.(cold|warm)_(cmdn|cmdt|split|palette|newwin)\\.(lost_keys|failed_runs)", "unit": "count",
+     "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 240,
+  "needs": ["debug:debug.new_tab", "debug:debug.focus", "debug:debug.key", "privilege:post-events"],
+  "owner": "PL-typing",
+  "component": "Input>Typing"
+}

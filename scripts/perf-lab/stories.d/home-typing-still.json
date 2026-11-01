@@ -1,0 +1,20 @@
+{
+  "id": "home-typing-still",
+  "tier": "T2",
+  "description": "Native classic Home typing indicator and row placement (home-typing-still.py, MessagesLab 5c56f4f, b6760b6, c1457e5, f11642b, 82ccac1): window snapshots while the mock Chief types, the bubble and every text row on whole device pixels after a half-pixel move, then two width changes in one main-thread turn; the layout pass of each width change, the passes the 2 ms frame budget deferred and the failed checks, light session.",
+  "command": ["scripts/cmux-next/home-typing-still.py", "--story", "home-typing-still"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "home_typing_still\\.resize_pace\\.width_pass", "unit": "ms", "better": "lower"},
+    {"name": "home_typing_still\\.resize_pace\\.deferred", "unit": "count", "better": "lower"},
+    {"name": "home_typing_still\\.failed_checks", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 90,
+  "needs": ["debug:debug.home", "debug:debug.home.api", "debug:debug.home.drive", "debug:debug.home_native_fixture.open",
+            "debug:debug.window_snapshot", "env:CMUX_NEXT_CLASSIC_HOME"],
+  "owner": "PL-typing",
+  "component": "Home"
+}

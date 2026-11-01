@@ -1,0 +1,19 @@
+{
+  "id": "automation-typing",
+  "tier": "T2",
+  "description": "Terminal key to frame while agents automate the app, light layout (automation-typing-bench.py): idle, then 10 agent terminals written through the CLI at 40 writes/s and one browser agent driving a Chromium page over the control socket (eval, screenshot, click, state).",
+  "command": ["scripts/cmux-next/automation-typing-bench.py", "--story", "automation-typing", "--layouts", "light"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "(idle|automation)\\.key_to_frame", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 240,
+  "needs": ["debug:debug.key", "debug:debug.hangs", "debug:debug.main_budget", "debug:debug.cef",
+            "debug:debug.layers", "debug:debug.mouse", "env:CMUX_NEXT_TYPING_PROBE"],
+  "hot_paths": ["terminal-key"],
+  "owner": "PL-typing",
+  "component": "Input>Automation"
+}

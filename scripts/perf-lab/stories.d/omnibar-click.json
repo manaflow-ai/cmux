@@ -1,0 +1,20 @@
+{
+  "id": "omnibar-click",
+  "tier": "T1",
+  "description": "Omnibar mouse-down, Chromium arm: one click into the omnibar of a Chromium tab through the app's mouse path, to the frames that show the caret, the whole address selected and the editing look, idle and with every core busy (omnibar-click-bench.py).",
+  "command": ["scripts/cmux-next/omnibar-click-bench.py", "--engines", "chromium", "--phases", "idle,load", "--story", "omnibar-click"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "(idle|load)\\.(attached|selected|focused|dispatch_to_attached|dispatch_to_selected|dispatch_to_focused)_ms",
+     "unit": "ms", "better": "lower"},
+    {"name": "(idle|load)\\.(input|key_to_frame)_ms", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.omnibar_bench", "debug:debug.omnibar", "debug:debug.timings"],
+  "hot_paths": ["omnibar-key"],
+  "owner": "Performance Lead",
+  "component": "Browser>Omnibar"
+}

@@ -1,0 +1,19 @@
+{
+  "id": "script-storm",
+  "tier": "T2",
+  "description": "The person's keys and frames while a script storms background workspaces, light session (script-storm-bench.py): per phase (idle, script) the closed keys' key-to-contents time (the typing probe's contents_ms, not a committed frame), debug.frames intervals and main-thread busy per frame, missed frames and stalls over 8 ms; an invalid phase records nothing.",
+  "command": ["scripts/cmux-next/script-storm-bench.py", "--sessions", "light"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "script_storm\\.(idle|script)\\.(key_to_contents|frame_interval|main_busy)", "unit": "ms", "better": "lower"},
+    {"name": "script_storm\\.(idle|script)\\.(missed_frames|stalls)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.key", "debug:debug.frames", "debug:debug.hangs", "debug:debug.queue",
+            "env:CMUX_NEXT_TYPING_PROBE"],
+  "owner": "Performance Lead",
+  "component": "Automation>Storm"
+}

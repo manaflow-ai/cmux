@@ -1,0 +1,21 @@
+{
+  "id": "burst",
+  "tier": "T1",
+  "description": "Bursts of structural keys through the real key path (burst-bench.py --phases light): N Cmd-W on terminal, Chromium and chat tabs, Cmd-D and Cmd-Shift-D bursts, one of each, mixed, held Cmd-W and Cmd-Shift-L new tabs; per scenario each press's input to the next commit, lost and extra presses, missed commits, missed vsyncs and rows that did not measure what they name, light session.",
+  "command": ["scripts/cmux-next/burst-bench.py", "--phases", "light"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "burst\\.light\\.[a-z-]+\\.input_to_next_commit", "unit": "ms", "better": "lower"},
+    {"name": "burst\\.light\\.[a-z-]+\\.(lost|extra|commit_missed|frames_missed|invalid)", "unit": "count",
+     "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 420,
+  "needs": ["debug:debug.key", "debug:debug.burst", "debug:debug.frames", "debug:debug.cef",
+            "debug:debug.layout_counters", "file:scripts/cmux-next/perf-signposts.py",
+            "file:scripts/cmux-next/activation-perf.py"],
+  "owner": "Performance Lead",
+  "component": "Input>Burst"
+}
