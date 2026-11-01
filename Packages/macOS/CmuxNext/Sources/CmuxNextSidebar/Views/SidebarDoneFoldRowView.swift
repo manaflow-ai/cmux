@@ -158,19 +158,19 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         let column = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: SidebarStyle.trailingSlotSide)
         mockTrail.frame = NSRect(x: column.midX - trail.width / 2, y: (b.height - trail.height) / 2, width: trail.width, height: trail.height)
         let h = ceil(name.intrinsicContentSize.height)
-        let nameWidth = ceil(name.intrinsicContentSize.width)
+        let nameWidth = ceil(name.naturalSize.width)
         let start = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
         switch mock.kind {
         case .section:
             name.frame = NSRect(x: name.frame.minX, y: (b.height - h) / 2, width: nameWidth, height: h)
             let ch = ceil(mockCount.intrinsicContentSize.height)
             mockCount.frame = NSRect(x: name.frame.maxX + Metrics.space1, y: (b.height - ch) / 2,
-                                     width: ceil(mockCount.intrinsicContentSize.width), height: ch)
+                                     width: ceil(mockCount.naturalSize.width), height: ch)
         case .footer, .showAll:
             name.frame = NSRect(x: start, y: (b.height - h) / 2, width: max(0, b.width - start - Metrics.space2), height: h)
         case .header:
             name.frame = NSRect(x: start, y: (b.height - h) / 2, width: nameWidth, height: h)
-            let cw = ceil(mockCount.intrinsicContentSize.width), ch = ceil(mockCount.intrinsicContentSize.height)
+            let cw = ceil(mockCount.naturalSize.width), ch = ceil(mockCount.intrinsicContentSize.height)
             mockCount.frame = NSRect(x: mockTrail.frame.minX - Metrics.space1 - cw, y: (b.height - ch) / 2, width: cw, height: ch)
         case .switcher, .chips:
             break

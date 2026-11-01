@@ -432,7 +432,7 @@ final class GroupHeaderRowView: SidebarRowView {
         mockArchiveCount.isHidden = mockArchiveBox.isHidden
         if !mockArchiveBox.isHidden {
             mockArchiveCount.font = SidebarStyle.groupHeaderCountFont(name: name.font ?? SidebarStyle.headerFont)
-            let tw = ceil(mockArchiveCount.intrinsicContentSize.width), th = ceil(mockArchiveCount.intrinsicContentSize.height)
+            let tw = ceil(mockArchiveCount.naturalSize.width), th = ceil(mockArchiveCount.intrinsicContentSize.height)
             mockArchiveCount.frame = NSRect(x: trailing - tw, y: (b.height - th) / 2, width: tw, height: th)
             let ib = mockArchiveBox.image?.size ?? .zero
             mockArchiveBox.frame = NSRect(x: mockArchiveCount.frame.minX - 3 - ib.width, y: (b.height - ib.height) / 2,
