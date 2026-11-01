@@ -279,7 +279,7 @@ pub(super) fn plan_with(
             let ask = Ensure {
                 // A send from no Mac workspace is a workspace of its own.
                 workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
-                create_key: keys.create.clone(),
+                create_key: keys.create,
                 repo: repo.clone().unwrap_or_default(),
                 git_ref: None,
                 environment: request.environment.clone(),

@@ -1,6 +1,7 @@
 //! Pending prompt identities remain owned by the session until they settle.
 
 use super::{Hub, PromptOutcome, Session};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use sha2::Digest;
 use std::collections::{HashSet, VecDeque};
@@ -90,8 +91,9 @@ impl Hub {
             {
                 let provenance = crate::prompt_provenance::recorded(&rec.msg);
                 let trusted = provenance.as_ref().is_some_and(|p| {
-                    p["kind"] == "trigger" && p["deliveryId"] == delivery
-                        && p["session"] == session.id
+                    p.get("kind").and_then(Value::as_str) == Some("trigger")
+                        && p.get("deliveryId").and_then(Value::as_str) == Some(delivery)
+                        && p.get("session").and_then(Value::as_str) == Some(session.id.as_str())
                         && crate::prompt_provenance::of(
                             &json!({"_meta": {"acpmux": {"provenance": p}}}),
                             crate::prompt_provenance::Sender::Trigger,
@@ -142,7 +144,7 @@ impl Hub {
                     }
                     return true;
                 }
-                if exact && field("promptId") == Some(delivery) && rec.msg["trigger"] == true
+                if exact && field("promptId") == Some(delivery) && rec.msg.get("trigger").and_then(Value::as_bool) == Some(true)
                     && result.is_none()
                 {
                     active = true;
@@ -223,19 +225,19 @@ impl Hub {
         }
         let mut out = json!({"delivery": delivery, "state": state});
         if let Some(id) = turn_id {
-            out["turnId"] = json!(id);
+            out.set("turnId", json!(id));
         }
         if let Some(hash) = prompt_hash {
-            out["promptHash"] = json!(hash);
+            out.set("promptHash", json!(hash));
         }
         if let Some(result) = result {
-            out["result"] = result;
+            out.set("result", result);
         }
         if !permissions.is_empty() {
-            out["pendingPermissions"] = json!(permissions.len());
+            out.set("pendingPermissions", json!(permissions.len()));
         }
         if !reply.is_empty() {
-            out["reply"] = json!(reply);
+            out.set("reply", json!(reply));
         }
         out
     }
