@@ -250,9 +250,14 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # This is placement only: it never cancels a started job or run. Other
         # callers keep their immediate placement behavior.
         wait_seconds = 180 if env.get("NIGHTLY_WAIT_FOR_FLEET") == "1" else 0
-        stop = time.monotonic() + wait_seconds
         signal.setitimer(signal.ITIMER_REAL, DEADLINE_SECONDS + wait_seconds)
         runners, snapshot = read(env, now)
+        # Waiting is safe only when both runner inventory and the janitor snapshot
+        # are fresh. Unknown or stale capacity must take the bounded Blacksmith
+        # overflow immediately; it must never queue every job on an owned label.
+        if wait_seconds and (runners is None or pool.snapshot_problem(snapshot, now)):
+            wait_seconds = 0
+        stop = time.monotonic() + wait_seconds
         placed = decide(env, runners, snapshot, now)
         wanted = set((env.get("JOBS") or "").split()) - set((env.get("LINUX_ONLY") or "").split())
         while wait_seconds and not wanted.issubset(set(placed.linux_jobs + placed.mini_jobs)):

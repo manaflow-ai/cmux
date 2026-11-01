@@ -20,7 +20,7 @@ extension ProfileBarView {
     func dragDot(to point: NSPoint) {
         if dotDrag == nil {
             guard let pressed, let start = pressPoint, model.profiles.indices.contains(pressed), model.profiles.count > 1,
-                  drawnDotCount == model.profiles.count, SidebarPress.movedPastThreshold(from: start, to: point) else { return }
+                  dotIsDrawn(at: pressed), SidebarPress.movedPastThreshold(from: start, to: point) else { return }
             beginDotDrag(pressed, at: start)
         }
         guard let drag = dotDrag, !drag.landing else { return }

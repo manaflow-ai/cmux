@@ -173,7 +173,12 @@ test("Thinking is the word alone, with no mark before it; the word itself shimme
 
 test("a running label's shimmer includes its timer and uses the slow cadence", async () => {
   const html = renderToStaticMarkup(
-    <Thinking doing="Read the Freestyle lanes note; check dispatcher" doingAt={at} now={() => at + 50_000} />,
+    <Thinking
+      since={at}
+      doing="Read the Freestyle lanes note; check dispatcher"
+      doingAt={at}
+      now={() => at + 50_000}
+    />,
   );
   expect(html).toContain('class="cv-shimmer__row"');
   expect(html).toContain('class="cv-shimmer__lit-time" data-text="50s"');
