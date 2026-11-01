@@ -8,7 +8,11 @@
 // rules, and the host checks the site again.
 // A local image the host will not show (outside the local image roots, missing, or a failed load)
 // draws as a compact card: its alt text, its file name and Open, the path chip's open with the
-// same outside-root confirmation. A deny-listed path is its alt text only.
+// same outside-root confirmation. A deny-listed path is its alt text only. An image outside the
+// session's folders loads at once too when `agentPane.links.outsideRoots` is `open` (the default),
+// the setting under which its chip opens without asking: a preview needs no click (Leo,
+// 2026-10-31: "I SHOULDN'T EVEN HAVE TO CLICK THE OPEN BUTTON IT SHOULD JUST PREVIEW"). A file
+// that is not there has no Open, and a template path (`${variant}-320.png`) is plain text.
 // A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
 // (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
 // opens it whole in the image viewer.
@@ -22,12 +26,13 @@ import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
 import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
-import { isDeniedPath, linkPath, pathName } from "./paths";
+import { isDeniedPath, isTemplatePath, linkPath, pathName } from "./paths";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
 
 /// A local image: an absolute path, a `file://` URL or a relative path (from the session's folder).
 export function localImageSource(src: string): string | undefined {
+  if (isTemplatePath(src)) return undefined;
   const path = linkPath(src);
   if (path) return path;
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(src) || src.startsWith("//") || src.startsWith("#") || src.startsWith("?"))
@@ -177,18 +182,24 @@ function ThumbFrame({ state, children }: { state: "waiting" | "placeholder"; chi
 
 /// `fallback` is how the image draws when the pane will not show it (its name as a link or text).
 /// `thumb`: draw in the reply's fixed-shape thumbnail (Markdown.tsx), in every state.
+/// `hideMissing`: a file that is not there draws nothing (a tool's strip, whose paths are read from
+/// its output and may name a file it never wrote).
 export function ReplyImage({
   src,
   alt,
   fallback,
   thumb = false,
+  hideMissing = false,
 }: {
   src: string;
   alt: string;
   fallback: ReactNode;
   thumb?: boolean;
+  hideMissing?: boolean;
 }) {
   const scope = useMessageScope();
+  // A template or placeholder (`${variant}-320.png`) names no file: its text, never a chip.
+  if (isTemplatePath(src)) return <span className="cv-chip-plain">{alt || pathName(src.split(/[?#]/)[0]!)}</span>;
   const local = localImageSource(src);
   // Another machine's image: its chip, never a file of the same path here; a denied one is its name.
   if (local && scope?.host !== undefined)
@@ -202,7 +213,7 @@ export function ReplyImage({
   const host = local ? undefined : remoteImageHost(src);
   if (!local && !host) return <>{fallback}</>;
   return local ? (
-    <LocalImage src={src} path={local} alt={alt} fallback={fallback} thumb={thumb} />
+    <LocalImage src={src} path={local} alt={alt} fallback={fallback} thumb={thumb} hideMissing={hideMissing} />
   ) : (
     <RemoteImage src={src} alt={alt} host={host!} fallback={fallback} thumb={thumb} />
   );
@@ -214,23 +225,29 @@ function LocalImage({
   alt,
   fallback,
   thumb,
+  hideMissing,
 }: {
   src: string;
   path: string;
   alt: string;
   fallback: ReactNode;
   thumb: boolean;
+  hideMissing: boolean;
 }) {
   const t = useT();
   const { info, answered, policy } = usePathInfo(path);
   const place = info?.place;
   const denied = place === "denied" || isDeniedPath(path);
-  // The host refuses a file outside the folders, so the page asks only for one it may show.
-  const loadable = answered && !denied && place !== "outside" && place !== "missing";
+  // The host refuses a file outside the folders unless outside files open without asking
+  // (`outsideRoots: open`), so the page asks only for one it may show.
+  const outsideLoads = policy.outsideRoots === "open";
+  const loadable = answered && !denied && (place !== "outside" || outsideLoads) && place !== "missing";
   const { state } = useImageLoad(src, loadable);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
-  const outside = place === "outside";
+  if (place === "missing" && hideMissing) return null;
+  // Outside and loading (or about to): the same waiting frame as a file in the folders.
+  const outside = place === "outside" && !(outsideLoads && state.kind !== "failed");
   if (!outside && place !== "missing" && state.kind !== "failed")
     return thumb ? (
       <ThumbFrame state="waiting">
