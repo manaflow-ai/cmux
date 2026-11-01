@@ -134,21 +134,27 @@ extension AppActions {
         var spawn = WorkspaceSpawn(invocation)
         // Only the person's own run opens the New Tab page (and its key hold); automation gets a terminal.
         if !byPerson { spawn.opensNewTabPage = false }
+        let windows = services.windows
+        let sourceID = invocation.target.flatMap { $0.kind == .window ? $0.id : nil }
+        let sourceWindow = sourceID.flatMap(windows.controller(for:)) ?? windows.active
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
         // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
         // agent chat's exact folder, unless `window-inherit-working-directory = false`.
         if byPerson, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
-           let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
+           let focused = sourceWindow?.focusedPane, focused.daemon === services.daemon {
             spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
+        // The Cloud toggle (#26062): a person's new workspace gets its own new Cloud machine.
+        // Only a window shows the machine's progress; without one, or without Cloud, it opens here and says so.
+        let cloudRoute = CloudHandlers.startNewWorkspaceInCloud(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, window: focus.shows ? sourceWindow?.state : nil, services)
+        guard case .thisMac(let cloudNotice) = cloudRoute else { return }
 
-        let windows = services.windows
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
         // window when none is open (a workspace never lives in no window).
         let hasOpenWindow = !windows.registry.value.openWindows.isEmpty
-        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: windows.active?.state.id) : nil
+        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: sourceID ?? sourceWindow?.state.id) : nil
         // `machine` (App machine id; the CLI's `--session`): born on that
         // session's daemon (plans/cmux-next/data-model.md 1.3).
         let daemon = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
@@ -161,15 +167,15 @@ extension AppActions {
         let input = services.keyRouter.newTabInputCoordinator
         let opensPage = show && hasOpenWindow && spawn.opensNewTabPage && spawn.command == nil && spawn.firstChat == nil
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
-        let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
+        let keys = opensPage && target == sourceWindow?.state.id ? input.beginIncoming(in: sourceWindow?.window) : nil
         spawn.inputToken = keys
         // The person's own new workspace with a terminal (a terminal-first Cmd-N, the menu, the palette) shown in the
         // window they type in: every key from this moment is that terminal's, waits for it, and the window's keyboard
         // stays the terminal's until the person's next intent there (dogfood v2.2.3: the keys went to the Chief as a
         // message). A script's newTab holds no key of the person's: automation never competes with them.
         let creation = services.keyRouter.creationInputCoordinator
-        let terminalWindow = byPerson && show && hasOpenWindow && target == windows.active?.state.id
-            && !WorkspaceCreation.opensPage(spawn, on: daemon ?? services.daemon, tabs: services.agentTabs) ? windows.active : nil
+        let terminalWindow = byPerson && show && hasOpenWindow && target == sourceWindow?.state.id
+            && !WorkspaceCreation.opensPage(spawn, on: daemon ?? services.daemon, tabs: services.agentTabs) ? sourceWindow : nil
         let terminalKeys = creation.beginWorkspace(in: terminalWindow), keyWindow = terminalWindow?.window
         // Automation never competes with the person (CLAUDE.md, "Go past Chrome where cmux is scripted"): a script's,
         // the CLI's, MCP's or the socket's new workspace with focus is made and listed in the sidebar without being
@@ -203,6 +209,10 @@ extension AppActions {
                     }
                 } else if quiet == nil, focus.activatesApp, let target {
                     focusWindow(windows, target)
+                }
+                // In the window the workspace opened in (with every window closed, the new one).
+                if let cloudNotice, let window = target.flatMap(windows.controller(for:))?.window ?? windows.active?.window {
+                    CmuxToastCenter.shared.show(CmuxToast(id: "cloud-new-workspace-here", message: cloudNotice, duration: .seconds(8)), in: window)
                 }
                 return nil
             } catch is CancellationError {
