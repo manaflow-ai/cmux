@@ -128,13 +128,14 @@ struct ChatWorkspaceShowsAtOnceTests {
         #expect(bound, "the daemon's tab record holds session \(record?.session ?? "none"), not the one its page started (\(started))")
     }
 
-    /// A stand-in row the daemon does not list yet draws where unplaced rows go: first under `top`, else last
-    /// (`SidebarDocWiring.placesNewRowsFirst`); its slot is applied once the daemon takes it over. Where that slot is
-    /// elsewhere (`afterCurrent`, `placement: top` under another setting, below a grouped caller), a stand-in row
-    /// drew in one place and then moved (Leo 2026-11-01: rows must not pop up somewhere and then go where they belong;
-    /// review of #30961). Such an open shows nothing before the daemon lists it, at its slot, as before.
-    @Test(arguments: [("afterCurrent", false), ("bottom", true)])
-    func aSessionWorkspaceShowsAtOnceOnlyWhereItsRowStays(placement: String, top: Bool) async throws {
+    /// A stand-in the daemon does not list yet has no slot of its own: it drew where unplaced rows go (first under
+    /// `top`, else last), and its slot was applied only once the daemon took it over, so under `afterCurrent`, under
+    /// `placement: top` with another setting, or with the window's current workspace in a group, the row drew in one
+    /// place and then moved (Leo 2026-11-01: rows must not pop up somewhere and then go where they belong; reviews of
+    /// #30961). The open now gives its stand-in the pending row Cmd-N's stand-in has (`PendingWorkspaceRows`), in the
+    /// window that will list it, at the slot the setting gives: the row draws there from its first frame.
+    @Test(arguments: [("afterCurrent", false), ("bottom", true), ("top", false)])
+    func aSessionWorkspaceStandInHasItsRowAtItsSlotFromTheOpensTurn(placement: String, top: Bool) async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
         let tabs = Self.agentTabs(services)
@@ -146,15 +147,19 @@ struct ChatWorkspaceShowsAtOnceTests {
         await settings.reload()
         services.settings = settings
         try #require(services.settings?.snapshot.newWorkspacePlacement.rawValue == placement)
+        let window = try #require(services.windows.registry.value.mostRecentOpen(), "no open window")
         let store = services.daemon.store
         let key = WorkspaceKey.generate()
 
         let work = try AgentSessionWorkspace.open(session: "s-slot-\(placement)", name: "lane", key: key, cwd: nil, top: top, services: services)
         let shownAtOnce = store.workspaces.contains { $0.key == key }
+        let row = PendingWorkspaceRows.shared.rows.first { $0.id == key.rawValue }
         let failure = await work.value?.message
         await launched.stop()
 
-        #expect(!shownAtOnce, "under \(placement)\(top ? " with placement top" : "") the stand-in showed before the daemon listed it, so its row would move to its slot")
+        #expect(shownAtOnce, "the stand-in did not show in the open's turn")
+        #expect(row?.window == window, "the stand-in's row has no pending row at its slot in the window that lists it: \(String(describing: row))")
+        #expect(row?.byDefault?.placement.rawValue == (top ? "top" : placement), "the row's slot is not the setting's: \(String(describing: row?.byDefault))")
         #expect(failure == nil, "refused: \(failure ?? "")")
     }
 
