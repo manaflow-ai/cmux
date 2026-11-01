@@ -228,7 +228,6 @@
 {"file":"pages/changelog/updateSurfaces.css","kind":"height","property":"height","values":{"18px":1,"8px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"padding","values":{"10px 12px":1,"0 10px":1,"10px 12px 8px":1,"0 0 0 18px":1,"3px 0":1}}
-{"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"padding-bottom","values":{"6px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"padding-right","values":{"20px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"padding-top","values":{"6px":1}}
 {"file":"pages/chief-usage/styles.css","kind":"height","property":"height","values":{"8px":1,"2px":2,"3px":1,"4px":1}}

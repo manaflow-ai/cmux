@@ -43,6 +43,8 @@ mod chief_target;
 mod cloud_client_session;
 mod cloud_help;
 #[cfg(unix)]
+mod cloud_machine_io;
+#[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
 mod cloud_secret;
@@ -496,6 +498,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
