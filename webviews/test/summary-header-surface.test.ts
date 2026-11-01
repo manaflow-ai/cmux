@@ -325,7 +325,7 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
     }
   });
   // The Subagents title opens the Subagents tab in both placements: beside a wide chat (inline
-  // column) and over a narrow one (popover, which has no title row of its own).
+  // column) and over a narrow one (popover). Neither has a title row of its own.
   for (const [placement, variant, width] of [
     ["inline", "inline-subagents", 720],
     ["popover", "popover-subagents", 480],
@@ -352,6 +352,9 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             });
           };
           await capture("summary");
+          // Neither placement draws a "Summary" title row; both start with Environment.
+          expect(await panel.locator(".acpmux-summary-card__title").count()).toBe(0);
+          expect(await panel.locator("h3").first().textContent()).toBe("Environment");
           const title = panel.locator(".acpmux-summary-agents h3 .acpmux-summary-title__button");
           expect(await title.count()).toBe(1);
           expect(await title.textContent()).toContain("1 running");
@@ -369,8 +372,8 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
           await panel.getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
           // One way back: the tab's own close button, not a second one in the body.
           expect(await panel.getByRole("button", { name: "Close Subagents" }).count()).toBe(1);
+          expect(await panel.locator("h3").first().textContent()).toBe("Environment");
           if (placement === "popover") {
-            expect(await panel.locator("h3").first().textContent()).toBe("Environment");
             expect(await panel.getByRole("button", { name: "Collapse summary" }).count()).toBe(1);
           }
           await capture("tab");

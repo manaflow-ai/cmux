@@ -35,8 +35,9 @@ const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
 const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
-/// uses a popover that dismisses on outside click or Escape. The popover starts with Environment,
-/// with live counts in Subagents and no title row; folded, its header line keeps those counts.
+/// uses a popover that dismisses on outside click or Escape. Both start with Environment and have no
+/// title row; the popover's live counts sit in Subagents (folded, its header line keeps them), the
+/// column's in its header line.
 /// The summary is read from the transcript only while the card is open, so a live turn pays
 /// nothing for it otherwise.
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
@@ -239,6 +240,9 @@ export function SummaryCard({
         data-placement={card.column ? "inline" : "popover"}
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
       >
+        {/* No title row in either placement (Leo: "iv easked so many times to not have titling"): the inline
+            column keeps a head only for its live counts, so it never draws an empty band. */}
+        {(tab || !card.column || counts.length > 0) && (
         <div className="acpmux-summary-card__head">
           {tab && !card.column && (
             // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
@@ -283,9 +287,7 @@ export function SummaryCard({
                 </button>
               </span>
             </div>
-          ) : card.column ? (
-            <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-          ) : (
+          ) : card.column ? null : (
             <button
               type="button"
               className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
@@ -317,25 +319,22 @@ export function SummaryCard({
             </button>
           )}
         </div>
+        )}
         {open && onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
-            {!card.column && (
-              <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
-                <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
-                {environment && <EnvironmentSection {...environment} />}
-              </section>
-            )}
+            <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
+              <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
+              {environment && <EnvironmentSection {...environment} />}
+            </section>
             <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
           </div>
         )}
         {open && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
-            {!card.column && (
-              <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
-                <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
-                {environment && <EnvironmentSection {...environment} />}
-              </section>
-            )}
+            <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
+              <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
+              {environment && <EnvironmentSection {...environment} />}
+            </section>
             {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
             {subagentList && (
               <SubagentStatusList
