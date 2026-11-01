@@ -827,6 +827,14 @@ impl OutputStore {
         }
     }
 
+    /// Terminal `terminal_id` is known normal (spawned outside an incognito
+    /// workspace), before its registry row exists. A private mark wins.
+    pub(crate) fn mark_public(&self, terminal_id: &TerminalPublicId) {
+        if !self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id) {
+            self.public.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone());
+        }
+    }
+
     fn remove_files(&self, terminal_id: &TerminalPublicId) {
         if let Some(directory) = self.directory.as_deref() {
             let _pass = self.lock_pass();

@@ -81,15 +81,22 @@ impl Mux {
 
     /// The resource identity of a terminal about to spawn; an incognito
     /// one is private before its first byte (output, commands, an exit),
-    /// and from then on also after its workspace's flag row is gone.
+    /// and from then on also after its workspace's flag row is gone; a
+    /// normal one is known normal.
     pub(super) fn spawn_identity(
         &self,
         tab_id: Option<TabPublicId>,
         incognito: bool,
     ) -> anyhow::Result<TabResourceIdentity> {
         let identity = terminal_identity(tab_id)?;
-        if incognito && let ContentPublicId::Terminal(public_id) = &identity.content_id {
-            self.output_store.mark_private(public_id);
+        if let ContentPublicId::Terminal(public_id) = &identity.content_id {
+            // A normal one is known normal before its registry row exists,
+            // so its first commands and output are kept.
+            if incognito {
+                self.output_store.mark_private(public_id);
+            } else {
+                self.output_store.mark_public(public_id);
+            }
         }
         Ok(identity)
     }
