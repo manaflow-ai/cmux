@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4131674790301",
+  "notes": "notes/4131674790301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30468,
+      "title": "cmux NEXT web menus: concentric row radius, tabular shortcut digits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30586,
+      "title": "chief: route each subagent to the best harness, with a toggle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30697,
+      "title": "fix(ci): backport hourly IndexNow to NEXT; stop branch deployment event flood",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30739,
+      "title": "perf(agent-chat): a chat the sidebar pointer rests on is read before the click",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30832,
+      "title": "Add Swift tests for Cloud repository forwarding",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30880,
+      "title": "cmux NEXT: keep incognito workspaces off the phone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30881,
+      "title": "cmux NEXT: incognito windows leave nothing in banners, quit files or space bars",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30896,
+      "title": "fix(acpmux): register Cloud trigger chat methods",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
