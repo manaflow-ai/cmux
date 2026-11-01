@@ -125,45 +125,18 @@ enum RemoteStrings {
         }
     }
 
-    /// A machine's failure in one sentence for the Cannot Connect sheet and the header: never the
-    /// daemon's raw text (lock and log paths, `try_lock`, `--session NAME`), which Copy Error keeps
-    /// (``sshError(_:)``). User 2026-10-31 (Chief msg 19277).
+    /// A machine's failure in one sentence, never the daemon's raw text (Copy Error keeps it). User 2026-10-31 (msg 19277).
     static func plainFailure(_ raw: String, machine: String) -> String {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // An older cmux-tui on the machine refuses a session another daemon there (a Chief brain)
-        // owns; this app's build keeps its link's session in a private root instead (remote_cli.rs).
-        if text.contains("in use by another cmux daemon") || text.contains("already owned by another daemon") {
-            return String(format: String(localized: "remote.failure.sessionInUse",
-                                         defaultValue: "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry.",
-                                         table: "Remote", bundle: .module), machine)
+        if raw.contains("in use by another cmux daemon") || raw.contains("already owned by another daemon") {
+            return String(format: String(localized: "remote.failure.sessionInUse", defaultValue: "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry.", table: "Remote", bundle: .module), machine)
         }
-        // The cause is the last `prefix: ` clause before any parenthesis or `; ` hint.
-        var cause = text.components(separatedBy: " (").first ?? text
-        cause = cause.components(separatedBy: "; ").first ?? cause
-        if let last = cause.components(separatedBy: ": ").last(where: { !$0.isEmpty }) { cause = last }
-        cause = cause.trimmingCharacters(in: CharacterSet(charactersIn: " .;:"))
-        if cause.isEmpty || cause.contains("/") || cause.count > 120 {
-            return String(format: String(localized: "remote.failure.unknown",
-                                         defaultValue: "cmux on %@ stopped. Choose Copy Error for the details.",
-                                         table: "Remote", bundle: .module), machine)
+        // The cause: the last `prefix: ` clause before any parenthesis or `; ` hint.
+        let head = raw.components(separatedBy: " (")[0].components(separatedBy: "; ")[0]
+        let cause = (head.components(separatedBy: ": ").last ?? "").trimmingCharacters(in: CharacterSet(charactersIn: " .;:\n"))
+        guard !cause.isEmpty, !cause.contains("/"), cause.count <= 120 else {
+            return String(format: String(localized: "remote.failure.unknown", defaultValue: "cmux on %@ stopped. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine)
         }
-        return String(format: String(localized: "remote.failure.cause",
-                                     defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.",
-                                     table: "Remote", bundle: .module), machine, cause)
-    }
-
-    /// The machine's raw failure (ssh's own words, or the install or link
-    /// error) for Copy SSH Error; nil when it has none.
-    static func sshError(_ session: SSHMachineSession) -> String? {
-        let text: String? = switch session.linkStatus {
-        case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
-             .installFailed(let message), .failed(let message): message
-        case .needsInstall(let need): needText(need, session)
-        case .connecting, .connected, .reconnecting: session.daemonFailure?.error ?? session.lastError
-        case .offline, .installing: session.lastError
-        }
-        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-        return text
+        return String(format: String(localized: "remote.failure.cause", defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine, cause)
     }
 
     /// The one-time notice of a browser tab opened in another machine's
