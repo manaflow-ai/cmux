@@ -870,7 +870,7 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 40-line paste: a Pasted text card (its first lines faded, Pasted text · 40 lines) over the typed prompt, × on hover.",
+      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -879,7 +879,7 @@ export default agentPaneEntry({
         const view = ctx.document.defaultView!;
         const data = new view.DataTransfer();
         const log = Array.from(
-          { length: 40 },
+          { length: 130 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         );
         data.setData("text/plain", log.join("\n"));
@@ -894,14 +894,14 @@ export default agentPaneEntry({
     // type attachments' previews". In the default inline view the paste is a small page of its first
     // lines in the prompt's line (composer/TextAttachmentCard.tsx), never its name underlined.
     "text-pasted-inline": {
-      note: "A 41-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 41 lines, after the typed words.",
+      note: "A 131-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 131 lines, after the typed words.",
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
         const data = new view.DataTransfer();
         const log = Array.from(
-          { length: 40 },
+          { length: 130 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         );
         data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
@@ -912,7 +912,7 @@ export default agentPaneEntry({
         const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
         if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
           throw new Error("the inline paste card must show the paste's first lines");
-        if (!/41 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+        if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
           throw new Error("the inline paste card must say its line count");
       },
     },
@@ -920,13 +920,13 @@ export default agentPaneEntry({
     // the paste", "if you paste that and then paste again, then you don't have to click it. It just
     // does it." The same block pasted again opens its chip, as a click does (pastedChips.ts).
     "text-pasted-again": {
-      note: "The same 40-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
+      note: "The same 130-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
         const log = Array.from(
-          { length: 40 },
+          { length: 130 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         ).join("\n");
         const paste = () => {
@@ -945,7 +945,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => {
           const chips = ctx.document.querySelectorAll(PASTED).length;
           const prompt = ctx.document.querySelector(".acpmux-md")?.textContent ?? "";
-          return chips > 1 || (chips === 0 && prompt.includes("step 40: compiling"));
+          return chips > 1 || (chips === 0 && prompt.includes("step 130: compiling"));
         });
         if (ctx.document.querySelector(PASTED))
           throw new Error("the same long paste again must open its chip, never add a second");

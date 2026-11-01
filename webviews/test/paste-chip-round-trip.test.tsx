@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// A huge paste, end to end. The composer keeps a paste of more than 20 lines as a "Pasted text"
+// A huge paste, end to end. The composer keeps a paste of more than 750 words as a "Pasted text"
 // chip and sends it as its own ACP text block after the typed one, marked `_meta.cmux.pasted`
 // (#23396). acpmux records the prompt's text blocks joined with a newline as `user_message.text`
 // and each marked block's UTF-16 range in it as `user_message.pasted` (hub/session.rs
