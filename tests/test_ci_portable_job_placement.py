@@ -255,22 +255,17 @@ class Wiring(unittest.TestCase):
         nightly = jobs("nightly.yml")
         step = next(s for s in nightly["decide"]["steps"] if s.get("id") == "place-early")
         self.assertEqual(step["env"]["NIGHTLY_WAIT_FOR_FLEET"], "1")
-        self.assertEqual(step["env"]["LINUX_ONLY"], "signer-build")
+        self.assertNotIn("signer-build", step["env"]["JOBS"].split())
         for name in step["env"]["JOBS"].split():
             with self.subTest(job=name):
                 job = nightly[name]
                 route = job["runs-on"]
                 self.assertIn("decide", job["needs"])
                 self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
-                linux = route.index("needs.decide.outputs.early_linux_runner")
-                overflow = route.index("'blacksmith-")
-                self.assertLess(linux, overflow)
-                if name == "signer-build":
-                    self.assertNotIn("early_mini_runner", route)
-                else:
-                    mini = route.index("needs.decide.outputs.early_mini_runner")
-                    self.assertLess(linux, mini)
-                    self.assertLess(mini, overflow)
+                selected = f"needs.decide.outputs.early_{name.replace('cmux-', '').replace('-', '_')}_runner"
+                self.assertIn(selected, route)
+                self.assertLess(route.index(selected), route.index("'cmux-fleet-linux-x64'"))
+                self.assertIn("needs.decide.outputs.track == 'nightly-next'", route)
                 self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))
 

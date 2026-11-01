@@ -45,6 +45,7 @@ import {
 } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
+import { continueTargets } from "./cmuxCommands";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
@@ -1014,7 +1015,17 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={pickHarness}
-          {...(locked && fork ? { fork: { ready: fork.ready, to: forkTo } } : {})}
+          {...(locked && fork
+            ? {
+                fork: {
+                  ready: fork.ready,
+                  to: forkTo,
+                  targets: new Set(
+                    continueTargets(snapshot.catalog, summary?.harness, summary?.family).map((target) => target.id),
+                  ),
+                },
+              }
+            : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
