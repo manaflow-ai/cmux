@@ -78,7 +78,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
   });
 
   const source = path.resolve(import.meta.dir, "../src");
-  const css = ["pages/shared/desktop.css", "ui/glass/glass.css"]
+  const css = ["pages/shared/desktop.css", "ui/glass/glass.css", "agent-session/acpmux/summary/summary.css"]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n");
   const entry = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "see-through-blur-")), "entry.ts");
@@ -133,11 +133,23 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     );
   }
 
-  async function attach(page: Page): Promise<void> {
-    await page.evaluate(() => {
-      const target = window as unknown as { attachSeeThroughBlur(e: HTMLElement): () => void; detach?: () => void };
-      target.detach = target.attachSeeThroughBlur(document.getElementById("popover")!);
-    });
+  /** Attaches to the popover; `owner` tags what it covers, `dock` keeps its underlay over .dock. */
+  async function attach(page: Page, options: { owner?: string; dock?: boolean } = {}): Promise<void> {
+    await page.evaluate(({ owner, dock }) => {
+      const target = window as unknown as {
+        attachSeeThroughBlur(
+          e: HTMLElement,
+          candidates?: (e: HTMLElement) => Iterable<Element>,
+          options?: { owner?: string; keepUnderlayOver?: () => Iterable<Element> },
+        ): () => void;
+        detach?: () => void;
+      };
+      const popover = document.getElementById("popover")!;
+      target.detach = target.attachSeeThroughBlur(popover, (e) => e.parentElement!.children, {
+        owner,
+        keepUnderlayOver: dock ? () => document.querySelectorAll(".dock") : undefined,
+      });
+    }, options);
     // The follow loop settles within a few frames.
     await page.evaluate(
       () =>
@@ -244,6 +256,58 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       await settle(page);
       expect(await under()).toBe(true);
       expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(blurred + 2);
+      await page.close();
+    });
+  });
+
+  describe("see-through blur around the chat's own rules", () => {
+    let browser: Browser;
+    beforeAll(async () => {
+      browser = await chromium.launch({ headless: true });
+    });
+    afterAll(async () => browser?.close());
+
+    test("the Summary's blocks lose their filter under summary.css's hide rule, even for a Find bar deep inside", async () => {
+      const page = await open(browser);
+      await page.evaluate(() => document.querySelector(".stage")!.classList.add("acpmux-stage"));
+      await attach(page, { owner: "summary" });
+      const filter = () => page.evaluate(() => getComputedStyle(document.querySelector(".chat")!).filter);
+      expect(await page.evaluate(() => document.querySelector(".chat")!.getAttribute("data-glass-under"))).toBe(
+        "summary",
+      );
+      expect(await filter()).toContain("url(");
+      // Find opens inside the scroller: no change to the stage's own children.
+      await page.evaluate(() => {
+        const find = document.createElement("div");
+        find.className = "acpmux-find";
+        document.querySelector(".bars")!.append(find);
+      });
+      expect(await filter()).toBe("none");
+      await page.close();
+    });
+
+    test("over the composer (which takes no filter) the surface keeps its underlay", async () => {
+      const page = await open(browser);
+      const underlay = () =>
+        page.evaluate(() =>
+          getComputedStyle(document.getElementById("popover")!).getPropertyValue("--glass-underlay").trim(),
+        );
+      await page.evaluate(() => {
+        const dock = document.createElement("div");
+        dock.className = "dock";
+        dock.style.cssText = "position:absolute;left:0;right:0;bottom:0;height:20px";
+        document.querySelector(".stage")!.append(dock);
+      });
+      await attach(page, { dock: true });
+      // The dock at the bottom misses the popover: the page blurs itself and the underlay goes.
+      expect(await underlay()).toBe("0%");
+      await page.evaluate(() => {
+        (document.querySelector(".dock") as HTMLElement).style.height = "60px";
+      });
+      await settle(page);
+      await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+      await settle(page);
+      expect(await underlay()).toBe("70%");
       await page.close();
     });
   });

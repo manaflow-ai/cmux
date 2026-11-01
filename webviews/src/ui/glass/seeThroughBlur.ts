@@ -160,10 +160,23 @@ export type CoveredCandidates = (surface: HTMLElement) => Iterable<Element>;
 
 const siblings: CoveredCandidates = (surface) => surface.parentElement?.children ?? [];
 
+export type SeeThroughOptions = {
+  /** The value of data-glass-under on what this surface covers, so a stylesheet can switch off
+   * one surface's filters (the Summary card's, while CSS hides the card). */
+  owner?: string;
+  /** Elements that must not take a filter (one would re-anchor their fixed menus: the composer).
+   * While the surface overlaps one, it keeps its underlay, which hides what is under it there. */
+  keepUnderlayOver?: CoveredCandidates;
+};
+
 /** Blurs, in place, what `surface` covers among `candidates` (its siblings by default) while it is
  * attached. Returns the detach. Does nothing (and returns a no-op) where the engine's backdrop
  * already does it. */
-export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCandidates = siblings): () => void {
+export function attachSeeThroughBlur(
+  surface: HTMLElement,
+  candidates: CoveredCandidates = siblings,
+  { owner = "", keepUnderlayOver }: SeeThroughOptions = {},
+): () => void {
   const doc = surface.ownerDocument;
   const view = doc.defaultView;
   const parent = surface.parentElement;
@@ -174,7 +187,6 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
   svg.setAttribute("height", "0");
   svg.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;pointer-events:none";
   doc.body.append(svg);
-  surface.setAttribute(OVER_ATTRIBUTE, "");
   const covered = new Map<HTMLElement, { filter: SVGFilterElement; key: string }>();
   let frame = 0;
   let stable = 0;
@@ -225,6 +237,11 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
       const hole = holeIn(rect, box, look);
       under.push({ target: child, box, hole, key: JSON.stringify([box.width, box.height, hole]) });
     }
+    let unblurrable = false;
+    if (shown && keepUnderlayOver)
+      for (const element of keepUnderlayOver(surface))
+        if (overlaps(rect, element.getBoundingClientRect())) unblurrable = true;
+    surface.toggleAttribute(OVER_ATTRIBUTE, !unblurrable);
     const keep = new Set(under.map((entry) => entry.target));
     for (const target of covered.keys()) if (!keep.has(target)) release(target);
     for (const { target, box, hole, key } of under) {
@@ -234,7 +251,7 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
         svg.append(filter);
         entry = { filter, key: "" };
         covered.set(target, entry);
-        target.setAttribute(UNDER_ATTRIBUTE, "");
+        target.setAttribute(UNDER_ATTRIBUTE, owner);
         target.style.setProperty(UNDER_FILTER_PROPERTY, `url(#${filter.id})`);
       }
       if (entry.key !== key) {
@@ -242,7 +259,7 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
         entry.key = key;
       }
     }
-    return `${shown}|${under.map((entry) => entry.key).join("|")}`;
+    return `${shown}|${unblurrable}|${under.map((entry) => entry.key).join("|")}`;
   };
 
   const tick = () => {
@@ -279,15 +296,16 @@ export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCa
 }
 
 /** attachSeeThroughBlur for a React surface: attached while `active` and mounted. `candidates` must be
- * stable (a module-level function). */
+ * stable (module-level constants). */
 export function useSeeThroughBlur(
   surface: RefObject<HTMLElement | null>,
   active: boolean,
   candidates?: CoveredCandidates,
+  options?: SeeThroughOptions,
 ): void {
   useLayoutEffect(() => {
     const node = surface.current;
     if (!active || !node) return;
-    return attachSeeThroughBlur(node, candidates);
-  }, [surface, active, candidates]);
+    return attachSeeThroughBlur(node, candidates, options);
+  }, [surface, active, candidates, options]);
 }
