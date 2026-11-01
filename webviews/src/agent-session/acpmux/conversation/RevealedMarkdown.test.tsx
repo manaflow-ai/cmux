@@ -248,11 +248,9 @@ function reducedMotionQuery(initial: boolean) {
   };
 }
 
-// Reduce Motion turned on while a reply streams: the stylesheet follows at once, and so does the
-// reveal. The row shows all of the reply in that frame, its frame loop stops and no step is left
-// fading; text that arrives later shows whole, as in a row that mounted with Reduce Motion on.
-test("turning Reduce Motion on mid-reply shows the whole reply and stops the reveal", () => {
-  const motion = reducedMotionQuery(false);
+/// Display frames whose cancel takes the frame back, as `cancelAnimationFrame` does. `frame(now)`
+/// runs the frames still pending and returns the reply's text.
+function cancellableFrames() {
   const pending = new Map<number, (now: number) => void>();
   let handles = 0;
   revealFrames.request = (callback) => {
@@ -269,6 +267,15 @@ test("turning Reduce Motion on mid-reply shows the whole reply and stops the rev
     });
     return container.querySelector(".cv-md")?.textContent ?? "";
   };
+  return { pending, frame };
+}
+
+// Reduce Motion turned on while a reply streams: the stylesheet follows at once, and so does the
+// reveal. The row shows all of the reply in that frame, its frame loop stops and no step is left
+// fading; text that arrives later shows whole, as in a row that mounted with Reduce Motion on.
+test("turning Reduce Motion on mid-reply shows the whole reply and stops the reveal", () => {
+  const motion = reducedMotionQuery(false);
+  const { pending, frame } = cancellableFrames();
   const reply = LONG_REPLY.trim();
   root = createRoot(container);
   render("", true);
@@ -291,6 +298,28 @@ test("turning Reduce Motion on mid-reply shows the whole reply and stops the rev
   act(() => root!.unmount());
   root = undefined;
   expect(motion.listeners.size).toBe(0);
+});
+
+// Text can render and have its pending frame cancelled before the reveal reads it. Turning Reduce
+// Motion on there shows that text. Turning it off again must pace only what arrives after it,
+// never re-reveal from the reveal's older length: what shows never shrinks.
+test("Reduce Motion on then off before a frame keeps what shows when later text arrives", () => {
+  dom!.window.document.documentElement.dataset.streamWords = "off";
+  const motion = reducedMotionQuery(false);
+  const { frame } = cancellableFrames();
+  root = createRoot(container);
+  render("", true);
+  render("The checks on the merged head", true);
+  frame(0);
+  frame(16);
+  // Rendered, with its frame still pending when Reduce Motion turns on.
+  const shown = `${LONG_REPLY.trim()} and the notes are ready.`;
+  render(shown, true);
+  motion.set(true);
+  expect(container.querySelector(".cv-md")?.textContent).toBe(shown);
+  motion.set(false);
+  render(`${shown} The release went out.`, true);
+  for (let index = 0; index < 20; index++) expect(frame(32 + index * 16).length).toBeGreaterThanOrEqual(shown.length);
 });
 
 test("wordEdge ends at a whole word, keeps what shows, and lets a long word through", () => {
