@@ -3443,6 +3443,8 @@ jobs:
         timeout-minutes: 2
         env:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          # The routing App's budget can run out (run 41335987427): a failed read retries with this.
+          SNAPSHOT_FALLBACK_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # Its `_dead` marks and live macos_26 member (nightly_sign_runner.py).
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
@@ -3455,6 +3457,7 @@ jobs:
         env:
           PLATFORM: linux
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          SNAPSHOT_FALLBACK_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.LINUX_RUNNER }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
         run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
@@ -4897,7 +4900,23 @@ jobs:
       - name: Build the unsigned DMG
         id: dmg
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-dmg-image.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      # A mini's CreateArtifact can time out (ETIMEDOUT, run 41328689573), and a
+      # failed signer sends the run to the full re-sign and re-notarize (+10 min).
+      # Try the upload once more before that.
+      - id: upload-unsigned-dmg
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+      - if: steps.upload-unsigned-dmg.outcome == 'failure'
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
