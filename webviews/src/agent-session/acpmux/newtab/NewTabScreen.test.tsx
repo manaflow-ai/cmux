@@ -316,8 +316,9 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
-test("a no-project choice stays empty when a remote machine is picked afterward", async () => {
+test("Do not work in a project, then a remote machine with a folder: headline, location and send name that folder", async () => {
   const remoteFolder = "/remote/project";
+  const asks: unknown[][] = [];
   await act(async () => {
     root!.render(
       <NewTabScreen
@@ -336,7 +337,7 @@ test("a no-project choice stays empty when a remote machine is picked afterward"
         pageWidgets={new Set(["greeting"])}
         machineName="This Mac"
         environments
-        onAsk={() => {}}
+        onAsk={(...args) => asks.push(args)}
         onOpen={() => {}}
         onSearch={() => {}}
         onShell={() => {}}
@@ -360,9 +361,17 @@ test("a no-project choice stays empty when a remote machine is picked afterward"
   await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
   await act(async () => document.querySelector<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')!.click());
 
-  // The remote machine has a known folder, but Do not work in a project remains the explicit pick.
-  expect(container.querySelector(".nt-headline-text")?.textContent).toBe("What should we work on at build-box?");
-  expect(container.querySelector(".nt-headline-text")?.textContent).not.toContain(remoteFolder);
+  // The machine pick took its known folder: the chat starts there, so all three name it.
+  const headline = container.querySelector(".nt-headline-text")?.textContent ?? "";
+  expect(headline).toContain("project");
+  expect(headline).toContain("build-box");
+  expect(container.querySelector(".nt-location")?.textContent).toContain("project");
+  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No project");
+  await typePrompt("fix it");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks.length).toBe(1);
+  expect(asks[0]?.[2]).toBe(remoteFolder);
+  expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
 });
 
 test.each(["", "Implement a todo list"])("Return without a harness opens setup for typed draft %j", async (draft) => {

@@ -1358,6 +1358,10 @@ export function NewTabScreen(props: Props) {
     setBrowseError(undefined);
     saved.pick(undefined);
     touch();
+    // A machine picked with a folder there (the location row picks its first known folder) is a
+    // project pick: the chat starts in that folder, so Do not work in a project ends, and the
+    // headline, the location row and the send all name it. A machine alone keeps the choice.
+    if (next?.folder) setNone(false);
     setMachine(next);
     field.current?.focus();
     requestAnimationFrame(() => field.current?.focus());
@@ -1973,7 +1977,7 @@ export function NewTabScreen(props: Props) {
     ? undefined
     : (environment?.kind === "ssh" ? environment.host : undefined) || machine?.peer || props.machineName;
   // The folder askChat starts in: the saved environment's, else the picked machine's, else askFolder.
-  const headlineFolder = none ? undefined : environment ? environment.folder : machine ? machine.folder : askFolder;
+  const headlineFolder = environment ? environment.folder : machine ? machine.folder : askFolder;
   const headline =
     widgets.has("greeting") &&
     frame(
