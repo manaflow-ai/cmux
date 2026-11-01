@@ -13,6 +13,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
 
 const scope = globalThis as Record<string, unknown>;
@@ -24,6 +26,8 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -43,6 +47,7 @@ beforeAll(() => {
     },
   });
   Object.assign(scope, {
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
     window,
     document: window.document,
     navigator: window.navigator,
@@ -94,15 +99,17 @@ async function render(calls: unknown[][], order?: SuggestionOrder) {
 }
 
 async function type(text: string) {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const handle = field.acpmuxMarkdownField!;
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    handle.writeText(text, text.length, text.length);
+    editor.focus();
+    handle.setCaret(text.length);
   });
-  field.focus();
-  field.setSelectionRange(field.value.length, field.value.length);
-  return field;
+  return editor;
 }
 
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
@@ -121,7 +128,7 @@ async function hover(option: HTMLElement) {
   });
 }
 
-async function press(field: HTMLTextAreaElement, key: string, init: KeyboardEventInit = {}) {
+async function press(field: HTMLElement, key: string, init: KeyboardEventInit = {}) {
   const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
   await act(async () => field.dispatchEvent(event));
   return event;

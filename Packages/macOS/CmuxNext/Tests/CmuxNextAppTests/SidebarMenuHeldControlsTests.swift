@@ -55,7 +55,6 @@ import Testing
         var info = SidebarItemInfo(title: "Workspace", symbol: "terminal")
         info.workspace = WorkspaceID("ws")
         view.onMore = {}
-        view.onClose = {}
         view.configure(info, style: .list)
         view.layoutSubtreeIfNeeded()
         #expect(!view.showsHoverActions, "no controls at rest")

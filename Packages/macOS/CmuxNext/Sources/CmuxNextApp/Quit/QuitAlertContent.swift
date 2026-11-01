@@ -11,7 +11,9 @@ struct QuitAlertContent: Equatable {
         case cancel
         /// End every local terminal, keep the layout.
         case confirmQuitEverything = "confirm-quit-everything"
-        /// Also delete the workspaces (no button; `debug.quit` presses it).
+        /// Also delete the workspaces: a button only when a remembered End
+        /// Everything asks (`QuitPrompt.confirmsEndEverything`); else
+        /// `debug.quit` presses it.
         case endEverything = "end-everything"
     }
 
@@ -29,6 +31,12 @@ struct QuitAlertContent: Equatable {
     /// terminals (or a remembered end), it is the incognito close
     /// confirmation: Quit and Cancel.
     static func main(_ prompt: QuitPrompt) -> QuitAlertContent {
+        if prompt.confirmsEndEverything {
+            var lines = [QuitStrings.endEverythingLine]
+            if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }
+            return QuitAlertContent(title: QuitStrings.endEverythingTitle, lines: lines,
+                                    buttons: [.keep, .cancel, .endEverything], showsSuppression: false)
+        }
         guard prompt.offersSessionChoice else {
             return QuitAlertContent(title: ConfirmationStrings.quitIncognitoTitle, lines: [], buttons: [.quit, .cancel],
                                     showsSuppression: false)

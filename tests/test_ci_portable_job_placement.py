@@ -68,6 +68,49 @@ class Decide(unittest.TestCase):
         self.assertEqual(result.linux_jobs, ("control", "signer-build"))
         self.assertEqual(result.mini_jobs, ())
 
+    def test_early_nightly_unread_capacity_keeps_portable_controls_on_fleet(self):
+        config = env(JOBS="control signer-build", LINUX_ONLY="signer-build",
+                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+        for runners, snap in ((None, None), (idle(2), None),
+                              (idle(2), snapshot(age_minutes=120))):
+            with self.subTest(runners=runners, snapshot=snap):
+                placed = placement.decide(config, runners, snap, NOW)
+                self.assertEqual((placed.mini_runner, placed.mini_jobs), (SIDE, ("control",)))
+                self.assertEqual(placed.linux_jobs, ())
+                self.assertIn("capacity unknown", placed.why)
+
+    def test_unknown_nightly_capacity_does_not_bypass_runner_eligibility(self):
+        for overrides in ({"SIDE_LABEL": ""}, {"SIDE_LABEL": "blacksmith-16vcpu-ubuntu-2404"},
+                          {"SIDE_LABEL": "glaeda-aws-side-std-xcode-26.6"},
+                          {"GITHUB_RUN_ATTEMPT": "3"}, {"NIGHTLY": "0"}):
+            with self.subTest(overrides=overrides):
+                config = env(NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+                config.update(overrides)
+                self.assertEqual(placement.decide(config, None, None, NOW).mini_jobs, ())
+
+    def test_quota_failure_does_not_wait_then_send_controls_to_blacksmith(self):
+        config = env(JOBS="control signer-build", LINUX_ONLY="signer-build",
+                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+        with mock.patch.object(placement, "read", return_value=(None, None)) as read, \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 180]), \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement, "write") as write, \
+             mock.patch.object(placement.signal, "setitimer"):
+            self.assertEqual(placement.main(config), 0)
+        read.assert_called_once()
+        sleep.assert_not_called()
+        self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
+
+    def test_nightly_read_deadline_keeps_the_fleet_fallback_and_clears_alarm(self):
+        config = env(JOBS="control signer-build", LINUX_ONLY="signer-build",
+                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+        with mock.patch.object(placement, "read", side_effect=placement.Deadline), \
+             mock.patch.object(placement, "write") as write, \
+             mock.patch.object(placement.signal, "setitimer") as timer:
+            self.assertEqual(placement.main(config), 0)
+        self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
+        self.assertEqual(timer.call_args.args, (placement.signal.ITIMER_REAL, 0))
+
     def test_nightly_waits_for_fleet_capacity_then_uses_the_latest_read(self):
         config = env(JOBS="control", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
         fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
