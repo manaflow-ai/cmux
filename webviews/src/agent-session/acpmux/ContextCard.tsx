@@ -91,43 +91,62 @@ export function ContextCardBody({
   const compactRows = breakdown ? compactBreakdownRows(breakdown) : [];
   return (
     <>
-      <div className="acpmux-context-card-title">{t("context.title")}</div>
-      <div className="acpmux-context-card-line">
-        <span className="acpmux-context-card-compact-tokens">
-          {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        </span>
+      {/* The summary sits on the card's text inset; Details below runs edge to edge (contextCard.css). */}
+      <div className="acpmux-context-card-body">
+        <div className="acpmux-context-card-title">{t("context.title")}</div>
+        <div className="acpmux-context-card-line">
+          <span className="acpmux-context-card-compact-tokens">
+            {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          </span>
+        </div>
+        <progress
+          className="acpmux-context-card-bar"
+          aria-label={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          aria-valuetext={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          value={percent}
+          max={100}
+        />
+        {compactRows.length > 0 && (
+          <ul className="acpmux-context-card-parts">
+            {compactRows.map((row) => (
+              <li className="acpmux-context-card-part" key={row.name}>
+                <span className="acpmux-context-card-swatch" data-tone={row.tone} aria-hidden="true" />
+                <span>
+                  {row.group === "messages"
+                    ? t("context.messages")
+                    : row.group === "tools"
+                      ? t("sessionInfo.context.mcpTools")
+                      : row.group === "system"
+                        ? t("context.setup")
+                        : row.name}
+                </span>
+                <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-      <progress
-        className="acpmux-context-card-bar"
-        aria-label={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        aria-valuetext={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        value={percent}
-        max={100}
-      />
-      {compactRows.length > 0 && (
-        <ul className="acpmux-context-card-parts">
-          {compactRows.map((row) => (
-            <li className="acpmux-context-card-part" key={row.name}>
-              <span className="acpmux-context-card-swatch" data-tone={row.tone} aria-hidden="true" />
-              <span>
-                {row.group === "messages"
-                  ? t("context.messages")
-                  : row.group === "tools"
-                    ? t("sessionInfo.context.mcpTools")
-                    : row.group === "system"
-                      ? t("context.setup")
-                      : row.name}
-              </span>
-              <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
       {onOpenDetails && (
         <div className="acpmux-context-card-foot">
           <button type="button" className="acpmux-context-card-details" onClick={onOpenDetails}>
             {t("context.details")}
-            <span aria-hidden="true">›</span>
+            {/* The composer's chevron-right path (ComposerPickers ChevronRightIcon), drawn as an icon so
+                its box, not a font's › glyph, centres on the label. */}
+            <svg
+              className="acpmux-context-card-details-chevron"
+              width={14}
+              height={14}
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
+            </svg>
           </button>
         </div>
       )}

@@ -320,6 +320,7 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
             for scope, level in (job.get("permissions") or {}).items():
                 self.assertEqual(allowed.get(scope), level, f"{name}: {scope}: {level}")
         self.assertEqual(self.jobs["smoke"]["permissions"], {"contents": "read"})
+        self.assertEqual(self.jobs["pick"]["permissions"], {"actions": "read"})
         pick_steps = {step.get("id"): step for step in self.jobs["pick"]["steps"]}
         self.assertEqual(pick_steps["in-flight"]["env"]["GH_TOKEN"], "${{ github.token }}")
         self.assertEqual(pick_steps["place"]["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")

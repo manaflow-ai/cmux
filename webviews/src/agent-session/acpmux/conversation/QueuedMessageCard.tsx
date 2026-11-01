@@ -243,12 +243,13 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
     answer(true);
   };
   return (
-    // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex, jsx-a11y/no-static-element-interactions -- the held card takes the focus so Return approves it (design/chat-multiplayer.md)
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the held card takes the focus so Return approves it (design/chat-multiplayer.md)
     <div
       className="cv-incoming cv-held"
       data-queued-message={promptId}
       data-held={held || undefined}
       data-look={held ? look : undefined}
+      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the held card takes the focus so Return approves it
       tabIndex={held ? 0 : undefined}
       onKeyDown={onKeyDown}
     >

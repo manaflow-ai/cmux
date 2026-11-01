@@ -71,6 +71,18 @@ import Testing
         try Self.expectThemedField(in: root, scope, placeholder: FeedStrings.filterInbox, "feed filter")
     }
 
+    /// The Feed inbox's Reports tab (the reports basket) hides the item search, which belongs to the items.
+    @Test func theFeedReportsTabHidesTheItemSearch() throws {
+        let scope = try ThemedOverlayColorsTests.purpleRoom()
+        for (connection, fields) in [(FeedInboxFilter.Connection.feed, 1), (.reports, 0)] {
+            let header = FeedInboxHeader(filter: .constant(FeedInboxFilter(connection: connection)), hasUnread: true, canRefresh: true,
+                                         canAddConnection: false, markRead: {}, refresh: {}, addConnection: {}, showsReports: true)
+            let (window, root) = Self.host(header, scope)
+            defer { window.contentView = nil; window.close() }
+            #expect(HomeSheetThemeTests.editableFields(in: root).count == fields, "\(connection): \(fields) search field(s)")
+        }
+    }
+
     @Test func theFeedReplyFieldDrawsTheTheme() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let (window, root) = Self.host(FeedTextField(placeholder: FeedStrings.reply, text: .constant("")), scope)
