@@ -402,7 +402,15 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, credential_socket, owner, ready, served, watch))
+    tokio_runtime()?.block_on(serve(
+        state,
+        session_socket,
+        credential_socket,
+        owner,
+        ready,
+        served,
+        watch,
+    ))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
