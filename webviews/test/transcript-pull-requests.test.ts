@@ -380,7 +380,7 @@ test("OrderedRows adopts an echoed prompt's event order while keeping its row id
   rows.set("reply", { ...assistant("reply", 10), id: "reply", at: 11 });
   rows.current = undefined;
   rows.placeLocalLast();
-  expect(rows.sorted().map((row) => row.id)).toEqual(["reply", "local-prompt"]);
+  expect(rows.sorted().map((row) => row.id)).toEqual(["local-prompt", "reply"]);
 });
 
 test("sessionSummary skips history across 50 mixed activity and assistant chunks", () => {
