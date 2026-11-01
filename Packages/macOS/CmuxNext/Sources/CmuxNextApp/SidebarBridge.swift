@@ -80,8 +80,8 @@ final class SidebarBridge {
         }
         // The row the person is likely to open next: the agent chat on screen reads its chat ahead (HQ#5914).
         container.sidebarView.onHoverTab = { [weak self] tab in
-            guard let self, let state, let shown = services.windows.controller(for: state.id)?.focusedPane?.stripModel.selectedID else { return }
-            let tabs = services.agentTabs
+            guard let self, let window = self.state, let shown = self.services.windows.controller(for: window.id)?.focusedPane?.stripModel.selectedID else { return }
+            let tabs = self.services.agentTabs
             tabs.existingView(shown.rawValue)?.forwardHover(tab.flatMap { tabs.existingView($0.rawValue) == nil ? tabs.session(of: $0.rawValue) : nil })
         }
         container.sidebarView.resourceSource = services.resources
