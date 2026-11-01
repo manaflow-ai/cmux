@@ -103,7 +103,7 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
 fn plan_with_globals(rest: &[String], global: &GlobalArgs) -> Result<Vec<String>, UsageError> {
     let mut plan = plan(rest, global.output)?;
     if let Some(key) = global.idempotency_key.as_deref() {
-        let words: Vec<&str> = plan.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+        let words = verb_words(&plan);
         if matches!(
             words.as_slice(),
             ["create" | "fork", ..]
@@ -116,6 +116,34 @@ fn plan_with_globals(rest: &[String], global: &GlobalArgs) -> Result<Vec<String>
         }
     }
     Ok(plan)
+}
+
+/// `cmux-vm`'s global options that take a value (`--team T`, `--base-url URL`,
+/// `--config PATH`; `global = true` in workers/cmux-vm/cli/crates/cmux-vm/src/lib.rs).
+const CMUX_VM_VALUE_GLOBALS: [&str; 3] = ["--team", "--base-url", "--config"];
+
+/// The words of `plan` before any `--`, without `cmux-vm`'s global options and
+/// their values, which it accepts between nested verbs: `creation --team T get`
+/// reads as `creation get`, so the key reaches it (#29709).
+fn verb_words(plan: &[String]) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut plan = plan.iter().map(String::as_str).take_while(|word| *word != "--");
+    while let Some(word) = plan.next() {
+        if word == "--json" {
+            continue;
+        }
+        if CMUX_VM_VALUE_GLOBALS.contains(&word) {
+            plan.next();
+            continue;
+        }
+        let is_assigned_global = CMUX_VM_VALUE_GLOBALS
+            .iter()
+            .any(|global| word.strip_prefix(global).is_some_and(|after| after.starts_with('=')));
+        if !is_assigned_global {
+            words.push(word);
+        }
+    }
+    words
 }
 
 /// The global options before `vm` and the words after it, verbatim. The

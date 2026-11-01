@@ -23,5 +23,12 @@
 .acpmux-edited-dir{display:flex;min-width:0;overflow:hidden}
 .acpmux-edited-dir-head{flex:none}
 .acpmux-edited-dir-tail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}
-.acpmux-edited-title--toggle{cursor:default}
+/* A header that folds (a one-file card's diff, a folded card's rows) is the toggle edge to edge
+   (conversation/headerToggle.ts): the arrow cursor all over it, and its hover covers the header
+   alone, not while the pointer is on one of its own buttons (Undo, View changes), which light
+   themselves. The chevron inside is the same control, so it adds no second highlight. */
+.acpmux-edited-head[data-header-toggle]{cursor:default;user-select:none}
+.acpmux-edited-head[data-header-toggle]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)){background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
+.acpmux-edited-head[data-header-toggle]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)) .acpmux-edited-toggle{color:var(--agent-text)}
+.acpmux-edited-head[data-header-toggle] .acpmux-edited-toggle:hover{background:transparent}
 .acpmux-edited-diff{padding:2px 8px 4px}

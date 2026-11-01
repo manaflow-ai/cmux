@@ -12,14 +12,18 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "../attachments";
-import type { UploadResult } from "../cloudUploads";
+import type { UploadProgressReport, UploadResult } from "../cloudUploads";
 
 export type IntakeOptions = {
   allowImages: boolean;
   /// The host knows a local drop's paths, matched by position. Never used for another machine.
   localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
-  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
+  upload?(
+    files: File[],
+    cancelled?: (index: number) => boolean,
+    progress?: UploadProgressReport,
+  ): Promise<UploadResult>;
   /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
   cancelled?(index: number): boolean;
 };
@@ -35,6 +39,8 @@ export type IntakeEvents = {
   failed?(index: number, error: IntakeError): void;
   /// File `index` is streaming to the session's machine: its tile no longer holds a send.
   uploading?(index: number): void;
+  /// How much of file `index` reached the session's machine, 0 to 1.
+  progress?(index: number, done: number): void;
   /// Image `index`, already a chip, has its original saved at `path` (the agent reads it there).
   original?(index: number, path: string, name: string): void;
   /// Image `index`, already a chip, could not have its original saved, and why: the chip still
@@ -162,6 +168,10 @@ export async function intakeFiles(
       .upload?.(
         waiting.map(({ file }) => file),
         (at) => options.cancelled?.(waiting[at]!.index) ?? false,
+        (at, done) => {
+          const entry = waiting[at];
+          if (entry && sending) events.progress?.(entry.index, done);
+        },
       )
       .catch((failure: unknown): UploadResult => ({
         error: failure instanceof Error ? failure.message : String(failure),

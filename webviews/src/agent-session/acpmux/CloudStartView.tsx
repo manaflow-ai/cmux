@@ -12,6 +12,11 @@ const STEP_KEYS: Record<CloudStartStep, StringKey> = {
   opening: "cloudStart.step.opening",
 };
 
+/// A step's words: "Starting your Cloud machine…", "Copying your project…", "Starting Claude Code…".
+function stepText(step: CloudStartStep, agent: string | undefined, t: Translate): string {
+  return step === "opening" && agent ? t("cloudStart.step.openingAgent", { agent }) : t(STEP_KEYS[step]);
+}
+
 type Fact = { id: string; label: string; value: string };
 
 /// What the card says about the start, in order, each only once known.
@@ -47,7 +52,7 @@ export function CloudStartView({ start, bubble = true }: { start: CloudStartProg
   const status = failed
     ? (start.message ?? t("sandbox.failed"))
     : start.step && arm !== "steps"
-      ? t(STEP_KEYS[start.step])
+      ? stepText(start.step, start.agent, t)
       : t("cloudStart.title");
   return (
     <div className="acpmux-cloud-start" data-state={start.state} data-look={arm}>
@@ -60,7 +65,7 @@ export function CloudStartView({ start, bubble = true }: { start: CloudStartProg
         {!failed && <Spinner size={14} loading />}
         <span>{status}</span>
       </output>
-      {arm === "steps" && !failed && <StepList step={start.step} t={t} />}
+      {arm === "steps" && !failed && <StepList step={start.step} agent={start.agent} home={start.home} t={t} />}
       {known.length > 0 &&
         (arm === "rows" ? (
           <dl className="acpmux-cloud-start__rows">
@@ -90,18 +95,32 @@ export function CloudStartView({ start, bubble = true }: { start: CloudStartProg
 }
 
 /// The `steps` arm: each step done (a check), current (a spinner) or still to come.
-function StepList({ step, t }: { step: CloudStartStep | undefined; t: Translate }) {
-  const current = step ? CLOUD_START_STEPS.indexOf(step) : -1;
+function StepList({
+  step,
+  agent,
+  home,
+  t,
+}: {
+  step: CloudStartStep | undefined;
+  agent?: string;
+  home?: boolean;
+  t: Translate;
+}) {
+  // No project: nothing is copied, so there is no copy step.
+  const steps: readonly CloudStartStep[] = home
+    ? CLOUD_START_STEPS.filter((name) => name !== "folder")
+    : CLOUD_START_STEPS;
+  const current = step ? steps.indexOf(step) : -1;
   return (
     <ol className="acpmux-cloud-start__steps">
-      {CLOUD_START_STEPS.map((name, index) => {
+      {steps.map((name, index) => {
         const state = index < current ? "done" : index === current ? "current" : "next";
         return (
           <li key={name} data-step={state}>
             <span className="acpmux-cloud-start__mark" aria-hidden>
               {state === "done" ? <Check size={12} /> : state === "current" ? <Spinner size={12} loading /> : null}
             </span>
-            {t(STEP_KEYS[name])}
+            {stepText(name, agent, t)}
           </li>
         );
       })}
