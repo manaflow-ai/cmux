@@ -107,3 +107,11 @@ test("a host snapshot wins over a late success from an older send-to-bottom writ
     settings.setComposerSettings(DEFAULT_COMPOSER);
   }
 });
+
+test("new chats start on this Mac by default; Cloud only when the setting says so", () => {
+  expect(DEFAULT_COMPOSER.newChatsIn).toBe("local");
+  expect(readComposerSettings({}).newChatsIn).toBe("local");
+  expect(readComposerSettings({ newChatsIn: "cloud" }).newChatsIn).toBe("cloud");
+  expect(readComposerSettings({ newChatsIn: "Cloud" }).newChatsIn).toBe("local");
+  expect(readComposerSettings({ newChatsIn: true }).newChatsIn).toBe("local");
+});

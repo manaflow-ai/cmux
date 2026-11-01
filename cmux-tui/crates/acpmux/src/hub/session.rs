@@ -72,6 +72,15 @@ pub struct Session {
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
+    /// Set while a prompt holds `turn_lock` for its turn (`subsession_runs.rs` `ClaimedTurn`):
+    /// from the moment it takes the lock, before `start_turn` shows its turn in `turn`, until
+    /// its guard drops. A prompt that comes meanwhile queues and is accepted at once
+    /// (`queue_slot`), instead of waiting unanswered for the lock (fuzz row g, g1).
+    pub(super) turn_claimed: AtomicBool,
+    /// Makes a new prompt's check whether it must wait and its place in the `queued` count one
+    /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
+    /// free. A leaf lock, held for no await.
+    pub(super) admit: StdMutex<()>,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
@@ -115,6 +124,9 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
+    /// (manaflow-ai/cmux#25563, `work_below.rs`).
+    pub(super) unread_after_work: AtomicBool,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.
@@ -142,6 +154,10 @@ pub struct Session {
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
+    /// Its harness profile's launch changed since its agent started: the agent restarts on the
+    /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
+    /// changed` until a start runs the new profile.
+    pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
@@ -358,6 +374,10 @@ impl Session {
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
     }
+    /// Whether a prompt holds the turn lock for its turn (`turn_claimed`).
+    pub(super) fn turn_claimed(&self) -> bool {
+        self.turn_claimed.load(Ordering::SeqCst)
+    }
     pub fn queued(&self) -> u64 {
         self.queued.load(Ordering::SeqCst)
     }
@@ -398,7 +418,7 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
-/// preview (`TurnInfo::masked_preview`); the owner's views keep it raw.
+/// preview and every summary's running turn (`TurnInfo::masked_preview`).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
     short_text(&crate::secret_scan::mask(s), max)
 }

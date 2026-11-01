@@ -19,14 +19,14 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if words != ["workspace", "group", "create"] {
         return Ok(None);
     }
-    let rest = &args[3..];
+    let rest = args.get(3..).unwrap_or_default();
     let mut remote = None;
     let mut parent = None;
     let mut name = None;
     let mut other = None;
     let mut index = 0;
-    while index < rest.len() {
-        let arg = rest[index].as_str();
+    while let Some(arg) = rest.get(index) {
+        let arg = arg.as_str();
         let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg, None),

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
@@ -144,13 +145,50 @@ enum AgentBesidePlacement {
                 await revealMoved(tab.id, from: anchor, services: services)
                 return nil
             }
-            let after = newColumn(beside: anchor, in: services.daemon(for: anchor).store)
-            moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
+            // Hold the same turn as links and dock tools until this move lands. In particular,
+            // two header clicks must not both split below the one pane they initially saw.
+            let finish = await withCheckedContinuation { (ready: CheckedContinuation<@MainActor () -> Void, Never>) in
+                services.linkOpener.turns.serially(beside: LayoutPaneID(anchor.id)) { done in ready.resume(returning: done) }
             }
-            guard moved else { return "beside-caller: the move into a new column failed (see the app log)" }
+            defer { finish() }
+            let source = controller ?? services.paneController(for: anchor)
+            let measured = source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()
+            let kind: RightColumnPlacement.Kind? = tab.kind == .browser ? .browser : (tab.kind == .pty ? .terminal : nil)
+            let decision = RightColumnPlacement.decide(measured, opening: kind)
+            let destination: PaneController? = {
+                guard case .tab(let id) = decision, let id else { return nil }
+                return source?.workspace?.panes[LayoutPaneID(rawValue: id)]
+            }()
+            moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                switch decision {
+                case .splitRight:
+                    // The first right-side item is a pane beside the chat. Keeping this as a
+                    // split (rather than the daemon's after-last-column default) also makes the
+                    // right column visible while the chat keeps focus.
+                    TabMoves.toNewSplit(tab, pane: anchor, edge: .right, services: services, keepFocus: true) {
+                        done.resume(returning: $0)
+                    }
+                case .splitBelow(let id):
+                    let right = source?.workspace?.panes[LayoutPaneID(rawValue: id)]
+                    guard let right else { return done.resume(returning: false) }
+                    TabMoves.toNewSplit(tab, pane: right.pane, edge: .bottom, services: services, keepFocus: true) {
+                        done.resume(returning: $0)
+                    }
+                case .tab:
+                    let right = destination ?? source
+                    guard let right else { return done.resume(returning: false) }
+                    TabMoves.move(tab, to: right.pane, index: right.pane.tabs.count, services: services) {
+                        done.resume(returning: $0)
+                    }
+                }
+            }
+            guard moved else { return "beside-caller: the move into the right pane failed (see the app log)" }
             if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
-            await revealMoved(tab.id, from: anchor, services: services)
+            if case .tab = decision, let right = destination ?? source,
+               !(personActed() && right.workspace?.focusedPane === right) {
+                right.selectWhenReportedKeepingFocus(surface: surface)
+            }
+            if case .splitRight = decision { await revealMoved(tab.id, from: anchor, services: services) }
             return nil
         })
         return { surface in
@@ -170,17 +208,6 @@ extension AgentBesidePlacement {
                                  in content: WorkspaceContentController, generation: UInt64?, services: AppServices) {
         if let chat { services.linkOpener.returnFocus(of: surface, to: chat, in: content) }
         content.expectFocus(on: surface, awayFrom: pane, generation: generation)
-    }
-
-    /// The column a tab beside `chat` follows: the chat's own scrolling column, so the new column
-    /// opens right of the chat, where the chat keeping focus keeps it in view. The daemon's
-    /// default is after the last column, past the panes already beside the chat and off screen
-    /// (cx-u1yn). Nil for a chat in a docked column or on a screen without columns.
-    static func newColumn(beside chat: PaneModel, in store: DaemonStore) -> DaemonColumnID? {
-        guard let screen = store.workspace(containing: chat.handle)?.screens.first(where: { $0.panes.contains { $0 === chat } }),
-              let column = screen.columns.first(where: { $0.layout.paneIDs.contains(chat.handle) }),
-              column.dock == nil else { return nil }
-        return column.id
     }
 }
 
