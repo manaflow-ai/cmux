@@ -123,7 +123,8 @@ extension AcpmuxEnvironment {
     public nonisolated func watchHarnesses(_ onChange: @escaping @Sendable () -> Void) -> Task<Void, Never> {
         let socketPath = socketPath
         return Task.detached {
-            let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+            guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
+            let connection = NWConnection(to: endpoint, using: .tcp)
             defer { connection.cancel() }
             await withTaskCancellationHandler {
                 try? await Self.readHarnessChanges(on: connection, onChange: onChange)

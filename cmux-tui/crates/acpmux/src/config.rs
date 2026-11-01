@@ -70,17 +70,38 @@ pub(crate) fn autostart_refusal(
 }
 
 /// Set once this daemon's home is gone (`daemon/home_watch.rs`); never cleared.
-static HOME_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// 0: present, 1: the home or lock was lost, 2: only the socket was lost. A
+// socket disappearing still fences writes, but the home remains ours, so the
+// shutdown may safely end hosts whose records were not adopted yet.
+static HOME_LOST: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 /// This daemon's home was removed or replaced: from now on it makes no folder and creates or
 /// opens no state file for writing under that path, which may be another daemon's home now.
 pub(crate) fn mark_home_lost() {
-    HOME_LOST.store(true, std::sync::atomic::Ordering::SeqCst);
+    HOME_LOST.store(1, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// Whether [`mark_home_lost`] was called.
+/// Mark only the bound socket as lost. The state fence is still active, but
+/// the home and its host records remain this daemon's, so shutdown can clean
+/// up an unadopted host.
+pub(crate) fn mark_socket_lost() {
+    let _ = HOME_LOST.compare_exchange(
+        0,
+        2,
+        std::sync::atomic::Ordering::SeqCst,
+        std::sync::atomic::Ordering::SeqCst,
+    );
+}
+
+/// Whether the home or socket is lost, including an identity change awaiting event delivery.
 pub(crate) fn home_lost() -> bool {
-    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst)
+    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) != 0
+}
+
+/// Whether the home or lock itself was lost. A socket-only loss leaves the
+/// host records owned by this daemon and may be cleaned during shutdown.
+pub(crate) fn home_path_lost() -> bool {
+    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) == 1
 }
 
 /// The home this daemon holds, as the folder it locked: its device and inode (`daemon.rs`).
@@ -123,7 +144,7 @@ pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
     if !path.starts_with(&home) {
         return Ok(());
     }
-    if !home_lost() && held_home_replaced(&home) {
+    if !home_path_lost() && held_home_replaced(&home) {
         mark_home_lost();
     }
     anyhow::ensure!(
@@ -498,7 +519,7 @@ mod autostart_pair_tests {
     #[test]
     fn only_the_default_home_is_created_for_a_start() {
         let dir = tempfile::tempdir().unwrap();
-        let gone = dir.path().join("tmp7uxt3tq_/removed-home");
+        let gone = dir.path().join("removed-test-home");
         let own = gone.join("acpmux.sock");
         let why = autostart_refusal(&gone, true, None, &own).expect("a missing home is refused");
         assert!(why.contains("does not exist"), "{why}");
@@ -674,6 +695,19 @@ impl DeclaredModel {
             DeclaredModel::Id(s) => s,
             DeclaredModel::Full { id, name } => name.as_deref().unwrap_or(id),
         }
+    }
+}
+
+impl HarnessProfile {
+    /// The hex SHA-256 of what starts the harness: its argv and env, never its name, models,
+    /// defaults or kind (how acpmux speaks to it, which an adopted agent's host answers for
+    /// itself). A session keeps the digest its agent started from (`SessionMeta::launch_digest`),
+    /// and a profile reload that changes it respawns the agent at its turn end
+    /// (`hub/profile_respawn.rs`). A hash, so the env's values are not kept.
+    pub fn launch_digest(&self) -> String {
+        // A list and a BTreeMap of strings: the JSON is stable.
+        let launch = serde_json::json!({"argv": self.argv, "env": self.env});
+        crate::sha256::sha256_hex(launch.to_string().as_bytes())
     }
 }
 
@@ -1003,8 +1037,8 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
-    /// `cpuClass`: the CPU class a macOS session's harness starts at,
-    /// `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// `cpuClass`: the CPU class a macOS session's harness runs at once its
+    /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
@@ -1131,7 +1165,8 @@ pub struct Config {
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
     /// length is how many attempts run, a chain of daemon restarts included. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 12
+    /// twelve exponential waits from 10 s capped at 20 min (about two hours); `[]` turns it off.
+    /// A provider reset hint extends the wait when needed. Checked on load: at most 12
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
         default,
@@ -1503,16 +1538,26 @@ impl Config {
     }
 
     /// Without a configured default, the first harness that runs an ACP
-    /// session (a terminal harness, an installed `muse` say, never does).
+    /// session (a terminal harness, an installed `muse` say, never does), and
+    /// never the Chief harness: a new chat is a coding agent unless the person
+    /// picks their Chief.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;
             self.default_harness = self
                 .harnesses
                 .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .find(|(_, profile)| {
+                    profile.kind != HarnessKind::Terminal
+                        && profile.family.as_deref() != Some(CHIEF_FAMILY)
+                })
                 .map(|(name, _)| name.clone());
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pick_auto_default_for_tests(&mut self) {
+        self.pick_auto_default();
     }
 
     /// A capture fixture's harnesses join as discovered ones would
@@ -1738,10 +1783,10 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE, CODEROUTER_CLAUDE_PROFILE,
-    CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_cmux_router, add_cmux_router_with,
-    add_coderouter_route, cmux_router_model_setting, coderouter_claude_route, discover_harnesses,
-    discover_harnesses_from,
+    CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
+    add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
 };
 mod peer;
 pub use peer::PeerConfig;

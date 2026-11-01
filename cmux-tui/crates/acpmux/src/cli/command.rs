@@ -185,7 +185,7 @@ pub enum Command {
     #[command(
         alias = "prompt",
         alias = "send-keys",
-        after_help = "A name several live sessions share is refused with the exact command for each."
+        after_help = "A name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
     )]
     Send {
         /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
@@ -636,6 +636,11 @@ pub struct DispatchArgs {
 
 #[derive(Subcommand)]
 pub enum HarnessCmd {
+    /// Install or inspect cmux's opt-in managed Codex runtime.
+    CodexRuntime {
+        #[command(subcommand)]
+        action: CodexRuntimeCmd,
+    },
     /// Every harness with its kind, source file and problems.
     #[command(alias = "ls")]
     List {
@@ -776,6 +781,14 @@ pub enum HarnessCmd {
     Remove { id: String },
     /// Move a backup that `remove` made back into your harness folder.
     Restore { backup: String },
+}
+
+#[derive(Subcommand)]
+pub enum CodexRuntimeCmd {
+    /// Download and verify the pinned official Codex release.
+    Install,
+    /// Print the managed runtime status.
+    Status,
 }
 
 #[derive(Subcommand)]

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
@@ -17,6 +18,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDaemonRecovery
+import CmuxNextDictation
 import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -108,7 +110,7 @@ final class AppServices {
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"))
-    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work)  // first read in init (no IUO)
+    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, authCaptureFixture: environment.authCaptureFixture)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(
         auth: cloud.auth,
@@ -333,6 +335,12 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
+    /// Share Screen with Chief (docs/chief-screen-share.md): off at every launch; its journal is this
+    /// Mac's Chief home's `optchat/screen`, which the Chief's brain reads into memory notes.
+    lazy var chiefScreenShare = ChiefScreenShare(
+        capture: ChiefScreenSystemCapture(),
+        journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome
+            .appending(path: "optchat/screen", directoryHint: .isDirectory)))
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
@@ -469,6 +477,8 @@ final class AppServices {
     let windowHints = WindowHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
+    /// The app's daemon update (its one queue and board) and what it knows of its local acpmux daemons.
+    let daemonUpdates = DaemonUpdates(), acpmuxDaemons = AcpmuxLocalDaemons()
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
@@ -496,8 +506,9 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
-    /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
-    let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
+    /// The last quit's agent pages and chat composers, read off the main thread since the launch began, and
+    /// this app's peer-route approver key (``PeerApprovalsApp/approver()``, made at launch; nil in tests).
+    let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake, peerApprover: AgentPanePeerApprover?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -521,10 +532,13 @@ final class AppServices {
     init(environment: AppEnvironment, keyWindowSource: @escaping @MainActor () -> NSWindow?, appActiveSource: @escaping @MainActor () -> Bool,
          launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil) {
         self.work = work
-        (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource) = (launchImages, relaunchWake, keyWindowSource, appActiveSource)
+        (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
+        // Before the updater's What's New tracker writes its record: an install that ran before
+        // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
+        AgentPaneFeatureTipRecords().settleInstall(launchedBefore: WhatsNewSeenStore(defaults: .standard).hasRecord)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
@@ -542,7 +556,7 @@ final class AppServices {
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
-        machines = MachineRegistry(local: daemon)
+        machines = MachineRegistry(local: daemon, updates: daemonUpdates.board)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
@@ -577,6 +591,8 @@ final class AppServices {
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
+        // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
+        cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
         crashRecovery.observe(cache.cef.crashLog)
         AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
@@ -687,6 +703,10 @@ final class AppServices {
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
+        // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every
+        // machine's daemon copies this hook, as `workTracker`).
+        daemon.paneNotReadyText = { MiscHandlerStrings.paneNotReady }
+        daemon.onPaneNotReady = { [weak registry] reason in registry?.refuse(reason) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
         _ = configActions  // built here, as before

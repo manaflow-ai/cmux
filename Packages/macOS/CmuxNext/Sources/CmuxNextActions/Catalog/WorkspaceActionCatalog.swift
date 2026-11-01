@@ -354,7 +354,10 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.newSubgroup",
                 title: String(localized: "action.workspaceGroup.newSubgroup", defaultValue: "New Subgroup", bundle: .module),
                 keywords: ["group", "nest", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",
-                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-subgroup"
+                surfaces: [.palette, .contextMenu],
+                // The CLI's `workspace group create --parent GROUP --name N` and MCP name both.
+                arguments: [CatalogArgument.groupWorkspaceGroup.optional, CatalogArgument.nameString.optional],
+                targets: [.workspaceGroup], cliName: "workspace-group new-subgroup"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.rename",
