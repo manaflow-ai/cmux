@@ -111,7 +111,10 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
         }
         if let summary = notes?.summary, !summary.isEmpty {
             let items = summary.enumerated().map { index, line in
-                Item(id: "summary-\(index)", title: line.title, summary: nil, category: Category(group: line.group))
+                let description = line.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return Item(id: "summary-\(index)", title: line.title,
+                            summary: description?.isEmpty == false ? description : nil,
+                            category: Category(group: line.group))
             }
             return (.summary, "en", items)
         }

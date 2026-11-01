@@ -81,6 +81,7 @@ export function distinctSummary(title: string, summary: string): string {
   const key = (text: string) =>
     text
       .trim()
+      .replace(/^["'“‘«]+|["'”’»]+$/gu, "")
       .replace(/[.!…\s]+$/u, "")
       .toLowerCase();
   return key(summary) === key(title) ? "" : summary;
@@ -239,7 +240,15 @@ export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[
     const key = item.pr !== undefined ? `#${item.pr}` : readable.title.toLowerCase();
     // The notes mark a commit that touches only CI or tooling files internal, whatever its subject.
     const internal = readable.internal || item.internal === true;
-    const row = { key, item: { ...item, title: readable.title }, internal };
+    const row = {
+      key,
+      item: {
+        ...item,
+        title: readable.title,
+        description: item.description ? distinctSummary(readable.title, item.description) : item.description,
+      },
+      internal,
+    };
     const at = byKey.get(key);
     if (at === undefined) {
       byKey.set(key, rows.length);
@@ -292,7 +301,16 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
   }
   for (const highlight of notes.highlights) add(fromHighlight(highlight), true, false);
   for (const [index, line] of (notes.summary ?? []).entries()) {
-    add({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" }, false, true);
+    add(
+      {
+        id: `summary-${index}`,
+        category: summaryCategory(line.group),
+        title: line.title,
+        summary: line.description ?? "",
+      },
+      true,
+      true,
+    );
   }
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);

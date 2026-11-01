@@ -7439,7 +7439,7 @@ jobs:
           if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
             --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
-            --head "$HEAD_SHA" --since "$since" --out notes --pr-media
+            --head "$HEAD_SHA" --since "$since" --out notes --pr-media --pr-descriptions
           # Extend the published index only when its signature verifies.
           previous=""
           # The first cmux NEXT build carries the history over from the old feed.

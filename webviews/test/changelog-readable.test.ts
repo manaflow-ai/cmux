@@ -145,6 +145,31 @@ test("hyphenated feature names, small numbers and squash commits stay user-facin
   for (const subject of USER_FACING) expect([subject, readableChange(subject).internal]).toEqual([subject, false]);
 });
 
+test("backend and provider plumbing stays under the hood", () => {
+  for (const subject of [
+    "fix: encode snapshot cutoff for Postgres",
+    "fix: make env projection explicit",
+    "fix(security): gate all provider allocations (cloud-3)",
+    "fix: repair credential plumbing",
+  ])
+    expect(readableChange(subject).internal).toBe(true);
+  expect(readableChange("fix: tabs keep their position after restart").internal).toBe(false);
+  const rows = readableChanges([
+    {
+      title: "fix: tabs keep their position after restart (#123)",
+      pr: 123,
+      description: "They stay put after restart.",
+    },
+    {
+      title: "fix: encode snapshot cutoff for Postgres (#124)",
+      pr: 124,
+      description: "Database snapshots use the cutoff.",
+    },
+  ]);
+  expect(rows.changes[0]?.description).toBe("They stay put after restart.");
+  expect(rows.hidden[0]?.description).toBe("Database snapshots use the cutoff.");
+});
+
 test("readable change titles", () => {
   expect(readableChange("cmux NEXT perf-split: snapshot sources name a new pane's first runs (cx-8w027.14)")).toEqual({
     title: "Snapshot sources name a new pane's first runs",
