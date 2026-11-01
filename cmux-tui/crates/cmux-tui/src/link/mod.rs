@@ -15,7 +15,7 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
-// `cmux link seed plan`; `cmux link seed push|clone` is [`seed_cli`].
+// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
@@ -132,7 +132,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return sync_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("seed") {
-        if matches!(args.get(1).map(String::as_str), Some("push" | "clone")) {
+        if matches!(args.get(1).map(String::as_str), Some("push" | "clone" | "pull")) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
         return seed::run(&args[1..]);

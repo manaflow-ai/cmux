@@ -1,6 +1,7 @@
 import type { ReduceContext, ReduceResult, RowWrite, StoredRow } from "@cmux/ownership"
 import { CloudMachinePause, CloudMachineResize, CloudMachineStart, planRequiredDetails, type CloudDriverResultParams } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
+import { AUTO_PAUSE_OFF } from "../auto-pause.ts"
 import { DEFAULT_SIZE, limitDetails, sizeLocked, teamPlan, type CloudConfig, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 import {
   countedRow,
@@ -116,7 +117,9 @@ export const powerResult = (state: CloudState, stored: StoredRow<LedgerRow>, mac
   const rev = state.rev + 1
   // A start that landed: the machine runs (and costs) from now, not from the request (running_since).
   const runningAt = r.ok && l.op === "start" ? { running_at: ctx.now } : {}
-  const row: MachineRow = { ...machine.row, status, ...runningAt, error: error ? { ...error, at: ctx.now } : null, revision: String(rev) }
+  // An automatic pause CloudDO dropped with CLOUD_IDLE_PAUSE off (auto-pause.ts): back to running as if it was never asked.
+  const dropped = error?.code === AUTO_PAUSE_OFF
+  const row: MachineRow = { ...machine.row, status, ...runningAt, error: error && !dropped ? { ...error, at: ctx.now } : null, ...(dropped ? { pause_reason: null } : {}), revision: String(rev) }
   writes.push(upsertMachine(row, machine.n))
   const active = state.active - countedRow(machine.row) + countedRow(row)
   return { ok: true, state: next(state, { pending, active }, { machine: row.id, removed: false }), value: { applied: true, final: true }, writes }
