@@ -126,16 +126,15 @@ struct CmdNThenNewTerminalTabTests {
     }
 
     /// The keys the person types while the Ctrl-` waits for Cmd-N's create belong to the new terminal (coordinator
-    /// 17:2xZ): the window's creation hold must open at the Ctrl-` press, not when the create is sent after the wait,
-    /// and end because the focus landed on the new terminal, not at its 2 s bound. On this dogfood line a key typed
-    /// while the Ctrl-` stand-in terminal has the keyboard is not held: it goes to that terminal at once
-    /// (107f5da1ac6, 050651b6e16, `EarlyTerminalKeysTests`; its view sends it by the minted terminal id, or by the
-    /// attachment when the daemon does not know the id yet). So every key is either held or goes to that early
-    /// terminal; none is dropped and none goes to another view (the New Tab page, a Chromium page window).
-    /// (A replayed key reaches only the key window, and a test window is never key, so the line's run in the shell is
-    /// the journey's check, cmdn-ctrlbt-type-quick step 6; this test checks the hold that carries the keys there.)
+    /// 17:2xZ): the window's creation hold opens at the Ctrl-` press, not when the create is sent after the wait, and ends
+    /// because the focus landed on the new terminal. The pass condition is what the person sees: every typed key reaches
+    /// the NEW terminal, in order (its screen shows `echo held` and the shell's answer `held`), and no other terminal gets
+    /// them. Each key goes through the app's own dispatch (`KeyRouter.interceptKeyDown`, then the window, as
+    /// `CmuxApplication.sendEvent` does). On this dogfood line a key typed while the Ctrl-` stand-in terminal has the
+    /// keyboard is not held: it goes to that terminal's view at once, which sends it by the minted terminal id or by the
+    /// attachment (107f5da1ac6, 050651b6e16); feat holds it. How each key went is in the failure text, not the pass rule.
     @Test func keysTypedWhileCtrlBacktickWaitsForCmdNAreHeldForTheNewTerminal() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-ctrlbt-keys")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let pid = try #require(services.daemon.identity?.pid)
@@ -160,32 +159,24 @@ struct CmdNThenNewTerminalTabTests {
             work += services.registry.capturingWork {
                 _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user))
             }
-            // In the press's turn, with the daemon still stopped: the hold is open, and every key typed now waits in it.
+            // In the press's turn, with the daemon still stopped: the hold is open; the keys typed now are the new terminal's.
             #expect(coordinator.isHolding(in: window), "no creation hold right after the Ctrl-`: the keys would go to the New Tab page")
-            var held = 0, early = 0, typed = 0
-            var elsewhere: [String] = []
+            let router = services.keyRouter
+            var paths: [String] = []
             for character in "echo held\r" {
                 let text = String(character)
                 let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                                                           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                           context: nil, characters: text, charactersIgnoringModifiers: text,
                                                           isARepeat: false, keyCode: text == "\r" ? 36 : 0))
-                typed += 1
-                if coordinator.capture(event, in: window) {
-                    held += 1
-                    continue
-                }
-                // Not held: AppKit sends the key on to the first responder, which must be the Ctrl-` stand-in's terminal.
-                let state = coordinator.earlyDeliveryState(in: window)
-                if !coordinator.droppedLastKey, state.contains("takesKeysEarly true") {
-                    early += 1
+                // The app's dispatch: the key router first; a key it does not consume goes to the window's first responder.
+                if router.interceptKeyDown(event, in: window) {
+                    paths.append("\(text.debugDescription): consumed (dropped \(coordinator.droppedLastKey), held \(coordinator.heldCount(in: window)))")
                 } else {
-                    elsewhere.append("\(text.debugDescription): dropped \(coordinator.droppedLastKey), first responder "
-                        + "\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "none"), \(state)")
+                    paths.append("\(text.debugDescription): to \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "none")")
+                    window.sendEvent(event)
                 }
             }
-            #expect(elsewhere.isEmpty, "keys typed while the Ctrl-` waited went neither to the hold nor to the new terminal: \(elsewhere)")
-            #expect(held + early == typed, "\(held) held and \(early) sent to the new terminal of \(typed) keys typed while the Ctrl-` waited")
             #expect(kill(pid, SIGCONT) == 0)
             resumed = true
 
@@ -199,6 +190,27 @@ struct CmdNThenNewTerminalTabTests {
             let selected = content.focusedPane?.selectedTab
             #expect(selected?.kind == .pty && selected.map { !ProvisionalTab.isProvisional(surface: $0.surface) } == true,
                     "the focused tab after the hold is not the new terminal: \(String(describing: selected?.kind))")
+
+            // What the person sees: the new terminal shows the typed line and the shell ran it (every key, in order).
+            let terminal = try #require(selected.flatMap { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) ? $0.surface : nil },
+                                        "no new terminal to read; key paths: \(paths)")
+            var screen = ""
+            func ran(_ text: String) -> Bool {
+                text.contains("echo held") && text.components(separatedBy: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "held" }
+            }
+            let deadline = ContinuousClock.now + .seconds(30)
+            while !ran(screen), ContinuousClock.now < deadline {
+                screen = (try? await connection.request(ReadScreenRequest(surface: terminal), timeout: .seconds(2)).text) ?? screen
+                if !ran(screen) { try await Task.sleep(for: .milliseconds(100)) }
+            }
+            #expect(ran(screen), "the new terminal did not get the typed line in order; its screen: \(screen.debugDescription); key paths: \(paths)")
+            // No other terminal got the keys (the old workspace's terminal; a key can be in one place only, so the
+            // New Tab page's composer had none of them either once the new terminal shows all ten).
+            for other in store.panesByHandle.values.flatMap(\.tabs) where other.kind == .pty && other.surface != terminal
+                && !ProvisionalTab.isProvisional(surface: other.surface) {
+                let text = (try? await connection.request(ReadScreenRequest(surface: other.surface), timeout: .seconds(2)).text) ?? ""
+                #expect(!text.contains("echo held"), "terminal \(other.surface) also got the typed line: \(text.debugDescription)")
+            }
         }
     }
 }
