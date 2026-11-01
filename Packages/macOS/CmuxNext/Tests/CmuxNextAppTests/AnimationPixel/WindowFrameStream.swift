@@ -63,11 +63,19 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
         return Double(info.numer) / Double(info.denom) / 1e9
     }()
 
-    init(rowY: Int, columnX: Int) {
+    /// Keep every complete frame whole (``images``): for a small window only (golden compares).
+    private let keepsImages: Bool
+    private var images: [(time: Double, image: Image)] = []
+
+    init(rowY: Int, columnX: Int, keepsImages: Bool = false) {
         self.rowY = rowY
         self.columnX = columnX
+        self.keepsImages = keepsImages
         super.init()
     }
+
+    /// Every complete frame, whole, when made with `keepsImages`.
+    var capturedImages: [(time: Double, image: Image)] { lock.withLock { images } }
 
     /// Starts capturing `window` at its backing scale, one frame per display refresh or faster.
     @MainActor
@@ -156,8 +164,20 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
         let shape = Shape(width: width, height: height, scaleFactor: (info[.scaleFactor] as? NSNumber)?.doubleValue ?? 0,
                           contentScale: (info[.contentScale] as? NSNumber)?.doubleValue ?? 0)
         let frame = Frame(time: Double(ticks) * Self.secondsPerTick, row: row, column: column)
+        var whole: Image?
+        if keepsImages {
+            var pixels = [UInt32](repeating: 0, count: width * height)
+            pixels.withUnsafeMutableBytes { out in
+                guard let target = out.baseAddress else { return }
+                for line in 0..<height {
+                    target.advanced(by: line * width * 4).copyMemory(from: base.advanced(by: line * stride), byteCount: width * 4)
+                }
+            }
+            whole = Image(width: width, height: height, pixels: pixels)
+        }
         lock.withLock {
             frames.append(frame)
+            if let whole { images.append((time: frame.time, image: whole)) }
             lastBuffer = buffer
             if shapes.last != shape { shapes.append(shape) }
         }
