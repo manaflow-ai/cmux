@@ -323,10 +323,12 @@ async function roundTrip(composed: Sent) {
   }
 }
 
-/// 2,300 lines of a build log: far over the composer's 20-line chip limit.
+/// 2,300 lines of a build log: far over the composer's 750-word chip limit.
 const LOG = Array.from({ length: 2300 }, (_, index) => `error at frame ${index + 1}: cannot resolve module`).join("\n");
-/// A shorter paste, 25 lines, still a chip.
-const TRACE = Array.from({ length: 25 }, (_, index) => `  at handler${index + 1} (server.ts:${index + 10})`).join("\n");
+/// A shorter paste, 260 lines (780 words), still a chip.
+const TRACE = Array.from({ length: 260 }, (_, index) => `  at handler${index + 1} (server.ts:${index + 10})`).join(
+  "\n",
+);
 /// Typed text with a character of two UTF-16 units before the paste, so a range counted in code
 /// points (or bytes) would land off by one.
 const TYPED = "why does the build fail? 🧪";
@@ -395,7 +397,7 @@ test("two pastes with nothing typed come back as two chips in the order they wer
   const chips = after.parts.filter((part) => !("typed" in part) || part.typed?.trim());
   expect(chips).toEqual([
     { name: "error at frame 1: cannot resolve module", lines: linesLabel(2300), open: "false" },
-    { name: "at handler1 (server.ts:10)", lines: linesLabel(25), open: "false" },
+    { name: "at handler1 (server.ts:10)", lines: linesLabel(260), open: "false" },
   ]);
   expect(before).toEqual(after);
 });
