@@ -120,6 +120,11 @@ impl Harness {
             .arg(log)
             // Service-manager variables must not reach the session host.
             .env("INVOCATION_ID", "test-invocation")
+            // Trusted non-secret turn scope must reach the daemon; arbitrary platform keys must not.
+            .env("CMUX_PLATFORM_ORIGIN", "https://platform.example")
+            .env("CMUX_PLATFORM_WORKSPACE_ID", "workspace-a")
+            .env("CMUX_PLATFORM_MACHINE_ID", "logical-machine-a")
+            .env("CMUX_PLATFORM_TOKEN", "must-not-inherit")
             // Must not reach the session host: the entry comes from host.json.
             .env("CMUX_TUI_REMOTE_WS_BIND", "0.0.0.0:9")
             .env("CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER", "1")
@@ -300,6 +305,14 @@ fn agent_binds_parks_adopts_and_restarts() {
     assert!(env.lines().any(|l| l == "TERM_PROGRAM=ghostty"), "{env}");
     assert!(!env.contains("INVOCATION_ID"), "{env}");
     assert!(!env.contains("CMUX_SERVER_MODE"), "{env}");
+    for expected in [
+        "CMUX_PLATFORM_ORIGIN=https://platform.example",
+        "CMUX_PLATFORM_WORKSPACE_ID=workspace-a",
+        "CMUX_PLATFORM_MACHINE_ID=logical-machine-a",
+    ] {
+        assert!(env.lines().any(|line| line == expected), "missing {expected}: {env}");
+    }
+    assert!(!env.contains("CMUX_PLATFORM_TOKEN"), "{env}");
     assert!(!env.contains("CMUX_TUI_REMOTE_WS"), "{env}");
     let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
     assert!(!out.contains("trusted-carrier"), "{out}");
