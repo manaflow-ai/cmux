@@ -186,3 +186,250 @@ fn steer_then_a_new_prompt_with_the_same_text_keeps_both_rows() {
         ]
     );
 }
+
+/// Numbers `records` (kind, msg) from seq 10, `at` = 1_000 + seq.
+fn numbered(records: Vec<(&str, Value)>) -> Vec<Value> {
+    records
+        .into_iter()
+        .enumerate()
+        .map(|(i, (kind, msg))| {
+            let seq = 10 + i as u64;
+            let dir = if kind == "chunk" { "in" } else { "mux" };
+            let msg = if kind == "chunk" {
+                json!({"method": "session/update", "params": {"sessionId": SID, "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": msg},
+                }}})
+            } else {
+                msg
+            };
+            let kind = if kind == "chunk" { "session/update" } else { kind };
+            json!({"seq": seq, "at": 1_000 + seq, "dir": dir, "kind": kind, "msg": msg})
+        })
+        .collect()
+}
+
+fn prompt(text: &str, id: &str, turn: &str) -> Value {
+    json!({"text": text, "client": "tui", "promptId": id, "turnId": turn})
+}
+
+fn steer(text: &str, id: &str, turn: &str) -> Value {
+    json!({"text": text, "steer": true, "client": "tui", "promptId": id, "turnId": turn})
+}
+
+fn turn(kind: &str, id: &str) -> Value {
+    json!({"turnId": id, "stopReason": "end_turn", "kind": kind})
+}
+
+/// Applies `records`; `echo` names the steers the TUI showed (and queued in `optimistic`)
+/// before the daemon logged them, each just before the record at that index.
+fn applied(records: &[Value], echo: &[(usize, &str)]) -> Transcript {
+    let mut t = Transcript::default();
+    for (i, e) in records.iter().enumerate() {
+        for (_, text) in echo.iter().filter(|(at, _)| *at == i) {
+            t.items.push(Item::User { text: (*text).into(), steer: true, queued: false });
+            t.optimistic.push((*text).into());
+        }
+        t.apply_event(e);
+    }
+    t
+}
+
+#[test]
+fn steer_relog_behind_a_queued_prompt_shows_the_prompt_once() {
+    // T runs with B queued. Steer S misses T: its re-run queues behind B, and B's own
+    // `user_message` comes first (`hub/queue.rs`).
+    let records = numbered(vec![
+        ("user_message", prompt("go", "p1", "t1")),
+        ("turn_started", turn("start", "t1")),
+        ("queued", prompt("bee", "pb", "tb")),
+        ("chunk", json!("working")),
+        ("user_message", steer("sea", "ps", "t1")),
+        ("turn_end", turn("end", "t1")),
+        ("queued", prompt("sea", "ps", "ts")),
+        ("user_message", prompt("bee", "pb", "tb")),
+        ("turn_started", turn("start", "tb")),
+        ("turn_end", turn("end", "tb")),
+        ("user_message", prompt("sea", "ps", "ts")),
+        ("turn_started", turn("start", "ts")),
+    ]);
+    for echo in [vec![], vec![(4, "sea")]] {
+        let t = applied(&records, &echo);
+        assert_eq!(
+            user_rows(&t),
+            vec![
+                ("go".into(), false, false),
+                ("bee".into(), false, false),
+                ("sea".into(), false, false),
+            ],
+            "echo {echo:?}: {:?}",
+            t.items
+        );
+    }
+}
+
+#[test]
+fn steer_relog_of_two_missed_steers_shows_each_once() {
+    // S1 and S2 both get STEER_NO_TURN; S1's re-run takes the turn, S2's waits.
+    let records = numbered(vec![
+        ("user_message", prompt("go", "p1", "t1")),
+        ("turn_started", turn("start", "t1")),
+        ("user_message", steer("one", "s1", "t1")),
+        ("user_message", steer("two", "s2", "t1")),
+        ("turn_end", turn("end", "t1")),
+        ("user_message", prompt("one", "s1", "t2")),
+        ("queued", prompt("two", "s2", "t3")),
+        ("turn_started", turn("start", "t2")),
+        ("turn_end", turn("end", "t2")),
+        ("user_message", prompt("two", "s2", "t3")),
+        ("turn_started", turn("start", "t3")),
+    ]);
+    for echo in [vec![], vec![(2, "one"), (3, "two")], vec![(2, "one"), (2, "two")]] {
+        let t = applied(&records, &echo);
+        assert_eq!(
+            user_rows(&t),
+            vec![
+                ("go".into(), false, false),
+                ("one".into(), false, false),
+                ("two".into(), false, false),
+            ],
+            "echo {echo:?}: {:?}",
+            t.items
+        );
+    }
+}
+
+#[test]
+fn steer_relog_removes_its_own_row_when_two_steers_were_shown_first() {
+    // The TUI showed S1 and S2 before the daemon logged S1: S1's record maps to S1's row.
+    let records = numbered(vec![
+        ("user_message", prompt("go", "p1", "t1")),
+        ("turn_started", turn("start", "t1")),
+        ("user_message", steer("one", "s1", "t1")),
+        ("turn_end", turn("end", "t1")),
+        ("user_message", prompt("one", "s1", "t2")),
+    ]);
+    let t = applied(&records, &[(2, "one"), (2, "two")]);
+    assert_eq!(
+        user_rows(&t),
+        vec![
+            ("go".into(), false, false),
+            ("two".into(), true, false),
+            ("one".into(), false, false)
+        ],
+        "{:?}",
+        t.items
+    );
+}
+
+#[test]
+fn steer_with_the_text_of_a_queued_prompt_keeps_the_queued_row() {
+    // A steer is never a queued prompt starting: the queued row with the same text stays
+    // queued, and the steer's re-run (queued behind it) replaces the steer's own row.
+    let records = numbered(vec![
+        ("user_message", prompt("go", "p1", "t1")),
+        ("turn_started", turn("start", "t1")),
+        ("queued", prompt("same", "pb", "tb")),
+        ("user_message", steer("same", "ps", "t1")),
+        ("turn_end", turn("end", "t1")),
+        ("queued", prompt("same", "ps", "ts")),
+        ("user_message", prompt("same", "pb", "tb")),
+        ("turn_started", turn("start", "tb")),
+        ("turn_end", turn("end", "tb")),
+        ("user_message", prompt("same", "ps", "ts")),
+    ]);
+    let t = applied(&records[..4], &[]);
+    assert_eq!(
+        user_rows(&t),
+        vec![
+            ("go".into(), false, false),
+            ("same".into(), false, true),
+            ("same".into(), true, false)
+        ],
+        "{:?}",
+        t.items
+    );
+    let t = applied(&records, &[]);
+    assert_eq!(
+        user_rows(&t),
+        vec![
+            ("go".into(), false, false),
+            ("same".into(), false, false),
+            ("same".into(), false, false),
+        ],
+        "{:?}",
+        t.items
+    );
+}
+
+/// A subagent's words (its text, now that the Claude bridge sends it to the
+/// subagent's view) never join the chat's: `acpmux prompt` and `last` read the
+/// newest assistant item, which stays the chat's own answer.
+#[test]
+fn a_subagents_words_never_join_the_chats_reply() {
+    let mut t = Transcript::default();
+    let update = |text: &str, subagent: Option<&str>| {
+        let mut p = json!({"sessionId": SID, "update": {
+            "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}});
+        if let Some(s) = subagent {
+            p["_meta"] = json!({"acpmux": {"subagent": s}});
+        }
+        p
+    };
+    t.apply_update(&update("Checking the merge hook.", Some("s1/toolu_1")));
+    t.apply_update(&update("The hook is fixed.", None));
+    let said: Vec<&str> = t
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Assistant { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, ["The hook is fixed."]);
+}
+
+/// The same from recorded events (`acpmux last`, a resent prompt's reply, TUI history).
+#[test]
+fn a_subagents_recorded_words_never_join_the_chats_reply() {
+    let mut t = Transcript::default();
+    let record = |seq: u64, text: &str, subagent: Option<&str>| {
+        let mut params = json!({"sessionId": SID, "update": {
+            "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}});
+        if let Some(s) = subagent {
+            params["_meta"] = json!({"acpmux": {"subagent": s}});
+        }
+        json!({"seq": seq, "at": 1_000 + seq, "dir": "in", "kind": "agent_message_chunk",
+               "msg": {"method": "session/update", "params": params}})
+    };
+    t.apply_event(&record(1, "Checking the merge hook.", Some("s1/toolu_1")));
+    t.apply_event(&record(2, "The hook is fixed.", None));
+    let said: Vec<&str> = t
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Assistant { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, ["The hook is fixed."]);
+}
+
+/// A hibernation's exit and its wake's resume draw no row; an ordinary stop and resume do.
+#[test]
+fn a_hibernation_and_its_wake_draw_no_row() {
+    let mux = |seq: u64, kind: &str, msg: Value| json!({"seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": kind, "msg": msg});
+    let mut t = Transcript::default();
+    for ev in [
+        mux(1, "stopped", json!({"code": 0, "hibernated": true})),
+        mux(2, "exited", json!({"code": -15, "hibernated": true})),
+        mux(3, "resumed", json!({"level": "exact", "wake": true})),
+        mux(4, "config", json!({"replayed": true})),
+    ] {
+        t.apply_event(&ev);
+    }
+    assert!(t.items.is_empty(), "{:?}", t.items);
+    t.apply_event(&mux(5, "stopped", json!({"code": 0, "hibernated": false})));
+    t.apply_event(&mux(6, "resumed", json!({"level": "exact", "wake": false})));
+    assert_eq!(t.items.len(), 2, "{:?}", t.items);
+}

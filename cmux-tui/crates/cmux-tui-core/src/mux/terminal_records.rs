@@ -1,6 +1,7 @@
 //! Terminal registry record helpers: launch specs and create fingerprints, lifecycle names, template terminals, and terminal transition and workspace commits.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 pub(super) fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
     let cmux_env = options
@@ -64,7 +65,7 @@ pub(super) fn terminal_create_fingerprint(
     // Absent stays absent: a stored creation intent minted before the exit
     // policy existed must recompute its original digest after an upgrade.
     if let Some(on_exit) = on_exit {
-        request["on_exit"] = Value::String(on_exit.as_str().to_string());
+        request.set("on_exit", Value::String(on_exit.as_str().to_string()));
     }
     let digest = Sha256::digest(serde_json::to_vec(&request)?);
     let request_sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();

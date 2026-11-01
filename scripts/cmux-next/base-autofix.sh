@@ -4,7 +4,7 @@
 #   - generated files: copies DIR's files (the cmux-next generated files job's
 #     cmux-next-generated-patch artifact, or the base autofix's action-exports
 #     artifact: the action contracts, the CI target graph and the settings
-#     exports with their source stamp, regenerated on a Mac by
+#     exports, regenerated on a Mac by
 #     regenerate-action-exports.sh and regenerate-settings-exports.sh, at their
 #     repository paths) over the checkout;
 #   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json
@@ -12,6 +12,8 @@
 #     on Linux dumps the same manifest as the Mac);
 #   - SDK wire layers: every language binding's generated files from
 #     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
+#   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
+#     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
 #     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
 #     with --docs-shortcuts);
@@ -23,7 +25,9 @@
 #     and settings exports (scripts/ci/defaults_guard.py snapshot), after
 #     --generated copied the regenerated exports in;
 #   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
-#     whose type is fixed or gone (shrink only; with --ratchets);
+#     whose type is fixed or gone (shrink only; with --ratchets), and the
+#     namespace lint's safe rewrites of new findings (--namespace-fix; with
+#     --ratchets);
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
 #     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
 #     export-rust-client.ts; with --cloud-clients);
@@ -54,16 +58,17 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
     --package-dump) package_dump="$2"; shift 2 ;;
     --strings) shift ;; # a no-op since #21946 (page strings are build output)
     --sdk) sdk=1; shift ;;
+    --capabilities) capabilities=1; shift ;;
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --app-host) app_host=1; shift ;;
     --unverified-exports) unverified_exports=1; shift ;;
@@ -72,10 +77,10 @@ while (( $# > 1 )); do
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -135,6 +140,17 @@ if (( sdk )) && [[ -f "$repo/cmux-tui/bindings/codegen/generate.py" ]]; then
   fi
 fi
 
+# 1d2. Daemon capability export. The source parser is the same check used by
+# cmux-next checks; write mode keeps the base bot from leaving a stale catalog
+# after a Swift-only capability change.
+if (( capabilities )) && [[ -f "$repo/scripts/cmux-next/check-daemon-capabilities-fresh.py" ]]; then
+  before="$(cksum < "$repo/plans/cmux-next/daemon-capabilities.json" 2>/dev/null || true)"
+  python3 -I "$repo/scripts/cmux-next/check-daemon-capabilities-fresh.py" --repo "$repo" --write >/dev/null
+  if [[ "$before" != "$(cksum < "$repo/plans/cmux-next/daemon-capabilities.json")" ]]; then
+    echo "fixed: regenerated plans/cmux-next/daemon-capabilities.json"
+  fi
+fi
+
 # 1e. The docs shortcuts copy of the catalog export.
 shortcuts=web/data/cmux-shortcuts.generated.json
 if (( unverified_exports )); then
@@ -152,6 +168,23 @@ if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]
     else
       echo "fixed: regenerated $shortcuts"
     fi
+  fi
+fi
+
+# 1e1. The cmux-next docs reference pages (web/data/next-docs), from the same
+# export and the settings schema (plans/cmux-next/docs-DESIGN.md).
+if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" ]]; then
+  (cd "$repo" && bun web/scripts/export-next-docs.ts >/dev/null)
+  changed="$(git -C "$repo" status --porcelain -- web/data/next-docs | cut -c4-)"
+  if [[ -n "$changed" ]]; then
+    while IFS= read -r rel; do
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; bun web/scripts/export-next-docs.ts)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
   fi
 fi
 
@@ -174,7 +207,7 @@ fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
 # (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a call owner's approval on the pull request.
+# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()
@@ -205,6 +238,38 @@ if (( ratchets )) && [[ -f "$repo/$ratchet" ]]; then
     (cd "$repo" && NAMESPACE_RATCHET_UPDATE=1 bash scripts/lint-ios-package-conventions.sh >/dev/null 2>&1) || true
     [[ "$before" == "$(cksum < "$repo/$ratchet")" ]] || echo "fixed: dropped stale rows from $ratchet"
   fi
+fi
+
+# 1f'. The namespace lint's safe rewrites (an all-static enum or type becomes a
+# struct with an init, as --namespace-fix writes). A pull request into
+# feat-cmux-next only warns on them and its namespace autofix may have no write
+# token, so one that lands with a new finding turns package-conventions-lint red
+# on every later base push (#28989, #28136). The fixer only rewrites reported
+# findings, never a baselined or ratcheted type; a frozen file is put back.
+if (( ratchets )) && [[ -f "$repo/scripts/lint-ios-package-conventions.sh" ]]; then
+  # Swift files an earlier step already changed keep their contents from before the fixer, so a
+  # frozen one is put back to them and a rewrite in the rest is still reported.
+  before_dir="$(mktemp -d "${TMPDIR:-/tmp}/base-autofix-namespace.XXXXXX")"
+  while IFS= read -r path; do
+    [[ "$path" == *.swift && -f "$repo/$path" ]] || continue
+    mkdir -p "$before_dir/$(dirname "$path")" && cp "$repo/$path" "$before_dir/$path"
+  done < <(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')
+  (cd "$repo" && bash scripts/lint-ios-package-conventions.sh --namespace-fix >/dev/null 2>&1) || true
+  while IFS= read -r path; do
+    [[ "$path" == *.swift ]] || continue
+    if [[ -f "$before_dir/$path" ]]; then
+      cmp -s "$before_dir/$path" "$repo/$path" && continue
+      frozen "$path" && cp "$before_dir/$path" "$repo/$path"
+    elif frozen "$path"; then
+      git -C "$repo" checkout --quiet -- "$path"
+    fi
+    if frozen "$path"; then
+      echo "skipped (frozen): $path (./scripts/lint-ios-package-conventions.sh --namespace-fix)"
+    else
+      echo "fixed: namespace rewrite in $path"
+    fi
+  done < <(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')
+  rm -rf "$before_dir"
 fi
 
 # 1g. The cloud wire clients. The generators need no installed packages.

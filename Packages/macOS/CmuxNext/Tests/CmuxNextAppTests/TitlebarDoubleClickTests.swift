@@ -2,11 +2,13 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// A double-click on empty titlebar space runs the user's titlebar action once (Leo, cosmic-gray
 /// 2026-10-13). The press reached both the sidebar header's `mouseDown` and the window's
 /// `sendEvent`, which each zoomed: the window bounced and ended where it started.
+@Suite(.closesItsWindows)
 @MainActor struct TitlebarDoubleClickTests {
     /// The app's window and root, sidebar shown, on the main screen and not zoomed.
     func shownRoot() throws -> (ShellWindow, WindowRootView) {
@@ -91,6 +93,13 @@ import Testing
         #expect(!window.isZoomed)
 
         window.sendEvent(try press(at: sidebarHeaderPoint(in: window, root: root), clicks: 2, in: window))
+        // The zoom animates on the run loop (WindowZoom): let it land, then check where it ended.
+        let end = Date(timeIntervalSinceNow: 3)
+        while window.frame == before, Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        let landing = Date(timeIntervalSinceNow: 1)
+        while Date() < landing { _ = RunLoop.main.run(mode: .default, before: landing) }
 
         #expect(window.isZoomed, "zoomed twice: the window went back to \(window.frame), from \(before)")
         #expect(window.frame != before)

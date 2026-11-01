@@ -18,6 +18,10 @@ public import Foundation
 ///   a `vendor_conf.d` file on `XDG_DATA_DIRS`. Each layer removes its own
 ///   variables, so programs started in the terminal see none of them.
 ///
+/// The same bin dir holds the URL opener: `BROWSER` names it (``urlOpenerName``) unless set,
+/// and its `open` and `xdg-open` shims send an http(s) URL to it, so a program's browser opens
+/// in cmux (`TerminalLinkOpener`).
+///
 /// Neither depends on a bundled Ghostty CLI helper: the app ships its `cmux`
 /// whether or not it ships `ghostty`.
 public struct BundledCLIEnvironment: Sendable, Equatable {
@@ -36,6 +40,9 @@ public struct BundledCLIEnvironment: Sendable, Equatable {
     /// fish: the `XDG_DATA_DIRS` entry the layer removes again.
     public static let fishDataDirKey = "CMUX_CLI_FISH_XDG_DIR"
     static let bashScript = "/bash/cmux-cli-path.bash"
+    /// The bundled URL opener `BROWSER` names (`scripts/cmux-next/url-open/cmux-open-url`):
+    /// it opens a URL where `terminal.linkOpener` says, falling back to the default browser.
+    public static let urlOpenerName = "cmux-open-url"
 
     public init(binDirectory: String, pathIntegration: String?) {
         self.binDirectory = binDirectory
@@ -56,6 +63,14 @@ public struct BundledCLIEnvironment: Sendable, Equatable {
         let rest = (env["PATH"] ?? "").split(separator: ":").filter { !$0.isEmpty && $0 != Substring(binDirectory) }
         env["PATH"] = ([Substring(binDirectory)] + rest).joined(separator: ":")
         env["CMUX_BUNDLED_CLI_PATH"] = cli
+        // Programs that open a browser (`aws login`, `gh auth login`, Python's webbrowser) reach
+        // cmux through `BROWSER`; `open` and `xdg-open` in the same bin dir catch the rest.
+        // A `BROWSER` already set is the user's and wins; the user's startup files run later
+        // and may set one too. The bare name, found on `PATH` through the bin dir above: tools
+        // such as gh split `BROWSER` on spaces, and an app path can hold one (`cmux NIGHTLY.app`).
+        if (env["BROWSER"] ?? "").isEmpty, isExecutable(binDirectory + "/" + Self.urlOpenerName) {
+            env["BROWSER"] = Self.urlOpenerName
+        }
         guard let layer = pathIntegration, !layer.isEmpty,
               let shell = env["SHELL"].map({ ($0 as NSString).lastPathComponent }) else { return env }
         switch shell {

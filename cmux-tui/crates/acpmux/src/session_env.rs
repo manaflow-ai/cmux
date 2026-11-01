@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 
 /// The keys a session's env may set. Every key added here needs a comment
 /// with its reason; never a variable that changes what runs or where it
@@ -41,7 +42,7 @@ pub const MAX_VALUE_BYTES: usize = 256;
 fn refusal(reason: &str, message: String, key: Option<&str>) -> RpcError {
     let mut data = json!({"reason": reason});
     if let Some(key) = key {
-        data["key"] = json!(key);
+        data.set("key", json!(key));
     }
     RpcError::invalid_params(message).with_data(data)
 }
@@ -56,7 +57,7 @@ pub fn origin_refused() -> RpcError {
 }
 
 /// A workspace id: a UUID (8-4-4-4-12 hex digits, either case).
-fn is_workspace_id(value: &str) -> bool {
+pub(crate) fn is_workspace_id(value: &str) -> bool {
     let groups: Vec<&str> = value.split('-').collect();
     groups.len() == 5
         && groups

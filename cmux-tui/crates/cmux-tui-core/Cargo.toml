@@ -11,12 +11,16 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 workspace = true
 
 [dependencies]
+cmux-json.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
+cmux-holder.workspace = true
+cmux-process.workspace = true
+cmux-flow-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
@@ -28,6 +32,7 @@ cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true
 cmux-tui-remote-access.workspace = true
 cmux-tui-util.workspace = true
+cmux-kitty-media.workspace = true
 cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
@@ -70,6 +75,10 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+# The link share bridge's room socket (agent_session_share_room.rs), the
+# client the cmux-tui binary already links for cmux.wire/1.
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

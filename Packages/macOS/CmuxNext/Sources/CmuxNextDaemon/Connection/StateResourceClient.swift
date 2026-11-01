@@ -34,11 +34,11 @@ extension StateResourceClient {
     /// Sends one state mutation and returns its `value`.
     @discardableResult
     func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
-                                                 as type: R.Type = JSONValue.self) async throws -> R {
+                                                 as type: R.Type = JSONValue.self, requiring capability: String? = nil) async throws -> R {
         let key = Self.stateKey()
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
-        }, as: ResourceMutationResult<R>.self).value
+        }, as: ResourceMutationResult<R>.self, requiring: capability).value
     }
 
     static func ids(_ ids: [ResourceID]) -> JSONValue { .array(ids.map { .string($0.rawValue) }) }
@@ -94,6 +94,18 @@ extension StateResourceClient {
         var params: [String: JSONValue] = ["tab": .string(tab)]
         if let fallbackPane { params["fallback_pane"] = .string(fallbackPane) }
         return try await stateMutation("closed.reopen", params, as: ReopenedItem.self)
+    }
+
+    /// Reopens closed workspace `workspace` (`ws_…`) by the id it had
+    /// (`closed.reopen {workspace}`, a `cmux://workspace/` link to a closed
+    /// workspace): the workspace member of the newest closed group that
+    /// recorded it. It reopens as a new workspace (the reply's `workspaceID`).
+    ///
+    /// - Throws: `DaemonError.command` with code `resource.not_found` when
+    ///   no closed group holds the workspace (it is open, or its record is gone).
+    @discardableResult
+    public func reopenClosed(workspace: String) async throws -> ReopenedItem {
+        try await stateMutation("closed.reopen", ["workspace": .string(workspace)], as: ReopenedItem.self)
     }
 
     /// The window ids of install `installID`'s window records (`window_record.list`).
@@ -153,7 +165,7 @@ extension StateResourceClient {
     /// are; without it the daemon keeps its focused workspace.
     @discardableResult
     public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool, focus: Bool) async throws -> CreatedWorkspace {
-        let supportsFocus = await connection.identity?.supports(DaemonCapabilities.shared.workspaceCreateFocus) == true
+        let supportsFocus = await connection.identity?.supports(DaemonCapability.workspaceCreateFocus.rawValue) == true
         let params: [String: JSONValue] = Self.workspaceCreateParams(name: name, ephemeral: ephemeral, terminal: terminal,
                                                                      focus: focus, daemonSupportsFocus: supportsFocus)
         return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
@@ -213,14 +225,20 @@ extension StateResourceClient {
 
     /// The tab record's zoom, user icon and a browser tab's back/forward lists (`tab.update`).
     public func updateTabRecord(_ tab: ResourceID, zoom: FieldUpdate<Double> = .unchanged, icon: FieldUpdate<String> = .unchanged,
-                                back: [String]? = nil, forward: [String]? = nil, markedUnread: Bool? = nil) async throws {
+                                back: [String]? = nil, forward: [String]? = nil, markedUnread: Bool? = nil,
+                                attentionRequestID: String? = nil) async throws {
         var params: [String: JSONValue] = ["tab": .string(tab.rawValue)]
         // tab-mark-unread-v1: the caller checks the capability; an older daemon refuses the field.
         if let markedUnread { params["marked_unread"] = .bool(markedUnread) }
+        // tab-attention-request-id-v1: compare-and-clear only the captured owner token.
+        if let attentionRequestID {
+            params["attention"] = .null
+            params["attention_request_id"] = .string(attentionRequestID)
+        }
         Self.field(zoom, into: &params, "zoom") { .number($0) }
         Self.field(icon, into: &params, "icon") { .string($0) }
         if let back { params["back"] = .array(back.suffix(20).map { .string($0) }) }
         if let forward { params["forward"] = .array(forward.prefix(20).map { .string($0) }) }
-        try await stateMutation("tab.update", params)
+        try await stateMutation("tab.update", params, requiring: attentionRequestID == nil ? nil : DaemonCapability.tabAttentionRequestID.rawValue)
     }
 }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextWakeups
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,
 /// the app-wide event tap into the journal, the invariant monitor and its
@@ -15,7 +16,10 @@ final class InputVerificationService {
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
     var keyboardGuardObservers: [any NSObjectProtocol] = []
-    private weak var services: AppServices?
+    /// The end of an update relaunch's startup behind the user's app (`UpdateRelaunchFocus`); nil
+    /// when this launch is not one, or it ended.
+    var relaunchBehindEnd: DemandTimer?
+    private(set) weak var services: AppServices?
 
     /// Configures the journal, installs the event tap and the monitor's
     /// triggers, then the no-activate keyboard guard (it wraps the tap).
@@ -40,7 +44,7 @@ final class InputVerificationService {
         // checked (and reported) once input settles.
         services.daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
         services.cache.presentationChanges.subscribe("input-monitor") { [weak monitor] in monitor?.noteChange() }
-        startNoActivateGuard()
+        startNoActivateGuard(relaunch: services.environment.relaunchBehind)
     }
 
     /// A cmux window moved or resized by any source (a drag, an
@@ -96,6 +100,8 @@ final class InputVerificationService {
             if key != notified {
                 notified = key
                 services?.notifications.focusDidSettle(state, in: controller)
+                // What new terminals and chats copy (NEW-WORK-INHERITS-CONTEXT).
+                services?.noteWorkFocus(state, in: controller)
             }
             let trail = TrailSettleKey(focus: key, active: services?.windows.active === controller,
                                        topPage: controller.shownTopPage != nil, workspace: controller.state.workspaceID)

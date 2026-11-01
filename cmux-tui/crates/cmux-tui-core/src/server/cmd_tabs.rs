@@ -167,7 +167,7 @@ pub(super) fn move_tab_to_new_workspace(
     let (key, workspace_index) = mux
         .with_state(|state| {
             let index = state.workspace_index(workspace)?;
-            Some((state.workspaces[index].key.clone(), index))
+            Some((state.workspaces.get(index)?.key.clone(), index))
         })
         .ok_or_else(|| anyhow::anyhow!("new workspace disappeared"))?;
     let (_, pane) = surface_placement(mux, surface);
@@ -191,11 +191,11 @@ pub(super) fn move_tab(
     transaction: Option<String>,
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
-    let valid = mux.with_state(|state| {
-        state.surfaces.contains_key(&surface)
-            && state.panes.contains_key(&pane)
-            && state.pane_of(surface).is_some()
-    });
+    // A placement is enough: a terminal still adopting after a daemon
+    // restart has no runtime surface yet and moves like any other tab
+    // (https://github.com/manaflow-ai/cmux/issues/25999).
+    let valid =
+        mux.with_state(|state| state.panes.contains_key(&pane) && state.pane_of(surface).is_some());
     if !valid {
         anyhow::bail!("unknown surface/pane");
     }
@@ -556,7 +556,8 @@ pub(super) fn surface_placement(
         let pane = state.pane_of(surface);
         let workspace = pane
             .and_then(|pane| state.screen_of(pane))
-            .map(|(workspace, _)| state.workspaces[workspace].id);
+            .and_then(|(workspace, _)| state.workspaces.get(workspace))
+            .map(|workspace| workspace.id);
         (workspace, pane)
     })
 }

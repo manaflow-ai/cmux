@@ -5,19 +5,34 @@
 //
 // decide() checks, in order:
 //   G1  the SHA is on feat-cmux-next (not a fork-network or dropped commit);
-//   G2  a cmux-next.yml push run of this repository on feat-cmux-next for that
+//   G2  only with requireReleaseCompile (off by default since 2026-10-26): a
+//       cmux-next.yml push run of this repository on feat-cmux-next for that
 //       exact SHA has a successful "cmux-next Release compile (Xcode 26)" job;
-//       the gate workflow is itself on the release surface;
-//   G3  the files changed from the current nightly-next to the SHA. If none
+//       the gate workflow is itself on the release surface. Off, the nightly
+//       build of the promoted commit is the compile gate: nightly.yml compiles
+//       the app itself and a failed compile publishes nothing, so the feed
+//       keeps its last good build. Leo, 2026-10-26: "SKIP THE OLD FUCKING
+//       NIGHTLY BUILDS THEN WE'RE JSUT BUILDING FROM THE TIP OR FUKCING / JUST
+//       FUCKING USE MORE LINUX FIX THE FUCKING BUILDS". The cost: a tip that
+//       does not compile is promoted and its nightly fails, where G2 refused it
+//       up front;
+//   G3  only with requireApproval (off by default since 2026-10-27): the
+//       files changed from the current nightly-next to the SHA. If none
 //       matches the release surface the promotion goes ahead ("promote");
 //       otherwise it needs a release approver ("needs-ack");
-//   G4  for "needs-ack", the landers of every commit in the range (all parents,
-//       from the compare API) that touches the surface: the push actor
+//   G4  only with requireApproval: for "needs-ack", the landers of every
+//       commit in the range (all parents, from the compare API) that touches
+//       the surface: the push actor
 //       (repository activity, compare before...after of each push), the
 //       PR author and merger, and the commit author and committer. With the
 //       policy line `@require_non_lander_approver on` the approval must come
 //       from someone who is not a lander (ackDecision()); off, any approval in
 //       the approval environment counts.
+//   Approval is retired: nightly.yml's approval jobs never run and
+//   promote-nightly-next moves a "needs-ack" decision like a "promote" one.
+//   So without requireApproval, G3 and G4 are skipped ("skipped: no approval
+//   needed"): G4 reads every commit of the range, and on a long range that
+//   alone could run the 10-minute promote job out of time.
 // A train commit (nightly-next-train.yml; docs/ci/nightly-next-train.md) is
 // checked by G1'/G2' in place of G1/G2:
 //   G1' its second parent is on feat-cmux-next, and its tree is that parent
@@ -36,6 +51,7 @@ export const TARGET = 'nightly-next';
 export const GATE_WORKFLOW = '.github/workflows/cmux-next.yml';
 export const GATE_JOB = 'cmux-next Release compile (Xcode 26)';
 export const ACK_ENVIRONMENT = 'release-surface-ack';
+export const G3_G4_SKIPPED = 'skipped: no approval needed';
 const BOT_LOGINS = new Set(['web-flow', 'github-actions[bot]', 'GitHub']);
 const MAX_ACTIVITY_PAGES = 20;
 
@@ -112,6 +128,55 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
     }
   }
   return false;
+}
+
+// A tip can still be compiling while an older commit has already finished its
+// exact Release compile. Keep the safety gate, but promote the newest green
+// source commit instead of waiting for the tip. This scan is bounded by the
+// workflow-run API page and only accepts same-repository push runs on the
+// source branch with the exact gate job green.
+async function newestGreenSourceCommit(github, owner, repo, targetSha, excludeSha) {
+  const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+    owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: SOURCE, per_page: 100,
+  });
+  const ordered = [...runs].sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0) || Number(b.id) - Number(a.id));
+  const green = [];
+  for (const run of ordered) {
+    const candidate = run.head_sha;
+    if (!candidate || candidate === excludeSha || run.event !== 'push' || run.head_branch !== SOURCE ||
+        run.path !== GATE_WORKFLOW || run.head_repository?.full_name !== `${owner}/${repo}`) continue;
+    let lineage;
+    try {
+      lineage = (await github.rest.repos.compareCommitsWithBasehead({
+        owner, repo, basehead: `${candidate}...${targetSha}`,
+      })).data.status;
+    } catch {
+      continue;
+    }
+    if (lineage !== 'ahead' && lineage !== 'identical') continue;
+    const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+      owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+    });
+    if (jobs.some((job) => job.status === 'completed' && job.name === GATE_JOB && job.conclusion === 'success')) green.push(candidate);
+  }
+  if (green.length === 0) return null;
+  // Run creation time is not commit order: reruns and delayed workflow runs
+  // can make an older commit appear newer. Prefer the candidate that is a
+  // descendant of every other green candidate; keep the first candidate only
+  // when GitHub cannot relate two merge-shaped histories.
+  let newest = green[0];
+  for (const candidate of green.slice(1)) {
+    try {
+      const relation = (await github.rest.repos.compareCommitsWithBasehead({
+        owner, repo, basehead: `${newest}...${candidate}`,
+      })).data.status;
+      if (relation === 'ahead') newest = candidate;
+    } catch {
+      // The candidate was already proven on the source branch; leave the
+      // deterministic run-order winner when the pairwise comparison fails.
+    }
+  }
+  return newest;
 }
 
 // A train commit (scripts/ci/nightly_next_train.py): two parents, the
@@ -387,7 +452,7 @@ async function landersOf(github, owner, repo, commit, actors) {
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
-  verifyTrain = null,
+  verifyTrain = null, requireReleaseCompile = false, requireApproval = false,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
 
@@ -431,9 +496,20 @@ export async function decide({
       return refuse(`${sha} is not on ${SOURCE} (compare status ${onSource})`);
     }
 
-    // G2: the trusted gate.
-    if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
-      return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job`);
+    // G2 (requireReleaseCompile only): the trusted gate. If the requested tip
+    // is still compiling, use the newest earlier source commit whose exact
+    // Release compile is already green. Off, the tip goes to its own nightly
+    // build, which compiles it and publishes nothing when that fails.
+    if (requireReleaseCompile && !(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
+      const fallback = await newestGreenSourceCommit(github, owner, repo, sha, sha);
+      if (!fallback) {
+        return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job, and no earlier green source commit was found`);
+      }
+      core?.notice?.(`The requested tip ${sha} is not Release-green; promoting the newest green source commit ${fallback}.`);
+      sha = fallback;
+      if (!(await admitted(github, owner, repo, sha, { attempts: 1, delayMs: 0, sleep, core }))) {
+        return refuse(`${sha} lost its successful "${GATE_JOB}" result while promotion was being decided`);
+      }
     }
   }
 
@@ -455,17 +531,32 @@ export async function decide({
     if (error.status !== 404) throw error;
   }
   if (current === sha) return { action: 'skip', reason: `${TARGET} is already at ${sha}.`, sha, current };
+  const compare = comparer(github, owner, repo);
+  const supersededBy = async () => {
+    if (!current) return null;
+    const { status } = await compare(`${current}...${sha}`);
+    if (status !== 'behind') return { status };
+    return { status, decision: { action: 'skip', reason: `superseded by newer target: ${TARGET} is already at ${current}, which contains ${sha}; nothing promoted`, sha, current } };
+  };
   if (trainFirstParent !== null && trainFirstParent !== current) {
+    // A train already contained by a later nightly-next (a delayed or
+    // duplicate request) is a no-op like any other contained commit.
+    const contained = await supersededBy();
+    if (contained?.decision) return contained.decision;
     return refuse(`train commit ${sha} was made on ${trainFirstParent}, but ${TARGET} is at ${current || 'nothing'}; the next train starts from the new head`, { sha, current });
   }
 
   // The current nightly-next must be an ancestor of the target: compare
-  // status "ahead". "identical" was handled above; anything else refuses.
-  const compare = comparer(github, owner, repo);
+  // status "ahead". "identical" was handled above. "behind" means nightly-next
+  // already contains the target: a request that arrived after a newer one
+  // promoted (2026-10-27: requests for 00:30Z landings dispatched at 04:41Z
+  // failed with "is not an ancestor"). It is a no-op, not a failure. Anything
+  // else ("diverged") refuses.
   if (current) {
-    const data = await compare(`${current}...${sha}`);
-    if (data.status !== 'ahead') {
-      return refuse(`${current} (${TARGET}) is not an ancestor of ${sha} (compare status ${data.status}); nothing promoted`, { sha, current });
+    const contained = await supersededBy();
+    if (contained.decision) return contained.decision;
+    if (contained.status !== 'ahead') {
+      return refuse(`${current} (${TARGET}) is not an ancestor of ${sha} (compare status ${contained.status}); nothing promoted`, { sha, current });
     }
   }
 
@@ -475,6 +566,11 @@ export async function decide({
     policy = parsePolicy(surfaceText);
   } catch (error) {
     return refuse(error.message);
+  }
+  if (!requireApproval) {
+    return {
+      action: 'promote', reason: `G3 and G4 ${G3_G4_SKIPPED}`, sha, current, surfaceFiles: [], landers: [], gates: { G3: G3_G4_SKIPPED, G4: G3_G4_SKIPPED },
+    };
   }
   const matches = surfaceMatcher(parseSurface(surfaceText));
   if (!current) {
@@ -549,38 +645,6 @@ export async function decide({
   };
 }
 
-// The job that waits for the release-surface-ack approval
-// (await-release-surface-ack in nightly.yml) is named after its decision, so a
-// later request can read what an earlier one waits to promote and from where.
-// Keep this pattern and the job's `name:` in nightly.yml in step.
-const WAITER_NAME = /^nightly-next promotion ([0-9a-f]{40}) from ([0-9a-f]{40}|none)$/;
-const WAITER_RUN_STATUSES = ['waiting', 'queued', 'in_progress'];
-
-// Every other promotion request on main whose await-release-surface-ack job has
-// not finished: { runId, sha, current, status }.
-export async function pendingPromotions({ github, owner, repo, runId }) {
-  const pending = [];
-  const seen = new Set();
-  for (const status of WAITER_RUN_STATUSES) {
-    const { data } = await github.rest.actions.listWorkflowRuns({
-      owner, repo, workflow_id: 'nightly.yml', event: 'workflow_dispatch', branch: 'main', status, per_page: 50,
-    });
-    for (const run of data.workflow_runs || []) {
-      if (run.id === runId || seen.has(run.id)) continue;
-      seen.add(run.id);
-      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-        owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
-      });
-      for (const job of jobs) {
-        const match = WAITER_NAME.exec(job.name || '');
-        if (!match || job.status === 'completed') continue;
-        pending.push({ runId: run.id, sha: match[1], current: match[2] === 'none' ? null : match[2], status: job.status });
-      }
-    }
-  }
-  return pending;
-}
-
 // The promote job runs in one concurrency group (nightly-next-promote) without
 // cancel-in-progress, so there is one writer. GitHub keeps only one waiting job
 // in that group and cancels it when another request arrives, so a late request
@@ -628,96 +692,76 @@ export async function evictedPromotions({ github, owner, repo, runId, now = () =
   return evicted;
 }
 
-// Newest request wins. A request is cheap to repeat but an approval is not, and
-// requests arrive out of order (an older commit's Release compile or cmux-tui
-// tree can finish after a newer one's). Before deciding, read the requests that
-// wait for (or just got) the release-surface-ack approval:
-// - when one of them was decided against the current nightly-next and either
-//   targets a commit that contains this request's commit or is already
-//   approved (its wait job runs), it stays and this request steps aside
-//   ("superseded"): that approval promotes everything here, or is about to move
-//   nightly-next, and the next request asks again;
-// - otherwise this request decides the newest commit among its own and theirs
-//   that is not refused (a later request never moves nightly-next to less than
-//   a waiting one), and its await-release-surface-ack job, in the shared
-//   cancel-in-progress group, cancels the older waiters. A waiter decided
-//   against an older nightly-next is dead (ackDecision refuses it), so it never
-//   makes this request step aside.
-// - requests GitHub evicted from the promote queue (evictedPromotions) count
-//   like dead waiters: a newer evicted commit is decided before this request's
-//   own, through the same decide() guard, and a refused one falls back to the
-//   next newest. It shares this request's debounce. An error reading them
-//   leaves a warning and decides without them.
-// The scan runs again after deciding, because the previous request's wait job
-// is named only a few seconds after its decide job ends. If the scan fails,
-// `scanFailed` is set and the workflow waits in a per-run group, which cancels
-// nothing (the behavior before this rule). A waiter whose commit cannot be
-// compared is skipped.
-async function scanWaiters({ github, core, owner, repo, sha, runId, now }) {
-  const pending = await pendingPromotions({ github, owner, repo, runId });
+// Newest request wins. Requests arrive out of order (an older commit's Release
+// compile or cmux-tui tree can finish after a newer one's), and GitHub evicts
+// the waiting request from the promote queue when another arrives. Before
+// deciding, read the requests GitHub evicted (evictedPromotions): a newer
+// evicted commit that contains this request's commit is decided before this
+// request's own, through the same decide() guard, and a refused one falls back
+// to the next newest. It shares this request's debounce. An evicted commit that
+// diverges from this request's (neither contains the other) is decided only
+// when this request's own commit is refused, newest request first, so the
+// evicting request can still move nightly-next to it. An error reading them
+// leaves a warning and decides without them; an evicted commit that cannot be
+// compared is skipped. The scan runs once: a request evicted while this one
+// decides was evicted by a newer arrival, which waits behind this job and
+// scans again when it runs. If ordering the evicted commits fails,
+// `scanFailed` is set and this request decides its own commit alone.
+// (The release-surface-ack waiter that this also read is retired: its jobs in
+// nightly.yml never run.)
+async function evictedCandidates({ github, core, owner, repo, sha, runId, now }) {
   let evicted = [];
   try {
     evicted = await evictedPromotions({ github, owner, repo, runId, now, warn: (message) => core?.warning?.(message) });
   } catch (error) {
     core?.warning?.(`Could not read the promotion requests cancelled in the promote queue (${error.status || error.message}); deciding without them.`);
   }
-  let current = null;
-  try {
-    current = (await github.rest.git.getRef({ owner, repo, ref: `heads/${TARGET}` })).data.object.sha;
-  } catch (error) {
-    if (error.status !== 404) throw error;
-  }
-  const live = pending.filter((waiter) => waiter.current === current);
-  // Commits that contain the request's commit, newest first.
+  // Commits that contain the request's commit, newest first, and commits that
+  // diverge from it, in the order GitHub lists their runs (newest first).
   const containing = [];
-  for (const waiter of [...pending, ...evicted]) {
-    if (waiter.sha === sha || containing.some((other) => other.sha === waiter.sha)) continue;
+  const diverged = [];
+  for (const request of evicted) {
+    if (request.sha === sha || containing.some((other) => other.sha === request.sha)) continue;
     let status;
     try {
-      status = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${sha}...${waiter.sha}` })).data.status;
+      status = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${sha}...${request.sha}` })).data.status;
     } catch (error) {
-      core?.notice?.(`Skipping the ${waiter.status === 'evicted' ? 'evicted' : 'waiting'} request for ${waiter.sha} (run ${waiter.runId}): it cannot be compared with ${sha} (${error.status || error.message}).`);
+      core?.notice?.(`Skipping the evicted request for ${request.sha} (run ${request.runId}): it cannot be compared with ${sha} (${error.status || error.message}).`);
       continue;
     }
+    if (status === 'diverged' && !diverged.includes(request.sha)) diverged.push(request.sha);
     if (status !== 'ahead') continue;
     let at = containing.length;
     for (let i = 0; i < containing.length; i += 1) {
-      const order = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${containing[i].sha}...${waiter.sha}` })).data.status;
+      const order = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${containing[i].sha}...${request.sha}` })).data.status;
       if (order === 'ahead') { at = i; break; }
     }
-    containing.splice(at, 0, waiter);
+    containing.splice(at, 0, request);
   }
-  const keep = live.find((waiter) => waiter.sha === sha || waiter.status === 'in_progress' || containing.some((other) => other.sha === waiter.sha && other.runId === waiter.runId));
-  return { current, keep, candidates: containing.map((waiter) => waiter.sha) };
+  return { containing: containing.map((request) => request.sha), diverged };
 }
 
 export async function decideNewest({ github, core, owner, repo, sha, runId, ...rest }) {
-  const superseded = (keep, current) => ({
-    action: 'superseded',
-    reason: `run ${keep.runId} already waits to promote ${keep.sha} from ${current || 'nothing'}${keep.status === 'in_progress' ? ' and is approved' : `, which contains ${sha}`}; that request stays`,
-    sha: keep.sha, current,
-  });
-  let decision = null;
-  let seen = new Set();
-  for (let round = 0; round < 2; round += 1) {
-    let scan;
-    try {
-      scan = await scanWaiters({ github, core, owner, repo, sha, runId, now: rest.now });
-    } catch (error) {
-      core?.warning?.(`Could not read the other nightly-next promotion requests (${error.status || error.message}); deciding ${sha} without cancelling them.`);
-      return { decision: decision || await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed: true };
-    }
-    if (scan.keep) return { decision: superseded(scan.keep, scan.current), requested: sha, scanFailed: false };
-    const order = [...scan.candidates, sha];
-    // Round two re-decides only when a waiter commit appeared since round one.
-    if (decision && order.every((target) => seen.has(target))) break;
-    seen = new Set(order);
-    decision = null;
-    for (const target of order) {
-      if (target !== sha) core?.notice?.(`A waiting or evicted request targets ${target}, which contains ${sha}; deciding ${target}.`);
+  let candidates;
+  try {
+    candidates = await evictedCandidates({ github, core, owner, repo, sha, runId, now: rest.now });
+  } catch (error) {
+    core?.warning?.(`Could not order the other nightly-next promotion requests (${error.status || error.message}); deciding ${sha} without them.`);
+    return { decision: await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed: true };
+  }
+  for (const target of candidates.containing) {
+    core?.notice?.(`An evicted request targets ${target}, which contains ${sha}; deciding ${target}.`);
+    const attempt = await decide({ github, core, owner, repo, sha: target, ...rest });
+    if (attempt.action !== 'refuse') return { decision: attempt, requested: sha, scanFailed: false };
+    core?.notice?.(`${target} is refused (${attempt.reason}); trying the next commit.`);
+  }
+  const decision = await decide({ github, core, owner, repo, sha, ...rest });
+  if (decision.action === 'refuse') {
+    for (const target of candidates.diverged) {
+      core?.notice?.(`${sha} is refused; an evicted request targets ${target}, which diverges from it; deciding ${target}.`);
       const attempt = await decide({ github, core, owner, repo, sha: target, ...rest });
-      if (attempt.action !== 'refuse' || target === sha) { decision = attempt; break; }
-      core?.notice?.(`${target} is refused (${attempt.reason}); trying the next commit.`);
+      if (attempt.action !== 'refuse') return { decision: attempt, requested: sha, scanFailed: false };
+      core?.notice?.(`${target} is refused (${attempt.reason}).`);
     }
   }
   return { decision, requested: sha, scanFailed: false };
@@ -779,6 +823,9 @@ export function summary(decision) {
     `- current nightly-next: \`${decision.current || 'none'}\``,
     `- reason: ${decision.reason}`,
   ];
+  if (decision.gates) {
+    lines.push(...Object.entries(decision.gates).map(([gate, result]) => `- ${gate}: ${result}`));
+  }
   if (decision.surfaceFiles?.length) {
     lines.push('- release surface files changed:', ...decision.surfaceFiles.map((file) => `  - \`${file}\``));
   }

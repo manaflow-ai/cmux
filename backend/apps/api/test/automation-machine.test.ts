@@ -113,6 +113,7 @@ describe("runMachineStep", () => {
     expect(await runMachineStep(fakePort({ ok: false, refusal: "not_running" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.not_running" })
     expect(await runMachineStep(fakePort({ ok: false, refusal: "provider_failed" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.unavailable" })
     expect(await runMachineStep(fakePort({ ok: false, refusal: "forbidden" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.forbidden" })
+    expect(await runMachineStep(fakePort({ ok: false, refusal: "output_limit" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.output_limit" })
   })
 })
 
@@ -146,7 +147,7 @@ describe("machine steps in a run (workerd)", { timeout: 60_000 }, () => {
       idempotency_key: crypto.randomUUID(),
       origin: "user"
     })
-    const machine = created.frames.find((frame) => frame.t === "result")?.value?.machine?.id
+    const machine = (created.frames.find((frame) => frame.t === "result")?.value as { machine?: { id?: string } } | undefined)?.machine?.id
     expect(machine).toMatch(/^vm_/)
     const file = await bindFile(cloud, machine!)
     const { body } = await bindBody({ user, team: SHARED_TEAM }, machine!, file.json.bind_token)

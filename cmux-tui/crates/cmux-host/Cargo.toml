@@ -15,6 +15,7 @@ name = "cmux-host"
 path = "src/main.rs"
 
 [dependencies]
+cmux-json.workspace = true
 # Roles (the store update check and later app servers) come from
 # cmux-server; dependency direction is cmux-host -> cmux-server ->
 # cmux-server-core, never the reverse.
@@ -23,7 +24,14 @@ cmux-server-core = { path = "../cmux-server-core" }
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Hand-off ids (`cloud/handoff.rs`), named as the Cloud API names them.
+sha2.workspace = true
 
 [dev-dependencies]
+# The composed bootstrap journey reuses cmux-server’s signed-channel fixtures.
+flate2.workspace = true
+ring.workspace = true
+tar = { version = "0.4", default-features = false }
+tokio.workspace = true
 proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile = "3"

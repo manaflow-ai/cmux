@@ -1,0 +1,152 @@
+name: fleet test-compile
+
+# Advisory: compile the Swift test targets a pull request can break, on a
+# fleet Mac, and fail this check when one does not compile.
+#
+# fleet/compile-check (fleet-compile-check.yml) compiles only the app
+# executable, which links no test target. #23360 (a throwing call inside
+# #expect without try) and #23163 (a fake that missed a protocol requirement)
+# passed it and broke feat-cmux-next's test build. This check covers that gap
+# until the Linux pool compiles test targets (its SDK gains Xcode's Testing
+# search paths with the next pool image, cmuxterm-hq #2750).
+#
+# It gates nothing: fleet/compile-check, the landing gate and the Release
+# compile neither wait for it nor read it. A red here is a test
+# target that does not compile at the PR's merge commit.
+#
+# It runs on its own gateway label, vars.CI_TEST_COMPILE_GATEWAY, never the
+# required compile's CI_COMPILE_CHECK_GATEWAY: each gateway job holds a fleet
+# runner while its client waits up to 45 minutes on the controller, and on
+# 2026-10-22 this advisory check held 13 of the 19 runners serving
+# glaeda-side-light-xcode-26.6 while 71 required app compiles queued behind it
+# (one over an hour). Unset, a plan skips this job and nothing queues.
+#
+# The plan (scripts/ci/compile_test_plan.py, over the merge commit's diff from
+# its base) is the macOS package lane's packages whose sources or path
+# dependencies changed. An empty plan passes on a Linux runner in seconds and
+# queues no Mac; a plan runs `package-test-lane.sh compile-tests BASE
+# --skip-package=Packages/macOS/CmuxNext` as a light fleet step.
+#
+# CmuxNext is skipped here (SKIP below): cmux-next.yml's swift test job runs
+# `swift build --build-tests` on every same-repository pull request whose
+# change reaches a CmuxNext test target, from the same route, so this check
+# compiled those targets a second time. Over 24 hours to 2026-10-30 that was
+# 650 fleet compile-tests steps (about 55 Mac worker hours) and about 65 hours
+# of gateway runner time, for PRs whose plan was CmuxNext alone. The tip
+# compile (cmux-next-tip-test-compile.yml) keeps CmuxNext: push CI skips
+# swift test.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "Packages/**"
+      - "vendor/**"
+      - "scripts/ci/compile_test_plan.py"
+      - "scripts/ci/package-test-lane.sh"
+      - ".github/workflows/fleet-test-compile.yml"
+
+permissions: {}
+
+env:
+  # The package the swift test job of cmux-next.yml already compiles the tests of.
+  SKIP: Packages/macOS/CmuxNext
+
+concurrency:
+  group: fleet-test-compile-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: fleet test-compile plan
+    # The fleet takes same-repository pull requests only (as the Swift canary's fleet job).
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # Blacksmith, behind the fork branch, so a GitHub billing block cannot stop it (tests/test_ci_self_hosted_guard.sh).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+      base: ${{ steps.plan.outputs.base }}
+    steps:
+      - name: Checkout the merge commit and its base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      - name: Plan the test targets this change reaches
+        id: plan
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          git diff --no-renames --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
+          python3 scripts/ci/compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" --skip-package "$SKIP" > "$RUNNER_TEMP/plan.txt"
+          {
+            echo "### fleet test-compile plan"
+            echo
+            if [ -s "$RUNNER_TEMP/plan.txt" ]; then
+              echo 'Package, then its test targets (none listed: every one):'
+              echo
+              echo '```'
+              cat "$RUNNER_TEMP/plan.txt"
+              echo '```'
+            else
+              echo "The change reaches no test target: nothing to compile, no Mac queued."
+            fi
+            echo
+            echo "\`$SKIP\` is left out: cmux-next.yml's swift test job builds its test targets."
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/plan.txt"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if [ -s "$RUNNER_TEMP/plan.txt" ]; then echo "needed=true"; else echo "needed=false"; fi >> "$GITHUB_OUTPUT"
+
+  compile:
+    name: fleet/test-compile (advisory)
+    needs: plan
+    # An empty plan reports on a Linux runner at once; only a plan takes the gateway and a fleet Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.plan.outputs.needed == 'true' && vars.CI_TEST_COMPILE_GATEWAY || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    if: ${{ needs.plan.outputs.needed == 'false' || (needs.plan.outputs.needed == 'true' && vars.CI_TEST_COMPILE_GATEWAY != '') }}
+    permissions: {}
+    # Longer than the client's queue (1200 s) plus run (1500 s) timeouts and its
+    # report: a job timeout concludes as a failure, which would read as red.
+    timeout-minutes: 55
+    steps:
+      # The gateway checks nothing out: the fleet fetches the merge commit itself.
+      # Exit 0 is a pass. The lane's "compile-tests: a test target did not
+      # compile" marker is a compile failure (this check goes red) whatever the
+      # exit: the lane prints it as soon as a target fails, and a later
+      # package's setup may end the run with another status. Anything else
+      # (queue or run timeout, setup, the client) is no verdict: a warning,
+      # and this check stays green.
+      - name: Compile the planned test targets on a fleet Mac
+        env:
+          NEEDED: ${{ needs.plan.outputs.needed }}
+          REF: ${{ github.sha }}
+          BASE: ${{ needs.plan.outputs.base }}
+        run: |
+          set -uo pipefail
+          if [[ "$NEEDED" != true ]]; then
+            echo "The change reaches no test target: nothing to compile."
+            exit 0
+          fi
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=fleet test-compile::$client is not installed on runner $RUNNER_NAME; no test-compile verdict."
+            exit 0
+          fi
+          log="$RUNNER_TEMP/test-compile.log"
+          status=0
+          "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
+            --arg=compile-tests --arg="$BASE" --arg="--skip-package=$SKIP" \
+            --timeout 1500 --queue-timeout 1200 2>&1 | tee "$log" || status=$?
+          if [[ "$status" -eq 0 ]]; then
+            echo "Every planned test target compiled."
+          elif grep -q 'compile-tests: a test target did not compile' "$log"; then
+            echo "::error title=fleet test-compile::A test target this change reaches does not compile (advisory; see the errors above)."
+            exit 1
+          else
+            echo "::warning title=fleet test-compile::No test-compile verdict (exit $status)."
+          fi

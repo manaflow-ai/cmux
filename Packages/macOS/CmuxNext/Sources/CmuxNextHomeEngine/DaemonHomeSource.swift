@@ -172,7 +172,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
     /// The owner's thread read; a daemon from before `conversation-thread-v1` scans history.
     public func thread(of conversation: ConversationID, root: MessageID, after afterSeq: Seq, limit: Int) async throws -> ThreadPage {
         let connection = try requireConnection()
-        guard await connection.identity?.supports(DaemonCapabilities.shared.conversationThread) == true else {
+        guard await connection.identity?.supports(DaemonCapability.conversationThread.rawValue) == true else {
             return try await scanThread(of: conversation, root: root, after: afterSeq, limit: limit)
         }
         let page = try await Self.mapped {
@@ -204,7 +204,9 @@ public nonisolated final class DaemonHomeSource: HomeSource {
             }
             return HomeOpResult(rev: 0, conversation: conversation)
         }
-        if case .createGroup(let title, let participants) = intent.op {
+        if case .createGroup(let title, let participants, let invites) = intent.op {
+            // The router sends a group with invites to the cloud; a local channel cannot invite.
+            guard invites.isEmpty else { throw HomeRejection.invalid("unsupported_on_local_owner") }
             return try await createChannel(title: title, participants: participants, key: intent.key)
         }
         guard let mapped = HomeCoreMapping.op(intent.op, key: intent.key) else {
@@ -217,7 +219,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         // A daemon from before conversation-threads-v1 does not move the
         // sender's cursor: move it here, so my own sends never count as unread.
         if case .sendMessage = intent.op, let seq = result.seq, !result.replayed,
-           await connection.identity?.supports(DaemonCapabilities.shared.conversationThreads) != true {
+           await connection.identity?.supports(DaemonCapability.conversationThreads.rawValue) != true {
             readThrough(seq, in: mapped.conversation, on: connection)
         }
         return HomeOpResult(rev: result.rev, replayed: result.replayed, conversation: ConversationID(mapped.conversation))

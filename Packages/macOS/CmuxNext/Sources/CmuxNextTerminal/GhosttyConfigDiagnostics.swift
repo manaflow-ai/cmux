@@ -32,6 +32,23 @@ public nonisolated struct GhosttyConfigDiagnostic: Sendable, Hashable {
     }
 }
 
+/// A color the user's Ghostty config sets itself (`background = #1e1e2e`).
+/// Ghostty applies the theme first and the config's own colors over it, so
+/// no theme (cmux's or Ghostty's) can change this color while the line stays.
+public nonisolated struct GhosttyColorOverride: Sendable, Hashable {
+    /// The config key (`background`, `palette`, …).
+    public var key: String
+    /// The file and 1-based line of the assignment in effect.
+    public var file: String
+    public var line: Int
+
+    public init(key: String, file: String, line: Int) {
+        self.key = key
+        self.file = file
+        self.line = line
+    }
+}
+
 /// What the main actor reads from the applied config for the diagnostics
 /// (no file I/O): the unsupported keys with their sources, libghostty's
 /// messages and the loaded files. `diagnostics()` adds the keybind lines,
@@ -42,6 +59,8 @@ public nonisolated struct GhosttyConfigDiagnosticsSnapshot: Sendable, Hashable {
     /// Keys, ranked by file (index in `files`) and line.
     let keys: [Ranked]
     let invalid: [GhosttyConfigDiagnostic]
+    /// The theme colors the user's files set themselves, in load order.
+    public let colorOverrides: [GhosttyColorOverride]
 
     struct Ranked: Sendable, Hashable {
         var rank: Int
@@ -49,15 +68,17 @@ public nonisolated struct GhosttyConfigDiagnosticsSnapshot: Sendable, Hashable {
         var diagnostic: GhosttyConfigDiagnostic
     }
 
-    init(files: [String], keys: [Ranked], invalid: [GhosttyConfigDiagnostic]) {
+    init(files: [String], keys: [Ranked], invalid: [GhosttyConfigDiagnostic], colorOverrides: [GhosttyColorOverride] = []) {
         self.files = files
         self.keys = keys
         self.invalid = invalid
+        self.colorOverrides = colorOverrides
     }
 
     /// A snapshot with these findings and no files to scan (tests).
-    public init(diagnostics: [GhosttyConfigDiagnostic], files: [String] = []) {
+    public init(diagnostics: [GhosttyConfigDiagnostic], files: [String] = [], colorOverrides: [GhosttyColorOverride] = []) {
         self.files = files
+        self.colorOverrides = colorOverrides
         keys = diagnostics.filter { $0.kind != .invalid }.enumerated().map { Ranked(rank: 0, line: $0.offset, diagnostic: $0.element) }
         invalid = diagnostics.filter { $0.kind == .invalid }
     }
@@ -99,6 +120,20 @@ extension GhosttyRuntime {
         return await snapshot.diagnostics()
     }
 
+    /// The color overrides of the file at `path` with its includes, then `theme` loaded the way
+    /// cmux.json's theme line is (tests).
+    static func colorOverrides(configFile path: String, theme: String? = nil) -> [GhosttyColorOverride] {
+        guard let config = ghostty_config_new() else { return [] }
+        defer { ghostty_config_free(config) }
+        ghostty_config_load_file(config, path)
+        ghostty_config_load_recursive_files(config)
+        if let line = themeOverrideLine(theme) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
+        }
+        ghostty_config_finalize(config)
+        return snapshot(of: config).colorOverrides
+    }
+
     /// Unsupported keys the user's files set (libghostty's own source of
     /// each key, so includes and the last assignment count as in Ghostty;
     /// cmux's built-in defaults are not files and never show), libghostty's
@@ -125,7 +160,30 @@ extension GhosttyRuntime {
                 GhosttyConfigDiagnostic(kind: .invalid, name: String(cString: $0))
             }
         }
-        return GhosttyConfigDiagnosticsSnapshot(files: files, keys: keys, invalid: invalid)
+        return GhosttyConfigDiagnosticsSnapshot(files: files, keys: keys, invalid: invalid,
+                                                colorOverrides: colorOverrides(of: config, order: order))
+    }
+
+    /// The color keys a theme sets; a user file that sets one wins over every theme.
+    public nonisolated static let themeColorKeys = ["background", "foreground", "cursor-color", "cursor-text",
+                                                    "selection-background", "selection-foreground", "palette"]
+
+    /// The theme colors whose assignment in effect comes from one of the user's files (`order`),
+    /// not from a theme file, cmux's defaults or cmux.json's theme lines (those are no loaded file).
+    private nonisolated static func colorOverrides(of config: ghostty_config_t, order: [String: Int]) -> [GhosttyColorOverride] {
+        var ranked: [(rank: Int, override: GhosttyColorOverride)] = []
+        for key in themeColorKeys {
+            var source = ghostty_config_source_s()
+            let found = key.withCString { ghostty_config_key_source(config, $0, UInt(key.utf8.count), &source) }
+            guard found, let pointer = source.path else { continue }
+            let path = String(cString: pointer)
+            let file = resolved(path)
+            // A file in a themes folder (as named, or after its links) is the theme itself.
+            let inThemes = [path, file].contains { URL(fileURLWithPath: $0).deletingLastPathComponent().lastPathComponent == "themes" }
+            guard let rank = order[file], !inThemes else { continue }
+            ranked.append((rank, GhosttyColorOverride(key: key, file: path, line: Int(source.line))))
+        }
+        return ranked.sorted { ($0.rank, $0.override.line) < ($1.rank, $1.override.line) }.map(\.override)
     }
 
     /// The `keybind` lines of one file whose action is in

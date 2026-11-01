@@ -31,10 +31,19 @@ public final class ChiefQuestionFeed: @unchecked Sendable {
     }
 
     /// Records `message`'s question parts (pending, answered or cancelled).
-    func update(_ found: [AgentQuestion], seq: Int) {
-        guard !found.isEmpty else { return }
+    /// With `messageID`, the message's questions not in `found` are gone
+    /// (it was retracted or edited), so no bar asks a question that left.
+    func update(_ found: [AgentQuestion], seq: Int, messageID: String? = nil) {
         let handler: (@Sendable ([AgentQuestion]) -> Void)? = lock.withLock {
             var changed = false
+            if let messageID {
+                let kept = Set(found.map(\.id))
+                let prefix = "\(messageID)#"
+                for id in questions.keys where id.hasPrefix(prefix) && !kept.contains(id) {
+                    questions[id] = nil
+                    changed = true
+                }
+            }
             for question in found where questions[question.id]?.question != question {
                 questions[question.id] = (seq, question)
                 changed = true

@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Pinned tabs stay fixed at the strip's leading edge while an overflowing strip scrolls (cx-kp9b4,
 /// Safari/Arc): only the unpinned tabs scroll, under and after them, in both Tab Overflow modes. A
 /// scrolled strip moved its pinned tabs off the leading edge with the rest, so a click there hit
 /// an unpinned tab or nothing.
-@MainActor @Suite(.serialized) struct TabStripPinnedScrollTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripPinnedScrollTests {
     private struct Harness {
         let window: NSWindow
         let strip: TabStripView
@@ -63,7 +64,7 @@ import Testing
         DesignSettings.shared.tabOverflow = overflow
         defer { DesignSettings.shared.tabOverflow = .shrink }
         let harness = Harness(pinned: 2, unpinned: 40, width: 1000)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.strip.applyTokens(animated: false)
         harness.strip.layoutSubtreeIfNeeded()
         let strip = harness.strip
@@ -105,15 +106,21 @@ import Testing
     }
 
     /// Pinned tabs wider than the strip cannot stay fixed: the whole strip scrolls, pinned tabs too.
+    /// The strip is narrower than its pinned tabs at today's pinned width (a setting: 64 pt until
+    /// ebadb28722f, 36 pt since), so the case holds whatever the width is.
     @Test func pinnedTabsWiderThanTheStripScrollWithTheRest() throws {
         DesignSettings.shared.tabOverflow = .shrink
-        let harness = Harness(pinned: 12, unpinned: 6, width: 600)
-        defer { harness.window.orderOut(nil) }
+        let pinnedCount = 12
+        let width = (CGFloat(pinnedCount) * Metrics.tabPinnedWidth * 0.8).rounded()
+        let harness = Harness(pinned: pinnedCount, unpinned: 6, width: width)
+        defer { harness.window.closeAfterTest() }
         let strip = harness.strip
+        try #require(CGFloat(pinnedCount) * strip.metrics.pinnedTabWidth > strip.viewportWidth,
+                     "\(pinnedCount) pinned tabs of \(strip.metrics.pinnedTabWidth) pt fit in \(strip.viewportWidth) pt")
         harness.scroll(to: harness.last)
         try #require(strip.scrollOffset > 0)
         let cell = try #require(strip.cells[harness.pinned[0]])
-        #expect(cell.frame.minX < -0.5, "12 pinned tabs in 600 pt stayed fixed, the unpinned tabs have no room")
+        #expect(cell.frame.minX < -0.5, "\(pinnedCount) pinned tabs in \(width) pt stayed fixed, the unpinned tabs have no room")
         let lastCell = try #require(strip.cells[harness.last])
         #expect(lastCell.frame.maxX <= strip.viewportWidth + 0.5)
     }

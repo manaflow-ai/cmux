@@ -41,16 +41,21 @@ use zeroize::Zeroizing;
 use super::CloudError;
 use super::service::{CloudBackend, CloudWire, ConnectError, EventSink, WireRecv};
 use super::session::{token_account, token_agent, token_claim, validate_api_base_url};
+use cmux_json::JsonSet as _;
 
 mod ask;
+mod chief;
 mod ops;
 use ops::Decided;
 
 /// The capability `identify` advertises when the publisher is installed.
 pub const CLOUD_HOST_REPLICA_CAPABILITY: &str = "cloud-host-replica-v1";
 
-/// The one stream this slice publishes.
+/// The workspace list stream.
 pub const SESSION_STREAM_SUFFIX: &str = "session";
+/// The Home Chief chat stream (a450 logs/iphone-chief-DESIGN.md): published as
+/// snapshots only, each the whole bounded copy, so it needs no event history.
+pub const CHIEF_STREAM_SUFFIX: &str = "chief";
 
 /// Decided keys kept for replays and reader snapshots.
 const DECIDED_KEYS: usize = 256;
@@ -73,6 +78,10 @@ pub struct HostOpRefusal {
 pub trait HostSource: Send + Sync {
     /// The state of `host:<h>/session` now (the read-only cloud copy).
     fn session_state(&self) -> Value;
+    /// The Home Chief chat copy (`host:<h>/chief`), when this host has one.
+    fn chief_state(&self) -> Option<Value> {
+        None
+    }
     /// Runs one forwarded op for the cloud user `user`; only an allowlisted
     /// op runs, with its params checked by the daemon's own catalog.
     fn apply(
@@ -356,6 +365,8 @@ impl HostReplica {
                     decided_for: None,
                     last_state: None,
                     was_online: false,
+                    chief_seq: 0,
+                    chief_last: None,
                 }
                 .run();
             })?);
@@ -448,23 +459,23 @@ impl HostReplica {
         let state = self.inner.lock();
         let mut status = json!({ "state": state.phase.name() });
         if let Some(lease) = &state.lease {
-            status["api_base_url"] = json!(lease.origin);
-            status["expires_at"] = json!(lease.expires_at);
-            status["host_name"] = json!(lease.host_name);
+            status.set("api_base_url", json!(lease.origin));
+            status.set("expires_at", json!(lease.expires_at));
+            status.set("host_name", json!(lease.host_name));
         }
         if let Some(host) = &state.host {
-            status["host"] = json!(host);
-            status["stream"] = json!(stream_of(host));
-            status["seq"] = json!(state.published_seq);
+            status.set("host", json!(host));
+            status.set("stream", json!(stream_of(host)));
+            status.set("seq", json!(state.published_seq));
         }
         if state.purge {
-            status["purge_pending"] = json!(true);
+            status.set("purge_pending", json!(true));
         }
         if state.purge_unconfirmed {
-            status["purge_unconfirmed"] = json!(true);
+            status.set("purge_unconfirmed", json!(true));
         }
         if let Some(error) = &state.last_error {
-            status["last_error"] = json!(error);
+            status.set("last_error", json!(error));
         }
         status
     }
@@ -536,6 +547,10 @@ fn stream_of(host: &str) -> String {
     format!("host:{host}/{SESSION_STREAM_SUFFIX}")
 }
 
+fn chief_stream_of(host: &str) -> String {
+    format!("host:{host}/{CHIEF_STREAM_SUFFIX}")
+}
+
 /// How one connection ended.
 enum Ended {
     /// Reconnect after a backoff.
@@ -559,6 +574,9 @@ struct Driver {
     last_state: Option<String>,
     /// The last connection reached `online` (the backoff starts over).
     was_online: bool,
+    /// The Chief stream's own seq (snapshots only) and its last published state.
+    chief_seq: u64,
+    chief_last: Option<String>,
 }
 
 /// The lease fields one connection uses (the token stays zeroizing).
@@ -712,18 +730,21 @@ impl Driver {
             Err(Ok(why)) => return Ok(Ended::Dropped(why)),
         };
         let url = (lease.ws_url)(&format!("/v1/wire/host/{host}"));
-        let wire =
-            match self.inner.backend.connect(&url, &lease.token, lease.client_version.as_deref()) {
-                Ok(wire) => wire,
-                Err(ConnectError::Unauthenticated) => return Err(Phase::Unauthenticated),
-                Err(ConnectError::Forbidden) => {
-                    // The host is gone (410) or no longer ours (403): it stays off
-                    // for this install until the app clears the replica.
-                    self.forget_removed_host(lease);
-                    return Err(Phase::Forbidden);
-                }
-                Err(ConnectError::Unavailable(why)) => return Ok(Ended::Dropped(why)),
-            };
+        let wire = match self.inner.backend.connect(
+            &url,
+            Some(lease.token.as_str()),
+            lease.client_version.as_deref(),
+        ) {
+            Ok(wire) => wire,
+            Err(ConnectError::Unauthenticated) => return Err(Phase::Unauthenticated),
+            Err(ConnectError::Forbidden) => {
+                // The host is gone (410) or no longer ours (403): it stays off
+                // for this install until the app clears the replica.
+                self.forget_removed_host(lease);
+                return Err(Phase::Forbidden);
+            }
+            Err(ConnectError::Unavailable(why)) => return Ok(Ended::Dropped(why)),
+        };
         Ok(self.serve(lease, &host, wire))
     }
 
@@ -751,7 +772,12 @@ impl Driver {
         let reply = self
             .inner
             .backend
-            .post(&lease.enroll_url, &lease.token, lease.client_version.as_deref(), &body)
+            .post(
+                &lease.enroll_url,
+                Some(lease.token.as_str()),
+                lease.client_version.as_deref(),
+                &body,
+            )
             .map_err(|error| Ok(format!("host.enroll: {}", error.0)))?;
         match reply.status {
             200 => {}
@@ -806,9 +832,16 @@ impl Driver {
             };
             state.seq = state.seq.max(floor);
         }
+        let chief = chief_stream_of(host);
+        let chief_floor = heads[&chief].as_u64().unwrap_or_else(|| (self.inner.options.now_ms)());
+        self.chief_seq = self.chief_seq.max(chief_floor);
+        self.chief_last = None;
         // A snapshot after every connect: the replica holds exactly this state.
         self.inner.changed.store(false, Ordering::Release);
         if let Err(why) = self.publish(lease, &stream, &mut *wire, true) {
+            return Ended::Dropped(why);
+        }
+        if let Err(why) = self.publish_chief(&chief, &mut *wire, true) {
             return Ended::Dropped(why);
         }
         self.inner.set_phase(Phase::Online, None);
@@ -839,11 +872,22 @@ impl Driver {
                     if let Err(why) = self.publish(lease, &stream, &mut *wire, false) {
                         return Ended::Dropped(why);
                     }
+                    if let Err(why) = self.publish_chief(&chief, &mut *wire, false) {
+                        return Ended::Dropped(why);
+                    }
                 }
             }
             match wire.recv(poll) {
                 WireRecv::Text(text) => {
-                    if let Err(why) = self.on_frame(lease, &stream, &mut *wire, &text) {
+                    let frame_stream = serde_json::from_str::<Value>(&text)
+                        .ok()
+                        .and_then(|f| f["stream"].as_str().map(str::to_owned));
+                    let target = if frame_stream.as_deref() == Some(chief.as_str()) {
+                        &chief
+                    } else {
+                        &stream
+                    };
+                    if let Err(why) = self.on_frame(lease, target, &mut *wire, &text) {
                         return Ended::Dropped(why);
                     }
                 }
@@ -926,7 +970,11 @@ impl Driver {
         text: &str,
     ) -> Result<(), String> {
         let Ok(frame) = serde_json::from_str::<Value>(text) else { return Ok(()) };
+        let is_chief = stream.ends_with(&format!("/{CHIEF_STREAM_SUFFIX}"));
         match frame["t"].as_str() {
+            Some("snapshot.request") if is_chief => {
+                self.chief_snapshot_request(stream, wire, &frame)
+            }
             Some("snapshot.request") => {
                 if let Some(to) = frame["to"].as_str() {
                     // A reader's pending keys: only the host knows its decided keys.

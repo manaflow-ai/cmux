@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import AppKit
 import CmuxNextDesign
 import CmuxNextAgentPane
@@ -38,6 +39,8 @@ protocol FilePageHosting: AnyObject {
     /// The native omnibar shows the file's path above the page (the Markdown omnibar), so the
     /// page's toolbar drops its own file name (config `omnibar: true`).
     var showsOmnibar: Bool { get }
+    /// The page's link history moved (`cmux.markdown.history`): the omnibar's Back and Forward follow.
+    func historyChanged(canBack: Bool, canForward: Bool)
     /// A page's edit of `url` (the R96 quit hook): the document's unsaved state and its draft.
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
@@ -46,22 +49,26 @@ protocol FilePageHosting: AnyObject {
 
 extension FilePageHosting {
     var showsOmnibar: Bool { false }
+    func historyChanged(canBack: Bool, canForward: Bool) {}
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
 /// page contract", "Editor page"). The tab has one file at a time (none: the empty state); the
-/// provider reads and saves it with ``FileDocument``, watches it with ``FileChangeWatch`` for the
-/// `changes` stream, and serves the markdown page's images and libraries
-/// (``PageDynamicResourceSource``).
+/// provider reads, saves and watches it through ``files`` (this Mac's disk, or the machine of the
+/// tab's pane, #25581) for the `changes` stream, and serves the markdown page's images and
+/// libraries (``PageDynamicResourceSource``).
 final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     let kind: FilePageKind
+    /// Where the tab's file lives. A file of another machine gets no local extras: no folder
+    /// images, file links, git remote, comments or table widths read beside it on this Mac.
+    let files: any FilePageFiles
     private(set) var file: URL?
     /// Strong: the tab host holds its service weakly, so no cycle.
     private(set) var host: (any FilePageHosting)?
     private let clock: any Clock<Duration>
     let libraries: URL?
     let images: any RemoteImageFetching
-    private var watch: FileChangeWatch?
+    private var watch: (any FilePageWatching)?
     private var changeListeners: [UUID: (JSONValue) -> Void] = [:]
     /// The folder of the open file the current asset token serves, and the token.
     private(set) var assetToken = UUID().uuidString.lowercased()
@@ -86,9 +93,15 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// A recovered crash draft of the tab's file: the next config carries it once (the markdown and
     /// editor pages load it as an unsaved edit).
     var recoveredText: String?
+    /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
+    /// next config of that file carries it once as `reveal`. The markdown page ignores it.
+    var reveal: FilePosition?
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
+    /// The page shows its file read only (the last config said `readOnly`): bare keys are the
+    /// user's bindings there, not typing (`markdownReadOnlyFocused`, K1).
+    private(set) var showsReadOnly = false
     /// Documents this tab has shown (it may reopen them, its own back and forward).
     private var shown: Set<String> = []
     private(set) var isClosed = false
@@ -97,9 +110,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown page's viewer comments live between opens (nil: none are kept).
     /// ``FilePageProvider+Comments.swift``.
-    let comments: (any MarkdownTableWidthStoring)?
+    let comments: (any MarkdownCommentStoring)?
     /// Sends the page a changed comment list (the service sets it: the `comments` page command).
     var onCommentsChanged: ((JSONValue) -> Void)?
+    /// The newest persisted comment mutation already published to this page. A later callback can
+    /// finish parsing before an older one, so stale mutations must not overwrite the page.
+    var latestCommentsSequence = 0
     /// The table the page last reported under a right-click (its index), for the native menu's
     /// Reset Column Widths; nil when the right-click was outside every table.
     var contextTable: Int?
@@ -113,11 +129,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
          clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
-         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownTableWidthStoring)? = nil) {
+         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownCommentStoring)? = nil,
+         files: any FilePageFiles = LocalFilePageFiles()) {
         self.kind = kind
-        self.tableWidths = tableWidths
-        self.comments = comments
-        self.file = file.map(Self.canonical)
+        self.files = files
+        // Both live in this Mac's extended attributes and app folder, keyed by path.
+        self.tableWidths = files.isLocal ? tableWidths : nil
+        self.comments = files.isLocal ? comments : nil
+        self.file = file.map { files.canonical($0) }
         if let file = self.file {
             shown.insert(file.path)
             documents.insert(file.path)
@@ -158,6 +177,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await config(for: file)
         case kind.op("open"):
             return try await open(path(params["path"]))
+        case kind.op("history") where kind == .markdown:
+            host.historyChanged(canBack: params["canBack"]?.boolValue ?? false, canForward: params["canForward"]?.boolValue ?? false)
+            return .object([:])
         case kind.op("edited"):
             return try edited(params, host: host)
         case kind.op("save"):
@@ -170,7 +192,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
                 throw PageError(code: "cmux.page.gesture", message: "loading web images needs a user gesture")
             }
             let requested = try path(params["path"])
-            guard let file, Self.canonical(requested) == file else {
+            guard let file, canonical(requested) == file else {
                 throw PageError.invalidParams("path is not this page's file")
             }
             remoteImagesApproved = true
@@ -179,7 +201,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return host.recents()
         case kind.op("chooseFile"):
             let start = params["start"]?.stringValue.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0, isDirectory: true) : nil }
-            guard let chosen = await host.chooseFile(start: start) else { return .null }
+            // The picker browses this Mac.
+            guard files.isLocal, let chosen = await host.chooseFile(start: start) else { return .null }
             userChose(chosen)
             return ["path": .string(chosen.path)]
         case kind.op("openLink"):
@@ -189,8 +212,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             keySequenceStarted = params["pending"]?.boolValue == true ? uptime() : nil
             return .object([:])
         case kind.op("resolveLinks") where kind == .markdown:
+            // Links resolve against this Mac's folders; another machine's file has none here.
+            guard files.isLocal else { return ["links": .object([:])] }
             return try await resolveLinks(params, host: host)
         case kind.op("listFiles") where kind == .markdown:
+            guard files.isLocal else { return ["entries": .array([])] }
             return try await listFiles(params)
         case kind.op("setTableWidths") where kind == .markdown:
             return try await setTableWidths(params)
@@ -235,17 +261,19 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// is binary, not UTF-8 or not writable stays read only either way (``FileDocument/read``).
     private func inWorkspace(_ url: URL) -> Bool {
         if kind == .markdown { return true }
-        let path = Self.canonical(url).path
-        return granted.contains(path) || (host?.roots.contains(path) ?? false)
+        let path = canonical(url).path
+        // `files.roots` are folders of this Mac.
+        return granted.contains(path) || (files.isLocal && host?.roots.contains(path) ?? false)
     }
 
-    /// Links resolved, `.` and `..` removed: the path every grant check compares.
-    nonisolated static func canonical(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }
+    /// The path every grant check compares, `.` and `..` removed: links resolved on this Mac,
+    /// never for another machine's file (``FilePageFiles/canonical(_:)``).
+    func canonical(_ url: URL) -> URL { files.canonical(url) }
 
     /// The user chose `url` for this tab (a picker result, or Open File... of the file it shows):
     /// a document of the tab, and writable.
     func userChose(_ url: URL) {
-        let path = Self.canonical(url).path
+        let path = canonical(url).path
         documents.insert(path)
         granted.insert(path)
     }
@@ -267,13 +295,16 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     private func snapshot(_ url: URL) async throws -> FileSnapshot {
         do {
-            let file = try await Self.read(url, inWorkspace: inWorkspace(url.resolvingSymlinksInPath()))
+            let file = try await files.read(url, inWorkspace: inWorkspace(canonical(url)))
             guard file.readOnlyReason == nil, readOnlyDocuments.contains(file.url.path) else { return file }
             return FileSnapshot(url: file.url, text: file.text, hash: file.hash, size: file.size, readOnlyReason: .transcript)
         } catch .notFound {
             throw PageError(code: kind.op("not_found"), message: url.path)
         } catch .notFile {
             throw PageError(code: kind == .markdown ? kind.op("not_markdown") : kind.op("not_file"), message: url.path)
+        } catch .unavailable(let reason) {
+            // The page shows the reason (the machine is offline, ...) with its Retry.
+            throw PageError(code: kind.op("unavailable"), message: reason, retryable: true)
         } catch {
             throw PageError(code: kind.op("too_large"), message: url.path)
         }
@@ -282,7 +313,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// `cmux.<page>.open {path}`: the tab's file from now on (empty state, a followed link).
     func open(_ url: URL) async throws -> JSONValue {
         // The grant comes first, so a refused path says nothing about the file.
-        guard mayOpen(Self.canonical(url)) else { throw PageError(code: kind.op("forbidden"), message: url.path) }
+        guard mayOpen(canonical(url)) else { throw PageError(code: kind.op("forbidden"), message: url.path) }
         guard kind.accepts(url) else { throw PageError(code: kind.op("not_markdown"), message: url.path) }
         let opened = try await snapshot(url)
         guard !isClosed else { throw PageError.closed }
@@ -315,17 +346,22 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             recoveredText = nil
             config["recoveredText"] = .string(recovered)
         }
+        if kind == .editor, let reveal, file.url == self.file {
+            self.reveal = nil
+            config["reveal"] = reveal.jsonValue
+        }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true
             config["readOnlyReason"] = .string(reason.rawValue)
         }
         switch kind {
         case .markdown:
-            config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/")
+            // The folder's images are read from this Mac's disk (``resource(for:)``).
+            if files.isLocal { config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/") }
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")
             if host?.showsOmnibar == true { config["omnibar"] = true }
             if remoteImagesAllowed { config["remoteImageBase"] = .string(remoteImageBase) }
-            if let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
+            if files.isLocal, let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
                 config["githubRepository"] = .string(repository)
             }
             // Read before the page's first layout, so a saved table never jumps from its natural width.
@@ -334,6 +370,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .editor:
             config["size"] = JSONValue(file.size)
         }
+        // Set after the awaits above, so overlapping opens leave the flag
+        // matching the config the page applies last.
+        showsReadOnly = file.readOnlyReason != nil
         return merged(.object(config), host?.look() ?? .object([:]))
     }
 
@@ -353,7 +392,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     private func save(_ params: JSONValue) async throws -> JSONValue {
         let url = try path(params["path"])
-        guard let file, url.resolvingSymlinksInPath() == file else { throw PageError.invalidParams("path is not this page's file") }
+        guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
         let base: String?
         switch params["baseHash"] {
@@ -365,7 +404,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let workspace = inWorkspace(file)
         let result: FileSaveResult
         do {
-            result = try await Self.write(text, to: file, baseHash: base, inWorkspace: workspace)
+            result = try await files.save(text, to: file, baseHash: base, inWorkspace: workspace)
         } catch .readOnly {
             throw PageError(code: kind.op("read_only"), message: file.path)
         } catch .conflict(let hash, let text) {
@@ -375,26 +414,18 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         } catch .failed(let reason) {
             throw PageError(code: kind.op("save_failed"), message: reason, retryable: true)
         }
-        host?.saved(file, hash: result.hash)
+        // The quit documents and the omnibar's git state are this Mac's files.
+        if files.isLocal { host?.saved(file, hash: result.hash) }
         return ["hash": .string(result.hash)]
-    }
-
-    @concurrent private static func read(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> FileSnapshot {
-        try FileDocument.read(url, inWorkspace: inWorkspace)
-    }
-
-    @concurrent private static func write(_ text: String, to url: URL, baseHash: String?,
-                                          inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
-        try FileDocument.save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
     }
 
     private func restartWatch(known: String? = nil) {
         watch?.stop()
         watch = nil
         guard let file, !isClosed else { return }
-        let watch = FileChangeWatch(url: file, inWorkspace: { [weak self] in self?.inWorkspace(file) ?? false }, clock: clock) { [weak self] snapshot in
-            self?.publishChange(snapshot, of: file)
-        }
+        let watch = files.watch(file, inWorkspace: { [weak self] in self?.inWorkspace(file) ?? false }, clock: clock,
+                                onChange: { [weak self] snapshot in self?.publishChange(snapshot, of: file) },
+                                onUnavailable: { [weak self] reason in self?.publishUnavailable(reason, of: file) })
         watch.knownHash = known
         self.watch = watch
         watch.start()
@@ -410,11 +441,21 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         for id in changeListeners.keys.sorted(by: { $0.uuidString < $1.uuidString }) { changeListeners[id]?(event) }
     }
 
+    /// The file's machine stopped answering (`reason`) or answers again (nil): `{path, unavailable}`,
+    /// which the page shows as a notice above the file and never as a change of it.
+    private func publishUnavailable(_ reason: String?, of url: URL) {
+        guard url == file else { return }
+        let event: JSONValue = ["path": .string(url.path), "hash": .null, "unavailable": reason.map(JSONValue.string) ?? .null]
+        for id in changeListeners.keys.sorted(by: { $0.uuidString < $1.uuidString }) { changeListeners[id]?(event) }
+    }
+
     /// `cmux.<page>.edited {path, text, baseHash}`: the tab's file was edited (the quit hook).
     private func edited(_ params: JSONValue, host: any FilePageHosting) throws -> JSONValue {
         let url = try path(params["path"])
-        guard let file, Self.canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
+        guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
+        // Crash drafts are keyed by this Mac's paths (FilePageRecovery): none for another machine's file.
+        guard files.isLocal else { return ["recovery": "invalidID"] }
         let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
         switch accepted {
         case .kept: return ["recovery": "kept"]
@@ -438,11 +479,19 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     // MARK: Links
 
+    /// Whether `url` exists, off the main actor.
+    @concurrent nonisolated private static func exists(_ url: URL) async -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
     private func openLink(_ params: JSONValue, host: any FilePageHosting, userGesture: Bool) async throws {
         guard let href = params["href"]?.stringValue else { throw PageError.invalidParams("href is required") }
         if kind == .markdown, params["kind"]?.stringValue == "file" {
-            let target = Self.canonical(try path(params["target"]))
-            guard FileManager.default.fileExists(atPath: target.path) else { throw PageError(code: kind.op("not_found"), message: target.path) }
+            // A file link names a path on the file's machine; only this Mac's open from here.
+            guard files.isLocal else { throw PageError(code: kind.op("forbidden"), message: try path(params["target"]).path) }
+            let target = canonical(try path(params["target"]))
+            // A stat can hang on a network or sleeping volume: never on the main actor.
+            guard await Self.exists(target) else { throw PageError(code: kind.op("not_found"), message: target.path) }
             // Inside a granted document's folder (links resolved): opens. Anything else asks,
             // naming the resolved path; a refused or unshown sheet refuses the link.
             if !inGrantedFolder(target) {

@@ -26,6 +26,7 @@
 //! from the same reviewed defaults. A step acpmux refuses stops the begin:
 //! the chat stays here, unmoved, with only the narrowing done so far.
 
+use crate::panic_free::JsonFields;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -44,20 +45,25 @@ pub(super) fn narrow(
     session: &str,
 ) -> Result<(), Failure> {
     let info = call("_acpmux/info", json!({"sessionId": session}), CALL_TIMEOUT)?;
-    if info["moving"] == json!(true) {
+    if *info.field("moving") == json!(true) {
         return Ok(());
     }
     // The chat's own policy, else the daemon default it runs under.
-    let policy = info["policy"].as_str().or_else(|| info["enforcement"]["policy"].as_str());
+    let policy = info
+        .field("policy")
+        .as_str()
+        .or_else(|| info.field("enforcement").field("policy").as_str());
     if policy.is_some_and(|policy| !ASKING_POLICIES.contains(&policy)) {
         call("_acpmux/set_policy", json!({"sessionId": session, "policy": "ask"}), CALL_TIMEOUT)?;
     }
-    if let Some(rules) = narrowed_rules(&info["rulesJson"]) {
+    if let Some(rules) = narrowed_rules(info.field("rulesJson")) {
         call("_acpmux/set_rules", json!({"sessionId": session, "rules": rules}), CALL_TIMEOUT)?;
     }
     let table = call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)?;
-    let family = table["session"]["family"].as_str().unwrap_or_default();
-    let asking: Vec<&str> = table["families"][family]
+    let family = table.field("session").field("family").as_str().unwrap_or_default();
+    let asking: Vec<&str> = table
+        .field("families")
+        .field(family)
         .as_array()
         .map(|modes| modes.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
@@ -66,9 +72,10 @@ pub(super) fn narrow(
     }
     let listed = |mode: &str| asking.contains(&mode);
     let mut info = info;
-    if !table["session"]["mode"].as_str().is_some_and(listed) {
-        let offered = info["modes"]["availableModes"].as_array().cloned().unwrap_or_default();
-        let offers = |id: &str| offered.iter().any(|mode| mode["id"] == json!(id));
+    if !table.field("session").field("mode").as_str().is_some_and(listed) {
+        let offered =
+            info.field("modes").field("availableModes").as_array().cloned().unwrap_or_default();
+        let offers = |id: &str| offered.iter().any(|mode| *mode.field("id") == json!(id));
         let mode = asking.iter().copied().find(|id| offers(id));
         if let Some(mode) = mode {
             let params = json!({"sessionId": session, "modeId": mode});
@@ -76,13 +83,13 @@ pub(super) fn narrow(
             info = call("_acpmux/info", json!({"sessionId": session}), CALL_TIMEOUT)?;
         }
     }
-    let options = info["configOptions"].as_array().cloned().unwrap_or_default();
-    let mode_option = options.iter().find(|option| option["id"] == json!("mode"));
+    let options = info.field("configOptions").as_array().cloned().unwrap_or_default();
+    let mode_option = options.iter().find(|option| *option.field("id") == json!("mode"));
     if let Some(option) = mode_option
-        && !option["currentValue"].as_str().is_some_and(listed)
+        && !option.field("currentValue").as_str().is_some_and(listed)
     {
-        let values = option["options"].as_array().cloned().unwrap_or_default();
-        let offers = |id: &str| values.iter().any(|value| value["value"] == json!(id));
+        let values = option.field("options").as_array().cloned().unwrap_or_default();
+        let offers = |id: &str| values.iter().any(|value| *value.field("value") == json!(id));
         let value = asking.iter().copied().find(|id| offers(id));
         if let Some(value) = value {
             let params = json!({"sessionId": session, "configId": "mode", "value": value});

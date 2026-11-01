@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// Whether a screen's display is asleep, for ``Motion/canAnimate(in:)``.
 ///
@@ -18,15 +19,14 @@ final class DisplaySleep {
     /// Tests pin the answer for every display; nil asks Core Graphics.
     static var asleepOverride: Bool?
 
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
 
     private init() {
         // Sleep ends what is running; wake ends what froze in the gap. Neither sets a state.
         let center = NSWorkspace.shared.notificationCenter
         observers = [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification].map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { MotionInFlight.finish() }
+            MainActorObservation(name, center: center) {
+                MotionInFlight.finish()
             }
         }
     }

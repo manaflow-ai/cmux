@@ -18,8 +18,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { TURN_CYCLE } from "../src/agent-session/acpmux/composerTurnCycle.gallery";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -35,7 +35,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-turn-cycle&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-turn-cycle", { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -44,20 +44,9 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 720, height: 520 } });
-    await warm.goto(stageURL("idle"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-turn-cycle", { browser, params: { variant: "idle" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -71,11 +60,12 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     footer: ".acpmux-composer-context",
     plus: ".acpmux-composer-plus .acpmux-picker-button",
     model: ".acpmux-model .acpmux-picker-button",
-    effort: ".acpmux-effort .acpmux-picker-button",
+    // The model button's own effort label (Leo 2026-10-20: one button, no effort chip).
+    effort: ".acpmux-model .acpmux-model-detail",
     access: ".acpmux-access-trigger",
     mic: ".acpmux-mic",
     // Stop while the turn runs; an idle row with an empty draft has none (no Send until there is a draft).
-    "send or stop": ".acpmux-send:not(.acpmux-steer-now)",
+    "send or stop": ".acpmux-send",
     "context ring": ".acpmux-composer-foot .acpmux-context-ring",
   };
 
@@ -131,7 +121,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 520 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
@@ -174,18 +164,18 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       expect(problems).toEqual([]);
     });
 
-    test(`at ${width} px typing while the turn runs moves neither the mic nor Stop`, async () => {
+    test(`at ${width} px typing while the turn runs moves nothing: Stop's slot turns into Send`, async () => {
       const page = await open(width, "subagents-three");
       const before = await boxes(page);
       await page.click("[contenteditable='true']");
       await page.keyboard.type("x");
-      await page.locator(".acpmux-steer-now").waitFor();
+      // One send control (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS"): the first letter turns
+      // Stop into Send in the same slot, so no control and not the prompt's column moves.
+      await page.locator(".acpmux-composer-box .acpmux-send:not(.acpmux-cancel)").waitFor();
       const after = await boxes(page);
       await page.close();
-      // A narrow row makes room for Steer from its left cluster (labels give way by priority).
-      const fixed = width >= 720 ? Object.keys(CONTROLS) : ["prompt", "footer", "mic", "send or stop"];
-      // ↵ takes its place beside the mic, so the prompt's column narrows by its width; the prompt
-      // keeps its place and height (its left, top and height), and every control its box.
+      const fixed = Object.keys(CONTROLS);
+      // The prompt keeps its place and height (its left, top and height), and every control its box.
       const pick = (all: typeof before) =>
         Object.fromEntries(
           fixed.map((name) => {

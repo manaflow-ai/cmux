@@ -30,8 +30,9 @@ pub use host_replica::{
     HostReplicaParams, HostSource, valid_host_id,
 };
 pub use service::{
-    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, RangeReply,
-    RequestPermit, ServiceOptions, TransportError, WireRecv,
+    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply,
+    INBOX_ALL_BUDGET, MAX_INBOX_PAGES, PutBody, RangeReply, RequestPermit, ServiceOptions,
+    TransportError, WireRecv,
 };
 pub use session::SessionParams;
 pub use stream::CloudEvent;
@@ -43,6 +44,12 @@ pub const CLOUD_CONVERSATIONS_CAPABILITY: &str = "cloud-conversations-v1";
 /// conversations through the daemon (`cloud-attachment-upload`,
 /// `cloud-attachment-read`, `cloud-attachment-link`).
 pub const CLOUD_ATTACHMENTS_CAPABILITY: &str = "cloud-attachments-v1";
+
+/// Advertised with `cloud-conversations-v1`: a self-hosted chat server on
+/// the tailnet (plans/cmux-next/dm-group-chat-DESIGN.md 4.5):
+/// `cloud-session-set` with `auth: "tailscale"` (no token, tailnet origins
+/// only, no Authorization header) and `cloud-selfhost-info`.
+pub const CLOUD_SELFHOST_CAPABILITY: &str = "cloud-selfhost-v1";
 
 #[cfg(feature = "test-support")]
 pub mod testing;

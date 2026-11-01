@@ -34,12 +34,15 @@ extension TerminalSurfaceView {
             // Never the blocking open: Ghostty holds the renderer lock here.
             NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
         case .mouseShape(let shape):
-            setCursor(Self.cursor(for: shape))
+            // Over a link with Command held the hand stays (TerminalLinkPointer).
+            let cursor = Self.cursor(for: shape)
+            if !linkPointer.absorbsCursor(cursor) { setCursor(cursor) }
         case .mouseVisible(let visible):
             if !visible { NSCursor.setHiddenUntilMouseMoves(true) }
         case .mouseOverLink(let link):
             // Sent on every pointer move over a link; only a change notifies.
             if model.hoveredLink != link { model.hoveredLink = link }
+            if link == nil { linkPointer.linkLeft() }
         case .cellSize:
             // Font size changed: re-apply the announced grid at the new cell
             // size; an owner reports the grid the view now fits.

@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import CmuxTheme
 import Testing
 
@@ -13,7 +14,7 @@ import Testing
 /// and a group header's more button opens his group editor (cx-rcby), not the
 /// right-click menu. #18991 and #19179 had moved the colors onto the theme's ANSI
 /// palette, and #19019 had pointed the more button at the full menu.
-@MainActor @Suite(.serialized) struct GroupPaletteDefaultTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct GroupPaletteDefaultTests {
     /// Lawrence's palette: hue in degrees and relative chroma.
     static let hues: [GroupColor: (hue: CGFloat, chroma: CGFloat)] = [
         .grey: (0, 0), .blue: (214, 1), .red: (4, 1), .yellow: (46, 1), .green: (136, 0.9),
@@ -96,8 +97,8 @@ import Testing
     }
 
     /// The sidebar's groups 1...7 under each theme: the header bar is the palette's
-    /// name background (moved only as far as its ink needs for 4.5:1), the members'
-    /// line the palette color itself.
+    /// name background (moved only as far as its ink needs for 4.5:1), and the members'
+    /// line the bar's color.
     @Test func sidebarGroupHeadersAndLinesDrawLawrencesPaletteInEveryTheme() throws {
         for (name, scope) in try Self.themes() {
             let (sidebar, ids) = try Self.sidebar(Self.order)
@@ -113,13 +114,14 @@ import Testing
                 let want = scope.tokens.chip(try Self.lawrence(color, fill: true, dark: dark), inks: .onColor).fill
                 #expect(Self.same(drawn, want), "\(name) \(color) header: \(drawn), want \(want)")
             }
+            // The members' line is the bar's exact color (Leo 2026-10-19: bar and line are one color).
             let lines = Self.views(GroupLineView.self, in: sidebar)
             #expect(!lines.isEmpty, "\(name): no members' line")
             for line in lines {
                 line.updateLayer()
-                let drawn = try Self.rgb(line.layer?.backgroundColor)
-                let want = try Self.lawrence(line.color.token, fill: false, dark: dark)
-                #expect(Self.same(drawn, want), "\(name) \(line.color.token) line: \(drawn), want \(want)")
+                let drawn = try Self.rgb(line.railShape.fillColor)
+                let want = scope.tokens.chip(try Self.lawrence(line.color.token, fill: true, dark: dark), inks: .onColor).fill
+                #expect(Self.same(drawn, want), "\(name) \(line.color.token) line: \(drawn), want the bar's \(want)")
             }
         }
     }
@@ -135,8 +137,9 @@ import Testing
         sidebar.contextMenuProvider = { _ in menuAsked = true; return nil }
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
-        defer { sidebar.list.groupEditor.hide(); window.orderOut(nil) }
+        defer { SidebarMenuAnchorTests.close(sidebar, window) }
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
         try #require(window.screen != nil)
@@ -161,7 +164,7 @@ import Testing
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
                                    "workspaceGroup.togglePin", "workspaceGroup.moveToTop",
                                    "workspaceGroup.ungroup", "workspaceGroup.delete"])
-        #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close Group",
+        #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close All in Group",
                                       "Pin Group", "Move to Top", "Ungroup", "Delete Group"])
     }
 
@@ -173,8 +176,9 @@ import Testing
         var asked: [SidebarContextTarget] = []
         sidebar.contextMenuProvider = { target in asked.append(target); return menu }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
-        defer { sidebar.list.groupEditor.hide(); window.orderOut(nil) }
+        defer { SidebarMenuAnchorTests.close(sidebar, window) }
         window.contentView?.addSubview(sidebar)
         sidebar.list.reload(animated: false)
         sidebar.layoutSubtreeIfNeeded()

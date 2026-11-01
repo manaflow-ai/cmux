@@ -5,6 +5,7 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo, 2026-10-19: "the dragged workspaces and dragged tabs turning from glassy to solid themed is
@@ -12,16 +13,16 @@ import Testing
 /// window's art and tint (`WindowBackdrop.dragsOnGlass`), not a flat theme card; a lifted sidebar row
 /// is the overlay glass (`DragLiftView`) and its ghost keeps it; a window opened for a torn-off
 /// workspace or tab gets the same backdrop as the window it left.
-@MainActor @Suite(.serialized) struct DragGlassTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct DragGlassTests {
     /// Runs `body` with the app theme translucent and frosted, as cmux.json's
     /// `appearance.backgroundOpacity` 0.65 and `backgroundBlur` "frosted" make it.
     func translucent<T>(_ body: () throws -> T) rethrows -> T {
-        let original = ThemeStore.shared.input
-        defer { _ = ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { _ = ThemeScope.app.store.apply(original) }
         var input = original
         input.backgroundOpacity = 0.65
         input.backgroundBlur = 20
-        _ = ThemeStore.shared.apply(input)
+        _ = ThemeScope.app.store.apply(input)
         return try body()
     }
 
@@ -62,6 +63,7 @@ import Testing
     @Test func theDragGhostStandsOnGlassFromItsFirstFrame() throws {
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: true)
+        defer { ghost.panel.closeAfterTest() }
         ghost.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let root = try #require(ghost.panel.contentView)
         let glass = try #require(root.subviews.first { $0 is GlassPanelView })
@@ -70,6 +72,7 @@ import Testing
 
         let solid = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: false)
+        defer { solid.panel.closeAfterTest() }
         solid.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let solidGlass = try #require(solid.panel.contentView?.subviews.first { $0 is GlassPanelView })
         #expect(solidGlass.alphaValue == 0, "an opaque window's tab image carries its own card")
@@ -78,16 +81,16 @@ import Testing
     /// Runs `body` with the app theme opaque and without art, so only a workspace's own pin can
     /// make a drag preview glass.
     func opaqueAppWithoutArt<T>(_ body: () throws -> T) rethrows -> T {
-        let original = ThemeStore.shared.input
+        let original = ThemeScope.app.store.input
         let originalSelection = ThemeScope.app.backdropSelection
         defer {
-            _ = ThemeStore.shared.apply(original)
+            _ = ThemeScope.app.store.apply(original)
             ThemeScope.app.setBackdropSelection(originalSelection)
         }
         var input = original
         input.backgroundOpacity = 1
         input.backgroundBlur = 0
-        _ = ThemeStore.shared.apply(input)
+        _ = ThemeScope.app.store.apply(input)
         ThemeScope.app.setBackdropSelection(nil)
         return try body()
     }
@@ -101,7 +104,7 @@ import Testing
         opaqueAppWithoutArt {
             #expect(WindowBackdrop.dragPreview(ThemeScope.app).isOpaque, "the fixture's app is opaque")
             let workspace = ThemeScope(level: .workspace)
-            workspace.pinBackdrop(.selection(.art(.goyaSaturn)))
+            workspace.pinBackdrop(.selection(.art(.friedrichForestMoonlight)))
             let glass = !Self.reducesTransparency
             #expect(WindowBackdrop.dragPreview(workspace).dragsOnGlass == glass)
 
@@ -150,6 +153,7 @@ import Testing
                                                  image: nil, imageOnGlass: onGlass)
                 #expect(session.beginWorkspaces(handoff, from: controller))
                 let ghost = try #require(session.drag?.ghost)
+                defer { ghost.panel.closeAfterTest() }
                 #expect(ghost.onGlass == onGlass, "the ghost stands on the glass its image was drawn for")
                 session.finish(commit: false)
                 session.finishLanding()
@@ -170,7 +174,7 @@ import Testing
                                       backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
                 let room = ThemeScope(level: .room)
-                window.install(kind: .main, content: root, scope: room)
+                window.install(kind: .main, content: root, scope: room, activeLook: nil)
                 return (window, root, room)
             }
             let (main, mainRoot, _) = open()

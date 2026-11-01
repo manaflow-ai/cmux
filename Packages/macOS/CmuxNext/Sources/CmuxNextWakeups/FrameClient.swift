@@ -22,19 +22,46 @@ public final class FrameClient {
     /// Visible motion (springs, autoscroll); false for batch work such as
     /// the daemon store drain, which the busy watchdog must not excuse.
     public let isAnimation: Bool
+    /// The client's priority class: ``MainWorkClass/frame`` (every frame, unbudgeted) unless the
+    /// client was made with ``init(owner:budgeted:on:onFrame:)``.
+    public let workClass: MainWorkClass
     private let onFrame: @MainActor (FrameTick) -> Bool
+    /// Ends the client's work at its final state in one go (``FrameScheduler`` calls it for an
+    /// animation in a window out of sight). Nil: the client is dropped with no more ticks.
+    let settleNow: (@MainActor () -> Void)?
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
     public private(set) var isActive = false
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
     /// scheduler `resolve` returns when it activates.
+    /// `settle` ends the work at its final state in one go when its window goes out of sight (nil:
+    /// the client just stops; its owner activates it again when needed).
     public init(owner: String, isAnimation: Bool = true, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
-                onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+                settle: (@MainActor () -> Void)? = nil, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = isAnimation
+        self.settleNow = settle
+        self.workClass = .frame
         self.resolve = resolve
         self.onFrame = onFrame
+    }
+
+    /// A batch client of a budgeted class (``MainWorkClass/isBudgeted``) on the app's one
+    /// ``MainWorkScheduler``: it ticks after the higher classes, only when ``MainFrameBudget/mayRun(_:)``
+    /// lets its class run, and in turn with the other clients of its class; otherwise it stays
+    /// active and ticks on the next frame. `onFrame` gets the budget: it runs its work through
+    /// ``MainFrameBudget/run(_:owner:_:)``, one task at a time, and returns true to tick again while
+    /// work is left. The client holds `work`: it never falls back to another scheduler.
+    public init(owner: String, budgeted workClass: BudgetedWorkClass, on work: MainWorkScheduler,
+                onFrame: @escaping @MainActor (FrameTick, MainFrameBudget) -> Bool) {
+        self.owner = owner
+        self.isAnimation = false
+        self.settleNow = nil
+        self.workClass = workClass.workClass
+        let frames = work.frames, budget = work.budget
+        self.resolve = { frames }
+        self.onFrame = { tick in onFrame(tick, budget) }
     }
 
     /// A client of `view`'s window (``FrameScheduler/app`` while it has none).

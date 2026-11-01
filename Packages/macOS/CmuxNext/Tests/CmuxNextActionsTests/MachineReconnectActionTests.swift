@@ -16,7 +16,7 @@ import Testing
         let ids = ContextMenuCatalog.shared.entries(for: .machineSection).flatMap { entry -> [ActionID] in
             switch entry {
             case let .action(id), let .choices(id), let .submenu(id, _): [id]
-            case let .folder(_, children): children.compactMap { if case let .action(id) = $0 { id } else { nil } }
+            case let .folder(_, children), let .group(_, children): children.compactMap { if case let .action(id) = $0 { id } else { nil } }
             case .separator: []
             }
         }

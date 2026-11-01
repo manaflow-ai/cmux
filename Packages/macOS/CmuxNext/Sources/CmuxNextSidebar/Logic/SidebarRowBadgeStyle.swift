@@ -35,10 +35,11 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 /// the tooltip and hover card.
 ///
 /// Unless `detailed` (`sidebar.detailedStatusIcons`, off by default), a row says one of two things
-/// (Lawrence 2026-10-18: "it is working" or "it is blue and ready for me to look at it"): Ready, the
-/// blue done dot, for anything that waits for the user (unread, done, a question, a permission, an
-/// error), else Working, the one spinner. `items` then holds at most one state; `unreadCount` and
-/// `pending` keep what the tooltip lists.
+/// (Lawrence 2026-10-18: "it is working" or "it is blue and ready for me to look at it"): an error
+/// (red), else needs you (orange), else Ready, the blue done dot (unread, done), else Working, the
+/// one spinner (Lawrence msg 11983). `items` then holds at most one state; `unreadCount` and
+/// `pending` keep what the tooltip lists. A program opts its row in to the finer icons with an
+/// OSC 7501 report (`SidebarWorkspace.activityFromProgram`, Lawrence msg 1351).
 nonisolated struct WorkspaceRowBadges: Equatable {
     var items: [StatusIndicatorState]
     /// Every pending item, detailed, for the tooltip.
@@ -61,13 +62,19 @@ nonisolated struct WorkspaceRowBadges: Equatable {
         self.items = detailed ? pending : Self.simple(pending).map { [$0] } ?? []
     }
 
-    /// The one state a row shows without detailed icons: Ready (`success`, the blue dot) when any
-    /// item waits for the user, else the work in progress (its progress kept), else nothing.
+    /// The one state a row shows without detailed icons, one color per meaning (Lawrence msg 11983:
+    /// "blue, orange/yellow for needs attention, and red for errors"): an error (red), else needs
+    /// you (`waiting`, one orange dot whatever it waits for), else Ready (`success`, the blue dot)
+    /// for something unread or done, else the work in progress (its progress kept), else nothing.
+    /// Never two dots (Leo 2026-10-21, on a blue dot beside "Needs you": "why ISN'T THIS JUST A
+    /// YELLOW DOT!?").
     static func simple(_ items: [StatusIndicatorState]) -> StatusIndicatorState? {
+        if items.contains(.error) { return .error }
+        if items.contains(where: { if case .waiting = $0 { true } else { false } }) { return .waiting }
         let ready = items.contains { state in
             switch state {
-            case .waiting, .error, .success: true
-            case .idle, .busy, .paused, .working: false
+            case .success: true
+            case .idle, .busy, .paused, .working, .waiting, .error: false
             }
         }
         return ready ? .success : items.first { $0.isWorking || $0.isLoading }

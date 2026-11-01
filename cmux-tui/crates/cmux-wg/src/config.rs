@@ -317,10 +317,7 @@ impl WgConfig {
 }
 
 fn strip_comment(line: &str) -> &str {
-    match line.find('#') {
-        Some(index) => &line[..index],
-        None => line,
-    }
+    line.split_once('#').map_or(line, |(before, _)| before)
 }
 
 fn comma_separated(value: &str) -> impl Iterator<Item = &str> {

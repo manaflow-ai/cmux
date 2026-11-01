@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextUpdater
 import Foundation
 import Testing
@@ -52,6 +53,15 @@ import Testing
         let result = try await page.call("cmux.changelog.get", params: ["build": .string(Load.build)], context: Load.context)
         #expect(result["changes"]?.arrayValue?.first?.stringValue == "A nightly with a reel")
         #expect(ContinuousClock.now - started < .seconds(5))
+    }
+
+    /// The page plays the reel inline (Leo 2026-10-21: one reel at the top of What's New), so its
+    /// policy admits the folder the store names reels in, and only that folder.
+    @Test func thePagePolicyAdmitsTheReelFolder() throws {
+        let store = ReleaseMediaStore(cache: FileManager.default.temporaryDirectory, bundledDirectories: [])
+        let base = try #require(store.reelBase)
+        #expect(PageDescriptor.changelog.csp.media == ["data:", base.absoluteString])
+        #expect(PageDescriptor.changelog.csp.header.contains("media-src data: \(base.absoluteString)"))
     }
 
     @Test func aBuildWithAReelLinksItsVideo() async throws {

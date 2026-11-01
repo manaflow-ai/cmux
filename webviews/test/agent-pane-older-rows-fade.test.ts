@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -141,6 +142,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
   /// Opens the chat with every row-level animation start recorded: the row, its text, its animation.
   async function open(reducedMotion: "reduce" | "no-preference"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 }, reducedMotion });
+    await installPaintedFrames(page);
     await page.addInitScript(() => {
       const fades: { id: string; text: string; name: string }[] = [];
       (window as unknown as { __rowAnimations: typeof fades }).__rowAnimations = fades;
@@ -149,7 +151,11 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
         (event) => {
           const row = event.target as HTMLElement;
           if (!row.classList?.contains("acpmux-row")) return;
-          fades.push({ id: row.dataset.rowId ?? "", text: row.textContent ?? "", name: event.animationName });
+          // A message's age ("3 weeks ago", #23769) runs straight on from its text, so "Question 130"
+          // would read as turn 1303: the row's text without it.
+          const words = row.cloneNode(true) as HTMLElement;
+          for (const time of words.querySelectorAll("time")) time.remove();
+          fades.push({ id: row.dataset.rowId ?? "", text: words.textContent ?? "", name: event.animationName });
         },
         true,
       );
@@ -158,7 +164,8 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
     await page.getByText(`Question ${TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
-    await page.waitForTimeout(600);
+    await settle(page);
+    await animationsDone(page);
     const box = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     return page;
@@ -170,20 +177,51 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
         () => (window as unknown as { __rowAnimations: { id: string; text: string; name: string }[] }).__rowAnimations,
       )
     )
-      .filter((animation) => animation.name !== "cv-enter" && animation.name !== "cv-enter-fade")
+      .filter(
+        (animation) =>
+          animation.name !== "cv-enter" && animation.name !== "cv-enter-fade" && animation.name !== "cv-message-enter",
+      )
       .map(({ id, text }) => ({ id, text }));
   /// The turn a row belongs to, from its prompt or its answer (a "Worked for" footer has none).
   const turnOf = (text: string) => {
     const match = /(?:Question|Answer) (\d+)/.exec(text);
     return match ? Number(match[1]) : undefined;
   };
+  /// Until the daemon has answered every request and the transcript has held its scroll position
+  /// over three painted frames.
   const settle = async (page: Page) => {
-    let last = -1;
-    for (let still = 0, waited = 0; still < 3 && waited < 5_000; waited += 40) {
-      await page.waitForTimeout(40);
-      const top = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-      still = inflight === 0 && top === last ? still + 1 : 0;
-      last = top;
+    for (let tries = 0; tries < 50; tries++) {
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            let last = -1;
+            let still = 0;
+            window.cmuxAfterPaint(() => {
+              const top = document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop;
+              still = top === last ? still + 1 : 0;
+              last = top;
+              if (still < 2) return true;
+              resolve();
+              return false;
+            });
+          }),
+      );
+      if (inflight === 0) return;
+    }
+  };
+  /// Until every row animation running has finished (an older row's fade, a live row's entrance)
+  /// and two more frames have painted with none started.
+  const animationsDone = async (page: Page) => {
+    for (let tries = 0; tries < 20; tries++) {
+      const running = await page.evaluate(async () => {
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        return finite().filter((animation) => animation.playState === "running").length;
+      });
+      if (running === 0) return;
     }
   };
   /// Wheels up until a prompt older than `turn` is in view.
@@ -215,7 +253,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     // Up through the rows the chat opened with and well into the older pages.
     const target = openedFrom - 20;
     await scrollUpTo(page, target);
-    await page.waitForTimeout(400);
+    await animationsDone(page);
     const fades = await olderFades(page);
     const turns = fades.map((fade) => turnOf(fade.text)).filter((turn) => turn !== undefined);
     // Rows from older pages faded as they came in, and only those.
@@ -242,7 +280,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
       await page.mouse.wheel(0, -300);
       await settle(page);
     }
-    await page.waitForTimeout(400);
+    await animationsDone(page);
     const again = await olderFades(page);
     const ids = again.map((fade) => fade.id);
     expect(ids.length - new Set(ids).size).toBe(0);
@@ -255,7 +293,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
       node.scrollTop = node.scrollHeight;
     });
     await settle(page);
-    await page.waitForTimeout(300);
+    await animationsDone(page);
     const scrolledDown = (await olderFades(page)).length;
     const send = (dir: string, kind: string, msg: Record<string, unknown>) => {
       const event = record(dir, kind, msg);
@@ -267,7 +305,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     send("in", "agent_message_chunk", chunk("Live answer: the release compile is green."));
     send("mux", "turn_result", { status: "completed" });
     await page.getByText("Question live", { exact: true }).waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(500);
+    await animationsDone(page);
     const live = (await olderFades(page)).slice(scrolledDown);
     expect(live.filter((fade) => fade.text.includes("live") || fade.text.includes("Live"))).toEqual([]);
     expect(scrolledDown).toBeGreaterThanOrEqual(before);

@@ -1,12 +1,14 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
+import CmuxNextDesignTokens
 
 /// Turning the master switch `ui.animations.enabled` off (or one category off) makes the real
 /// animation entry points apply their change in one frame and add no Core Animation animation
 /// (plans/cmux-next/motion-DESIGN.md). Every animation in the app goes through these gate
 /// helpers (`scripts/cmux-next/check-motion.sh`), so a still gate is a still app.
-@MainActor @Suite(.serialized) struct MotionMasterSwitchSurfaceTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct MotionMasterSwitchSurfaceTests {
     /// Runs `body` with the live switches set, then puts them back. Reduce Motion is pinned off so
     /// the host's accessibility setting cannot make a moving category look still.
     private func with(enabled: Bool, disabled: Set<MotionCategory> = [], _ body: () throws -> Void) rethrows {
@@ -71,6 +73,7 @@ import Testing
         try with(enabled: false) {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless],
                                   backing: .buffered, defer: false)
+            defer { window.closeAfterTest() }
             let content = try #require(window.contentView)
             content.wantsLayer = true
             let layer = try #require(content.layer)
@@ -80,7 +83,15 @@ import Testing
             #expect(layer.animation(forKey: "sublayerTransform") == nil)
             var closed = false
             window.closePopup(pivot: CGPoint(x: 150, y: 200)) { closed = true }
-            #expect(window.alphaValue == 0)
+            // A popup closes on its card layer and keeps the window opaque (Motion+Popup.swift); a
+            // window with no screen to draw on, where nothing can animate, drops its alpha instead.
+            if Motion.canAnimate(in: content) {
+                #expect(window.alphaValue == 1)
+                #expect(layer.opacity == 0, "the card did not hide at once")
+                #expect(layer.animation(forKey: "opacity") == nil)
+            } else {
+                #expect(window.alphaValue == 0)
+            }
             #expect(closed, "the close waited for an animation")
             #expect(layer.animation(forKey: "sublayerTransform") == nil)
             window.resetPopupScale()

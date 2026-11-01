@@ -16,6 +16,8 @@ if [[ "\$1" == "-version" ]]; then echo "Xcode 26.6"; exit 0; fi
 # The kept path's binary-module guard resolves packages first; not a build.
 for arg in "\$@"; do [[ "\$arg" == -resolvePackageDependencies ]] && exit 0; done
 while [[ \$# -gt 0 ]]; do
+  [[ "\$1" == ARCHS=* ]] && printf '%s\n' "\$1" >> "$TMP/archs"
+  [[ "\$1" == OTHER_SWIFT_FLAGS=* ]] && printf '%s\n' "\$1" >> "$TMP/swiftflags"
   if [[ "\$1" == "-derivedDataPath" ]]; then
     printf '%s\n' "\$2" >> "$TMP/paths"
     [[ -n "\$(ls -A "\$2" 2>/dev/null)" ]] && echo nonempty >> "$TMP/existed"
@@ -145,5 +147,37 @@ ln -s "$RT" "$RT-link"; trap 'rm -rf "$TMP" "$RT" "$RT-link"' EXIT
 mkdir -p "$RT/cmux-next-release-compile/Build"
 path="$RT-link/cmux-next-release-compile"; clear_at RUNNER_TEMP="$RT-link"
 [[ $status -eq 0 && ! -e "$RT/cmux-next-release-compile/Build" ]] || fail "a linked RUNNER_TEMP's DerivedData was refused (exit $status)"
+
+# --archs picks the architecture xcodebuild compiles (nightly-next ships an
+# x86_64 app); the default stays arm64, and a bad or misplaced flag is refused.
+archs_run() {
+  rm -f "$TMP/archs"; status=0
+  env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP/steptmp" \
+    CMUX_CI_STEP_KEY=test-step DEVELOPER_DIR="$TMP/dev" CMUX_XCODEBUILD_HEARTBEAT_SECONDS=1 \
+    /bin/bash "$ROOT/scripts/cmux-next/check-release-compile.sh" "$@" >"$TMP/out" 2>&1 || status=$?
+}
+archs_run; [[ $status -eq 0 && "$(cat "$TMP/archs")" == ARCHS=arm64 ]] || fail "default run compiled $(cat "$TMP/archs" 2>/dev/null) (exit $status)"
+archs_run --archs x86_64; [[ $status -eq 0 && "$(cat "$TMP/archs")" == ARCHS=x86_64 ]] || fail "--archs x86_64 compiled $(cat "$TMP/archs" 2>/dev/null) (exit $status)"
+archs_run --archs x86_64 "$TMP/kept-x86"; [[ $status -eq 0 && "$(cat "$TMP/archs")" == ARCHS=x86_64 ]] || fail "--archs x86_64 with a path compiled $(cat "$TMP/archs" 2>/dev/null) (exit $status)"
+for bad in "--archs" "--archs i386" "$TMP/kept-x86 --archs x86_64"; do
+  # shellcheck disable=SC2086 # each case is a word list
+  archs_run $bad
+  [[ $status -eq 2 && ! -e "$TMP/archs" ]] || fail "'$bad' was not refused (exit $status)"
+done
+
+# 7. The build setting is OTHER_SWIFT_FLAGS=$(inherited) [bench defines], never a doubled
+#    "OTHER_SWIFT_FLAGS=OTHER_SWIFT_FLAGS=...": c6d2865fcf9 passed that to xcodebuild, which then read
+#    "-DXcode..." as an input file and failed every plain Release compile (landq 2026-10-25, tip 7921f4febe78).
+rm -f "$TMP/swiftflags"
+run || fail "the plain release compile exited $?"
+[[ "$(cat "$TMP/swiftflags")" == 'OTHER_SWIFT_FLAGS=$(inherited)' ]] \
+  || fail "plain OTHER_SWIFT_FLAGS is '$(cat "$TMP/swiftflags")'"
+rm -f "$TMP/swiftflags"
+RC_ARG=--bench-hooks run || fail "the bench-hooks release compile exited $?"
+# The bench defines come from one shared file (lib/bench-swift-defines.sh, also reload.sh's).
+# shellcheck source=../lib/bench-swift-defines.sh
+source "$ROOT/scripts/cmux-next/lib/bench-swift-defines.sh"
+[[ "$(cat "$TMP/swiftflags")" == "OTHER_SWIFT_FLAGS=\$(inherited) $CMUX_BENCH_SWIFT_DEFINES" ]] \
+  || fail "bench OTHER_SWIFT_FLAGS is '$(cat "$TMP/swiftflags")'"
 
 printf 'release compile DerivedData tests: ok\n'

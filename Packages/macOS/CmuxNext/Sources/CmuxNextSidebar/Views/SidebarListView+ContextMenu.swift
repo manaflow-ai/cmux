@@ -9,23 +9,25 @@ extension SidebarListViewComponents {
         let target: SidebarContextTarget
         switch hit?.key {
         case let .workspace(id)?:
-            if !model.selection.contains(id) {
-                model.click(id)
-                reload(animated: true)
-            }
-            target = .workspaces(model.orderedSelection.isEmpty ? [id] : model.orderedSelection)
-        case let .group(id)?:
-            // A right-click on a group shows its one flat menu at once, as Finder and Safari
+            // Leo 2026-10-21 / Lawrence u8646: the menu is for the clicked row, or the whole selection when the
+            // row is part of it; the selection and the shown workspace stay as they are (one rule with the ⋮ button).
+            // A group's one row (`standsForGroup`) adds the group's menu (`SidebarRowMenu.menu(for:)`).
+            return SidebarRowMenu(list: self).menu(for: id)
+        case let .group(id)?, let .emptyGroup(id)?:
+            // A right-click on a group (or its empty row) shows its one flat menu at once, as Finder and Safari
             // do (Lawrence 2026-10-20: no second step through the editor's More row). A
             // click on the name or the more button still opens the editor (cx-rcby).
-            target = .group(id)
+            // A remote group (`SidebarSection.wrappedAsHostGroup`) shows its machine's menu.
+            target = SidebarGroup.hostMachine(id).map { .section(.machine($0)) } ?? .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
-        case let .tab(workspace, tab)?:
-            target = .tab(workspace, tab)
+        case let .doneFold(fold)? where fold.kind == .archive:
+            target = .background // the Archive row belongs to no list
+        case let .doneFold(fold)?, let .showMore(fold)?:
+            target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
         case let .item(item)?:
             target = .layoutItem(LayoutItemID(item))
-        case .block?:
+        case .block?, .status?:
             target = .background
         case nil:
             target = .background

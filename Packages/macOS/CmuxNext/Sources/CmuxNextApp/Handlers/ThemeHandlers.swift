@@ -13,7 +13,7 @@ enum ThemeHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let local: @MainActor () -> DaemonService? = { context.services.machines.local }
         func personal(_ id: ActionID, _ run: @escaping @MainActor (ActionInvocation) throws -> Void) {
-            registry.bind(id, requires: DaemonCapabilities.shared.profiles, daemon: local(), run: { invocation in
+            registry.bind(id, requires: DaemonCapability.profiles.rawValue, daemon: local(), run: { invocation in
                 try context.requireRooms()
                 try run(invocation)
             })
@@ -36,12 +36,12 @@ enum ThemeHandlers {
         registry.bind("terminal.clearTheme", run: { invocation in
             try setTerminal(invocation, to: nil, context)
         })
-        context.services.themes.previewTarget = { action, target in previewTarget(action, target, context) }
+        context.services.themes.previewTarget = { action, target, machine in previewTarget(action, target, machine, context) }
     }
 
     /// What a theme action would act on, without running it (pickers).
-    private static func previewTarget(_ action: ActionID, _ target: ActionTargetRef?, _ context: AppActionContext) -> ThemePreview.Target? {
-        let invocation = ActionInvocation(target: target)
+    private static func previewTarget(_ action: ActionID, _ target: ActionTargetRef?, _ machine: String?, _ context: AppActionContext) -> ThemePreview.Target? {
+        let invocation = ActionInvocation(target: target).onMachine(machine)
         switch action {
         case "space.setTheme": return (try? context.room(invocation)).map { .room($0.id) }
         case "workspace.setTheme": return (try? context.workspace(invocation)).map { .workspace($0.model.id) }

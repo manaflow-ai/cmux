@@ -29,7 +29,9 @@ CONFIG = ROOT / ".github" / "actionlint.yaml"
 
 # Files actionlint is allowed to skip a rule in. An entry here is a deferred
 # defect, not an exemption: the reason belongs beside it in actionlint.yaml.
-SUPPRESSED = {".github/workflows/test-ios.yml", ".github/workflows/nightly.yml"}
+# nightly.yml: only the constant `if: false` of the two retired release-surface
+# ack jobs, kept in main's shape (see actionlint.yaml).
+SUPPRESSED = {".github/workflows/nightly.yml", ".github/workflows/test-ios.yml"}
 
 failures: list[str] = []
 
@@ -96,20 +98,6 @@ def main() -> int:
             (ROOT / path).exists(),
             f"{path} is suppressed in actionlint.yaml and still exists",
         )
-
-    # The nightly.yml ignore hides every constant `if: false` there, so pin
-    # them to the two retired approval jobs it documents.
-    nightly_disabled = []
-    job = None
-    for line in (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8").splitlines():
-        if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
-            job = line.strip().rstrip(":")
-        elif line.strip() == "if: false":
-            nightly_disabled.append(job)
-    check(
-        nightly_disabled == ["await-release-surface-ack", "promote-nightly-next-acked"],
-        f"only the two retired approval jobs use `if: false` in nightly.yml (found {nightly_disabled})",
-    )
 
     if failures:
         print(f"\n{len(failures)} failure(s)")

@@ -1,7 +1,8 @@
 // The New Tab page's field follows the browser omnibar's pointer and hover rules (OmnibarPointer,
 // cx-d0d.80; Lawrence 2026-10-13): the I-beam over the whole field row at rest and while editing,
-// the arrow over its buttons, and no hover lift on the box: it is quiet, as Claude's and ChatGPT's
-// composers are (Leo 2026-10-18).
+// the arrow over its buttons (463e538e: every clickable thing shows the arrow, "change all pointers
+// back to cursor-default"), and no hover lift on the box: it is quiet, as Claude's and ChatGPT's composers are
+// (Leo 2026-10-18).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -50,6 +51,17 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     return page;
   }
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
+
   /** The cursor CSS gives the element under a point, and that element's class. */
   function cursorAt(page: Page, x: number, y: number) {
     return page.evaluate(
@@ -84,12 +96,14 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
       }
       // A press beside the text focuses the field (wherever the I-beam shows, a click focuses).
       await page.mouse.click(row.x + 4, row.y + row.height / 2);
-      expect(await page.evaluate(() => document.activeElement?.classList.contains("nt-field"))).toBe(true);
+      // The field is MarkdownField: its editable element, inside `.nt-field`, takes the focus.
+      expect(await page.evaluate(() => document.activeElement?.closest(".nt-field") != null)).toBe(true);
     }
     const button = page.locator(".nt-box button").first();
     const box = (await button.boundingBox())!;
     const got = await cursorAt(page, box.x + box.width / 2, box.y + box.height / 2);
     console.log("new-tab-omnibar-pointer button:", JSON.stringify(got));
+    // The first button is the enabled model chip; every enabled button shows the arrow (463e538e).
     expect(got.cursor).toBe("default");
     await page.close();
   });
@@ -100,9 +114,11 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     const rest = await fill(page);
     const box = (await page.locator(".nt-box").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height - 6);
-    await page.waitForTimeout(300);
+    // The page sees the pointer over the box, and any hover ease has run out.
+    await page.waitForFunction(() => document.querySelector(".nt-box")?.matches(":hover"));
+    await eased(page);
     expect(await fill(page), "no hover lift (Leo 2026-10-18)").toBe(rest);
-    await page.locator(".nt-field").focus();
+    await page.locator(".nt-field .ProseMirror").focus();
     expect(await fill(page)).toBe(rest);
     await page.close();
   });

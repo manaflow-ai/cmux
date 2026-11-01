@@ -18,31 +18,22 @@ public final class CloudAuth {
     @ObservationIgnored public let coordinator: AuthCoordinator
     @ObservationIgnored public let browserSignIn: HostBrowserSignInFlow
     @ObservationIgnored private let callbackRouter: AuthCallbackRouter
+    @ObservationIgnored private let usesCaptureFixture: Bool
 
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
     public var user: CMUXAuthUser? { coordinator.currentUser }
-    /// `RestrictToManagedTeam` with `ManagedTeam` (enterprise P17-3): the
-    /// only team this device may use, or nil. The account's other teams are
-    /// neither listed nor selectable, and without that team there is none.
-    public var managedTeamID: String?
-    public var teams: [CMUXAuthTeam] { Self.allowedTeams(coordinator.availableTeams, managed: managedTeamID) }
-    public var teamID: String? {
-        Self.allowedTeamID(resolved: coordinator.resolvedTeamID, available: coordinator.availableTeams.map(\.id), managed: managedTeamID)
+    /// The team cmux works in; every team-scoped feature reads it (``ActiveTeam``).
+    @ObservationIgnored public let activeTeam: ActiveTeam
+    /// The device's managed team (``ActiveTeam/managedTeamID``).
+    public var managedTeamID: String? {
+        get { activeTeam.managedTeamID }
+        set { activeTeam.managedTeamID = newValue }
     }
-
-    /// The account's teams this device may use.
-    nonisolated static func allowedTeams(_ teams: [CMUXAuthTeam], managed: String?) -> [CMUXAuthTeam] {
-        guard let managed else { return teams }
-        return teams.filter { $0.id == managed }
-    }
-
-    /// The team API calls use: the resolved one, or only the managed one
-    /// (when the account belongs to it) while the device is restricted.
-    nonisolated static func allowedTeamID(resolved: String?, available: [String], managed: String?) -> String? {
-        guard let managed else { return resolved }
-        return available.contains(managed) ? managed : nil
-    }
+    /// The account's teams this device may use (``ActiveTeam/teams``).
+    public var teams: [CMUXAuthTeam] { activeTeam.teams }
+    /// The team API calls use (``ActiveTeam/id``).
+    public var teamID: String? { activeTeam.id }
 
     /// The variables that choose a debug build's sign-in account. main strips
     /// inherited CMUX_* variables before anything reads them (LaunchIdentity),
@@ -72,22 +63,60 @@ public final class CloudAuth {
 
     /// `environment` nil reads this process's environment plus the captured auth launch keys.
     public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
-                defaults: UserDefaults = .standard) {
-        let environment = explicitEnvironment
-            ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment)
+                defaults: UserDefaults = .standard, captureFixture: Bool = false) {
+        #if DEBUG
+        let useCaptureFixture = captureFixture && configuration.isDebugBuild
+        #else
+        let useCaptureFixture = false
+        #endif
+        usesCaptureFixture = useCaptureFixture
+        let environment = useCaptureFixture ? [:] : (explicitEnvironment
+            ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment))
         self.configuration = configuration
-        let tokenStore = FallbackTokenStore(
+        let tokenStore: any StackAuthTokenStoreProtocol
+        let client: any AuthClient
+        let authDefaults: any CMUXAuthKeyValueStore
+        #if DEBUG
+        if useCaptureFixture {
+            let fixtureStore = CaptureFixtureTokenStore()
+            tokenStore = fixtureStore
+            client = CaptureFixtureAuthClient(store: fixtureStore)
+            // A capture must not inherit or persist this machine's auth state.
+            authDefaults = CaptureFixtureKeyValueStore()
+        } else {
+            let productionStore = FallbackTokenStore(
+                primary: KeychainStackTokenStore(service: configuration.keychainService),
+                fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
+            )
+            tokenStore = productionStore
+            authDefaults = defaults
+            client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
+        }
+        #else
+        let productionStore = FallbackTokenStore(
             primary: KeychainStackTokenStore(service: configuration.keychainService),
             fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
         )
+        tokenStore = productionStore
+        authDefaults = defaults
+        client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
+        #endif
         let config = AuthConfig(
             stack: CMUXAuthConfig(projectId: configuration.stackProjectID, publishableClientKey: configuration.stackPublishableClientKey),
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
             apiBaseURL: configuration.apiBaseURL.absoluteString
         )
-        let client = StackAuthClient(config: config, tokenStore: .custom(tokenStore),
-                                     baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
-        let devAuth = configuration.isDebugBuild && !configuration.isProductionAuth
+        // The production client is composed above so the DEBUG capture branch
+        // never constructs StackAuth's network client or touches Keychain.
+        // A debug build signs in from its dogfood credentials against the development project.
+        // Pointed at production (`CMUX_AUTH_ENVIRONMENT=production`), it does so only from an
+        // explicit `CMUX_AUTH_CREDENTIALS_FILE`, never from the ambient secrets files: that is how
+        // a hidden rig build signs a production test account in for end-to-end checks
+        // (cmux-next-ios/verify). A release build never reads either.
+        // The variable is read from the process environment, so pass it per launch with
+        // `open --env`; an exported one would replace a production session signed in by browser.
+        let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
+        let devAuth = !useCaptureFixture && configuration.isDebugBuild && (!configuration.isProductionAuth || explicitCredentialsFile)
         var launchEnvironment = environment
         var replaceSession = false
         let decision: (credentials: DogfoodCredentials?, refusal: DogfoodCredentials.Refusal?) =
@@ -102,30 +131,54 @@ public final class CloudAuth {
         let anchor = AuthPresentationContextProvider()
         coordinator = AuthCoordinator(
             client: client,
-            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "cmux.auth.hasTokens"),
-            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "cmux.auth.cachedUser"),
-            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "cmux.auth.selectedTeamID"),
+            sessionCache: CMUXAuthSessionCache(keyValueStore: authDefaults, key: "cmux.auth.hasTokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: authDefaults, key: "cmux.auth.cachedUser"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: authDefaults, key: "cmux.auth.selectedTeamID"),
             anchor: anchor,
             config: config,
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
-                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession)
+                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession),
+            isOnline: { !useCaptureFixture }
         )
+        activeTeam = ActiveTeam(source: coordinator)
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)
         let coordinator = coordinator
+        #if DEBUG
+        let sessionFactory: any HostBrowserAuthSessionFactory = useCaptureFixture
+            ? CaptureFixtureBrowserAuthSessionFactory()
+            : ASWebBrowserAuthSessionFactory(anchor: anchor)
+        // Every open here follows the person's Sign In, so the browser comes to the front:
+        // opened behind cmux, the click looked dead (2026-10-31). The open never blocks (cx-050n).
+        let openExternalURL: @MainActor @Sendable (URL) -> Bool = { url in
+            guard !useCaptureFixture else { return false }
+            return NSWorkspace.shared.openInForeground(url)
+        }
+        #else
+        let sessionFactory: any HostBrowserAuthSessionFactory = ASWebBrowserAuthSessionFactory(anchor: anchor)
+        let openExternalURL: @MainActor @Sendable (URL) -> Bool = { url in
+            NSWorkspace.shared.openInForeground(url)
+        }
+        #endif
         browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
-            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
+            sessionFactory: sessionFactory,
             callbackRouter: callbackRouter,
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
-            openExternalURL: { url in
-                // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
-                guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
-                NSWorkspace.shared.openInBackground(url)
-                return true
-            }
+            openExternalURL: openExternalURL
         )
+    }
+
+    private static func stackClient(configuration: CloudConfiguration,
+                                    tokenStore: some StackAuthTokenStoreProtocol) -> any AuthClient {
+        let config = AuthConfig(
+            stack: CMUXAuthConfig(projectId: configuration.stackProjectID, publishableClientKey: configuration.stackPublishableClientKey),
+            magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
+            apiBaseURL: configuration.apiBaseURL.absoluteString
+        )
+        return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
+                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
     }
 
     /// Starts restoring the stored session (and dev auto sign-in).
@@ -162,23 +215,14 @@ public final class CloudAuth {
     /// way on when the popup shows nothing); false when none is in progress.
     @discardableResult
     public func continueSignInInBrowser() -> Bool {
-        guard let url = browserSignIn.activeAttemptSignInURL else { return false }
-        NSWorkspace.shared.openInBackground(url)
-        return true
+        guard !usesCaptureFixture, let url = browserSignIn.activeAttemptSignInURL else { return false }
+        return NSWorkspace.shared.openInForeground(url)
     }
 
     /// Ends the sign-in in progress.
     public func cancelSignIn() { browserSignIn.cancelSignIn() }
 
     public func signOut() async { await browserSignIn.signOut() }
-
-    /// Selects `id`; refused (false) when the device is restricted to another team.
-    @discardableResult
-    public func selectTeam(_ id: String) -> Bool {
-        guard managedTeamID == nil || id == managedTeamID else { return false }
-        coordinator.selectedTeamID = id
-        return true
-    }
 
     /// Whether `url` is a sign-in callback this build accepts, in any form
     /// (`<scheme>://auth-callback`, `<scheme>:auth-callback`), so URL

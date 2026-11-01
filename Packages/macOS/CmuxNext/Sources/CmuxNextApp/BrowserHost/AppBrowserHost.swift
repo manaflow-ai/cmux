@@ -33,20 +33,6 @@ final class AppBrowserHost {
     /// The agent cursor of `cmux browser <tab>` page commands.
     let pageInputCursor: AppPageInputCursor
 
-    /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
-    /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
-    /// builds take `CMUX_NEXT_COOKIE_BACKUP_KEY_FILE` instead, so fleet tests
-    /// run without the Keychain; Release builds never read it.
-    static func cookieBackups(bundleID: String?) -> CookieBackups {
-        let directory = CookieBackups.defaultDirectory(bundleID: bundleID)
-        #if DEBUG
-        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_COOKIE_BACKUP_KEY_FILE"], !path.isEmpty {
-            return CookieBackups(directory: directory, keySource: FileCookieBackupKey(url: URL(filePath: path)))
-        }
-        #endif
-        return CookieBackups(directory: directory, keySource: KeychainCookieBackupKey(bundleID: bundleID))
-    }
-
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
         self.services = services
         pageInputCursor = AppPageInputCursor(services: services)
@@ -55,7 +41,7 @@ final class AppBrowserHost {
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
         relay.renderWindows = tabs.renderWindows
         let driver = WebKitDriver(provider: tabs)
-        driver.cookieBackups = Self.cookieBackups(bundleID: services.environment.launch.bundleID)
+        driver.cookieBackups = CookieBackups.app(bundleID: services.environment.launch.bundleID, loginKeychain: services.loginKeychain)
         let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials
         self.tabs = tabs
@@ -92,7 +78,9 @@ final class AppBrowserHost {
                   let parent = services.locateTab(surface: opener) else { return }
             provider.reportTabCreated(targetID: tab.id, openerTargetID: parent.id)
         }
-        leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
+        leaseObservation = provider.observeLeases { [cursorLeases, weak services] targetID, lease in
+            // A page an agent holds never freezes or hibernates (smarter hibernation, msg 9103).
+            services?.cache.hibernation?.noteLease(targetID, held: lease != nil)
             AgentCursorPresenceColors.shared.leaseChanged(target: targetID, session: lease?.session, terminal: lease?.terminal)
             cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }
@@ -217,7 +205,7 @@ final class AppProviderCredentials: ProviderCredentialsSource {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-host")
 
     func providerCredentials() async -> ProviderCredentials? {
-        guard let daemon, daemon.supports(DaemonCapabilities.shared.browserHostProvider),
+        guard let daemon, daemon.supports(DaemonCapability.browserHostProvider.rawValue),
               let connection = daemon.connection else { return nil }
         let reply: BrowserHostProviderRequest.Response
         do {

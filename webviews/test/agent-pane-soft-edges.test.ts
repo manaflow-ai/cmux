@@ -7,6 +7,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { PNG } from "pngjs";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -124,14 +126,14 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// Whether each edge of the scroller fades (a mask with that edge's 18px ramp), and its box, which must not move.
+  /// Whether each edge of the scroller fades, and its box, which must not move.
   const edges = (page: Page) =>
     page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const style = getComputedStyle(node);
       const mask = style.maskImage || style.webkitMaskImage || "none";
       const fades = (edge: string) =>
-        mask !== "none" && style.getPropertyValue(`--acpmux-fade-${edge}`).trim() === "18px";
+        mask !== "none" && parseFloat(style.getPropertyValue(`--acpmux-fade-${edge}`)) > 0;
       const box = node.getBoundingClientRect();
       return {
         top: fades("top"),
@@ -139,22 +141,46 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
         box: `${box.x},${box.y},${box.width},${box.height}`,
       };
     });
+  /// Until the transcript has held its scroll position over three painted frames with no animation
+  /// left running: the view has followed what it was given and its edges have caught up.
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const finite = () =>
+        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      for (let tries = 0; tries < 20; tries++) {
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await new Promise<void>((resolve) => {
+          let last = -1;
+          let still = 0;
+          window.cmuxAfterPaint(() => {
+            still = node.scrollTop === last ? still + 1 : 0;
+            last = node.scrollTop;
+            if (still < 2) return true;
+            resolve();
+            return false;
+          });
+        });
+        if (finite().every((animation) => animation.playState !== "running")) return;
+      }
+    });
   const scrollTo = async (page: Page, where: "start" | "middle" | "end") => {
     await page.evaluate((where) => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const end = node.scrollHeight - node.clientHeight;
       node.scrollTop = where === "start" ? 0 : where === "end" ? end : end / 2;
     }, where);
-    await page.waitForTimeout(300);
+    await settled(page);
   };
 
   test("the transcript fades under the header once scrolled, and above the composer while more lies below", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
     await page.getByText("Question 40", { exact: true }).waitFor({ timeout: 60_000 });
-    await page.waitForTimeout(500);
+    await settled(page);
 
     const latest = await edges(page);
 
@@ -169,7 +195,9 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     });
     send("mux", "user_message", { text: "Question 41" });
     send("mux", "turn_started", {});
+    // One chunk a painted frame: each lands, and is drawn, before the next comes.
     for (let chunk = 1; chunk <= 30; chunk++) {
+      const text = `Paragraph ${chunk}: a client that fails waits longer before each retry.`;
       send(
         "in",
         "agent_message_chunk",
@@ -177,15 +205,16 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
           sessionUpdate: "agent_message_chunk",
           content: {
             type: "text",
-            text: `Paragraph ${chunk}: a client that fails waits longer before each retry.\n\n`,
+            text: `${text}\n\n`,
           },
         }),
       );
-      await Bun.sleep(40);
+      await page.getByText(text, { exact: false }).waitFor({ timeout: 10_000 });
+      await page.evaluate(() => window.cmuxPaintFrame());
     }
     send("mux", "turn_result", { status: "completed" });
     await page.getByText("Paragraph 30", { exact: false }).waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(500);
+    await settled(page);
     expect(await page.evaluate(() => (window as unknown as { fadedBottom: number }).fadedBottom)).toBe(0);
 
     await scrollTo(page, "middle");
@@ -196,6 +225,30 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
       latest: { top: true, bottom: false, box: latest.box },
       middle: { top: true, bottom: true, box: latest.box },
       start: { top: false, bottom: true, box: latest.box },
+    });
+
+    // A floating jump button must not erase several extra text lines above the composer.
+    // Paint a solid probe through the real scroller's alpha mask: 30px above the dock stays fully
+    // legible, while the short edge still softens and everything below the dock stays hidden.
+    await scrollTo(page, "middle");
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    const probe = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      document.querySelector<HTMLElement>(".acpmux-main")!.style.background = "black";
+      node.style.background = "red";
+      const foot = box.bottom - parseFloat(style.getPropertyValue("--acpmux-dock-space"));
+      return { x: box.left + 2, foot };
+    });
+    const pixels = PNG.sync.read(await page.screenshot());
+    const redAt = (y: number) => pixels.data[(Math.floor(y) * pixels.width + Math.floor(probe.x)) * 4]!;
+    expect(redAt(probe.foot - 30), "text more than one line above the dock stays opaque").toBeGreaterThan(240);
+    expect(redAt(probe.foot - 2), "the short transition remains soft").toBeLessThan(100);
+    expect(redAt(probe.foot + 4), "rows stay hidden beneath the dock").toBeLessThan(10);
+    await page.evaluate(() => {
+      document.querySelector<HTMLElement>(".acpmux-main")!.style.removeProperty("background");
+      document.querySelector<HTMLElement>(".acpmux-scroll")!.style.removeProperty("background");
     });
 
     // Reduce Transparency: plain edges.

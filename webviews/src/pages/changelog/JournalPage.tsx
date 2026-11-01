@@ -3,8 +3,8 @@
 // written around days and the update, not builds:
 //  - After an update: "What's new since your last update", every human change of the span's
 //    builds once (New / Improved / Fixed / Security, a hero when one has media), then every
-//    change by area with its pull request, internal work folded "Under the hood". The span's
-//    nightly reels come first, one card each.
+//    change by area with its pull request, internal work folded "Under the hood". No nightly
+//    reel video: a stitched recording of the span's tours showed no change (Leo, 2026-10-31).
 //  - Then one section per release day ("Today", "Yesterday", "Oct 6"), its builds merged; the
 //    build numbers are small and selectable, never a headline.
 //  - A run of builds with no human change says "Maintenance and fixes", never a blank row.
@@ -16,57 +16,75 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, releaseTitle } from "./model";
 import { cardVersion } from "./UpdateSurfaces";
-import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, ReelCards, type PartsContext } from "./ReleaseParts";
+import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, type PartsContext } from "./ReleaseParts";
+import { SpanNews } from "./SpanNews";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
-import type { IndexEntry, ReleaseNotes } from "./types";
+import type { IndexEntry, NewsLayout, ReleaseNotes } from "./types";
 
 export function JournalPage({
   store,
   strings,
   s,
   ledger = false,
+  news,
 }: {
   store: ChangelogStore;
   strings: Strings;
   s: ChangelogSnapshot;
   ledger?: boolean;
+  news?: NewsLayout;
 }) {
-  const ctx: PartsContext = { strings, onTry: (id) => void store.tryIt(id), rowMedia: ledger };
+  const ctx: PartsContext = { strings, onTry: (id) => void store.tryIt(id), rowMedia: ledger, news };
   const span = new Set(s.inSpan);
   const fresh = s.builds.filter((b) => span.has(b.build));
   const earlier = s.span ? s.builds.filter((b) => !span.has(b.build)) : s.builds;
   return (
-    <KeyboardScope className={ledger ? "clj cll" : "clj"} handleKeyDown={journalKeys}>
+    <KeyboardScope className="clw" handleKeyDown={journalKeys}>
       <main aria-label={strings.t("changelog.page.title")}>
-        {s.failed && <p className="cl-error">{s.failed}</p>}
-        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} />}
-        {!s.span && <h1 className="clj-title">{strings.t("changelog.page.title")}</h1>}
-        {!s.span && s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
-        {s.span && earlier.length > 0 && <div className="clj-marker">{strings.t("changelog.page.earlier")}</div>}
-        {groupByDay(earlier).map((day) => (
-          <DaySection
-            key={day.day + day.builds[0]!.build}
-            day={day.day}
-            builds={day.builds}
-            s={s}
-            store={store}
-            ctx={ctx}
-            ledger={ledger}
-          />
-        ))}
+        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} failed={s.failed} />}
+        <div className={ledger ? "clj cll" : "clj"}>
+          {!s.span && s.failed && <p className="cl-error">{s.failed}</p>}
+          {!s.span && <h1 className="clj-title">{strings.t("changelog.page.title")}</h1>}
+          {!s.span && s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
+          {s.span && earlier.length > 0 && <div className="clj-marker">{strings.t("changelog.page.earlier")}</div>}
+          {groupByDay(earlier).map((day) => (
+            <DaySection
+              key={day.day + day.builds[0]!.build}
+              day={day.day}
+              builds={day.builds}
+              s={s}
+              store={store}
+              ctx={ctx}
+              ledger={ledger}
+            />
+          ))}
+        </div>
       </main>
     </KeyboardScope>
   );
 }
 
-/** The update's own section: what changed from the version before it to this one. */
-function SpanSection({ s, fresh, ctx }: { s: ChangelogSnapshot; fresh: IndexEntry[]; ctx: PartsContext }) {
+/** The update's own section: what changed from the version before it to this one. It spans the
+    tab's width up to a cap (Leo 2026-10-21: "how are you still going this narrow"), above the
+    narrower history. */
+function SpanSection({
+  s,
+  fresh,
+  ctx,
+  failed,
+}: {
+  s: ChangelogSnapshot;
+  fresh: IndexEntry[];
+  ctx: PartsContext;
+  failed?: string;
+}) {
   const loaded = fresh.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = fresh.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
   const view = mergedView(loaded, ctx.strings.language);
   const span = s.span!;
   return (
     <section className="clj-section clj-span" data-testid="changelog.sinceLastUpdate" aria-labelledby="clj-span-title">
+      {failed && <p className="cl-error">{failed}</p>}
       <h1 className="clj-title" id="clj-span-title">
         {ctx.strings.t("changelog.page.sinceTitle")}
       </h1>
@@ -81,8 +99,7 @@ function SpanSection({ s, fresh, ctx }: { s: ChangelogSnapshot; fresh: IndexEntr
           {span.to}
         </span>
       </div>
-      <ReelCards builds={fresh} reels={s.reels} strings={ctx.strings} />
-      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} open />
+      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} news />
     </section>
   );
 }
@@ -104,22 +121,7 @@ function DaySection({
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
-  const near = (el: HTMLElement | null) => {
-    if (!el || !pending) return;
-    const load = () => builds.forEach((b) => void store.ensure(b.build));
-    // A day already near the viewport loads now: the first frame waits for it (paintGate.ts).
-    if (typeof IntersectionObserver === "undefined" || nearViewport(el)) return load();
-    const observer = new IntersectionObserver(
-      (records) => {
-        if (!records.some((r) => r.isIntersecting)) return;
-        observer.disconnect();
-        load();
-      },
-      { rootMargin: `${NEAR_MARGIN}px 0px` },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  };
+  const near = loadNear(builds, store, pending);
   const view = mergedView(loaded, ctx.strings.language);
   const installed = builds.some((b) => b.build === s.current);
   const title = ledger ? releaseTitle(loaded, ctx.strings.language) : undefined;
@@ -156,6 +158,26 @@ function DaySection({
   );
 }
 
+/** A day section's ref: it loads the notes of `builds` once the section nears the viewport (at once
+    when it already is: the first frame waits for it, paintGate.ts). Nothing while none is pending. */
+export function loadNear(builds: IndexEntry[], store: ChangelogStore, pending: boolean) {
+  return (el: HTMLElement | null) => {
+    if (!el || !pending) return;
+    const load = () => builds.forEach((b) => void store.ensure(b.build));
+    if (typeof IntersectionObserver === "undefined" || nearViewport(el)) return load();
+    const observer = new IntersectionObserver(
+      (records) => {
+        if (!records.some((r) => r.isIntersecting)) return;
+        observer.disconnect();
+        load();
+      },
+      { rootMargin: `${NEAR_MARGIN}px 0px` },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  };
+}
+
 /** How far outside the viewport a day starts loading its notes. */
 const NEAR_MARGIN = 800;
 
@@ -171,32 +193,40 @@ function SectionBody({
   ctx,
   unpublished = false,
   heroTitled = true,
-  open = false,
+  news = false,
 }: {
   view: ReturnType<typeof mergedView>;
   pending: boolean;
   ctx: PartsContext;
   unpublished?: boolean;
   heroTitled?: boolean;
-  /** The update's own section lists its changes open; a day folds them. */
-  open?: boolean;
+  /** The update's own section reads as happy news (SpanNews.tsx); a day keeps its hero and lists. */
+  news?: boolean;
 }) {
-  if (pending && view.count === 0 && view.changes.length === 0)
+  // The update waits for every build of its span (they load at once): drawn early, its fold would
+  // open on the first build's bare changes and close again when a later build's notes arrive.
+  if (pending && (news || (view.count === 0 && view.changes.length === 0)))
     return <div className="clj-placeholder" aria-busy="true" />;
   return (
     <>
-      {view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
+      {!news && view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
       {view.count === 0 && view.changes.length === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
       {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
-      <Groups view={view} ctx={ctx} />
-      <ChangesFold changes={view.changes} hidden={view.underTheHood} strings={ctx.strings} open={open} />
+      {news ? <SpanNews view={view} ctx={ctx} /> : <Groups view={view} ctx={ctx} />}
+      {/* With no curated notes the changes are the news, so the update opens them. */}
+      <ChangesFold
+        changes={view.changes}
+        hidden={view.underTheHood}
+        strings={ctx.strings}
+        open={news && view.count === 0}
+      />
     </>
   );
 }
 
 /** J and K (from any focused control in the page) jump to the next or previous section. The
     document scrolls, so Space, Page Down and the arrows work with nothing focused. */
-function journalKeys(event: KeyboardEvent<HTMLDivElement>) {
+export function journalKeys(event: KeyboardEvent<HTMLDivElement>) {
   if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
   const key = event.key.toLowerCase();
   if (key !== "j" && key !== "k") return;

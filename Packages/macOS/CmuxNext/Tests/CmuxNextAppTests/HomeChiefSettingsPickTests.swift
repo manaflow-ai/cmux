@@ -18,7 +18,7 @@ import Testing
         view.picked(view.harness)
         var received = writes.makeAsyncIterator()
         let write = await received.next()
-        let expected: [String: String?] = ["harness": "codex", "model": nil, "effort": nil]
+        let expected: [String: String?] = ["harness": "codex", "model": nil, "effort": nil, "speed": nil]
         #expect(write == expected)
     }
 
@@ -33,6 +33,19 @@ import Testing
         view.effort.selectItem(at: low)
         await view.pick("effort", "low").value
         #expect(view.effort.selectedItem?.representedObject as? String == "high")
+    }
+
+    /// The Harness popup reads this Mac's acpmux harnesses at each refresh (a harness added to
+    /// acpmux shows the next time the card opens) for a Chief whose brain runs here.
+    @Test func theHarnessPopupOffersEveryAcpmuxHarness() async throws {
+        let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: RecordingChief(writes: continuation))
+        view.listHarnesses = { ["claude", "opencode", "gemini"] }
+        await view.refresh().value
+        let offered = view.harness.itemArray.compactMap { $0.representedObject as? String }
+        #expect(offered.contains("opencode"), "offered: \(offered)")
+        #expect(offered.contains("gemini"), "offered: \(offered)")
+        #expect(offered.filter { $0 == "claude" }.count == 1)
     }
 
     /// Picking by name the harness Default already runs keeps the model and effort chosen for it.

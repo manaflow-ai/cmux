@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
+import CmuxNextTasks
 
 /// The one change a checklist action makes (`workspace-checklist-v1`). Every entrypoint (palette,
 /// workspace menu, Cmd-Return, the Todo page, `cmux action run`) reads its action and arguments

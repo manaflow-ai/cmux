@@ -55,3 +55,12 @@ test("choosing No wallpaper for this workspace takes the slider away; a picture 
   expect(slider()).not.toBeNull();
   page.unmount();
 });
+
+// "Opacity should go all the way to 100%" (2026-10-21): at 100% the workspace hides its picture.
+test("This Workspace's Opacity over Art reaches 100%", async () => {
+  const { page, slider } = await thisWorkspace("none", "starryNight");
+  const input = slider()!.querySelector<HTMLInputElement>('input[type="range"]')!;
+  expect(input.min).toBe("0");
+  expect(input.max).toBe("1");
+  page.unmount();
+});

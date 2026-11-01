@@ -2,32 +2,32 @@
 // path like a reply image (`media.load`) and answers a `cmux-agent://pane/__media/` URL that the
 // pane's scheme handler serves in byte ranges (CSP `media-src 'self'`). A player mounts only
 // once it nears the viewport and asks for metadata only, so a long transcript loads no media it
-// does not show. A video plays inline with controls (muted while the pointer rests on it);
-// Expand shows it large over the pane. Nothing opens a browser. Until the host answers, or when
+// does not show. A video first draws as its thumbnail (Leo 2026-10-21: "id like to be able to watch
+// .mp4s direclty in cmux next"): its poster frame, a play button and its length. The pointer
+// resting on it previews it muted; a click plays it with sound and controls. Expand shows it large
+// over the pane (paused until Play), and Open in tab opens it in a tab the way a link opens (the host's link setting):
+// a file in cmux's file pages, a web video in a cmux browser tab. Until the host answers, or when
 // it will not play the file, the file shows as its name.
 // Web media (a GitHub user attachment or an https media link, alone on its line or as an image)
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
-import { Close, Expand } from "../conversation/icons";
+import { Close, Expand, OpenTab, PlayTriangle } from "../conversation/icons";
 import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
+import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
+import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
+import { mediaKind } from "./mediaKind";
 
-const VIDEO = /\.(mp4|m4v|mov|webm)$/i;
-const AUDIO = /\.(mp3|m4a|aac|wav|flac)$/i;
+export { mediaKind } from "./mediaKind";
+
 const ATTACHMENT = /^\/user-attachments\/assets\/[\w-]+$/;
-
-/// Whether `src` (a path or `file://` URL) names a video or an audio file, by its extension.
-export function mediaKind(src: string): "video" | "audio" | undefined {
-  const path = (linkPath(src) ?? src).split(/[?#]/)[0] ?? "";
-  return VIDEO.test(path) ? "video" : AUDIO.test(path) ? "audio" : undefined;
-}
 
 function webURL(src: string): URL | undefined {
   try {
@@ -43,6 +43,29 @@ export function isRemoteMedia(src: string): boolean {
   const url = webURL(src);
   if (!url) return false;
   return (url.hostname === "github.com" && ATTACHMENT.test(url.pathname)) || mediaKind(url.pathname) !== undefined;
+}
+
+/// The host request that opens `source` in a tab, as a link to it would open: a web video
+/// (https only) in a cmux browser tab (`browser.openIn` with `cmux`), a file through the path
+/// chip's `link.openPath` (cmux's file pages, which play video and run nothing). The host checks
+/// either again and places the tab by the link setting. Nil for anything else.
+export function mediaOpenRequest(source: string): { method: string; params: Record<string, string> } | undefined {
+  if (webURL(source)) return { method: "browser.openIn", params: { url: source, browserId: "cmux" } };
+  // A path or a local `file://` URL; any other scheme (and a file URL on another host) opens nothing.
+  const path = linkPath(source);
+  if (!path || isDeniedPath(path)) return undefined;
+  return { method: "link.openPath", params: { path } };
+}
+
+/// A video's length as the thumbnail shows it: `m:ss`, or `h:mm:ss` from an hour. Nil when the
+/// length is unknown (a live stream, metadata not read yet).
+export function formatDuration(seconds: number): string | undefined {
+  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+  const total = Math.max(1, Math.round(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
 /// The host's answer per source, so a re-render or a second mention plays the same URL.
@@ -86,7 +109,7 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
   const near = useNearViewport(frame);
   const { src, state, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
-  if (src) return <MediaPlayer src={src} kind={kind} name={name} onError={fail} />;
+  if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
   if (state === "failed" && fallback) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
@@ -104,7 +127,7 @@ export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; 
   const near = useNearViewport(frame);
   const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
-  if (src) return <MediaPlayer src={src} kind={kind} name={name} onError={fail} />;
+  if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
   if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
@@ -120,62 +143,118 @@ export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; 
   );
 }
 
-function MediaPlayer({
+export function MediaPlayer({
   src,
+  source,
   kind,
   name,
+  path,
   onError,
 }: {
   src: string;
+  /** The path or link the reply named, for Open in tab (never the granted `src`). */
+  source: string;
   kind: "video" | "audio";
   name: string;
+  /// The file it plays: its right-click menu's Copy, Save As… and Reveal in Finder act on it.
+  path?: string;
   onError(): void;
 }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const close = useRef<HTMLButtonElement>(null);
+  const media = useRef<HTMLSpanElement>(null);
+  const inlineVideo = useRef<HTMLVideoElement | null>(null);
+  const expandedVideo = useRef<HTMLVideoElement | null>(null);
+  const expandedPlayed = useRef(false);
+  // Where the inline copy's own Play continues from after the expanded player closed.
+  const inlineResume = useRef<number | undefined>(undefined);
+  // Closing the expanded player hands its position back, so the inline copy (paused at the
+  // handoff) resumes where the expanded one stopped instead of rewinding.
+  const closeExpanded = () => {
+    const large = expandedVideo.current;
+    const inline = inlineVideo.current;
+    if (expandedPlayed.current && large && inline && large !== inline) {
+      const time = large.currentTime;
+      if (Number.isFinite(time)) {
+        inline.currentTime = time;
+        inlineResume.current = time;
+      }
+    }
+    expandedPlayed.current = false;
+    setExpanded(false);
+  };
+  const [short, setShort] = useState(false);
+  useLayoutEffect(() => {
+    if (kind !== "video") return;
+    const video = media.current?.querySelector("video");
+    if (!video) return;
+    // Two native 37 px bars, two 8 px clearances, our 28 px target and its 4 px margin.
+    // If they cannot fit, reserve an action row above the player, including before playback.
+    const update = () => setShort(video.getBoundingClientRect().height < 126);
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    observer?.observe(video);
+    return () => observer?.disconnect();
+  }, [kind]);
   if (kind === "audio")
     return (
-      <span className="cv-media is-audio">
-        <span className="cv-media__name">{name}</span>
+      <span className="cv-media is-audio" data-path={path}>
+        {/* The name drags out as the file itself (conversation/dragOut.ts). */}
+        <span className="cv-media__name" draggable={Boolean(path)}>
+          {name}
+        </span>
         {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
         <audio src={src} controls preload="metadata" aria-label={name} onError={onError} />
       </span>
     );
+  const open = mediaOpenRequest(source);
   return (
-    <span className="cv-media is-video">
-      {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
-      <video
+    <span ref={media} className={`cv-media is-video${short ? " has-short-video" : ""}`} data-path={path}>
+      <VideoThumbnail
         src={src}
-        controls
-        muted
-        playsInline
-        preload="metadata"
-        aria-label={name}
+        name={name}
         onError={onError}
-        onMouseEnter={(event) => {
-          const video = event.currentTarget;
-          if (video.paused && video.currentTime === 0) void video.play().catch(() => {});
+        videoRef={(element) => {
+          inlineVideo.current = element;
         }}
-        onMouseLeave={(event) => {
-          const video = event.currentTarget;
-          if (video.muted) video.pause();
+        onPlay={() => {
+          const time = inlineResume.current;
+          inlineResume.current = undefined;
+          return time;
         }}
       />
-      <button
-        type="button"
-        className="cv-media__expand"
-        aria-label={t("media.expand")}
-        title={t("media.expand")}
-        onClick={() => setExpanded(true)}
-      >
-        <Expand size={14} />
-      </button>
+      <span className="cv-media__actions">
+        {open && (
+          <button
+            type="button"
+            className="cv-media__action"
+            aria-label={t("media.openInTab")}
+            title={t("media.openInTab")}
+            onClick={() => void callChipHost(open.method, open.params)}
+          >
+            <span className="ui-glass cv-media__glass" aria-hidden="true">
+              <OpenTab size={14} />
+            </span>
+          </button>
+        )}
+        <button
+          type="button"
+          className="cv-media__action cv-media__expand"
+          aria-label={t("media.expand")}
+          title={t("media.expand")}
+          onClick={() => setExpanded(true)}
+        >
+          <span className="ui-glass cv-media__glass" aria-hidden="true">
+            <Expand size={14} />
+          </span>
+        </button>
+      </span>
       {expanded && (
         <Dialog
           open
           onOpenChange={(open) => {
-            if (!open) setExpanded(false);
+            if (!open) closeExpanded();
           }}
           label={name || t("media.player")}
           className="acpmux-image-viewer"
@@ -190,17 +269,180 @@ function MediaPlayer({
                 className="acpmux-image-viewer-action"
                 ref={close}
                 {...keyedIconProps(t("image.close"), "escape")}
-                onClick={() => setExpanded(false)}
+                onClick={closeExpanded}
               >
                 <Close />
               </button>
             </div>
             <div className="cv-media-stage">
-              {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
-              <video src={src} controls autoPlay playsInline aria-label={name} />
+              {/* Opens paused, like the thumbnail: only Play starts it with sound (never autoplay). */}
+              <VideoThumbnail
+                src={src}
+                name={name}
+                onError={onError}
+                videoRef={(element) => {
+                  expandedVideo.current = element;
+                }}
+                onPlay={(element) => {
+                  expandedPlayed.current = true;
+                  inlineResume.current = undefined;
+                  const current = inlineVideo.current;
+                  if (!current || current === element) return undefined;
+                  const time = current.currentTime;
+                  // The expanded copy is the active player after an explicit Play. Keep the
+                  // inline copy's position, but stop it before the new copy gains sound.
+                  current.pause();
+                  return Number.isFinite(time) && time > 0 ? time : undefined;
+                }}
+              />
             </div>
           </div>
         </Dialog>
+      )}
+    </span>
+  );
+}
+
+function useMediaPreviewAllowed(): boolean {
+  const [allowed, setAllowed] = useState(() => mediaPreviewAllowed());
+  useEffect(() => {
+    const root = document.documentElement;
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const update = () => setAllowed(mediaPreviewAllowed(root));
+    update();
+    query?.addEventListener("change", update);
+    const observer = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(update);
+    observer?.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-agent-motion", "data-cmux-motion", "data-status-indicators"],
+    });
+    return () => {
+      query?.removeEventListener("change", update);
+      observer?.disconnect();
+    };
+  }, []);
+  return allowed;
+}
+
+/// A video before it plays: its poster frame (the frame just after the start, read with the
+/// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
+/// it previews it muted after the shared hover-intent dwell; a click plays it from the start with
+/// sound and the player's controls. Every part a click lands on shows the arrow.
+export function VideoThumbnail({
+  src,
+  name,
+  onError,
+  onPlay,
+  videoRef,
+}: {
+  src: string;
+  name: string;
+  onError(): void;
+  /** Called before explicit playback starts; return a position to continue from. */
+  onPlay?(element: HTMLVideoElement): number | undefined;
+  videoRef?(element: HTMLVideoElement | null): void;
+}) {
+  const t = useT();
+  const video = useRef<HTMLVideoElement>(null);
+  const startedRef = useRef(false);
+  const [started, setStarted] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [duration, setDuration] = useState<string | undefined>();
+  const previewAllowed = useMediaPreviewAllowed();
+  const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
+  const previewing = previewAllowed && shown === true;
+
+  useEffect(() => {
+    if (!previewAllowed) dismiss();
+  }, [dismiss, previewAllowed]);
+
+  useEffect(() => {
+    if (started || !hovered || !previewAllowed) return;
+    const element = video.current;
+    const cancel = () => {
+      if (startedRef.current) return;
+      dismiss();
+      if (element?.muted) element.pause();
+    };
+    document.addEventListener("scroll", cancel, true);
+    document.addEventListener("visibilitychange", cancel);
+    window.addEventListener("pagehide", cancel);
+    return () => {
+      if (!startedRef.current) cancel();
+      document.removeEventListener("scroll", cancel, true);
+      document.removeEventListener("visibilitychange", cancel);
+      window.removeEventListener("pagehide", cancel);
+    };
+  }, [dismiss, hovered, previewAllowed, started]);
+
+  useEffect(() => {
+    const element = video.current;
+    if (!element || started) return;
+    if (previewing) void element.play()?.catch(() => {});
+    else if (element.muted) element.pause();
+  }, [previewing, started]);
+
+  const play = () => {
+    const element = video.current;
+    startedRef.current = true;
+    dismiss();
+    setStarted(true);
+    if (!element) return;
+    const handoffTime = onPlay?.(element);
+    element.muted = false;
+    element.currentTime = handoffTime ?? 0;
+    void element.play()?.catch(() => {});
+  };
+  return (
+    <span
+      className={started ? "cv-media__frame is-playing" : "cv-media__frame"}
+      data-previewing={previewing ? "true" : undefined}
+    >
+      {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
+      <video
+        ref={(element) => {
+          video.current = element;
+          videoRef?.(element);
+        }}
+        src={src}
+        controls={started}
+        muted={!started}
+        playsInline
+        preload="metadata"
+        aria-label={name}
+        onError={onError}
+        onLoadedMetadata={(event) => {
+          const element = event.currentTarget;
+          setDuration(formatDuration(element.duration));
+          // The poster: seeking a hair past the start makes the player draw that frame (with
+          // preload="metadata" it otherwise shows black until it plays).
+          if (element.paused && element.currentTime === 0 && element.duration > 0.2) element.currentTime = 0.1;
+        }}
+      />
+      {!started && (
+        <button
+          type="button"
+          className="cv-media__poster"
+          aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
+          onClick={play}
+          onMouseEnter={() => {
+            setHovered(true);
+            if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
+          }}
+          onMouseLeave={() => {
+            setHovered(false);
+            setHover(null);
+          }}
+        >
+          <span className="ui-glass cv-media__play" aria-hidden="true">
+            <PlayTriangle size={18} style={{ color: "inherit" }} />
+          </span>
+          {duration && (
+            <span className="cv-media__duration" aria-hidden="true">
+              {duration}
+            </span>
+          )}
+        </button>
       )}
     </span>
   );

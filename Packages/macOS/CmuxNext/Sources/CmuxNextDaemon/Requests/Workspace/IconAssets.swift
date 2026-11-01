@@ -24,7 +24,7 @@ public struct IconAssetBlob: Decodable, Sendable, Equatable {
 public struct PutBlobRequest: DaemonRequest {
     public typealias Response = IconAssetBlob
     public static let command = "put-blob"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.iconAssets
+    public static let requiredCapability: String? = DaemonCapability.iconAssets.rawValue
     public var mediaType: String
     public var data: String
 
@@ -38,7 +38,7 @@ public struct PutBlobRequest: DaemonRequest {
 public struct GetBlobRequest: DaemonRequest {
     public typealias Response = IconAssetBlob
     public static let command = "get-blob"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.iconAssets
+    public static let requiredCapability: String? = DaemonCapability.iconAssets.rawValue
     public var blob: String
 
     public init(blob: String) {

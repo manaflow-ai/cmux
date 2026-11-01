@@ -15,6 +15,11 @@ const doSql = (storage: DurableObjectStorage): SqlStore => ({
   transaction: <T>(fn: () => T): T => storage.transactionSync(fn)
 })
 
+/** How long a caller waits for the commit-time drain of prompt channels (OwnerDO.promptDrained). */
+const PROMPT_DRAIN_WAIT_MS = 2_000
+/** Target objects one commit-time drain sends to; the rest wait for the alarm (a 12,000-member team's index is the alarm's). */
+const PROMPT_DRAIN_MAX_CHANNELS = 32
+
 export interface Attachment {
   readonly principal: Principal
   /** Subscribed to this object's primary stream. */
@@ -112,9 +117,26 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
   private readonly alarmSerial = new AlarmSerial()
-  /** The commit-time drain of Chief wake channels in flight (afterCommit), and whether a commit came during it. */
+  /** The commit-time drain of prompt channels in flight (afterCommit), and whether a commit came during it. */
   private wakeDrain: Promise<void> | undefined
   private wakeAgain = false
+  /**
+   * The outbox channels a person waits on, drained at commit time instead of only by the alarm (which
+   * drains the PlanetScale projection first: seconds in prod). Chief wake queues by default.
+   */
+  protected promptChannel(channel: string): boolean {
+    return isWakeChannel(channel)
+  }
+  /**
+   * Resolves once the commit-time drain of prompt channels (and any drain a commit during it started) ended, or
+   * after `maxMs`, whichever is first: a slow target never holds the caller (the alarm retries what is left).
+   */
+  protected async promptDrained(maxMs = PROMPT_DRAIN_WAIT_MS): Promise<void> {
+    if (!this.wakeDrain) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const settled = (async () => { while (this.wakeDrain) await this.wakeDrain })()
+    await Promise.race([settled, new Promise<void>((r) => (timer = setTimeout(r, maxMs)))]).finally(() => clearTimeout(timer))
+  }
   private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
     if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
   })
@@ -340,8 +362,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   private drainWakes(now: number): void {
     if (!this.engine) return
     if (this.wakeDrain) return void (this.wakeAgain = true)
-    if (!this.engine.outbox.dueChannels(now).some(isWakeChannel)) return
-    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, isWakeChannel)
+    const prompt = (c: string) => this.promptChannel(c)
+    if (!this.engine.outbox.dueChannels(now).some(prompt)) return
+    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, prompt, PROMPT_DRAIN_MAX_CHANNELS)
       .catch(() => undefined)
       .finally(() => {
         this.wakeDrain = undefined
@@ -364,6 +387,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.drainWakes(now)
     // setAlarm refuses a time <= 0; a past time fires at once, so the alarm never goes before now.
     const at = Math.max(want, now)
+    // A non-finite time (NaN from a malformed due time) makes setAlarm throw in a detached promise, an
+    // unhandled rejection; the alarm already set stays, and the warning names the stream to look at.
+    if (!Number.isFinite(at)) {
+      console.warn(JSON.stringify({ msg: "alarm time not finite", stream: this.engine.stream, want }))
+      return
+    }
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
   }
 
@@ -413,17 +442,32 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     if (!entity || !principalJson || request.headers.get("Upgrade") !== "websocket") return new Response("bad request", { status: 400 })
     const principal = JSON.parse(principalJson) as Principal
     if (!this.isBound(entity) && !this.maySubscribe(this.domain.initial(), principal)) return new Response("forbidden", { status: 403 })
-    const engine = this.bind(entity)
-    if (!this.maySubscribe(engine.currentState, principal)) return new Response("forbidden", { status: 403 })
+    if (!this.maySubscribe(this.bind(entity).currentState, principal)) return new Response("forbidden", { status: 403 })
     const pair = new WebSocketPair()
     const [client, server] = [pair[0], pair[1]]
+    this.acceptSubscriber(server, entity, principal)
+    return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
+  }
+
+  /**
+   * Admits an accepted server socket for `principal` (already checked by `maySubscribe`): hibernating
+   * accept, attachment, expiry gate and the `welcome` frame. The Worker path (`fetch`) and the
+   * self-hosted runtime (backend/apps/home-server) both admit sockets here.
+   */
+  acceptSubscriber(server: WebSocket, entity: string, principal: Principal): void {
+    const engine = this.bind(entity)
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
     this.gate.seed(server, principal, { cls: this.constructor.name, name: entity })
     this.afterCommit()
     safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream], ...(this.welcomeCapabilities.length > 0 ? { capabilities: this.welcomeCapabilities } : {}) }))
-    return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
+  }
+
+  /** Whether `principal` may subscribe to `entity` (self-hosted runtime; the Worker path checks inside `fetch`). Never creates storage for a refusal. */
+  async mayAccept(entity: string, principal: Principal): Promise<boolean> {
+    if (!this.isBound(entity) && !this.maySubscribe(this.domain.initial(), principal)) return false
+    return this.maySubscribe(this.bind(entity).currentState, principal)
   }
 
   /** One promise chain per socket: frames are gated and routed strictly in arrival order. */
@@ -516,6 +560,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const outboxAt = this.engine.outbox.nextDueAt(Date.now())
     const due = this.wakeAt(Date.now())
     const at = earliest(outboxAt, wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due)
-    if (at !== null) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
+    // A commit-time drain started by this run's own commits ends inside the run (the alarm is awaited; a drain is not).
+    await this.promptDrained()
+    if (at !== null && Number.isFinite(at)) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
   }
 }

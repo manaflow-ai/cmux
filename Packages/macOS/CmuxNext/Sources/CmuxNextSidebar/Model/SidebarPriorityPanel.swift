@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesign
 
 /// One chat in the sidebar's Priority view: every agent chat on every machine, the ones that need
 /// the person first. The App ranks them (`AgentPriorityRanking`); the sidebar only draws them in
@@ -14,6 +15,9 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
         case failed
         /// The agent process or its machine is gone.
         case lost
+        /// Red CI: a pull request of the chat's (its folder's branch's, or one it opened) has
+        /// failing checks.
+        case ciFailing
         /// A turn runs, since the date when known.
         case working(since: Date?)
         case idle
@@ -24,6 +28,11 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
     public var title: String
     /// The project (the session folder's name), else nil.
     public var project: String?
+    /// The session's agent brand mark (`AgentBrandID`, `SidebarItemInfo.agentBrand(forHarness:)`), nil when
+    /// its harness has none.
+    public var brand: String?
+    /// Stable fallback color when the harness has no registered mark.
+    public var agentColor: GroupColor?
     /// The machine it runs on, nil on this Mac; its tag takes the machine's color.
     public var machine: String?
     /// The latest line from the chat, up to two lines in the row.
@@ -35,10 +44,13 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
     public var pinned: Bool
 
     public init(id: String, title: String, project: String? = nil, machine: String? = nil, preview: String? = nil,
-                state: State, unread: Bool = false, pinned: Bool = false) {
+                state: State, unread: Bool = false, pinned: Bool = false, brand: String? = nil,
+                agentColor: GroupColor? = nil) {
         self.id = id
         self.title = title
         self.project = project
+        self.brand = brand
+        self.agentColor = agentColor
         self.machine = machine
         self.preview = preview
         self.state = state
@@ -46,13 +58,17 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
         self.pinned = pinned
     }
 
-    /// Needs the person: waiting on them, finished unseen, failed or lost.
+    /// Needs the person: waiting on them, finished unseen, failed, lost or Red CI.
     public var needsAttention: Bool {
         switch state {
-        case .needsYou, .done, .failed, .lost: true
+        case .needsYou, .done, .failed, .lost, .ciFailing: true
         case .working, .idle: false
         }
     }
+
+    /// Mark as Read applies: a result or a failure. A question is answered, not read, and red
+    /// checks stay until they pass, so a Red CI row has nothing to mark read.
+    public var canMarkRead: Bool { needsAttention && state != .needsYou && state != .ciFailing }
 }
 
 /// What the sidebar's Priority view shows while it is installed (`sidebar.priorityView.enabled`):
@@ -89,6 +105,8 @@ public nonisolated enum SidebarPriorityAction: Hashable, Sendable {
     case snooze(String)
     case archive(String)
     case setCollapsed(Bool)
+    /// The person dragged the chat; the view now shows `order` (top first). It keeps that place.
+    case place(String, order: [String])
     /// The titlebar bell: show or hide the view.
     case toggleShown
 }

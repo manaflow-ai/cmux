@@ -30,8 +30,9 @@ extension CEFPaneHost {
         tab.popupOpenerHost = self
         host.add(tab)
         runtime.register(tab, browser: browser)
-        // Opened by a page: past a new tab's first paint (PageBackground).
-        tab.reachedFirstRealPage()
+        // Opened by a page: past a new tab's first paint (PageBackground), and
+        // Chromium, not us, drives its document, so its page area is its own.
+        tab.reachedFirstRealPage(settled: true)
         tab.inheritDelegates(from: opener)
         // Chromium made the popup this window's active tab. Show the opener
         // again on the next turn (this may run inside Chromium's tab
@@ -87,6 +88,8 @@ extension CEFPaneHost {
         if let visible = visibleTab, !visible.awaitsWindowMove, let browser = visible.browserID {
             lastActivated = browser
             _ = shim.tabActivate(browser)
+            // The shown popup names the page window now: its placeholder closes below.
+            hostView.layerHosting.pageShown(browser: browser)
             hostView.postGeometryChange()
         }
         if let blank = placeholder, tabs.contains(where: { $0 !== blank && !$0.awaitsWindowMove && $0.browserID != nil }) {

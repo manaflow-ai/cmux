@@ -18,6 +18,7 @@ final class NewTabChoiceMemory {
     private static let agentKey = "newTab.lastAgent"
     private static let picksKey = "newTab.lastPicks"
     private static let harnessHintKey = "newTab.harnessHintDismissed"
+    private static let startedProjectKey = "newTab.startedProject"
     @ObservationIgnored private let defaults: UserDefaults
     /// Bumped by each remembered pick, so an observer (the iPhone host's sync of the last
     /// picks to acpmux) reads ``agent`` and ``picks`` again.
@@ -40,16 +41,27 @@ final class NewTabChoiceMemory {
     /// Integrate a harness was dismissed on a New Tab page (Leo 2026-10-12: the dismissal sticks).
     var harnessHintDismissed: Bool { defaults.bool(forKey: Self.harnessHintKey) }
 
-    /// A value the page should never send (empty, too long) is ignored. The model, when the pick
-    /// names one, is remembered on the agent for every folder and for its folder.
+    /// The project of the chat the person last picked and started from a composer (Leo 2026-10-21:
+    /// "your recently PICKED AND STARTED CHAT"). Only a page's `started` writes it; workspaces and
+    /// chats agents, the CLI or the socket make never do.
+    var startedProject: String? {
+        _ = revision
+        return defaults.string(forKey: Self.startedProjectKey).flatMap { $0.hasPrefix("/") ? $0 : nil }
+    }
+
+    /// A value the page should never send (empty, too long) is ignored. Every agent pick, also on its
+    /// own default, is the next New Tab's; one naming no model keeps the last pick's model on that agent.
     func remember(_ pick: AgentPaneRememberedPick) {
         if pick.dismissesHarnessHint { defaults.set(true, forKey: Self.harnessHintKey) }
+        if let started = pick.started, started.hasPrefix("/"), started.count <= 4096 {
+            defaults.set(started, forKey: Self.startedProjectKey)
+            revision += 1
+        }
         guard !pick.agent.isEmpty, pick.agent.count <= 128 else { return }
         defaults.set(pick.agent, forKey: Self.agentKey)
         defer { revision += 1 }
-        // The agent's own "default" is not a pick.
-        guard let model = pick.model, model != "default" else { return }
         var picks = picks ?? AgentPaneLastPicks()
+        let model = pick.model ?? picks.lastModel(harness: pick.agent, folder: pick.folder) ?? AgentPaneLastPicks.defaultModel
         picks.record(.init(harness: pick.agent, model: model), folder: pick.folder)
         if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
     }

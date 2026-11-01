@@ -5,6 +5,22 @@
 //! from sessions that run with policy `ask`: a turn that carries another
 //! person's text, and the children spawned under it (the spawn floor). Each
 //! refusal goes to the trace.
+//!
+//! No request waits on an answer nobody can give:
+//! - acpmux takes an allow only from the person's app, and the app shows no
+//!   button for a turn session (a turn session never gets a tab): a turn
+//!   session's request the host does not allow is denied at once, in any
+//!   turn.
+//! - A request the host leaves open (a subagent's or child's prompt with no
+//!   working approval button in the app, a deny acpmux did not take) is
+//!   denied once it waits [`crate::approval::PERMISSION_WAIT`]
+//!   (`deny_overdue_permissions_at`), with the reason in host.log and the
+//!   trace.
+//! - Every host-side deny of the turn's own request counts toward
+//!   [`REPEATS_BEFORE_STOP`], so a model that calls a denied tool again and
+//!   again is stopped.
+
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -17,6 +33,43 @@ const REPEATS_BEFORE_STOP: u32 = 3;
 
 /// The trace's approver of a refusal.
 const REFUSED_BY: &str = "another person's turn";
+
+/// Why the host watches a request whose deny acpmux did not take.
+pub(super) const NOT_DELIVERED: &str = "its deny was not delivered";
+
+/// The trace's approver of a request nobody could answer.
+const NO_ANSWER: &str = "no approver";
+
+/// Why a turn was denied a request (the stop line's end).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DenyWhy {
+    /// A turn another person started may not run it.
+    OtherPerson,
+    /// It needs an approval nobody can give (only the person's app allows,
+    /// and the app shows no button for it).
+    NoApprover,
+}
+
+impl DenyWhy {
+    /// The end of the turn's stop line: "I stopped: I kept trying to X, and ...".
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            DenyWhy::OtherPerson => "a turn another person started may not do that",
+            DenyWhy::NoApprover => "nobody can approve that here",
+        }
+    }
+}
+
+/// A permission request the host left open: denied once it waits longer
+/// than [`crate::approval::PERMISSION_WAIT`].
+#[derive(Clone, Debug)]
+pub(super) struct Unanswered {
+    pending: Pending,
+    /// When the host first saw it (the brain's clock, ms since the epoch).
+    since_ms: u64,
+    /// Why nobody answers it, for host.log.
+    why: &'static str,
+}
 
 impl Brain {
     /// Whether `session_id` is the running turn's session.
@@ -40,30 +93,25 @@ impl Brain {
             // Reading the memory has no local effect; the Chief's own tools
             // are Chief talking to the person and its subagents.
             let option = option_for(&request, Answer::Allow);
-            if let Err(e) =
+            let Err(e) =
                 self.agents
                     .respond_permission(&session_id, &permission_id, option.as_deref())
-            {
-                // acpmux takes an allow only from the person's app. A
-                // request left open holds the turn forever: refuse it, so
-                // the model hears why and the turn goes on. The turn's
-                // settings allow these tools, so this is a session started
-                // before them.
-                (self.log)(&format!("allowing {tool}: {e}; refusing it instead"));
-                let deny = option_for(&request, Answer::Deny);
-                if let Err(e) =
-                    self.agents
-                        .respond_permission(&session_id, &permission_id, deny.as_deref())
-                {
-                    (self.log)(&format!("refusing {tool}: {e}"));
-                }
-            }
-            return;
-        }
-        if !self.turn_ask {
-            (self.log)(&format!(
-                "turn session asked for {tool} outside a turn another person started; left to its harness"
-            ));
+            else {
+                return;
+            };
+            // acpmux takes an allow only from the person's app. A request
+            // left open holds the turn forever: refuse it, so the model
+            // hears why and the turn goes on. The turn's settings allow
+            // these tools, so this is a session started before them.
+            (self.log)(&format!("allowing {tool}: {e}; refusing it instead"));
+            let pending = Pending {
+                session_id,
+                permission_id,
+                tool,
+                request,
+                child: None,
+            };
+            self.refuse_as(&pending, DenyWhy::NoApprover, NO_ANSWER);
             return;
         }
         let pending = Pending {
@@ -73,24 +121,60 @@ impl Brain {
             request,
             child: None,
         };
-        let repeat = self
-            .turn_denied
-            .contains(&crate::approval::signature(&pending));
-        self.refuse(&pending);
-        if repeat && self.denial_stopped.is_none() {
-            self.repeat_denials += 1;
-            if self.repeat_denials >= REPEATS_BEFORE_STOP {
-                // The model keeps asking for what was refused: end the turn.
-                (self.log)(&format!(
-                    "{} was refused and asked for again {} times: stopping the turn",
-                    pending.tool, self.repeat_denials
-                ));
-                self.denial_stopped = Some(crate::approval::describe(
-                    &pending.tool,
-                    pending.request.pointer("/toolCall/rawInput"),
-                ));
-                self.interrupt.request_hard();
-            }
+        if self.turn_ask {
+            self.refuse_as(&pending, DenyWhy::OtherPerson, REFUSED_BY);
+        } else {
+            // The owner's turn under an asking policy, or a question the
+            // policy never answers: the app shows no button for a turn
+            // session, so nobody could answer it and the turn would wait
+            // forever. The Chief never asks: refused at once.
+            (self.log)(&format!(
+                "the turn session asked for {}; nobody can answer a turn session's request: refusing it",
+                pending.tool
+            ));
+            self.refuse_as(&pending, DenyWhy::NoApprover, NO_ANSWER);
+        }
+    }
+
+    /// Refuses `pending`, a request of the running turn's session, as
+    /// `approver` says, and counts the refusal: a turn that keeps asking for
+    /// what it was refused stops ([`REPEATS_BEFORE_STOP`]).
+    fn refuse_as(&mut self, pending: &Pending, why: DenyWhy, approver: &'static str) {
+        self.refuse_by(pending, approver);
+        self.count_denial(
+            &pending.tool,
+            pending.request.pointer("/toolCall/rawInput"),
+            why,
+        );
+    }
+
+    /// Counts one host-side deny of the running turn's call of `tool` with
+    /// `input` (a refused request, a deny after a refused allow, a Chief
+    /// tool the turn gate refused, an overdue request): its third repeat
+    /// in the turn stops the turn, so the model is not left calling a
+    /// denied tool again and again.
+    pub(super) fn count_denial(&mut self, tool: &str, input: Option<&Value>, why: DenyWhy) {
+        if self.state.turn.is_none() {
+            return;
+        }
+        let signature = crate::approval::signature_of(tool, input);
+        let repeat = self.turn_denied.contains(&signature);
+        if !repeat {
+            self.turn_denied.push(signature);
+            return;
+        }
+        if self.denial_stopped.is_some() {
+            return;
+        }
+        self.repeat_denials += 1;
+        if self.repeat_denials >= REPEATS_BEFORE_STOP {
+            // The model keeps asking for what was refused: end the turn.
+            (self.log)(&format!(
+                "{tool} was refused and asked for again {} times: stopping the turn",
+                self.repeat_denials
+            ));
+            self.denial_stopped = Some((crate::approval::describe(tool, input), why));
+            self.interrupt.request_hard();
         }
     }
 
@@ -103,6 +187,7 @@ impl Brain {
     /// - `profile` reads (`history`, or no field), never a write or undo;
     /// - `control` `status`, `interrupt` with no message, and `answer` with
     ///   `deny`;
+    /// - `watch` with no command (the list, a cancel);
     /// - any other `tell` or `control` only to a subagent that asks for its
     ///   own effects (policy `ask`), so an untrusted turn cannot launder a
     ///   command through an approve-all subagent.
@@ -152,6 +237,12 @@ impl Brain {
                 }
             }
             "mcp__optchat__tell" => {}
+            // Another person's words never become the owner's preference.
+            "mcp__optchat__remember" => return false,
+            // Nor spend the owner's money on a Cloud machine.
+            "mcp__optchat__cloud_workspace" => return false,
+            // Nor run a command on the owner's machine: only list and cancel.
+            "mcp__optchat__watch" => return field("command").is_none_or(|c| c.trim().is_empty()),
             _ => return true,
         }
         let Some(id) = field("id") else {
@@ -166,12 +257,17 @@ impl Brain {
     /// with `input` now. The turn's settings allow the Chief's tools with
     /// no permission request, so this is where a turn another person
     /// started is held to [`Self::internal_allowed`].
-    pub fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+    pub fn turn_gate(&mut self, tool: &str, input: &Value) -> Result<(), String> {
         let ask = self.turn_ask || (self.last_turn_ask && self.state.turn.is_none());
         if self.internal_allowed_input(tool, Some(input), ask) {
             return Ok(());
         }
         (self.log)(&format!("refused {tool} ({REFUSED_BY})"));
+        // A model that calls it again and again is stopped, as for a
+        // refused permission request.
+        if self.turn_ask {
+            self.count_denial(tool, Some(input), DenyWhy::OtherPerson);
+        }
         Err(format!(
             "refused: this turn carries another person's text, so {tool} may not run with these arguments"
         ))
@@ -227,12 +323,13 @@ impl Brain {
     /// Refuses `pending` (its reject option) and records the refusal in
     /// the trace.
     fn refuse(&mut self, pending: &Pending) {
-        if pending.child.is_none() {
-            let signature = crate::approval::signature(pending);
-            if !self.turn_denied.contains(&signature) {
-                self.turn_denied.push(signature);
-            }
-        }
+        self.refuse_by(pending, REFUSED_BY);
+    }
+
+    /// [`Self::refuse`] with `approver` in host.log and the trace. A refusal
+    /// acpmux did not take is watched: the host denies it again once it is
+    /// overdue (`deny_overdue_permissions_at`).
+    pub(super) fn refuse_by(&mut self, pending: &Pending, approver: &'static str) {
         let option = option_for(&pending.request, Answer::Deny);
         let result = self.agents.respond_permission(
             &pending.session_id,
@@ -240,7 +337,7 @@ impl Brain {
             option.as_deref(),
         );
         (self.log)(&format!(
-            "approval {}: refused {} ({REFUSED_BY}){}",
+            "approval {}: refused {} ({approver}){}",
             pending.permission_id,
             pending.tool,
             match &result {
@@ -248,6 +345,11 @@ impl Brain {
                 Err(e) => format!(" (not delivered: {e})"),
             }
         ));
+        if result.is_err() {
+            self.watch_unanswered(pending.clone(), NOT_DELIVERED);
+        } else {
+            self.forget_unanswered(&pending.session_id, &pending.permission_id);
+        }
         if let Some(dir) = &self.settings.trace_dir {
             let fields = json!({
                 "turn": self.state.turn.as_ref().map(|t| t.key.clone()),
@@ -257,11 +359,145 @@ impl Brain {
                 "child": pending.child,
                 "decision": Answer::Deny.as_str(),
                 "option": option,
-                "approver": REFUSED_BY,
+                "approver": approver,
                 "delivered": result.is_ok(),
             });
             if let Err(e) = crate::approval::record(dir, fields) {
                 (self.log)(&format!("recording a refusal in the trace: {e}"));
+            }
+        }
+    }
+    /// Watches `pending`, a request the host leaves open: once it waits
+    /// [`crate::approval::PERMISSION_WAIT`] with no answer, it is denied.
+    pub(super) fn watch_unanswered(&mut self, pending: Pending, why: &'static str) {
+        if self.unanswered.iter().any(|u| {
+            u.pending.session_id == pending.session_id
+                && u.pending.permission_id == pending.permission_id
+        }) {
+            return;
+        }
+        let since_ms = (self.clock)();
+        self.unanswered.push(Unanswered {
+            pending,
+            since_ms,
+            why,
+        });
+    }
+
+    /// `permission_id` of `session_id` was answered (or is gone).
+    pub(super) fn forget_unanswered(&mut self, session_id: &str, permission_id: &str) {
+        self.unanswered.retain(|u| {
+            !(u.pending.session_id == session_id && u.pending.permission_id == permission_id)
+        });
+    }
+
+    /// `session_id` has no pending request any more (its summary says 0).
+    pub(super) fn forget_unanswered_of(&mut self, session_id: &str) {
+        self.unanswered
+            .retain(|u| u.pending.session_id != session_id);
+    }
+
+    /// The requests the host watches now: (session, permission), oldest
+    /// first.
+    pub fn unanswered_permissions(&self) -> Vec<(String, String)> {
+        self.unanswered
+            .iter()
+            .map(|u| {
+                (
+                    u.pending.session_id.clone(),
+                    u.pending.permission_id.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// When the oldest watched request is due, on the run loop's clock.
+    pub(super) fn next_unanswered_due(&self) -> Option<Instant> {
+        let due = self.unanswered.iter().map(|u| u.since_ms).min()?
+            + crate::approval::PERMISSION_WAIT.as_millis() as u64;
+        let now = (self.clock)();
+        Some(Instant::now() + Duration::from_millis(due.saturating_sub(now)))
+    }
+
+    /// Denies every watched request that waited
+    /// [`crate::approval::PERMISSION_WAIT`] or longer by `now_ms` (the
+    /// brain's clock): nobody answered it, and nobody may be able to. The
+    /// reason goes to host.log and the trace; a deny of the running turn's
+    /// own request counts toward stopping the turn.
+    pub fn deny_overdue_permissions_at(&mut self, now_ms: u64) {
+        let limit = crate::approval::PERMISSION_WAIT.as_millis() as u64;
+        let (due, keep): (Vec<Unanswered>, Vec<Unanswered>) = std::mem::take(&mut self.unanswered)
+            .into_iter()
+            .partition(|u| now_ms.saturating_sub(u.since_ms) >= limit);
+        self.unanswered = keep;
+        for u in due {
+            let p = &u.pending;
+            // A subagent whose workspace opened after it asked: the person
+            // sees the prompt with a working Allow button now.
+            if u.why != NOT_DELIVERED
+                && let Some(id) = self.state.sub_by_session(&p.session_id)
+                && self
+                    .state
+                    .sub(&id)
+                    .is_some_and(|(_, s)| Self::approval_shown(s))
+            {
+                continue;
+            }
+            let option = option_for(&p.request, Answer::Deny);
+            let result =
+                self.agents
+                    .respond_permission(&p.session_id, &p.permission_id, option.as_deref());
+            (self.log)(&format!(
+                "permission {} of {} ({}{}) waited {} s with no answer ({}): denied{}",
+                p.permission_id,
+                p.session_id,
+                p.tool,
+                p.child
+                    .as_deref()
+                    .map(|c| format!(", {c}"))
+                    .unwrap_or_default(),
+                now_ms.saturating_sub(u.since_ms) / 1000,
+                u.why,
+                match &result {
+                    Ok(()) => String::new(),
+                    // Answered or gone meanwhile: nothing more to do.
+                    Err(e) => format!(" (not delivered: {e})"),
+                }
+            ));
+            if let Some(dir) = &self.settings.trace_dir {
+                let fields = json!({
+                    "turn": self.state.turn.as_ref().map(|t| t.key.clone()),
+                    "session": p.session_id,
+                    "permission": p.permission_id,
+                    "tool": p.tool,
+                    "child": p.child,
+                    "decision": Answer::Deny.as_str(),
+                    "option": option,
+                    "approver": NO_ANSWER,
+                    "reason": format!("no answer for {} s ({})", limit / 1000, u.why),
+                    "delivered": result.is_ok(),
+                });
+                if let Err(e) = crate::approval::record(dir, fields) {
+                    (self.log)(&format!("recording a refusal in the trace: {e}"));
+                }
+            }
+            if let Some(id) = self.state.sub_by_session(&p.session_id)
+                && let Some(sub) = self.state.sub_mut(&id)
+                && sub
+                    .permission
+                    .as_ref()
+                    .is_some_and(|q| q.id == p.permission_id)
+            {
+                sub.permission = None;
+                self.save();
+            }
+            // A deny that was not delivered was counted when it was made.
+            if p.child.is_none() && u.why != NOT_DELIVERED && self.is_turn_session(&p.session_id) {
+                self.count_denial(
+                    &p.tool,
+                    p.request.pointer("/toolCall/rawInput"),
+                    DenyWhy::NoApprover,
+                );
             }
         }
     }

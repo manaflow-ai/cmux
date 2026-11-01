@@ -68,7 +68,7 @@ const completed = (id: string, prompt: string, answer: string): AcpmuxRow[] => [
   { ...row(`${id}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ];
 
-async function copyRange(source: AcpmuxRow[], from: string, to: string, method: "keyboard" | "button" = "keyboard") {
+async function copyRange(source: AcpmuxRow[], from: string, to: string) {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const rows = turnView(source, new Set());
   const start = rows.findIndex((row) => row.id === from);
@@ -93,13 +93,11 @@ async function copyRange(source: AcpmuxRow[], from: string, to: string, method: 
           }),
         );
       });
-    if (method === "button") await act(async () => (first as HTMLButtonElement).click());
-    else
-      await act(async () => {
-        dom.window.document.activeElement!.dispatchEvent(
-          new dom.window.KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true, cancelable: true }),
-        );
-      });
+    await act(async () => {
+      dom.window.document.activeElement!.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true, cancelable: true }),
+      );
+    });
     expect(copied).toHaveLength(1);
     return copied[0];
   } finally {
@@ -107,10 +105,22 @@ async function copyRange(source: AcpmuxRow[], from: string, to: string, method: 
   }
 }
 
-test.each(["keyboard", "button"] as const)("%s range copy includes a finished answer once", async (method) => {
-  expect(await copyRange(completed("one", "Explain retries", "Retry **twice**."), "one-user", "one-end", method)).toBe(
+test("keyboard range copy includes a finished answer once", async () => {
+  expect(await copyRange(completed("one", "Explain retries", "Retry **twice**."), "one-user", "one-end")).toBe(
     "Explain retries\n\nRetry **twice**.",
   );
+});
+
+// A prompt drawn as the person's bubble has no floating Copy of its own (#24267), and an answer's
+// and its footer's Copy are the turn's, not the range's. Another agent's message, drawn as a line,
+// keeps its own message Copy; the keyboard copies the selected range.
+test("range copy from a received message includes a finished answer once", async () => {
+  const [prompt, answer, end] = completed("one", "Explain retries", "Retry **twice**.");
+  const message: AcpmuxRow = {
+    ...prompt!,
+    incoming: { kind: "message", message: { name: "Retry lane", text: "Explain retries", raw: "" } },
+  };
+  expect(await copyRange([message, answer!, end!], "one-user", "one-end")).toBe("Explain retries\n\nRetry **twice**.");
 });
 
 test("a selected footer still copies its answer when the answer row is outside the selection", async () => {

@@ -47,6 +47,12 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     /// The Mac's workspace group the workspace is in (its personal sidebar
     /// group, `list-personal`), if any.
     public var group: MacWorkspaceGroup?
+    /// The workspace's panes on its Mac, from the Mac's live tree (never saved: a snapshot
+    /// shows no Panes page until the Mac lists the workspace again).
+    public var layout: WorkspaceLayout?
+    /// The workspace's screens on the Mac, in its screen bar's order (`MacScreen`). Empty when
+    /// the Mac's tree has not listed them (mock data, an old saved copy).
+    public var screens: [MacScreen] = []
 
     public init(
         id: String, macID: String, title: String, directory: String, branch: String? = nil,
@@ -76,7 +82,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
-        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group, screens
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -107,6 +113,7 @@ extension Workspace {
         hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
         isHome = try c.decodeIfPresent(Bool.self, forKey: .isHome) ?? false
         group = try c.decodeIfPresent(MacWorkspaceGroup.self, forKey: .group)
+        screens = try c.decodeIfPresent([MacScreen].self, forKey: .screens) ?? []
     }
 }
 
@@ -114,6 +121,8 @@ extension Workspace {
 public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     public enum Kind: String, Hashable, Sendable, Codable {
         case terminal, browser, agent
+        /// A Mac phone tab showing an iOS simulator, streamed like a browser tab.
+        case simulator
     }
 
     public let id: String
@@ -136,6 +145,30 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// The Mac tab group the tab is in (`tab_groups`), if any.
     public var group: TabGroupRef?
 
+    /// What a cmux link can name this tab by (CmuxLink): the Mac's public ids.
+    /// Nil when the Mac's tree did not carry them (mock data, an older Mac).
+    public var linkIDs: LinkIDs?
+
+    /// A tab's public ids on its Mac, as the Mac's Copy Link writes them.
+    public struct LinkIDs: Hashable, Sendable, Codable {
+        /// The tab's `tab_` resource id.
+        public var tab: String?
+        /// Its pane's `pane_` resource id.
+        public var pane: String?
+        /// The tab is its pane's selected tab (a pane link opens it).
+        public var isPaneSelected: Bool
+        /// The harness's own session id of the agent running in it (`list-agents`
+        /// `agent_session_id`), which an `agent/<harness>/<session>` link names.
+        public var harnessSession: String?
+
+        public init(tab: String? = nil, pane: String? = nil, isPaneSelected: Bool = false, harnessSession: String? = nil) {
+            self.tab = tab
+            self.pane = pane
+            self.isPaneSelected = isPaneSelected
+            self.harnessSession = harnessSession
+        }
+    }
+
     public var isPinned: Bool { pinned == true }
     /// A terminal tab whose shell ended and that the Mac keeps (`dead`): Restart Shell
     /// Here gives it a new shell on the Mac. Optional so older saved copies still decode.
@@ -150,12 +183,40 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         public var color: String
         /// Saved ("Pin Group" on the Mac): `saved_id` is set.
         public var isSaved: Bool
+        /// The group's icon on the Mac (`tab-group-icon-v1`): an SF Symbol or one emoji.
+        public var icon: String?
+        /// Collapsed in the Mac's tab strip (Collapse Tab Group).
+        public var isCollapsed: Bool
 
-        public init(id: String, name: String = "", color: String = "grey", isSaved: Bool = false) {
+        public init(id: String, name: String = "", color: String = "grey", isSaved: Bool = false, icon: String? = nil,
+                    isCollapsed: Bool = false) {
             self.id = id
             self.name = name
             self.color = color
             self.isSaved = isSaved
+            self.icon = icon
+            self.isCollapsed = isCollapsed
+        }
+
+        enum CodingKeys: String, CodingKey { case id, name, color, isSaved, icon, isCollapsed }
+
+        /// Copies saved before `icon` and `isCollapsed` existed still load.
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(id: try c.decode(String.self, forKey: .id),
+                      name: try c.decodeIfPresent(String.self, forKey: .name) ?? "",
+                      color: try c.decodeIfPresent(String.self, forKey: .color) ?? "grey",
+                      isSaved: try c.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false,
+                      icon: try c.decodeIfPresent(String.self, forKey: .icon),
+                      isCollapsed: try c.decodeIfPresent(Bool.self, forKey: .isCollapsed) ?? false)
+        }
+
+        /// The Mac's group colors (`GroupColor.allCases`), in its menu's order.
+        public static let colors = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]
+
+        /// A palette color's name as the Mac's menu shows it ("Grey"); a custom color reads "Custom".
+        public static func colorTitle(_ token: String) -> String {
+            colors.contains(token) ? token.prefix(1).uppercased() + token.dropFirst() : "Custom"
         }
 
         /// The Mac's next group color (`GroupColor.automatic`): the first of its automatic order
@@ -231,6 +292,7 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         switch kind {
         case .terminal: "apple.terminal"
         case .browser: "globe"
+        case .simulator: "iphone"
         case .agent: "sparkle"
         }
     }

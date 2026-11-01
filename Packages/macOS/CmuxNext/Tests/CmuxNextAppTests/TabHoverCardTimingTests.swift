@@ -2,7 +2,9 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextResources
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
 /// (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default, cx-23e1f) on a tab; with one open, another
@@ -10,7 +12,7 @@ import Testing
 /// window (a gap between tabs) shows its card at once. Lawrence 2026-10-19: the card touches its
 /// tab, and the pointer moving from the tab onto the card keeps it. The delays run on a manual
 /// clock the test moves.
-@MainActor @Suite(.serialized) struct TabHoverCardTimingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabHoverCardTimingTests {
     private struct Strip {
         let strip: TabStripView
         let window: NSWindow
@@ -35,6 +37,7 @@ import Testing
 
         func tearDown() {
             coordinator.dismiss(.action)
+            coordinator.panel?.closeAfterTest()
             window.contentView = nil
             window.close()
         }

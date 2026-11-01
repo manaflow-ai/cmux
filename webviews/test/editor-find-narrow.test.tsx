@@ -9,12 +9,18 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser } from "playwright";
-import { Icon } from "../src/icons";
-import { FindPill } from "../src/ui/FindPill";
+import { Icon, type IconName } from "../src/icons";
+import { FindPill, type FindPillIconRole } from "../src/ui/FindPill";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("editor-find-narrow.test.tsx", async () => {
   setDefaultTimeout(60_000);
+  const icons = {
+    search: "search",
+    previous: "chevronUp",
+    next: "chevronDown",
+    close: "close",
+  } as const satisfies Record<FindPillIconRole, IconName>;
   const src = path.resolve(import.meta.dir, "../src");
   const css = ["ui/findPill.css", "pages/editor/styles.css"]
     .map((file) => readFileSync(path.join(src, file), "utf8"))
@@ -38,9 +44,7 @@ await requireBrowserLane("editor-find-narrow.test.tsx", async () => {
           matchCase={false}
           onMatchCaseChange={none}
           labels={{ placeholder: "Find", previous: "Previous", next: "Next", close: "Close", matchCase: "Match Case" }}
-          icon={(role) => (
-            <Icon name={{ search: "search", previous: "chevronUp", next: "chevronDown", close: "close" }[role]} />
-          )}
+          icon={(role) => <Icon name={icons[role]} />}
           replace={{
             open: replaceOpen,
             value: "",

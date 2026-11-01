@@ -30,6 +30,8 @@ const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("ba
 
 export default defineConfig({
   test: {
+    // test-node/ runs under Node (vitest.node.config.ts): tests there spawn local programs, which workerd cannot.
+    include: ["test/**/*.test.ts"],
     // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
     setupFiles: ["./test/setup/warm-worker.ts"],
     // The full parallel run of every file (309 s on a 32 vCPU Freestyle VM, 2026-10-16) makes each case about 9x
@@ -100,6 +102,8 @@ export default defineConfig({
           HANDS_ENABLED: "1",
           // The opencode brain (O) is selectable; no container binds here, so an O Chief falls back to P (chief-brain-opencode-route.test.ts).
           CHIEF_OPENCODE_ENABLED: "1",
+          // Cloud Chief D (chief-durable/) is selectable per Chief (brain_impl "durable"); test/chief-durable.test.ts.
+          CHIEF_DURABLE_ENABLED: "1",
           // Test-only fault hooks (chief-fault.ts): evict a brain object in the middle of a turn.
           CHIEF_FAULT_HOOKS: "1",
           // The metered Claude route and its sign-in refresh, faked at their HTTP boundary in
@@ -119,12 +123,17 @@ export default defineConfig({
           TEAM_VM_BIND_ENABLED: "1",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
+          // ACP chat trajectories kept outside the VM (cloud-trajectory.ts); off unless "1".
+          CLOUD_TRAJECTORIES_ENABLED: "1",
           CLOUD_API_ORIGIN: "https://api.test",
           CLOUD_LINK_SIGNING_KEYS: JSON.stringify({ active: "test-link-2", keys: linkKeys, published_at: { "test-link-1": 0, "test-link-2": 0 } }),
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",
           // userIdFor(STACK_PROJECT_ID, "ops_person_1"): the only person the abandoned-clear route accepts in tests.
           CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
+          // PlatformMachines answers (test/platform-machines.test.ts); development only among the deployments.
+          PLATFORM_MACHINES: "on",
+          PLATFORM_AGENT_GATEWAY: "on",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",

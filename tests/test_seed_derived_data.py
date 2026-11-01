@@ -703,6 +703,10 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
+# cmux-next lanes whose bot re-runs stay on the minis through attempt 3; attempt 4 leaves them.
+MINIS_FIRST_THROUGH_ATTEMPT_3 = frozenset({"cmux-next.yml", "cmux-next-batch.yml", "cmux-tui-artifacts.yml"})
+
+
 TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
 
 
@@ -894,7 +898,7 @@ class Wiring(unittest.TestCase):
     def test_only_the_nightly_seeder_writes_the_seed_and_admission_reads_the_same_key(self):
         seeder = steps("nightly.yml", "refresh-test-compilation-cache")
         record_at, _ = named(seeder, "Record DerivedData seed inputs")
-        build_at, _ = named(seeder, "Refresh test compilation cache")
+        build_at, _ = named(seeder, "Build the app-host test product")
         save_at, save = named(seeder, "Save DerivedData seed")
         self.assertLess(record_at, build_at)
         self.assertLess(build_at, save_at)
@@ -967,17 +971,19 @@ class Wiring(unittest.TestCase):
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
-        # Every nightly cold seed lands on a pool the per-push seeder uses, on
-        # the same Xcode, and the macOS 15 pool gets one too.
+        # The nightly cold seed runs on Blacksmith macOS 26, never a GitHub-hosted
+        # Mac (Leo, 2026-10-27; tests/test_ci_nightly_no_hosted_mac.py) and never
+        # macOS 15 (no nightly job runs there), with the per-push seeder's Xcode.
         self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
-        self.assertLessEqual(set(nightly["strategy"]["matrix"]["pool"]), set(seed_pools()))
-        self.assertEqual(nightly["strategy"]["matrix"]["pool"][-1], seed_pools()[-1])
-        self.assertEqual(nightly["env"]["CMUX_CI_XCODE_APP"], job["env"]["CMUX_CI_XCODE_APP"])
-        # On the lane's pools the seeder uses the nightly's Xcode.
-        context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
-        context["matrix"] = {"pool": "blacksmith-6vcpu-macos-26"}
-        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context),
-                         evaluate(nightly["env"]["CMUX_CI_XCODE_APP"], context))
+        schedule = github_context("schedule")
+        nightly_pools = [pool if "${{" in pool else f"${{{{ '{pool}' }}}}" for pool in nightly["strategy"]["matrix"]["pool"]]
+        self.assertEqual([evaluate(pool, schedule) for pool in nightly_pools],
+                         ["blacksmith-6vcpu-macos-26"])
+        for pool, blacksmith in (("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"),
+                                 ("macos-26", "blacksmith-6vcpu-macos-26")):
+            with self.subTest(pool=pool):
+                self.assertEqual(evaluate(nightly["env"]["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": pool}}),
+                                 evaluate(job["env"]["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": blacksmith}}))
 
         # Resolve against the same Swift package cache admission restores, so
         # a layout change invalidates both keys together.
@@ -1442,8 +1448,11 @@ class Wiring(unittest.TestCase):
         # attempt 3 of the bot's re-runs (the rescue's move of a stuck attempt
         # 2) never does, so the rescue cannot loop. A person's re-run may
         # (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
-        # The cmux-next workflows use the same bot attempt-3 Blacksmith fallback
-        # as the other native workflows, so no retry attempt takes an owned label.
+        # The cmux-next workflows keep the bot's attempt 3 on the minis and send
+        # attempt 4 off them: #22565 gates every cmux-next fleet fallback at
+        # run_attempt <= 3 (cx-urd.50). owned_pool_rescue.py stops watching
+        # cmux-next bot runs after attempt 2 (#21438), so it does not re-run a
+        # refused attempt 3.
         mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
                                  "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
         owned_jobs = (" admission shard-1 lag cli-product swift-package remote-daemon ")
@@ -1457,7 +1466,7 @@ class Wiring(unittest.TestCase):
                     continue
                 runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
                            .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
-                last = "3"
+                last = "4" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3 else "3"
                 for attempt in ("1", "2", "3", "4")[:int(last)]:
                     context = github_context("pull_request", ref="refs/pull/1/merge",
                                              CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
@@ -1488,9 +1497,12 @@ class Wiring(unittest.TestCase):
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             text = path.read_text(encoding="utf-8")
             with self.subTest(workflow=path.name):
-                pattern = r"run_attempt (?:<= ?[3-9]|== ?[2-9])"
+                # cmux-next.yml's `run_attempt == 2 && bot` gates send the bot's
+                # attempt 2 to Blacksmith or hosted runners, never a fleet label.
+                pattern = (r"run_attempt <= ?[4-9]" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3
+                           else r"run_attempt (?:<= ?[3-9]|== ?[2-9])")
                 self.assertIsNone(re.search(pattern, text))
-        self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')",
+        self.assertIn("(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor))",
                       load("ci-macos.yml")["jobs"]["late-placement"]["if"])
         # The guard reaches owned jobs at all: attempts 1 and 2 of the main lanes take the fleet.
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}

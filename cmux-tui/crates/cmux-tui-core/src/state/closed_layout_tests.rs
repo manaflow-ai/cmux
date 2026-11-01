@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use super::tests::{mutate, read, tab_id};
+use super::tests::{error_code, mutate, read, send, tab_id};
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
@@ -210,6 +210,51 @@ fn a_reopened_workspace_shows_its_shown_screen_zoom_and_presentation() {
     assert_eq!(workspace["extra"]["icon"], "server.rack", "{workspace}");
 }
 
+/// A `cmux://workspace/` link to a closed workspace (cmux#25572): `closed.reopen
+/// {workspace}` names it by the `ws_` id it had and reopens it with its layout, even
+/// when newer closes came after it; a live or unknown id is not in the history.
+#[test]
+fn a_closed_workspace_reopens_by_the_id_it_had() {
+    let mux = Mux::new_for_test("closed-layout-by-id", SurfaceOptions::default());
+    mux.new_workspace(Some("keeper".into()), None).unwrap();
+    let (workspace, _) = nested_workspace(&mux, "linked");
+    let before = layout_of(&mux, "linked");
+    let id = workspace_public_id(&mux, workspace);
+    mutate(&mux, "workspace.close", json!({"workspace": id}), "close-linked");
+    // A newer close: Cmd-Shift-T would reopen this one, the link must not.
+    let (newer, _) = nested_workspace(&mux, "newer");
+    let newer = workspace_public_id(&mux, newer);
+    mutate(&mux, "workspace.close", json!({"workspace": newer}), "close-newer");
+
+    let reopened = mutate(&mux, "closed.reopen", json!({"workspace": id}), "reopen-linked");
+    assert_eq!(reopened["kind"], "workspace", "{reopened}");
+    assert_eq!(layout_of(&mux, "linked"), before);
+    let named = mux.with_state(|state| {
+        state
+            .workspaces
+            .iter()
+            .find(|open| open.name == "linked")
+            .map(|open| open.public_id.to_string())
+    });
+    assert_eq!(named.as_deref(), reopened["workspace_id"].as_str(), "{reopened}");
+
+    // Reopened already, open, or never a workspace here: not in the history.
+    let keeper = mux.with_state(|state| {
+        state.workspaces.iter().find(|open| open.name == "keeper").unwrap().public_id.to_string()
+    });
+    for (gone, key) in [
+        (id.as_str(), "again"),
+        (keeper.as_str(), "live"),
+        ("ws_00000000000000000000000000000000", "unknown"),
+    ] {
+        let reply = send(&mux, "closed.reopen", json!({"workspace": gone}), Some(key));
+        assert_eq!(error_code(reply), "resource.not_found", "{gone}");
+    }
+    // The newer close stays in the history.
+    let reply = send(&mux, "closed.reopen", json!({"workspace": newer}), Some("reopen-newer"));
+    assert!(reply.is_ok(), "{reply:?}");
+}
+
 #[test]
 fn a_reopened_screen_comes_back_in_its_splits_and_its_place() {
     let mux = Mux::new_for_test("closed-layout-screen", SurfaceOptions::default());
@@ -254,6 +299,51 @@ fn a_reopened_tab_whose_pane_closed_splits_its_neighbor_again() {
     assert_ne!(layout_of(&mux, "tab"), before, "the pane closed with its tab");
     mutate(&mux, "closed.reopen", json!({}), "reopen");
     assert_eq!(layout_of(&mux, "tab"), before);
+}
+
+/// `name`'s first pane holding one tab `l1`, split right into `r1`, which
+/// is split down into `d1`: `l | (r / d)`, with `l` at 0.3 of the width.
+fn left_of_a_stack(mux: &Arc<Mux>, name: &str) -> (SurfaceId, PaneId, PaneId, PaneId) {
+    mux.new_workspace(Some("keeper".into()), None).unwrap();
+    let first = mux.new_workspace(Some(name.to_string()), None).unwrap().id;
+    assert!(mux.rename_surface(first, "l1".into()));
+    let l = pane_of(mux, first);
+    let r = split_named(mux, l, SplitDir::Right, "r1");
+    let d = split_named(mux, r, SplitDir::Down, "d1");
+    assert!(mux.set_ratio(l, SplitDir::Right, 0.3));
+    (first, l, r, d)
+}
+
+/// A closed pane whose sibling was a split (`l` beside `r / d`) reopens
+/// beside the whole split, full height at its share of the width, not
+/// split off the one pane of it that it touched (`(l | r) / d`).
+#[test]
+fn a_reopened_pane_beside_a_split_splits_off_all_of_it_again() {
+    let mux = Mux::new_for_test("closed-layout-beside-split", SurfaceOptions::default());
+    let (l1, l, _, _) = left_of_a_stack(&mux, "beside");
+    assert!(mux.focus_pane(l));
+    let before = layout_of(&mux, "beside");
+    assert!(mux.close_surface(l1).unwrap());
+    assert_ne!(layout_of(&mux, "beside"), before, "the pane closed with its tab");
+    mutate(&mux, "closed.reopen", json!({}), "reopen");
+    assert_eq!(layout_of(&mux, "beside"), before);
+}
+
+/// Close a pane, then the neighbor it was split off: two reopens put the
+/// neighbor back and then the first pane split off it again, not as a tab
+/// of whichever pane has the focus.
+#[test]
+fn two_closed_panes_reopen_in_their_splits_one_after_the_other() {
+    let mux = Mux::new_for_test("closed-layout-two-panes", SurfaceOptions::default());
+    let (_, _, r, d) = left_of_a_stack(&mux, "two");
+    let (r1, d1) = mux.with_state(|state| (state.panes[&r].tabs[0], state.panes[&d].tabs[0]));
+    assert!(mux.focus_pane(d));
+    let before = layout_of(&mux, "two");
+    assert!(mux.close_surface(d1).unwrap());
+    assert!(mux.close_surface(r1).unwrap());
+    mutate(&mux, "closed.reopen", json!({}), "reopen-r");
+    mutate(&mux, "closed.reopen", json!({}), "reopen-d");
+    assert_eq!(layout_of(&mux, "two"), before);
 }
 
 /// A record made before layouts were kept (no `layout`) still reopens, in

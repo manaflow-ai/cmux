@@ -27,10 +27,22 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The test reads only the catalog export, the string catalogs and its own
       # copy, so it needs no `bun install`.
       - name: Keyboard shortcuts docs match the action catalog
         working-directory: web
         run: bun test tests/docs-shortcuts.test.ts
+
+      # The cmux-next CLI and settings reference pages are generated from the
+      # same catalog and the settings schema (plans/cmux-next/docs-DESIGN.md).
+      # The test imports docs-channel and the nav list, which pull in next-intl,
+      # so this step needs the install.
+      - name: Install web dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: cmux-next docs reference pages are fresh
+        working-directory: web
+        run: bun test tests/next-docs.test.ts

@@ -1,6 +1,7 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub fn report_agent(
@@ -116,6 +117,7 @@ impl Mux {
     /// publish its upsert or delete. Hook reports carry the agent's native
     /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_agent_report(
         &self,
         target: AgentReportTarget<'_>,
@@ -351,7 +353,7 @@ impl Mux {
             "extra":extra,
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.as_deref());
+        public_value.set("source_session", serde_json::json!(record.session.as_deref()));
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -405,12 +407,17 @@ impl Mux {
             source: record.source,
             session: record.session,
             agent: record.agent,
+            agent_session_id: record.agent_session_id,
             updated_at_ms: record.updated_at_ms,
             since_ms: record.since_ms,
             last_prompt: None,
         };
         if matches!(agent.state, AgentState::Done) {
             self.forget_agent_prompt(&agent.terminal_id);
+        }
+        // Working, idle or done: the agent no longer waits on its question.
+        if !matches!(agent.state, AgentState::Blocked) {
+            self.forget_agent_question(&agent.terminal_id);
         }
         let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
         if !commit.replayed {
@@ -421,6 +428,7 @@ impl Mux {
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
                 agent: agent.agent.as_deref().map(Arc::from),
+                agent_session_id: agent.agent_session_id.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
                 since_ms: agent.since_ms,
                 last_prompt: agent.last_prompt.clone(),
@@ -444,12 +452,22 @@ impl Mux {
         Ok((commit, Some(agent)))
     }
 
+    #[track_caller]
     pub fn list_agents(
         &self,
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
         let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let agent_session_ids = self
+            .agent_records
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter_map(|(terminal_id, record)| {
+                Some((terminal_id.clone(), record.agent_session_id.clone()?))
+            })
+            .collect::<HashMap<_, _>>();
         let prompts = self.agent_prompts.lock().unwrap().prompts.clone();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
@@ -475,7 +493,12 @@ impl Mux {
                     })?;
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
-                let last_prompt = prompts.get(&terminal_id).cloned();
+                // The hover card's folded cut; the whole prompt is the phone Feed's.
+                let last_prompt = prompts
+                    .get(&terminal_id)
+                    .and_then(|prompt| crate::agent_hooks::live_prompt_text(prompt))
+                    .map(Arc::from);
+                let agent_session_id = agent_session_ids.get(&terminal_id).cloned();
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
@@ -483,6 +506,7 @@ impl Mux {
                     source: entry.agent_source(),
                     session: entry.session,
                     agent: entry.agent,
+                    agent_session_id,
                     updated_at_ms: entry.updated_at_ms,
                     since_ms,
                     last_prompt,

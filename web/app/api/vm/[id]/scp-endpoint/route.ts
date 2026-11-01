@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (typeof body?.publicKey !== "string" || body.publicKey.length > 512) throw new Error("Invalid key");
       publicKey = parseSshPublicKey(body.publicKey);
     } catch {
-      return vmErrorResponse({ error: "vm_invalid_ssh_key", status: 400, message: "Cloud file transfer requires one Ed25519 public key.", action: "Run cmux vm push again to create a new transfer key." });
+      return vmErrorResponse({ error: "vm_invalid_ssh_key", status: 400, message: "Cloud file transfer requires one Ed25519 public key.", action: "Run `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"` with your Ed25519 public key to prepare the transfer." });
     }
     const { id } = await params;
     const account = resolveVmRouteAccountScope(user, request);

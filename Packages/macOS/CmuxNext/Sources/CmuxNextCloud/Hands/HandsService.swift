@@ -157,7 +157,7 @@ public final class HandsService {
             } else {
                 try await api.answer(hand: approval.hand, id: approval.id, allow: false)
             }
-        } catch CloudAPIError.http(_, let code, _) where ["hand.approval_answered", "hand.approval_not_found", "hand.not_found"].contains(code ?? "") {
+        } catch CloudAPIError.http(_, let code, _, _, _) where ["hand.approval_answered", "hand.approval_not_found", "hand.not_found"].contains(code ?? "") {
             note("answer \(key): \(code ?? "") already")
             return remove(key, outcome: nil)
         } catch Failure.notLinked(let text) {
@@ -203,7 +203,7 @@ public final class HandsService {
         if let from = hand.level, !from.isRaise(to: level) {
             do {
                 try await api.setLevel(target: id, level: level, proof: nil)
-            } catch CloudAPIError.http(_, let code, _) where code == "hand.level_refused" {
+            } catch CloudAPIError.http(_, let code, _, _, _) where code == "hand.level_refused" {
                 // The known level was stale (a Chief lowered it): this is a raise after all.
                 try await raise(target: id, to: level, reason: texts.raiseHand(hand.name.isEmpty ? id : hand.name, level.rawValue))
             }
@@ -220,7 +220,7 @@ public final class HandsService {
         let target = "default:\(profile.rawValue)"
         do {
             try await api.setLevel(target: target, level: level, proof: nil)
-        } catch CloudAPIError.http(_, let code, _) where code == "hand.level_refused" {
+        } catch CloudAPIError.http(_, let code, _, _, _) where code == "hand.level_refused" {
             try await raise(target: target, to: level, reason: texts.raiseDefault(profile.rawValue, level.rawValue))
         }
         note("default \(profile.rawValue) -> \(level.rawValue)")

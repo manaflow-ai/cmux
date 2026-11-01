@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The groups the background picker shows bundled art in, in picker order.
 public nonisolated enum BackdropArtCollection: String, CaseIterable, Equatable, Sendable {
@@ -29,6 +30,19 @@ public nonisolated extension BackdropArt {
             return nil
         }
     }
+
+    /// Ids of works taken out of the set without a stand-in: the goriest and grimmest pieces (Leo,
+    /// 2026-10-19: too depressing for a backdrop). A cmux.json or workspace that still names one
+    /// shows the default background, with no invalid-value diagnostic.
+    static let removedIDs: Set<String> = [
+        "bocklin-isle-of-the-dead", "bocklin-self-portrait-death", "bosch-garden-right", "bruegel-triumph-death",
+        "bundy-death-general", "caravaggio-david-goliath", "caravaggio-medusa", "dore-flood",
+        "draper-lament-icarus", "durer-knight-death-devil", "ensor-skeleton-painter", "fuseli-nightmare",
+        "fuseli-nightmare-2", "gentileschi-judith", "gericault-raft-of-the-medusa", "gerome-pollice-verso",
+        "goya-saturn", "goya-witches-sabbath", "hiremy-hirschl-souls-of-acheron", "klimt-death-and-life",
+        "klimt-judith", "klimt-medicine", "millais-ophelia", "moreau-apparition", "repin-ivan",
+        "schiele-death-and-the-maiden", "van-gogh-skeleton-cigarette", "vereshchagin-apotheosis-war"
+    ]
 
     /// Each retired id and the work that now stands in for it.
     static let retiredIDs: [String: BackdropArt] = [

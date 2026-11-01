@@ -1,16 +1,9 @@
-// New Tab scrolls in one place (Leo 2026-10-12): the page had two scrollbars, the page's own at
-// the window edge and the Chats list's inside it, and the list was cut mid-row right above the
-// template dots. Now, as in Settings (cx-jh7kq), a page with the All chats list scrolls only in
-// that list, the document never scrolls, and the list's edges fade instead of slicing a row. In a
-// pane too short for two rows of list the page scrolls instead, so nothing is out of reach; the
-// page itself never fades (the composer's model menu opens inside it).
-// This measures the real gallery stages in Chromium in a short window (360 px), where the list's
-// minimum height pushed the page past the window.
+// New Tab uses one page scroll, including the virtualized All chats rows.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -27,7 +20,7 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.new-tab&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.new-tab", { variant })}`;
 
   async function ready(page: Page) {
     for (;;) {
@@ -47,13 +40,8 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // The first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 900, height: 600 } });
-    await warm.goto(url("empty"));
-    await ready(warm);
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "empty" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -92,13 +80,13 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
     return state;
   }
 
-  test("with All chats, the list is the page's only scroller and its edges fade", async () => {
+  test("with All chats, the page is the only scroller", async () => {
     // 400 px: Claude Code's split adds the quiet row (28 px and its 4 px gap) under the box, so at
     // 360 the list is already down to its two-row floor, where the page scrolls by design (below).
     expect(await look("many-chats", 400)).toMatchObject({
       documentScrolls: false,
-      scrollers: ["nt-all-list"],
-      fades: [true],
+      scrollers: ["nt-screen"],
+      fades: [false],
       pageFades: false,
     });
   });

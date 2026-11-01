@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
+@testable import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -26,15 +28,17 @@ struct RapidWorkspaceCreateTests {
     private static func name(_ press: Int) -> String { String(format: "race-%02d", press) }
 
     /// Polls until `done` holds or `limit` passes (a poll, as in `FirstLaunchTests`).
-    private static func wait(within limit: Duration, until done: () -> Bool) async {
+    @discardableResult
+    static func wait(within limit: Duration, until done: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + limit
         while !done(), ContinuousClock.now < deadline, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        return done()
     }
 
     /// The app on a fresh same-tree daemon, with the launch window showing its first workspace.
-    private struct Launched {
+    struct Launched {
         let services: AppServices
         let root: URL
 
@@ -50,20 +54,47 @@ struct RapidWorkspaceCreateTests {
         }
     }
 
-    private static func launch() async throws -> Launched {
+    /// `sessionEvents`: the connection follows `session.events`, as the app's does (the sidebar document's items and
+    /// the personal rows and groups come on it).
+    static func launch(sessionEvents: Bool = false, preseedWorkspaceNames: [String] = []) async throws -> Launched {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-race-\(UUID().uuidString.prefix(8))")
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        if !preseedWorkspaceNames.isEmpty {
+            let owner = try await launcher.ensure()
+            let seed = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
+                                        endpointProvider: launcher.endpointProvider)
+            do {
+                _ = try await seed.start()
+                for name in preseedWorkspaceNames {
+                    _ = try await seed.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
+                }
+            } catch {
+                // No Launched comes back to stop it: end the daemon `ensure` spawned here, by its pid when the seed
+                // connection never learned its identity, and remove the fixture state.
+                if let identity = await seed.identity {
+                    _ = try? await seed.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                timeout: .seconds(10))
+                } else {
+                    kill(owner.pid, SIGTERM)
+                }
+                await seed.close()
+                try? FileManager.default.removeItem(at: root)
+                throw error
+            }
+            await seed.close()
+        }
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
+                             endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         await Self.wait(within: .seconds(90)) {
@@ -288,6 +319,127 @@ struct RapidWorkspaceCreateTests {
         #expect(misordered.isEmpty, "drawn frames out of press order: \(misordered)")
         #expect(final.count == presses && (final == final.sorted() || final == final.sorted(by: >)), "final order by press: \(final)")
         #expect(numbers == numbers.sorted() && Set(numbers).count == presses, "names by press: \(numbers)")
+        #expect(failures.isEmpty, "failed: \(failures)")
+    }
+
+    /// Lawrence 2026-10-20: "doing Command-N to make a new workspace does not make it the top …
+    /// Always make it at the top with a single state change, a single render, and have zero jank"
+    /// (plans/cmux-next/sidebar-ordering-DESIGN.md). Over rows already there, one of them unread,
+    /// five Cmd-N at key-repeat speed: in every frame the sidebar draws, the new rows are the first
+    /// rows below Home, newest first, and the rows that were there keep their order below them (no
+    /// new row drawn at the bottom and then moved, none above an old row it then drops below). The
+    /// daemon's create places each one, so the app sends no sidebar move of its own.
+    @Test func fiveQuickCmdNDrawEachNewRowFirstInEveryFrameAboveUnreadRows() async throws {
+        let launched = try await Self.launch()
+        let services = launched.services
+        // `top` named explicitly (the app's default is afterCurrent since #23014; Lawrence asked for the top).
+        let url = launched.root.appendingPathComponent("cmux.json")
+        try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        services.settings = settings
+        try #require(services.settings?.snapshot.newWorkspacePlacement == .top)
+        let window = try #require(services.windows.active?.state.id)
+        let controller = try #require(services.windows.controller(for: window))
+        let list = controller.sidebar.container.sidebarView.list
+        let store = services.daemon.store
+        func settled(_ count: Int) -> Bool {
+            PendingWorkspaceRows.shared.rows(in: window).isEmpty && store.workspaces.count >= count
+                && !store.workspaces.contains(where: \.isProvisional)
+        }
+        // Rows to land above: three earlier workspaces, the middle one marked unread.
+        let start = store.workspaces.count
+        for press in 1...3 {
+            _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string(String(format: "seed-%02d", press))]))
+            await Self.wait(within: .seconds(20)) { settled(start + press) }
+        }
+        let unread = try #require(store.workspaces.first { $0.name == "seed-02" })
+        let connection = try #require(services.daemon.connection)
+        _ = try await connection.request(SetWorkspaceMetadataRequest(workspace: .handle(unread.handle), markedUnread: true, mutation: connection.mutation()))
+        await Self.wait(within: .seconds(10)) {
+            controller.sidebar.model.allWorkspaces.first { $0.id.rawValue == unread.id }?.unread.isUnread == true
+        }
+        let home = NewWorkspacePlacements.home(services.machines)
+        let old = controller.sidebar.model.allWorkspaces.map(\.id.rawValue).filter { $0 != home }
+        let intentBefore = SidebarDocStore.current?.lastIntentKey
+
+        // Every frame the list draws from the first press until the creates settled.
+        var frames: [[String]] = []
+        // Per frame, which rows the sidebar document places (d) and which have a personal row (p): says which
+        // source a misplaced row came from.
+        var sources: [[String: String]] = []
+        let personal = services.machines.local.store.personal
+        list.onApply = { layout in
+            let frame: [String] = layout.rows.compactMap { row in
+                guard case let .workspace(id) = row.key, id.rawValue != home else { return nil }
+                return id.rawValue
+            }
+            frames.append(frame)
+            let rowed = Set(personal.workspaces.map(\.workspaceKey.rawValue))
+            let path = SidebarDocStore.current?.shown == nil ? "personal" : "doc"
+            let members = Set(services.windows.registry.members(of: window))
+            let pending = Set(PendingWorkspaceRows.shared.rows(in: window).map(\.id))
+            let room = services.windows.states[window]?.profileID ?? .defaultProfile
+            let docOrder = SidebarDocWiring.sections(of: services.machines.local, room: room, machines: services.machines)?
+                .flatMap(\.workspaces).map(\.id).filter { $0 != home }
+            sources.append(Dictionary(uniqueKeysWithValues: frame.map { id in
+                var tags = path + (SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : "") + (rowed.contains(id) ? "+p" : "")
+                tags += members.contains(id) ? "+m" : ""
+                tags += pending.contains(id) ? "+pend" : ""
+                tags += services.machines.workspace(id: id)?.0.isProvisional == true ? "+prov" : ""
+                tags += docOrder.map { "@\($0.firstIndex(of: id).map(String.init) ?? "-")" } ?? "@nil"
+                return (id, tags)
+            }))
+        }
+        var keys: [String] = []
+        func noteKeys() { for row in PendingWorkspaceRows.shared.rows(in: window) where !keys.contains(row.id) { keys.append(row.id) } }
+        var work: [ActionWork] = []
+        for press in 1...5 {
+            work += services.registry.capturingWork {
+                _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string(String(format: "fresh-%02d", press))]))
+            }
+            noteKeys()
+            let next = ContinuousClock.now + .milliseconds(33) // key repeat
+            while ContinuousClock.now < next { noteKeys(); try? await Task.sleep(for: .milliseconds(3)) }
+        }
+        await Self.wait(within: .seconds(30)) { noteKeys(); return keys.count == 5 && settled(start + 8) }
+        // A late reorder (the item's arrival, a placement echo) would draw within this; test-only wait.
+        try? await Task.sleep(for: .seconds(1))
+        list.onApply = nil
+        var failures: [String] = []
+        for task in work { if let failure = await task.value { failures.append(failure.message) } }
+        let final = controller.sidebar.model.allWorkspaces.map(\.id.rawValue).filter { $0 != home }
+        let intentAfter = SidebarDocStore.current?.lastIntentKey
+        await launched.stop()
+
+        // Each frame: the new rows it draws come first, newest first; the old rows follow in their order.
+        var bad: [[String]] = []
+        func label(_ frame: [String]) -> [String] {
+            frame.map { id in keys.firstIndex(of: id).map { "new\($0 + 1)" } ?? (id == unread.id ? "unread" : "old") }
+        }
+        for frame in frames {
+            let fresh = frame.filter(keys.contains), rest = frame.filter { !keys.contains($0) }
+            let newestFirst = fresh.compactMap { keys.firstIndex(of: $0) }
+            let ok = Array(frame.prefix(fresh.count)) == fresh && newestFirst == newestFirst.sorted(by: >)
+                && rest == old.filter(rest.contains)
+            if !ok, bad.count < 5 { bad.append(label(frame)) }
+        }
+        // The frame strip (each distinct drawn order, in order) for the before/after gallery.
+        var strip: [[String]] = []
+        for (frame, source) in zip(frames, sources) {
+            let shown = label(frame).enumerated().map { index, name in name.hasPrefix("new") ? "\(name)[\(source[frame[index]] ?? "")]" : name }
+            if strip.last != shown { strip.append(shown) }
+        }
+        print("cmd-n-top settings: app newPlacement \(String(describing: services.settings?.snapshot.newWorkspacePlacement)), "
+              + "placesNewRowsFirst \(SidebarDocWiring.docSections.placesNewRowsFirst())")
+        print("cmd-n-top frames: \(frames.count) drawn, \(strip.count) distinct: \(strip.map { $0.joined(separator: ",") }.joined(separator: " | "))")
+        #expect(keys.count == 5, "\(keys.count) of 5 presses added a row")
+        #expect(!frames.isEmpty, "the list drew no frame")
+        #expect(bad.isEmpty, "frames with a new row not on top (of \(frames.count)): \(bad)")
+        #expect(Array(final.prefix(5)) == Array(keys.reversed()), "final order: \(final), presses: \(keys)")
+        #expect(final.dropFirst(5).elementsEqual(old), "old rows moved: \(old) -> \(Array(final.dropFirst(5)))")
+        #expect(intentAfter == intentBefore, "the app sent its own sidebar move for a new workspace (a second state change)")
         #expect(failures.isEmpty, "failed: \(failures)")
     }
 }

@@ -309,27 +309,27 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// Opens the bubble at `anchor` (screen coordinates): under the control that opened it,
     /// on the anchor's edge, above it when there is no room below.
     func present(at anchor: PopupAnchor, parent: NSWindow, ordersFront: Bool = true) {
-        let reopening = dismissing && isVisible
         dismissing = false
         isPresented = true
         ignoresMouseEvents = false
         self.anchor = anchor.rect
         generation += 1
+        // Restore the whole card before ordering it front, including during a closing fade.
+        if ordersFront { showPopupAtOnce() }
         if ordersFront, self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
-        let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame)
+        let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame,
+                                    window: parent.convertToScreen(parent.contentLayoutRect))
         setFrame(PopupStyle.standard.windowFrame(forCard: card), display: ordersFront)
         guard ordersFront else { return }
-        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor.rect))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

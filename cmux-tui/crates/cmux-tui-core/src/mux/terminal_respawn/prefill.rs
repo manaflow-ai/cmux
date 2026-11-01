@@ -6,8 +6,9 @@
 //!   it never lands in a program the shell's startup files started;
 //! - else an agent session whose harness is known resumes, started as it was
 //!   (its flags and account directory, `relaunch_store::agent_launch`):
-//!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>` or
-//!   `CODEX_HOME=<dir> codex resume <id> <flags>`. It runs (Return after it)
+//!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>`,
+//!   `CODEX_HOME=<dir> codex resume <id> <flags>` or
+//!   `muse resume <id> <flags>`. It runs (Return after it)
 //!   when all of these hold:
 //!   - `sessions.resumeAgents` in the settings file is on (the default;
 //!     "Resume Agents After Restart");
@@ -15,8 +16,10 @@
 //!     quoting it is written in;
 //!   - its flags turn no approvals off (`--dangerously-skip-permissions`,
 //!     `--permission-mode bypassPermissions`, codex `--yolo`, `-s
-//!     danger-full-access` or `-a never`; a claude settings file or agent
-//!     and a codex profile count too, as they may): a respawn never starts an agent with its
+//!     danger-full-access` or `-a never`, muse `--yolo`, `--disable-approval`,
+//!     `--disable-sandbox` or `--approval-mode never`; a claude settings file
+//!     or agent, a codex profile, and a muse permission profile, preset,
+//!     agent overlay or `-c` setting count too, as they may): a respawn never starts an agent with its
 //!     approvals off by itself (#22292). Such a resume is typed without
 //!     Return instead;
 //!   - when it is written, shell integration itself marks the prompt (OSC
@@ -227,6 +230,20 @@ fn turns_approvals_off(harness: &str, flags: &[String]) -> bool {
                 || has_value(&["-s", "--sandbox"], "danger-full-access")
                 || has_value(&["-a", "--ask-for-approval"], "never")
         }
+        // A permission profile, a preset, an agent overlay or a setting can
+        // turn approval or the sandbox off.
+        "muse" => {
+            has(&[
+                "--yolo",
+                "--disable-approval",
+                "--disable-sandbox",
+                "--permission-profile",
+                "--preset",
+                "--agents",
+                "-c",
+                "--config",
+            ]) || has_value(&["--approval-mode"], "never")
+        }
         _ => true,
     }
 }
@@ -293,7 +310,7 @@ pub(in crate::mux) fn resume_command(
             argv.extend(["--resume".to_string(), session_id.to_string()]);
             argv.extend(flags);
         }
-        "codex" => {
+        "codex" | "muse" => {
             argv.extend(["resume".to_string(), session_id.to_string()]);
             argv.extend(flags);
         }
@@ -341,7 +358,20 @@ mod tests {
         assert_eq!(resume_command("codex", "s.1_2", None).as_deref(), Some("codex resume s.1_2"));
         assert_eq!(resume_command("claude", "abc;rm -rf", None), None);
         assert_eq!(resume_command("claude", &"a".repeat(129), None), None);
+        assert_eq!(
+            resume_command("muse", "01a14ec1-9cca-7b72-832c-5148ab7bcd41", None).as_deref(),
+            Some("muse resume 01a14ec1-9cca-7b72-832c-5148ab7bcd41")
+        );
         assert_eq!(resume_command("opencode", "abc", None), None);
+    }
+
+    #[test]
+    fn a_muse_resume_starts_the_cli_with_its_flags() {
+        let launch = AgentLaunch { args: strings(&["--model", "muse-wonder-1.0"]), env: vec![] };
+        assert_eq!(
+            resume_command("muse", "s1", Some(&launch)).as_deref(),
+            Some("muse resume s1 --model muse-wonder-1.0")
+        );
     }
 
     #[test]
@@ -401,6 +431,22 @@ mod tests {
             [&["-m", "gpt-5.5"][..], &["--full-auto"], &["-a", "on-request"], &["-aon-request"]]
         {
             assert!(!turns_approvals_off("codex", &strings(flags)), "{flags:?}");
+        }
+        for flags in [
+            &["--yolo"][..],
+            &["--disable-approval"],
+            &["--disable-sandbox"],
+            &["--approval-mode", "never"],
+            &["--approval-mode=never"],
+            &["--permission-profile", "open"],
+            &["--preset", "empty"],
+            &["-c", "approval.mode=\"never\""],
+        ] {
+            assert!(turns_approvals_off("muse", &strings(flags)), "{flags:?}");
+        }
+        for flags in [&["--model", "muse-wonder-1.0"][..], &["--approval-mode", "on-request"], &[]]
+        {
+            assert!(!turns_approvals_off("muse", &strings(flags)), "{flags:?}");
         }
     }
 

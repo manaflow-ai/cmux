@@ -1,0 +1,44 @@
+{
+  "id": "assistant-needs-you-first",
+  "group": "assistant",
+  "owner": "a676",
+  "about": "Something only the user can do (a sign-in) is surfaced first, as one self-contained line; the rest is short.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "rotate the Stripe test keys in staging and redeploy"
+    },
+    {
+      "kind": "talk",
+      "text": "a15 is on it."
+    }
+  ],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[a15] Redeployed staging with the new webhook secret (landed 3c3da02..98f8aea on feat-cmux-next, staging checks green). Blocked: rotating the Stripe test API key needs a dashboard sign-in at https://dashboard.stripe.com/test/apikeys, which I cannot pass (passkey).",
+      "checks": [
+        {
+          "type": "max_words",
+          "n": 90
+        },
+        {
+          "type": "judge",
+          "rubric": "Passes when the reply puts the one thing the user must do (sign in to the Stripe dashboard for the key rotation, with its link) first or under a 'Needs you' heading at the top, and states the rest (staging redeployed, landed range) briefly. Fails when the ask is buried after other text, is missing, or the reply is long."
+        }
+      ]
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "cmux",
+      "match": "browser",
+      "stdout": "OK tab_7c1e2d0a9b8f navigated https://dashboard.stripe.com/test/apikeys (title: Stripe Login)"
+    },
+    {
+      "cmd": "cmux",
+      "match": "tab list",
+      "stdout": "[{\"id\":\"tab_7c1e2d0a9b8f\",\"title\":\"Stripe Login\",\"pane\":\"pane_right\"}]"
+    }
+  ]
+}

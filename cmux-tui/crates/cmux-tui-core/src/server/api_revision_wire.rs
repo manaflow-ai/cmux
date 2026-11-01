@@ -39,11 +39,22 @@ pub(super) const LEGACY_API_REVISION: u32 = 12;
 const PENDING_LIMIT: usize = 4096;
 
 /// The compiled-in revision history. Immutable data, built once.
+#[allow(
+    clippy::expect_used,
+    reason = "compiled-in spec/api-compat.json bytes that api-compat-check validates in CI"
+)]
 pub(super) static API_COMPAT: LazyLock<Compat> = LazyLock::new(|| {
     let schema = Schema::from_json(include_bytes!("../../../../spec/api-compat.json"))
         .expect("spec/api-compat.json is validated by api-compat-check"); // crash-allow: compiled-in bytes that api-compat-check validates in CI
     Compat::new(schema).expect("validated schema") // crash-allow: the same compiled-in schema
 });
+
+/// The immutable revision history used by both the server and remote clients.
+/// Keeping one compiled schema prevents a remote app from accepting a range it
+/// cannot actually translate.
+pub(super) fn compat() -> &'static Compat {
+    &API_COMPAT
+}
 
 /// The `identify` fields.
 pub(super) fn identify_fields() -> (u32, u32) {
@@ -56,7 +67,7 @@ pub(super) fn too_old_text(why: &str, version: Option<&str>, install: Option<&st
     let release = version.map_or_else(String::new, |version| format!(" (cmux {version})"));
     format!(
         "this client{release} is too old for this cmux-tui daemon (cmux {}): {why}. To fix it, {}",
-        crate::release::DISTRIBUTION_VERSION,
+        crate::release::distribution_version(),
         crate::release::update_hint_for(install)
     )
 }

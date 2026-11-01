@@ -7,8 +7,10 @@ graded them, in about a minute, alongside the rest of CI.
 
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
-Nothing merges while that check is red on the exact head: `next-autoland` (`scripts/ci/next_batch.py`)
-into `feat-cmux-next` and `gh-merge-green` both refuse it.
+The check is advisory (cmuxterm-hq#5745, Leo, 2026-11-01: "keep only what catches real breakage"):
+a held pull request gets a warning in the job summary and the check stays green. What holds a merge is
+the review itself: every pull request lands only on an independent review at its exact head, and a
+BLOCK there keeps it out.
 
 ## Tiers
 
@@ -18,7 +20,7 @@ A pull request takes the highest tier of any file it changes. A file no rule nam
 | --- | --- | --- |
 | low | docs, plans, skills, copy (`*.xcstrings`, `*.strings`), logs (even inside a high directory), generated output, tests and fixtures, agent and tooling config (`.claude/`, `tools/`, prototypes) | green relevant checks. Post-merge checks catch the rest. |
 | normal | everything else: cmux NEXT UI and logic, webviews, the daemon and cmux-tui, web routes, CI workflows and scripts, pins and lockfiles (even inside a high directory), defaults behind a setting | agent review and the relevant checks, then auto-merge or the batch queue. No person. |
-| high | the six kinds below | a person looks first: an approving review on the head commit by a collaborator other than the author, or `risk:human-ok` added by a maintainer |
+| high | the six kinds below | an independent review receipt `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile. The line goes in the description (no comment needed) or leads a comment. An approving review on the head by a collaborator other than the author, or `risk:human-ok` added by a maintainer, also counts. The check warns on a missing verdict or a BLOCK and stays green; the lander refuses a BLOCK at the head. Only an unowned takeback (below) turns the check red |
 
 High is kept small on purpose. Each kind is here because a regression in it can't be undone by
 reverting the commit, or because it takes out the safety net every other tier relies on:
@@ -27,10 +29,12 @@ reverting the commit, or because it takes out the safety net every other tier re
 | --- | --- | --- |
 | auth and credentials | `CmuxAuthRuntime`, `CMUXAuthCore`, `WebAuth/`, keychain and token stores, `web/services/auth/`, `web/proxy.ts`, any `auth`, `oauth`, `sign-in` or `login` path word, `*.entitlements` | #12121 sent signed-in production users into a sign-in loop. A leaked token stays leaked after a revert. |
 | socket and relay access policy | `ControlAuthorizer`, `ControlPeer*`, `CheckedAccess`, the socket path, peer inspectors, relay crates, `services/iroh-relay-minter`, `web/services/relay`, any `relay-policy` or `socket-access` file | Who may drive the app or forward through a relay. #20644 (P1) broke local agent chats against this policy. The app has no relay policy yet, so every relay path must stay default-deny. |
+| agent pane host op or allowlist (socket and relay access policy): what an agent pane may make the host do | the page ops list `AgentPageProvider.swift` (`AgentPageOps`), `AcpmuxPaneMethods*` (the `_acpmux/*` methods and `knownParams` a pane may relay), the page-op param tables `AgentPaneEnvironmentRequest` and `AgentPaneReplyRequest`, the frame check `AgentPaneTransport+Check`, the gesture rule `AgentPaneTransport+Frames` (`decide`, which spends a click's ticket) and `AgentPaneGestureIntent` (which methods a ticket redeems), the tickets themselves `AgentPaneUserGestures`, the app actions a page may run `AgentPaneModel+Actions` (`connectActions`), the folder policy `AcpmuxPathPolicy` and the folders a person picks `AgentPaneTransport+PickedFolder`, the relayed-allow proof `AgentPaneTransport+RelayedAllow` (signs an allow with the person key), the full-access refusal `AgentPaneTransport+FullAccess`, `AgentPanePendingAsks` (opens its own acpmux connection for a page), the Rust mirror `cmux-agent-pane-policy`, and acpmux's `server/remote_guard.rs`. Their tests stay low; the rest of `CmuxNextAgentPane` stays normal | #22646 added the page op `chat.asks.pending`, which read another chat's permission asks over the host's own acpmux connection and reached a peer daemon until review caught it (fixed by naming the chat `local/<id>` and refusing replies that name a peer). It graded normal by path. A page is untrusted content, so a new op is a new way into the host; every new op edits the ops list. |
+| peer identity or code-signature trust (socket and relay access policy): who answers or connects on a local socket or XPC service, and which code may run | the Chief's `acpmux_peer.rs` and any `code_signature` or `*SignatureCheck*` source (`.rs`, `.swift`, `.go`), the app's `AcpmuxServerPeer`, cmux-link's `caller.rs`, `caller_macos.rs` and `app_caller.rs`, the Computer Use helper's `Admission`, `AdmissionState`, `HelperController` (its control pipe, where the admission values arrive), `HostVerifier`, and `HelperSocketServer` and `HostConsentServer` (they call those checks) and the app's `ComputerUseHelperV2HostLink` (each side's check of the other on the host consent socket), the acpmux bridge admission the app gives the helper (`ComputerUseHelperV2+Admission`: the requirement or cdhash, the `configure` and `register_acpmux` lines, the daemon check; `ComputerUseHelperV2+Secret`: the per-launch secret and `endpoint.json`; `AgentTabs+PaneSource`: which acpmux executable it trusts), the acpmux executable choice and its team-signature refusal (`AcpmuxEnvironment+Resolve`, and the DEBUG override `AcpmuxEnvironment+DebugOverride`), the helper requirement (`CuaHelperIdentity`, acpmux's `cua_helper.rs`, `scripts/cmux-cua-helper-trust.sh`) and `ComputerUseHelperStaging`, the root server helper's `ServerHelperListener`, `ServerHelperProtocol` and the app's `ServerHelperClient` (the XPC code-signing requirements on both ends), the downloaded browser runtime's signature checkers | A wrong signing time, anchor or team lets another process take the socket or run as cmux code. #29072 changed which time a moved acpmux's signing chain must be valid at, and graded normal. |
 | stored-data migrations | `migrations/`, `*/migrations/*`, `drizzle/`, `migrate/`, `*Migrat*` sources, `web/convex/schema*`, `backend/db/schema*` | #16397 deployed code before its migration was applied: every Cloud VM create failed for about 7 hours. A bad migration loses data on every machine that runs it. |
-| release, signing, notarization and the updater | `nightly*.yml`, any script or workflow named for sign, notarize, appcast, sparkle, release, publish, deploy, nightly, promote or rollback, `scripts/ci/lib/`, `CmuxNextUpdater` | Two release breaks in the window (#18817, 19f51d5ef2). A broken updater stops fixes from reaching anyone, so it breaks the nightly safety net that normal relies on. |
+| release, signing, notarization and the updater | `nightly*.yml`, any script or workflow named for sign, notarize, appcast, sparkle, release, publish, deploy, nightly, promote or rollback, `scripts/ci/lib/`, `CmuxNextUpdater` and `CmuxUpdater` (except the channel and preference values below) | Two release breaks in the window (#18817, 19f51d5ef2). A broken updater stops fixes from reaching anyone, so it breaks the nightly safety net that normal relies on. |
 | the risk gate itself | `risk-tier.yml`, `risk-tier-tests.yml`, `risk_tier.py`, `CODEOWNERS`, and what refuses a red `risk evidence`: `scripts/gh-merge-green`, and `scripts/ci/next_batch.py` with `cmux-next-batch.yml` (next-autoland) | It grades every other pull request. A normal change to an enforcer could drop the refusal with no person looking. |
-| new data deletion, new privileged trigger | a product-code line that adds a delete of files or rows (`removeItem(at:`, `remove_dir_all`, Rust `fs::remove_file`/`fs::remove_dir`, `rmtree`, `DELETE FROM`, `DROP TABLE`, `trashItem`, `deleteAll…`, Drizzle `db.delete(`/`tx.delete(`) that the pull request doesn't also remove from product code (an edited or moved delete isn't new, so retargeting an existing delete is normal: agent review catches that; a cleanup line moved out of a test into product code is new); a workflow line that adds `pull_request_target` or `workflow_run` | Deleted user data doesn't come back with a revert. 16c570b576 put a cargo cache on `pull_request_target`, a cache-poisoning path. Tests, CI scripts (`scripts/`, `*/scripts/`), generated bindings, comments and in-memory purges don't count. |
+| new data deletion, new privileged trigger | a product-code line that adds a delete of files or rows (`removeItem(at:`, `remove_dir_all`, Rust `fs::remove_file`/`fs::remove_dir`, `rmtree`, `DELETE FROM`, `DROP TABLE`, `trashItem`, `deleteAll…`, Drizzle `db.delete(`/`tx.delete(`) that the pull request doesn't also remove from product code (an edited or moved delete isn't new, so retargeting an existing delete is normal: agent review catches that; a cleanup line moved out of a test into product code is new); a workflow line that adds `pull_request_target` or `workflow_run` | Deleted user data doesn't come back with a revert. 16c570b576 put a cargo cache on `pull_request_target`, a cache-poisoning path. Tests, inline Rust test modules (`#[cfg(test)]` or `#[cfg(all(..., test, ...))]` on `mod name {` at the top level or in a module body, not in a macro's tokens), CI scripts (`scripts/`, `*/scripts/`), generated bindings, comments and in-memory purges don't count. For a Rust file that adds or removes a delete, the gate reads the file at the head or the merge base to place the line in or out of a test module; when it can't, an added delete counts and a removed one doesn't pay for another. A file that `#[cfg(test)] mod name;` declares is still graded as product code. |
 
 ### Taking back a recent change
 
@@ -52,6 +56,12 @@ clears this; no person is needed.
 - **Pins and the package graph** (`ghostty`, `vendor/`, `Package.resolved`). Three stale pins
   broke the build (#16319, #15747, #11163). The compile checks catch that, and the fix is a
   one-line pin move. The takeback check above catches the stale-squash cause.
+- **The update channel setting** (`CmuxUpdater/UpdateRing.swift`, `CmuxNextUpdater/UpdatePreferences.swift`,
+  and the settings schema). Choosing a ring reuses the feeds the release pipeline already signs,
+  and the updater still verifies every download (Leo, 2026-10-21, after #22781). The code that
+  decides whether the updater runs (`UpdateTrack`), or parses, probes, installs or verifies an
+  update, stays high, and so does the rest of the `CmuxUpdater` package: the Sparkle driver, the install
+  code, `UpdateFeedResolver` and the channel switch's `AppSignatureVerification`.
 - **Defaults** (`schemas/defaults/`). A default ships with its setting, so undo is the setting
   (#21686).
 - **The daemon, protocol and terminal paths.** These had real regressions (a render deadlock
@@ -126,18 +136,25 @@ A wrong tier is a bug in `scripts/ci/risk_tier.py`. To change one:
    `test_audit_sample_of_real_pull_requests`.
 3. Update the tables above with the evidence.
 
-The pull request is high (it changes the gate), so a person looks before it lands.
+The pull request is high (it changes the gate): an independent SHIP at the exact head plus a green compile clears it.
 
 ## Rollout
 
 Until 2026-10-24 00:00 UTC (`ENFORCE_FROM` in `risk-tier.yml`) a held pull request only gets a
-warning, and the check passes. After that, a held pull request blocks merge. A verdict from the
+warning, and the check passes. From then until cmuxterm-hq#5745 made it advisory again, a held pull
+request blocked merge. A verdict from the
 advisory window doesn't count after the cutover: `gh-merge-green` reads `ENFORCE_FROM` from the
 base and refuses a `risk evidence` check whose job started before it, or one that never ran. Edit
 the description or push to re-grade.
 
-After approving a high pull request, re-run its `risk evidence` check, or edit the description, so
-it re-grades. Adding `risk:human-ok` re-grades on its own.
+Put the receipt in the description: editing the description re-grades the check on its own. After
+posting a receipt comment on, or approving, a high pull request instead, re-run its `risk evidence`
+check, or edit the description, so it re-grades: a comment or review doesn't trigger the check.
+Adding `risk:human-ok` re-grades on its own.
+
+A high pull request with no verdict on its head passes with a warning in the job summary ("no
+review verdict on the head commit yet"), not a red check. It still lands only after an independent
+review passes. The newest verdict on the head being a BLOCK, FIX or change request is the one hold.
 
 ## Ship risky behavior dark
 
@@ -152,4 +169,12 @@ gh-merge-green --revert manaflow-ai/cmux#<number>
 ## Sign-off labels
 
 `risk:human-ok` (and the older `risk:waived`) count only when a maintainer (admin or maintain
-role) added them; the check reads who did. Agents never add either.
+role) added them; the check reads who did. Agents never add either, and never need to: a SHIP
+receipt on the head is enough. The receipt is a line of the description, or the first line of a
+comment or review body, from a collaborator (for the description, its author must be one, the same
+rule as a commenter); it names the full head sha and isn't a self-review. A description line inside
+an HTML comment doesn't count, and description lines rank below every comment and review, so a later
+BLOCK comment beats a SHIP in the description. The newest verdict on the head
+decides, read as one timeline with approvals and change requests of the head commit: a later BLOCK
+or change request beats an earlier SHIP or approval, a BLOCK wins a tie, and any push needs a new
+receipt. The label counts only while no verdict names the head.

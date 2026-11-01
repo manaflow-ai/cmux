@@ -1,5 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
 import { callCapability } from "./automation-caps.ts"
+import { brainName } from "./chief-brain/brain-do.ts"
+import type { ChiefJob, JobDelivery } from "./chief-brain-cc/jobs.ts"
 import { runMachineStep, type MachineExec, type StepOutcome } from "./automation-machine.ts"
 import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
@@ -35,6 +37,23 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
           step: -1,
           error: { code: "body.unsupported", message: "agent_prompt runs need the mux (MuxDO) and machine placement, which this backend does not have yet" }
         })
+        return
+      }
+      if (p.body.type === "chief") {
+        // A Chief's job (chief-brain-cc/jobs.ts): hand the prompt to the Chief's conversation brain once
+        // (journaled; the brain keys it by run). The Chief's own turn does the work and posts the result.
+        const body = p.body
+        const r: JobDelivery = await step.do("cmux:chief", { retries: { limit: 5, delay: 2000, backoff: "exponential" } }, async () => {
+          const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(body.chief, body.conversation))) as unknown as { chiefJob(j: ChiefJob): Promise<JobDelivery> }
+          const out = await brain.chiefJob({ run: p.run, automation: p.automation, chief: body.chief, conversation: body.conversation, prompt: body.prompt, trigger: p.trigger.type, ...(p.input === undefined ? {} : { input: p.input }), charged_user: p.charged_user ?? null })
+          if (!out.ok && out.retry) throw new Error(`${out.code}: ${out.message}`)
+          return out
+        })
+        if (!r.ok) {
+          await report("cmux:chief-failed", { state: "failed", step: -1, error: { code: r.code, message: r.message.slice(0, 500) } })
+          return
+        }
+        await report("cmux:finish", { state: "succeeded", step: 0, outcome: { goal_met: true, summary: "handed to the Chief; its reply is in the chat" } })
         return
       }
       if (p.body.type === "code") {

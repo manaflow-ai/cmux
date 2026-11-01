@@ -43,6 +43,7 @@ struct AgentPaneProjectIconTests {
             var reader = live
             reader.stat = { touches.add($0); return live.stat($0) }
             reader.read = { touches.add($0); return live.read($0) }
+            reader.readManifest = { touches.add($0); return live.readManifest($0) }
             return reader
         }
 
@@ -57,6 +58,33 @@ struct AgentPaneProjectIconTests {
         }
         // A vector or a large touch icon draws sharper in the 20pt tile than a 16px .ico.
         #expect(candidates.firstIndex(of: "/p/public/favicon.svg")! < candidates.firstIndex(of: "/p/favicon.ico")!)
+    }
+
+    /// The repository's own pick for cmux first; logos after every favicon.
+    @Test func aChosenIconComesFirstAndLogosLast() {
+        let candidates = AgentPaneProjectIcon.candidates(in: "/p")
+        #expect(candidates.first == "/p/.cmux/icon.svg")
+        #expect(candidates.contains("/p/assets/icon.png"))
+        for logo in ["/p/logo.svg", "/p/logo.png", "/p/assets/logo.svg", "/p/assets/logo.png"] {
+            #expect(candidates.firstIndex(of: logo)! > candidates.firstIndex(of: "/p/favicon.ico")!, "\(logo)")
+        }
+    }
+
+    @Test func anXcodeAppIconIsItsLargestSmallEnoughPNG() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var small = Self.png
+        small.append(Data(count: 100))
+        var large = Self.png
+        large.append(Data(count: 1000))
+        var huge = Self.png
+        huge.append(Data(count: AgentPaneProjectIcon.maximumBytes))
+        let set = "code/App/App/Assets.xcassets/AppIcon.appiconset/"
+        try fixture.write(small, set + "icon-16.png")
+        try fixture.write(large, set + "icon-128.png")
+        try fixture.write(huge, set + "icon-1024.png")
+        try fixture.write(Data("{}".utf8), set + "Contents.json")
+        #expect(fixture.reader.icon(in: fixture.home + "/code/App") == "data:image/png;base64," + large.base64EncodedString())
     }
 
     @Test func aProjectsFaviconIsAnsweredAsADataURL() throws {
@@ -177,6 +205,46 @@ struct AgentPaneProjectIconTests {
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: path)
         // The type comes from the bytes, not the name.
         #expect(await icons.icon(for: fixture.home + "/code/site") == "data:image/svg+xml;base64," + Self.svg.base64EncodedString())
+    }
+
+    /// A clock the test moves by hand.
+    private nonisolated final class Clock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var instant = ContinuousClock.now
+        var now: ContinuousClock.Instant { lock.withLock { instant } }
+        func advance(_ by: Duration) { lock.withLock { instant = instant.advanced(by: by) } }
+    }
+
+    /// A folder that is not on this Mac (a lane VM's `/home/cmux/...`) answers empty with no look for
+    /// `missingLifetime`: the page asks again for every empty answer, and each look walked about 70 paths
+    /// through the `/home` automounter (2026-10-30: opendirectoryd at 230-330 queries a second). A folder
+    /// that is here is read on every ask, so an icon added to it shows on the next one.
+    @Test func aFolderNotOnThisMacIsLookedForOncePerLifetime() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let gone = fixture.home + "/code/elsewhere"
+        let stats = Touches()
+        let clock = Clock()
+        let noAvatars = AgentPaneOwnerAvatars(folder: nil, fetch: { _ in nil })
+        let icons = AgentPaneProjectIcons(reader: fixture.reader, avatars: noAvatars,
+                                          isFolder: { stats.add($0); return AgentPaneProjectIcons.folderExists($0) },
+                                          now: { clock.now })
+        for _ in 0..<3 {
+            let answer = await icons.answer(for: gone)
+            #expect(answer.src == nil && answer.glyph == nil)
+        }
+        #expect(stats.all == [gone], "one existence check for three asks")
+        #expect(fixture.touches.all.isEmpty, "no candidate is looked at in a missing folder")
+        clock.advance(AgentPaneProjectIcons.missingLifetime)
+        _ = await icons.answer(for: gone)
+        #expect(stats.all == [gone, gone], "past the lifetime: checked again")
+
+        // Here, but empty: every ask looks, so an icon added later shows on the next ask.
+        let here = fixture.home + "/code/plain"
+        try FileManager.default.createDirectory(atPath: here, withIntermediateDirectories: true)
+        #expect(await icons.answer(for: here).src == nil)
+        try fixture.write(Self.png, "code/plain/favicon.png")
+        #expect(await icons.answer(for: here).src == "data:image/png;base64," + Self.png.base64EncodedString())
     }
 
     /// The same request from a chat on another machine is answered with no icon; from this Mac's

@@ -5,13 +5,14 @@ public import AppKit
 extension AddressBarView: OmnibarPopupSurface {
     func showRows(_ rows: [BrowserSuggestion], highlighted: Int?) {
         guard let window else { return }
-        panel.show(rows, highlighted: highlighted, below: self, pane: cardPane(in: window), in: window)
+        panel.show(rows, highlighted: highlighted, at: self, upward: toolbarOpensUpward, pane: cardPane(in: window), in: window)
     }
 
-    /// Keeps an open card flush under the bar after the chrome laid out again.
+    /// Keeps an open card flush under the bar (above it, with the toolbar at the bottom) after
+    /// the chrome laid out again.
     func followLayout() {
         guard let window else { return }
-        panel.follow(below: self, pane: cardPane(in: window), in: window)
+        panel.follow(at: self, upward: toolbarOpensUpward, pane: cardPane(in: window), in: window)
     }
 
     /// The card is clipped to the browser pane (the chrome view), or to the surface an omnibar row
@@ -44,6 +45,8 @@ extension AddressBarView: OmnibarFieldEditorSink {
     func fieldEditorMouseDragged() { controller.send(.fieldMouseDragged) }
 
     func fieldEditorMouseUp() { controller.send(.fieldMouseUp) }
+
+    func fieldEditorDrop(_ pasteboard: NSPasteboard) -> Bool { acceptDrop(from: pasteboard) }
 
     var copyContent: OmnibarCopy? { OmnibarReducer.copyContent(of: controller.state, resolver: resolver) }
 

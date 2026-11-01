@@ -24,6 +24,7 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
     private var fields: [String: String]?
     private var enclosure: [String: String]?
     private var deltaDepth = 0
+    private var listsDeltas = false
     private var text = ""
 
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?,
@@ -31,8 +32,10 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
         text = ""
         switch name {
         case "channel": sawChannel = true
-        case "item": fields = [:]; enclosure = nil
-        case "sparkle:deltas": deltaDepth += 1
+        case "item": fields = [:]; enclosure = nil; listsDeltas = false
+        case "sparkle:deltas":
+            deltaDepth += 1
+            if fields != nil { listsDeltas = true }
         case "enclosure" where fields != nil && deltaDepth == 0: enclosure = attributes
         default: break
         }
@@ -81,7 +84,16 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
             downloadURL: enclosure["url"].flatMap(URL.init(string:)),
             itemDescription: fields["description"],
             date: fields["pubDate"].flatMap(Self.rfc822),
-            sparkleChannel: fields["sparkle:channel"]
+            sparkleChannel: fields["sparkle:channel"],
+            sourceCommit: fields["cmux:sourceCommit"] ?? Self.commitFromReleaseNotes(fields["sparkle:fullReleaseNotesLink"] ?? fields["sparkle:releaseNotesLink"]),
+            listsDeltas: listsDeltas
         ))
+    }
+
+    private static func commitFromReleaseNotes(_ value: String?) -> String? {
+        guard let value, let range = value.range(of: "/commit/") else { return nil }
+        let suffix = value[range.upperBound...]
+        let commit = suffix.prefix { $0.isHexDigit }
+        return UpdateBuildIdentity.normalizedCommit(String(commit))
     }
 }

@@ -93,14 +93,16 @@ describe("FreestyleProvider transport contract", () => {
     expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("legacy attach and public SSH remain unavailable", () => {
-    // SSH is an explicit legacy attach verb. It must not become the default
-    // transport advertised for cmux-tui machines.
+  test("legacy attach stays unavailable and SSH is never advertised as a transport", () => {
+    // SSH is an explicit verb backed by a scoped provider identity. It must not
+    // become the default transport advertised for cmux-tui machines.
     const provider: VMProvider = new FreestyleProvider();
     expect(provider.openAttach).toBeUndefined();
-    expect(provider.openSSH).toBeUndefined();
-    expect(provider.revokeSSHIdentity).toBeUndefined();
+    expect(typeof provider.openSSH).toBe("function");
+    expect(typeof provider.revokeSSHIdentity).toBe("function");
+    expect(provider.attachTransports).toEqual(["cmux-remote"]);
   });
+
 
   test("fork is not implemented, so the capability resolves false", () => {
     // vmCapabilitiesFor() derives `fork` from the method's existence; a machine
@@ -787,6 +789,18 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  test("names the owning customer on create and restore, and omits a malformed id", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "sh-devbox", customerId: "team-owner" });
+    await providerWith(fake).restore("snap-1", { customerId: "user_owner-2" });
+    await providerWith(fake).create({ image: "sh-devbox", customerId: "not a customer id" });
+    await providerWith(fake).create({ image: "sh-devbox" });
+    expect(fake.creates[0]).toMatchObject({ customer: { customerId: "team-owner" } });
+    expect(fake.creates[1]).toMatchObject({ customer: { customerId: "user_owner-2" } });
+    expect(fake.creates[2]).not.toHaveProperty("customer");
+    expect(fake.creates[3]).not.toHaveProperty("customer");
+  });
+
   test("restore passes the rule inline without guest setup", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
     const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
@@ -956,7 +970,7 @@ describe("Freestyle client configuration", () => {
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
   });
 });
 
@@ -1243,5 +1257,107 @@ describe("Go provider runtime ceiling", () => {
     const provider = new FreestyleProvider({ client: () => client });
     await expect(provider.setRuntimeBudget(VM_ID, 1800)).rejects.toThrow("setRuntimeBudget");
     expect(updated).toBe(false);
+  });
+});
+
+// A fake of the SDK's identity namespace: identities, their VM grants and tokens.
+function fakeIdentities(options: { readonly failGrant?: boolean; readonly deleteStatus?: number } = {}) {
+  const identities = new Map<string, { grants: Array<{ vmId: string; allowedLinuxUsers: string[] | null | undefined }>; tokens: string[] }>();
+  const deleted: string[] = [];
+  let next = 0;
+  const handle = (identityId: string) => ({
+    permissions: {
+      vm: {
+        grant: async ({ vmId, allowedLinuxUsers }: { vmId: string; allowedLinuxUsers?: string[] | null }) => {
+          if (options.failGrant) throw new FreestyleApiError(500, { code: "INTERNAL", message: "grant failed" });
+          identities.get(identityId)?.grants.push({ vmId, allowedLinuxUsers });
+          return {};
+        },
+      },
+    },
+    tokens: {
+      create: async () => {
+        const token = `fs-token-${identityId}`;
+        identities.get(identityId)?.tokens.push(token);
+        return { id: `tok-${identityId}`, token };
+      },
+    },
+    delete: async () => {
+      identities.delete(identityId);
+      deleted.push(identityId);
+    },
+  });
+  const client = {
+    identities: {
+      create: async () => {
+        const identityId = `ident-${++next}`;
+        identities.set(identityId, { grants: [], tokens: [] });
+        return { identity: handle(identityId), identityId, data: { id: identityId, managed: false } };
+      },
+      delete: async (identityId: string) => {
+        if (options.deleteStatus !== undefined) throw new FreestyleApiError(options.deleteStatus, { code: "X", message: "delete failed" });
+        if (!identities.has(identityId)) throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "no identity" });
+        identities.delete(identityId);
+        deleted.push(identityId);
+      },
+    },
+  } as unknown as Freestyle;
+  return { client, identities, deleted };
+}
+
+describe("FreestyleProvider scoped SSH identities", () => {
+  test("openSSH mints an identity granted only this VM as the work user, with one token", async () => {
+    const fake = fakeIdentities();
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    const endpoint = await provider.openSSH(VM_ID);
+    expect(endpoint).toMatchObject({
+      transport: "ssh",
+      host: "beta-ssh.freestyle.sh",
+      port: 22,
+      username: `${VM_ID}+cmux`,
+      credential: { kind: "password", value: "fs-token-ident-1" },
+      identityHandle: "ident-1",
+    });
+    expect(fake.identities.get("ident-1")?.grants).toEqual([{ vmId: VM_ID, allowedLinuxUsers: ["cmux"] }]);
+  });
+
+  test("a failed grant deletes the identity it just made", async () => {
+    const fake = fakeIdentities({ failGrant: true });
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    await expect(provider.openSSH(VM_ID)).rejects.toBeInstanceOf(ProviderError);
+    expect(fake.identities.size).toBe(0);
+    expect(fake.deleted).toEqual(["ident-1"]);
+  });
+
+  test("revokeSSHIdentity deletes the identity, and is a no-op for unknown or blank handles", async () => {
+    const fake = fakeIdentities();
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    const endpoint = await provider.openSSH(VM_ID);
+    await provider.revokeSSHIdentity(endpoint.identityHandle);
+    expect(fake.identities.size).toBe(0);
+    await provider.revokeSSHIdentity(endpoint.identityHandle);
+    await provider.revokeSSHIdentity("  ");
+    expect(fake.deleted).toEqual(["ident-1"]);
+  });
+
+  test("revokeSSHIdentity surfaces a provider outage so cleanup retries", async () => {
+    const fake = fakeIdentities({ deleteStatus: 503 });
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    await expect(provider.revokeSSHIdentity("ident-9")).rejects.toBeInstanceOf(ProviderError);
+  });
+});
+
+describe("strict destroy", () => {
+  const providerWith = (error: FreestyleApiError) => new FreestyleProvider({
+    client: () => ({ vms: { ref: () => ({ delete: async () => { throw error; } }) } } as unknown as Freestyle),
+  });
+
+  test("only Freestyle's own NOT_FOUND counts as gone; any other 404 is an error", async () => {
+    const notFound = new FreestyleApiError(404, { code: "NOT_FOUND", message: "no such vm" });
+    const route = new FreestyleApiError(404, { code: "ROUTE_NOT_FOUND", message: "no route" });
+    await expect(providerWith(notFound).destroy("vm-1", undefined, { strict: true })).resolves.toBeUndefined();
+    await expect(providerWith(route).destroy("vm-1", undefined, { strict: true })).rejects.toBeInstanceOf(ProviderError);
+    // Without strict the existing idempotent behavior holds.
+    await expect(providerWith(route).destroy("vm-1")).resolves.toBeUndefined();
   });
 });

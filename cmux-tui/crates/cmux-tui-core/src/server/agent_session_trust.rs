@@ -15,8 +15,11 @@
 //!
 //! Who and where: the same as `agent-session-start` (trusted local
 //! connections; an agent tab of this store whose record names this store;
-//! the machine kind gate), so a team VM or a Cloud VM of unknown kind
-//! records no trust from here. The tab may already have a session.
+//! the machine kind gate), so a team VM, and a Cloud VM unless the caller
+//! sends `vm_kind: "owner"` (`agent-session-trust-vm-kind-v1`, the Cloud
+//! API's answer for it on its link), records no trust from here. A page
+//! (the routed operations) cannot vouch for that answer, so it reaches no
+//! Cloud VM's trust. The tab may already have a session.
 //!
 //! Folder rule, as for a chat on the Mac (`workspace.agent_start.get`): a
 //! trust answer for `/` or a folder above this user's home folder is refused
@@ -32,12 +35,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::agent_session_start::{connect, store_host};
+use super::agent_session_start::{connect, store_host, vm_word};
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 pub const AGENT_SESSION_TRUST_CAPABILITY: &str = "agent-session-trust-v1";
+/// `vm_kind` on `agent-session-trust`, as on `agent-session-start`.
+pub const AGENT_SESSION_TRUST_VM_KIND_CAPABILITY: &str = "agent-session-trust-vm-kind-v1";
 
 const MAX_CWD_BYTES: usize = 4096;
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -74,6 +79,10 @@ pub(super) struct TrustParams {
     level: Option<String>,
     #[serde(default)]
     home_confirmed: bool,
+    /// The Cloud API's `vmKind` for the caller (only `owner` counts; an
+    /// explicit `null` is a word, and refuses).
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
 }
 
 impl TrustParams {
@@ -101,7 +110,7 @@ pub(super) fn trust(
     if !params.valid() {
         return refuse(writer, id, Refusal::BadRequest);
     }
-    if let Err(refusal) = mux.agent_host_gate() {
+    if let Err(refusal) = mux.agent_host_gate(vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
     }
     if !own_agent_tab(mux, params.surface) {
@@ -131,7 +140,7 @@ pub(super) fn trust(
 }
 
 /// True when `surface` is an agent tab whose record names this store.
-fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
+pub(super) fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
     let Some(runtime) = mux.surface(surface) else { return false };
     matches!(
         mux.conversation_tab_of(&runtime),
@@ -157,6 +166,66 @@ pub(super) fn home_rule(cwd: &str, home_confirmed: bool) -> Result<(), Refusal> 
         return if home_confirmed { Ok(()) } else { Err(Refusal::HomeUnconfirmed) };
     }
     if home.starts_with(&cwd) { Err(Refusal::AboveHome) } else { Ok(()) }
+}
+
+/// Whether a call runs on the caller's own Cloud VM: the machine kind gate
+/// reads a Cloud VM and the caller's `vm_kind` is exactly `owner`, the Cloud API's
+/// answer for it, which it gives the machine's creator alone (also on a team
+/// VM, #28788). The machine kind gate ran before, so a word it refused never
+/// reaches here.
+pub(super) fn callers_own_cloud_vm(mux: &Mux, vm_kind: &Option<Option<String>>) -> bool {
+    vm_word(vm_kind) == Some("owner") && mux.control_clients.agent_sessions.starts.on_cloud_vm()
+}
+
+/// The folder a start on the caller's own Cloud VM runs in: an unconfirmed
+/// home folder (a new chat with no folder of the person's own, which the app
+/// then takes from the workspace's first terminal, `$HOME` on a new machine)
+/// becomes the machine's work folder, made if missing (Leo: "whenever i start
+/// a chat it should be able to send me to cloud automatically"). Any other
+/// folder, a home folder the person chose (Use Home Folder), and every
+/// machine that is not the caller's own Cloud VM keep the folder asked for.
+pub(super) fn owner_cloud_cwd(own: bool, cwd: &str, home_confirmed: bool) -> Option<String> {
+    if !own || home_confirmed {
+        return None;
+    }
+    let home = crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok())?;
+    if std::fs::canonicalize(cwd).ok()? != home {
+        return None;
+    }
+    let work = super::agent_session_folders::own_work_folder(true)?;
+    Some(work.to_string_lossy().into_owned())
+}
+
+/// acpmux's trust answer (`acp.trust.get`) for the caller's own Cloud VM:
+/// the machine's own work folder (`$HOME/work`, exactly) is the person's, so
+/// with no decision of acpmux's and no agent holding it untrusted it reads
+/// trusted, as acpmux answers a folder cmux made (`decided`, `auto`:
+/// `cloud_work`), and a new chat there starts with no trust question. The
+/// rule widens an unknown only: a person's "Don't trust" (a decision) and an
+/// agent's own untrusted level still win, and it never applies to another
+/// folder, another machine or a caller without the owner word.
+pub(super) fn owner_cloud_trust(own: bool, mut answer: Value) -> Value {
+    if !own || answer.get("decided").and_then(Value::as_bool) == Some(true) {
+        return answer;
+    }
+    let untrusted = |name: &str| {
+        answer.pointer(&format!("/harnesses/{name}")).and_then(Value::as_str) == Some("untrusted")
+    };
+    if untrusted("claude") || untrusted("codex") {
+        return answer;
+    }
+    let canonical = |path: &str| std::fs::canonicalize(path).ok();
+    let work = super::agent_session_folders::own_work_folder(false);
+    let at_work = answer.get("cwd").and_then(Value::as_str).and_then(canonical);
+    if work.is_none() || at_work != work {
+        return answer;
+    }
+    if let Some(object) = answer.as_object_mut() {
+        object.insert("level".into(), json!("trusted"));
+        object.insert("decided".into(), json!(true));
+        object.insert("auto".into(), json!("cloud_work"));
+    }
+    answer
 }
 
 /// `agent_session.trust.get` and `agent_session.trust.set`: the verb for a
@@ -189,13 +258,14 @@ pub(super) fn routed(
     // A page cannot prove the person chose the home folder first (Use Home
     // Folder), and one confirmed click must never trust a whole home folder:
     // a page never trusts it (home_rule refuses it without home_confirmed).
-    if params.home_confirmed {
+    // Nor can it vouch for the Cloud API's answer: no `vm_kind` from a page.
+    if params.home_confirmed || params.vm_kind.is_some() {
         return Err(fail(Refusal::BadRequest));
     }
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Err(fail(Refusal::NotTrusted));
     }
-    mux.agent_host_gate().map_err(fail)?;
+    mux.agent_host_gate(None).map_err(fail)?;
     if !own_agent_tab(mux, params.surface) {
         return Err(fail(Refusal::UnknownTab));
     }
@@ -209,8 +279,11 @@ fn run(mux: &Mux, socket: &std::path::Path, params: &TrustParams) -> Result<Valu
         home_rule(&params.cwd, params.home_confirmed)?;
     }
     let link = connect(mux, socket)?;
+    let own = callers_own_cloud_vm(mux, &params.vm_kind);
     let result = match &params.level {
-        None => link.call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT),
+        None => link
+            .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
+            .map(|answer| owner_cloud_trust(own, answer)),
         Some(level) => {
             link.call("acp.trust.set", json!({"cwd": params.cwd, "level": level}), CALL_TIMEOUT)
         }

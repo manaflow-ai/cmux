@@ -178,15 +178,14 @@ fn ask_bounded(client: &RpcClient, method: &str, params: Value) -> Result<Value,
         .map_err(|e| format!("{method}: {e}"))
 }
 
-/// `_acpmux/sessions`, bounded.
+/// `_acpmux/sessions`, every page, each bounded.
 fn sessions_bounded(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
-    Ok(ask_bounded(client, "_acpmux/sessions", json!({}))?
-        .get("sessions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|s| serde_json::from_value(s.clone()).ok())
-        .collect())
+    let list = crate::acpmux::whole_list(
+        |m, p| ask_bounded(client, m, p),
+        "_acpmux/sessions",
+        json!({}),
+    )?;
+    Ok(crate::acpmux::session_rows(&list).unwrap_or_default())
 }
 
 /// How long [`end_own_sessions`] waits for all its kills.
@@ -436,7 +435,17 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             }
             client
                 .request("_acpmux/permission_respond", params)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| {
+                    if verb == "allow" {
+                        // acpmux takes an allow only from the person's app,
+                        // and a child has no tab there: say what still works.
+                        format!(
+                            "{e}\nOnly the person's cmux app can allow, and {name} has no tab there: `chief agents deny {name}` denies it, or tell it what to do instead with `chief agents prompt {name} \"...\"`."
+                        )
+                    } else {
+                        e.to_string()
+                    }
+                })?;
             client.close();
             Ok(format!(
                 "{}: {}",

@@ -1,7 +1,38 @@
 //! What a reply to a connection that is not the local unix socket may not
 //! carry: any token.
 
+use crate::no_panic::JsonExt;
 use serde_json::Value;
+
+/// A peer daemon's connection never lists this host's peers: `_acpmux/peers`, `_acpmux/status`
+/// and the `peer_*` replies answer it with an empty `peers` (as `_acpmux/peer_status` answers it
+/// with this machine's row only). Nothing on a peer reads them.
+pub(super) fn hide_peers_from_peer(reply: &mut Value) {
+    if let Some(peers) = reply.get_mut("peers").filter(|p| p.is_array()) {
+        *peers = Value::Array(Vec::new());
+    }
+    // Nor the peer a `peer_add`/`peer_reconnect`/`peer_lease` wait saw (`Hub::wait_for_peer`):
+    // the wait says whether it settled and how long it took, not that peer's row.
+    if let Some(wait) = reply.get_mut("wait").and_then(Value::as_object_mut) {
+        wait.remove("peer");
+    }
+}
+
+/// Nor does a `peer_unreachable` refusal name one to a peer daemon's connection: the request it
+/// forwarded for a session of a peer that is down (or of a peer's peer) was not sent, and that is
+/// all it says. No peer name, link state, last-seen time or connection error (`peer_link.rs`).
+pub(super) fn hide_unreachable_peer(e: crate::rpc::RpcError) -> crate::rpc::RpcError {
+    let reason = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
+    if reason != Some("peer_unreachable") {
+        return e;
+    }
+    crate::rpc::RpcError::internal("peer_unreachable: the request was not sent; retry later")
+        .with_data(serde_json::json!({
+            "reason": "peer_unreachable",
+            "retryable": true,
+            "detail": "the request was not sent",
+        }))
+}
 
 /// A remote-origin (Web) connection never learns a token: not the
 /// dashboard link (`webUrl` carries this listener's token) and not the
@@ -29,13 +60,46 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
         hide_defaults_view(reply);
     }
     if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
-        for peer in peers {
-            if let Some(url) = peer.get("url").and_then(Value::as_str) {
-                peer["url"] = Value::String(url_without_secrets(url));
+        peers.iter_mut().for_each(redact_peer_row);
+    }
+    // The peer a `peer_add`/`peer_reconnect`/`peer_lease` wait saw (`Hub::wait_for_peer`) is
+    // the same row, redacted the same way.
+    if let Some(peer) = reply.get_mut("wait").and_then(|w| w.get_mut("peer")) {
+        redact_peer_row(peer);
+    }
+    // Nor in `_acpmux/peer_status`, which asks each peer live: a peer's row
+    // says whether it answered, how fast and on which build, not its numbers.
+    // This machine's own row is `_acpmux/host_health`'s, which it may read.
+    if method == "_acpmux/peer_status"
+        && let Some(hosts) = reply.get_mut("hosts").and_then(Value::as_array_mut)
+    {
+        for row in hosts.iter_mut().filter(|r| r.get("self") != Some(&Value::Bool(true))) {
+            if let Some(row) = row.as_object_mut() {
+                for key in PEER_RESOURCES {
+                    row.remove(key);
+                }
             }
         }
     }
 }
+
+/// One peer row (`Peer::summary`) as a remote origin reads it: its URL without userinfo, query
+/// or fragment, and without the machine's resources (`peer_health.rs`), which stay on the unix
+/// socket: `_acpmux/peers`, `status`, `peer_add`/`remove`/`reconnect`.
+fn redact_peer_row(peer: &mut Value) {
+    if let Some(url) = peer.get("url").and_then(Value::as_str) {
+        peer.set("url", Value::String(url_without_secrets(url)));
+    }
+    if let Some(row) = peer.as_object_mut() {
+        row.remove("health");
+        row.remove("healthAt");
+    }
+}
+
+/// The `_acpmux/host_health` fields a peer's `peer_status` row copies that
+/// are its resources, and what its health loop found wrong (`problems`).
+const PEER_RESOURCES: [&str; 9] =
+    ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs", "problems"];
 
 /// A harness catalog without values that shape its process. The app and Web
 /// clients need the picker metadata, not literal argv or environment values.
@@ -162,7 +226,7 @@ fn has_content(value: &Value) -> bool {
 }
 
 /// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.
-fn url_without_secrets(url: &str) -> String {
+pub(crate) fn url_without_secrets(url: &str) -> String {
     let bare = url.split(['?', '#']).next().unwrap_or_default();
     let Some((scheme, rest)) = bare.split_once("://") else { return bare.to_owned() };
     let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
@@ -196,6 +260,45 @@ mod tests {
         assert_eq!(profile["hasSessions"], true);
         assert_eq!(profile["unavailable"], "unavailable");
         assert_eq!(profile["probeError"], "unavailable");
+    }
+
+    /// Review of #28170 at 5638771a: a waiting `peer_reconnect`'s `wait.peer` carried the raw
+    /// peer row to remote origins (its URL's userinfo, query and fragment, and its health).
+    #[test]
+    fn remote_peer_reconnect_wait_hides_the_peer_url_secrets_and_health() {
+        const SECRET: &str = "peer-url-secret";
+        let row = || {
+            json!({
+                "name": "m",
+                "url": format!("wss://user:{SECRET}@example.invalid/m?token={SECRET}#{SECRET}"),
+                "state": "connecting",
+                "health": {"cpus": 8},
+                "healthAt": 1,
+            })
+        };
+        let reply = || {
+            json!({
+                "peers": [row()],
+                "wait": {"settled": false, "waitedMs": 50, "peer": row()},
+            })
+        };
+
+        let mut web = reply();
+        redact_for_remote("_acpmux/peer_reconnect", &mut web);
+        let peer = &web["wait"]["peer"];
+        assert_eq!(peer["url"], "wss://example.invalid/m", "{web}");
+        assert_eq!(peer["name"], "m", "{web}");
+        assert!(peer.get("health").is_none() && peer.get("healthAt").is_none(), "{web}");
+        assert_eq!(web["wait"]["settled"], false, "{web}");
+        assert!(!web.to_string().contains(SECRET), "{web}");
+
+        // A peer daemon's connection: both redactions, as `remote_guard::after` runs them.
+        let mut peer_origin = reply();
+        redact_for_remote("_acpmux/peer_reconnect", &mut peer_origin);
+        hide_peers_from_peer(&mut peer_origin);
+        assert!(peer_origin["wait"].get("peer").is_none(), "{peer_origin}");
+        assert_eq!(peer_origin["wait"]["settled"], false, "{peer_origin}");
+        assert_eq!(peer_origin["peers"], json!([]), "{peer_origin}");
     }
 
     #[test]

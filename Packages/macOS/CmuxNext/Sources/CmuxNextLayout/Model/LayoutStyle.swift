@@ -56,8 +56,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderColor: ThemeRGB?
     /// Border width in points (`layout.paneBorderWidth`); nil is one device pixel.
     public var paneBorderWidth: CGFloat?
-    /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
-    public var inactivePaneDimming: CGFloat = 0.14
+    /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on. Token: `Palette.inactivePaneDim`.
+    public var inactivePaneDimming: CGFloat = 0.10
     /// The Ghostty config's unfocused-pane dim; when it dims, it replaces
     /// `inactivePaneDimming` on every unfocused pane.
     public var unfocusedPaneDim = UnfocusedPaneDim()
@@ -69,7 +69,7 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// subtler when it marks tabs (`ChromeEmphasis.forPane`).
     public var focusIndicator: FocusIndicator = .tabs
     public var inactiveTabStyle: InactiveTabStyle = .fade
-    public var inactiveTabStrength: CGFloat = 0.35
+    public var inactiveTabStrength: CGFloat = 0.4
     /// Fraction of a pane's extent that counts as an edge drop zone
     /// (DESIGN.md (c)2: a quarter, half of the half a split gives).
     public var dropEdgeFraction: CGFloat = 0.25
@@ -136,6 +136,7 @@ extension LayoutStyle {
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
         style.unfocusedPaneDim = DesignSettings.shared.unfocusedPaneDim
+        style.inactivePaneDimming = Palette.inactivePaneDim
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim

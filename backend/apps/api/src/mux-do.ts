@@ -4,7 +4,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
-import { dueWakes, nextDeliveryAt, nextWaiting, pendWake, sendWake, settleWake, type Wake } from "./mux-wake-delivery.ts"
+import { type BrainRoute, dueWakes, durableOn, nextDeliveryAt, nextWaiting, pendWake, sendWake, settleWake, type Wake } from "./mux-wake-delivery.ts"
 
 /**
  * MuxDO, one per chief (home-messaging.md sections 3 and 4.3): the chief's wake queue, run by
@@ -31,7 +31,7 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
    * brain; a failure between the two is safe both ways (an opencode wake the brain still calls pi answers
    * `impl_pi` and falls back to P; a pi Chief never reaches the opencode brain). RPC, owner-checked by the route.
    */
-  async setBrainImpl(impl: "pi" | "opencode"): Promise<void> {
+  async setBrainImpl(impl: "pi" | "opencode" | "durable"): Promise<void> {
     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS mux_brain_impl (k INTEGER PRIMARY KEY CHECK (k = 1), impl TEXT NOT NULL)`)
     this.ctx.storage.sql.exec(`INSERT INTO mux_brain_impl (k, impl) VALUES (1, ?) ON CONFLICT (k) DO UPDATE SET impl = excluded.impl`, impl)
     this.impl = impl
@@ -84,8 +84,12 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     if (now) this.ctx.waitUntil(this.deliver(wake))
   }
 
-  private opencode(): boolean {
-    return this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO !== undefined && this.brainImpl() === "opencode"
+  /** The brain this Chief's wakes go to: its brain_impl when this deployment runs it, else P. */
+  private route(): BrainRoute {
+    const impl = this.brainImpl()
+    if (impl === "opencode" && this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO !== undefined) return "opencode"
+    if (impl === "durable" && durableOn(this.env)) return "durable"
+    return "pi"
   }
 
   /**
@@ -106,7 +110,7 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
   }
 
   private async sendOne(wake: Wake): Promise<boolean> {
-    const ok = await sendWake(this.env, wake, this.opencode())
+    const ok = await sendWake(this.env, wake, this.route())
     settleWake(this.ctx.storage.sql, wake, ok, Date.now())
     this.scheduleAlarm()
     return ok

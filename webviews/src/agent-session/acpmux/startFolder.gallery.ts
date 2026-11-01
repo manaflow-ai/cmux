@@ -10,9 +10,8 @@ const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a
 
 const WORKTREE = "/Users/you/.cmux/worktrees/cmux/fix-sidebar";
 
-/// A new chat in a project folder: its folder menu offers New Worktree (cx-lyqio.2).
-// A new chat (no session yet: the summary's empty id matches the snapshot's), so its folder menu
-// offers New Worktree.
+/// A new chat in a project folder: New Worktree is an action in its folder menu (cx-lyqio.2).
+// A new chat (no session yet: the summary's empty id matches the snapshot's), so it offers New Worktree.
 const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" })], {
   sessionId: "",
   summary: { sessionId: "", cwd: "/Users/you/src/cmux", harness: "claude", model: "claude-opus-5-5", effort: "high" },
@@ -23,6 +22,10 @@ const newWorktree: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
   await ctx.click({ role: "option", name: "New Worktree" });
 };
+
+// The home folder's row in the folder menu. Rows show the repository or folder name since #22724,
+// with the full path only as the row's tooltip.
+const HOME_ROW = '.acpmux-location-menu [title="/Users/you"]';
 
 const fresh = noChat(
   [
@@ -63,7 +66,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
-        await ctx.click({ role: "option", name: /\/Users\/you$/ });
+        await ctx.click({ selector: HOME_ROW });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-start-folder-ask"));
       },
     },
@@ -75,12 +78,12 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
-        await ctx.click({ role: "option", name: /\/Users\/you$/ });
+        await ctx.click({ selector: HOME_ROW });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-start-folder-ask"));
       },
     },
     "new-worktree": {
-      note: "Play: New Worktree in a new chat's folder menu; the host makes the worktree on its own branch and the chat starts there (the folder chip names it).",
+      note: "Play: New Worktree from a new chat's folder menu; the host makes the worktree on its own branch and the chat starts there (the folder chip names it).",
       ready: { newSession: true },
       native: {
         "git.worktree.create": {
@@ -110,17 +113,7 @@ export default agentPaneEntry({
       nativeDelayMs: { "git.worktree.create": 1500 },
       snapshot: inProject,
       play: async (ctx) => {
-        await ctx.click({ selector: '[aria-label="Folder"]' });
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const folder = ctx.document.querySelector('[aria-label="Folder"]');
-        const items = [...ctx.document.querySelectorAll(".acpmux-location-menu .acpmux-location-action")].map((item) =>
-          item.textContent?.trim(),
-        );
-        if (!items.includes("New Worktree"))
-          throw new Error(
-            `the folder control (${folder?.tagName} ${folder?.className}) offers ${JSON.stringify(items)}`,
-          );
-        await ctx.click({ role: "option", name: "New Worktree" });
+        await newWorktree(ctx);
         await ctx.waitFor(() =>
           ctx.document.querySelector(".acpmux-worktree-creating")?.textContent?.includes("Creating worktree"),
         );

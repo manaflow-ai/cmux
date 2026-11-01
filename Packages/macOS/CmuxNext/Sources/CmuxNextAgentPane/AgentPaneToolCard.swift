@@ -14,6 +14,8 @@ public nonisolated struct AgentPaneToolCard: Hashable, Sendable {
         case ask
         /// Answered; the work it started is running.
         case working
+        /// The work it started is done; ``text`` says what it made, and an action may open it.
+        case done
         /// The work stopped; ``text`` says why.
         case failed
     }

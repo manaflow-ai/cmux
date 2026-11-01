@@ -132,7 +132,13 @@ await requireBrowserLane("editor-csp.test.ts", async () => {
         if (ready) {
           await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.focus());
           await page.keyboard.type("x");
-          await page.waitForTimeout(300);
+          await page
+            .waitForFunction(
+              () => window.__cmuxEditor?.view()?.monacoEditor.getModel()?.getLineContent(1).startsWith("x") === true,
+              null,
+              { timeout: 5_000 },
+            )
+            .catch(() => {});
         }
         const result = await page.evaluate(() => ({
           violations: (window as unknown as { __violations: string[] }).__violations,
@@ -200,7 +206,8 @@ await requireBrowserLane("editor-csp.test.ts", async () => {
       return [...seen].map((file) => file.slice(bundle.length + 1));
     };
     const monaco = (files: string[]) =>
-      files.filter((file) => /^(chunks\/(view|editor|monaco-)|assets\/view\.css)/.test(file));
+      // editorFind is the shared find model (no Monaco import) that the Markdown page loads too.
+      files.filter((file) => /^(chunks\/(view|editor(?!Find)|monaco-)|assets\/view\.css)/.test(file));
 
     test.if(hasBundle)("Monaco is lazy: no first load of the diff, markdown or editor page contains it", () => {
       expect(monaco(firstLoad(["diff-page.html", "chunks/diffSurface.mjs"]))).toEqual([]);

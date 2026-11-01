@@ -414,7 +414,21 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
         (Some("bun"), Some("1.0.0"), Some(false)),
         "{r}"
     );
-    assert_eq!(r["update"]["argv"], json!(["bun", "add", "-g", "pi-acp@latest"]), "{r}");
+    assert_eq!(
+        r["update"]["argv"],
+        json!([
+            "/usr/bin/env",
+            "-u",
+            "XDG_CONFIG_HOME",
+            format!("BUN_INSTALL_GLOBAL_DIR={}", home.join(".bun/install/global").display()),
+            format!("BUN_INSTALL_BIN={}", home.join(".bun/bin").display()),
+            "bun",
+            "add",
+            "-g",
+            "pi-acp@latest"
+        ]),
+        "{r}"
+    );
 
     let r = row(&reply, "claude");
     assert_eq!(
@@ -676,6 +690,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
         cache: None,
         home: home.clone(),
         auto_update: Some(chosen.clone()),
+        ..Settings::default()
     });
     let mut app = Client::open(&hub, Origin::LocalApp);
     let first = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
@@ -800,6 +815,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
         home: home.clone(),
         // Auto-update is off for every harness: the request runs anyway.
         auto_update: Some(root.join("acpmux/harness-auto-update.json")),
+        ..Settings::default()
     });
     let mut local = Client::open(&hub, Origin::Local);
     let first = local.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");

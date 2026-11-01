@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextLayout
 
 /// `tab.setIcon` and `tab.clearIcon` (ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS): the
 /// one path behind the tab context menu, the palette, `cmux tab set-icon` and MCP.
@@ -48,7 +49,7 @@ enum TabIconHandlers {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return nil }
         let daemon = ctx.services.daemon(for: pane)
         guard daemon.store.servesStateResources, let resource = tab.resourceID else {
-            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.stateResources))
+            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapability.stateResources.rawValue))
         }
         return Target(tab: tab, pane: pane, resource: resource, daemon: daemon)
     }
@@ -56,16 +57,16 @@ enum TabIconHandlers {
     /// Changes the tab's icon (nil removes it); a user's change is an undo step (IconHistory).
     static func change(_ target: Target, to icon: String?, origin: ActionOrigin, _ ctx: AppActionContext) {
         // The icon the tab shows now (the picker may have been open while it changed).
-        let previous = ctx.services.locateTab(target.tab.id)?.0.userIcon ?? target.tab.userIcon
-        try? history(ctx).change(target.tab.id, from: previous, to: icon, origin: origin)
+        let previous = ctx.services.locateTab(model: target.tab)?.0.userIcon ?? target.tab.userIcon
+        try? history(ctx, machineID: target.daemon.machineID).change(target.tab.id, from: previous, to: icon, origin: origin)
     }
 
     /// Icon updates by tab id, so an undo after the tab moved still finds it; the undo step goes on
     /// the undo stack of the window that shows the tab (not the picker panel that is key while it closes).
-    static func history(_ ctx: AppActionContext) -> IconHistory {
+    static func history(_ ctx: AppActionContext, machineID: String) -> IconHistory {
         let shownIn = UndoToastWindow()
         return IconHistory(messages: .tab, apply: { id, update in
-            guard let (tab, pane) = ctx.services.locateTab(id), let resource = tab.resourceID else { return false }
+            guard let (tab, pane) = ctx.services.locateTab(id, onMachine: machineID), let resource = tab.resourceID else { return false }
             let daemon = ctx.services.daemon(for: pane)
             guard daemon.store.servesStateResources else { return false }
             daemon.send("tab.update") { try await $0.state.updateTabRecord(resource, icon: update) }

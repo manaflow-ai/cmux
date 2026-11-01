@@ -216,7 +216,12 @@ impl Brain {
             && self.under_chief_budget(conversation, summary, read, &message)
         {
             let labelled = if self.settings.membership.local_side {
-                labelled_from(summary, &message.author, &text)
+                labelled_from(
+                    summary,
+                    &message.author,
+                    &text,
+                    &self.settings.membership.owner,
+                )
             } else {
                 labelled(summary, &text)
             };
@@ -320,15 +325,24 @@ impl Brain {
 
 /// [`labelled`] with the author's kind and name (local side conversations,
 /// where people and other Chiefs write):
-/// `[in conv <id> "<title>" from person|Chief|agent "<name>"]`. The name is
+/// `[in conv <id> "<title>" from your owner|person|Chief|agent "<name>"]`. The name is
 /// cleaned as the title is; the kind comes from the participant record, so a
 /// Chief named like a person still reads as a Chief.
-fn labelled_from(summary: &Summary, author: &str, text: &str) -> String {
+/// The owner's own messages (its local identity or a paired device of it)
+/// say `from your owner "<name>"`: in a shared conversation the Chief must tell
+/// its owner from everyone else (CHIEF-DONE B3: the owner's requests run,
+/// anyone else's keep the approval rule).
+fn labelled_from(summary: &Summary, author: &str, text: &str, owner: &str) -> String {
     let participant = summary.participants.iter().find(|p| p.id == author);
     let name = clean_label(participant.map_or(author, |p| p.display_name.as_str()));
+    let human = participant.is_some_and(|p| p.kind == cmux_conversation::ParticipantKind::Human);
     let kind = if cmux_chief::rules::is_chief(summary, author) {
         "Chief"
-    } else if participant.is_some_and(|p| p.kind == cmux_conversation::ParticipantKind::Human) {
+    } else if human
+        && participant.is_some_and(|p| p.id == owner || p.person.as_deref() == Some(owner))
+    {
+        "your owner"
+    } else if human {
         "person"
     } else {
         "agent"
@@ -366,4 +380,45 @@ fn clean_label(text: &str) -> String {
         .chars()
         .take(LABEL_TITLE_CHARS)
         .collect()
+}
+
+#[cfg(test)]
+mod owner_label_tests {
+    use super::labelled_from;
+    use cmux_conversation::Summary;
+    use serde_json::json;
+
+    fn summary() -> Summary {
+        serde_json::from_value(json!({
+            "id": "conv_launch", "owner": "local", "title": "Launch", "rev": 1, "last_seq": 0, "read_cursors": {},
+            "created_at": "2026-10-26T00:00:00Z", "updated_at": "2026-10-26T00:00:00Z",
+            "participants": [
+                {"id": "user_local", "kind": "human", "display_name": "Lawrence"},
+                {"id": "remote_ins1", "kind": "human", "display_name": "Lawrence iPhone", "person": "user_local"},
+                {"id": "user_leo", "kind": "human", "display_name": "Leo"},
+                {"id": "agent_leo", "kind": "agent", "agent_class": "mux", "display_name": "Leo's Chief"}
+            ]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_owner_and_its_devices_read_as_your_owner_and_nobody_else_does() {
+        let s = summary();
+        assert_eq!(
+            labelled_from(&s, "user_local", "ship it", "user_local"),
+            "[in conv conv_launch \"Launch\" from your owner \"Lawrence\"] ship it"
+        );
+        assert!(
+            labelled_from(&s, "remote_ins1", "ship it", "user_local")
+                .contains("from your owner \"Lawrence iPhone\"")
+        );
+        assert!(
+            labelled_from(&s, "user_leo", "ship it", "user_local").contains("from person \"Leo\"")
+        );
+        assert!(
+            labelled_from(&s, "agent_leo", "done", "user_local")
+                .contains("from Chief \"Leo's Chief\"")
+        );
+    }
 }

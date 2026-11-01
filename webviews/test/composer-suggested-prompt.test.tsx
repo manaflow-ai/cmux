@@ -75,7 +75,15 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
+async function render(
+  snapshot: AcpmuxSnapshot,
+  headerCwd?: string,
+  onMode?: (id: string) => void,
+  draft?: string,
+  plusExtensions?: import("../src/agent-session/acpmux/composerPlusRegistry").ComposerPlusExtension[],
+  onPlusCommand?: (id: string) => void,
+  extra: Record<string, unknown> = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -91,10 +99,15 @@ async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
           return true;
         }}
         onStop={() => {}}
+        onMode={onMode}
+        draft={draft}
+        plusExtensions={plusExtensions}
+        onPlusCommand={onPlusCommand}
         onProject={() => {}}
         onNewChat={() => {}}
         localName="studio"
         projectChoices={[{ cwd: APP, label: "app" }]}
+        {...extra}
       />,
     ),
   );
@@ -103,6 +116,8 @@ async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
 let sent = 0;
 const APP = "/Users/you/src/app";
 const shown = () => host.querySelector(".acpmux-md-placeholder")?.textContent;
+/** The empty composer's own placeholder (#22667, as Claude's): shown when nothing is suggested. */
+const IDLE = "Type / for commands";
 const key = () => host.querySelector(".acpmux-md-placeholder-key")?.textContent;
 const field = () => host.querySelector<HTMLElement>(".acpmux-md")!;
 const press = (name: string, init: KeyboardEventInit = {}) =>
@@ -160,7 +175,7 @@ test("nothing is suggested from another folder, another worktree, a merged PR, a
     [prChat({ archived: true })],
   ]) {
     await render(fresh(sessions));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     expect(key()).toBeUndefined();
   }
 });
@@ -171,7 +186,7 @@ test("a folder with a trailing slash is the same checkout", async () => {
   await render(
     fresh([prChat(), prChat({ sessionId: "busy", cwd: `${APP}/`, indicator: "working", pullRequest: undefined })]),
   );
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
 });
 
 test("a chat that knows its branch takes no PR from another branch", async () => {
@@ -182,7 +197,7 @@ test("a chat that knows its branch takes no PR from another branch", async () =>
       summary: { sessionId: "new", cwd: APP, branch: "main", turnCount: 0 } as never,
     });
   await render(started([prChat({ branch: "leo/retries" })]));
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
   await render(started([prChat({ branch: "main" })]));
   expect(shown()).toStartWith("Continue PR #123");
   // A chat working in this working tree on another branch it last recorded still collides.
@@ -192,7 +207,7 @@ test("a chat that knows its branch takes no PR from another branch", async () =>
       prChat({ sessionId: "busy", branch: "old", indicator: "working", pullRequest: undefined }),
     ]),
   );
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
 });
 
 test("a chat with turns gets no suggestion", async () => {
@@ -203,7 +218,21 @@ test("a chat with turns gets no suggestion", async () => {
       rows: [user("Hi", 1)],
     }),
   );
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
+});
+
+// The suggestion is a new chat's, as the location strip is (locationRow.ts): an existing chat that
+// opens, or whose summary arrived before its rows, never offers one (Leo 2026-10-30, on an existing
+// tab's composer showing a new chat's controls).
+test("an existing chat opening or loading its rows gets no suggestion", async () => {
+  // The host has not said which chat this is yet.
+  await render(fresh([prChat()]), undefined, undefined, undefined, undefined, undefined, { chatKnown: false });
+  expect(shown()).toBe(IDLE);
+  // Its summary (four turns) arrived, its history rows not yet.
+  await render(
+    noChat([prChat()], { sessionId: "chat", summary: { sessionId: "chat", cwd: APP, turnCount: 4 } as never }),
+  );
+  expect(shown()).toBe(IDLE);
 });
 
 test("Tab writes the suggestion without sending; Shift-Tab does not take it; Esc puts it away", async () => {
@@ -219,7 +248,7 @@ test("Tab writes the suggestion without sending; Shift-Tab does not take it; Esc
   root = undefined;
   await render(fresh([prChat()]));
   await press("Escape");
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
   await press("Tab");
   expect(field().textContent).toBe("");
 });
@@ -251,40 +280,220 @@ test("the chat folder's PR from the header's gh read is suggested when no sessio
   };
   try {
     await render(fresh([]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     await header(live);
     expect(shown()).toStartWith("Fix the failing checks on PR #77");
     await header({ ...live, state: "draft", checks: { state: "pending", passed: 0, total: 1 } });
     expect(shown()).toStartWith("Finish draft PR #77: Stream tool output");
     await header({ ...live, state: "merged", checks: { state: "passing", passed: 3, total: 3 } });
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     // Greptile on #21882: the header reads the tab's folder. A fresh chat's folder pick moves the
     // composer, not the tab, until the chat starts: that PR is another folder's then.
     await header(live);
     await render(fresh([]), "/Users/you/src/other");
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     await render(fresh([]), `${APP}/`);
     expect(shown()).toStartWith("Fix the failing checks on PR #77");
     // A chat already working on that PR keeps it.
     await header({ ...live, checks: { state: "passing", passed: 3, total: 3 } });
     await render(fresh([prChat({ sessionId: "busy", indicator: "working" }, { number: 77 })]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     // Greptile on #21882: live summaries name no PR, so a chat working or waiting in this checkout
     // may be on the folder's PR: nothing is suggested. One in another folder, or one that is done,
     // leaves it.
     const noPr = (fields: Partial<AcpmuxSessionEntry>) => prChat({ pullRequest: undefined, ...fields });
     await render(fresh([noPr({ sessionId: "busy", indicator: "working" })]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     await render(fresh([noPr({ sessionId: "asking", indicator: "input" })]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     await render(fresh([noPr({ sessionId: "elsewhere", cwd: "/elsewhere", indicator: "working" })]));
     expect(shown()).toStartWith("Continue PR #77");
     await render(fresh([noPr({ sessionId: "finished", indicator: "done" })]));
     expect(shown()).toStartWith("Continue PR #77");
     // A chat working on the folder's PR from another folder (a clone) has it too.
     await render(fresh([prChat({ sessionId: "clone", cwd: "/elsewhere", indicator: "working" }, { number: 77 })]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
   } finally {
     await header(null);
   }
+});
+
+// The + shows only a glyph; its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21),
+// the same whether or not the composer can capture screenshots (this one cannot).
+test("the + button names what its menu adds in a tooltip", async () => {
+  await render(fresh([]));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  expect([plus.getAttribute("aria-label"), plus.title]).toEqual(["Add", "Add files and more"]);
+});
+
+test("the + menu renders Add rows from the shared registry", async () => {
+  await render(fresh([]));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  const ids = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")].map(
+    (row) => row.dataset.value,
+  );
+  expect(ids).toContain("add.files");
+  expect(ids).toContain("add.project");
+  expect(ids).toContain("add.mention");
+  expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+});
+
+test("the + menu runs the advertised plan mode and opens the existing project chooser", async () => {
+  const modes: string[] = [];
+  const snapshot = noChat([], {
+    summary: {
+      sessionId: "",
+      cwd: APP,
+      modes: {
+        currentModeId: "acceptEdits",
+        availableModes: [
+          { id: "acceptEdits", name: "Accept edits" },
+          { id: "claude-plan", name: "Plan" },
+        ],
+      },
+    } as never,
+  });
+  await render(snapshot, undefined, (id) => modes.push(id));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  const plan = host.querySelector<HTMLElement>('[data-value="add.mode.claude-plan"]')!;
+  expect(plan).toBeTruthy();
+  await act(async () => plan.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(modes).toEqual(["claude-plan"]);
+  await act(async () => plus.click());
+  const project = host.querySelector<HTMLElement>('[data-value="add.project"]')!;
+  await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(host.querySelector(".acpmux-location-button[aria-expanded=true]")).toBeTruthy();
+});
+
+test("the + menu keeps the full draft as a selected goal's arguments", async () => {
+  const commands = [
+    { name: "review", description: "Review the change", source: "skill" as const },
+    { name: "goal", description: "Set a goal", source: "agent" as const },
+  ];
+  const snapshot = noChat([], { summary: { sessionId: "", cwd: APP } as never, commands });
+  for (const [row, command] of [["add.goal", "goal"]] as const) {
+    await render(snapshot, undefined, undefined, "Keep these words before the caret");
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+    await act(async () => plus.click());
+    const choice = host.querySelector<HTMLElement>(`[data-value="${row}"]`)!;
+    await act(async () => choice.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+    expect(field().textContent).toContain(`/${command} Keep these words before the caret`);
+    await act(async () => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+  }
+});
+
+test("the + menu uses the current pane language for existing actions", async () => {
+  const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
+  const prior = globalThis.__cmuxPaneStrings;
+  globalThis.__cmuxPaneStrings = (await import("../src/agent-session/acpmux/generated/strings.json")).default;
+  try {
+    await act(async () => setPaneLanguage("de"));
+    await render(fresh([]));
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+    await act(async () => plus.click());
+    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe(
+      "Dateien oder Bilder anhängen",
+    );
+    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe("Projekt auswählen");
+    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();
+  } finally {
+    await act(async () => setPaneLanguage("en"));
+    globalThis.__cmuxPaneStrings = prior;
+  }
+});
+
+test("the + menu renders and dispatches host command-palette extensions", async () => {
+  const called: string[] = [];
+  await render(
+    fresh([]),
+    undefined,
+    undefined,
+    undefined,
+    [
+      {
+        id: "browser",
+        section: "tools",
+        name: "Browser",
+        description: "Control the in-app browser",
+        icon: "browser",
+        keywords: ["web"],
+        action: { kind: "command", id: "palette.openBrowser" },
+      },
+    ],
+    (id) => called.push(id),
+  );
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  expect(host.querySelector('[data-value="browser"] .acpmux-menu-label')?.textContent).toBe("Browser");
+  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(called).toEqual(["palette.openBrowser"]);
+});
+
+test("the + menu keeps host sections separate and stays open for an unsupported action", async () => {
+  await render(fresh([]), undefined, undefined, undefined, [
+    {
+      id: "browser",
+      section: "tools",
+      name: "Browser",
+      description: "Control browser",
+      icon: "browser",
+      keywords: [],
+      action: { kind: "command", id: "palette.browser" },
+    },
+    {
+      id: "chat",
+      section: "sessions",
+      name: "Recent chat",
+      description: "Open chat",
+      icon: "agent.chat",
+      keywords: [],
+      action: { kind: "command", id: "palette.chat" },
+    },
+    {
+      id: "tab",
+      section: "tabs",
+      name: "Open tab",
+      description: "Attach tab",
+      icon: "browser",
+      keywords: [],
+      action: { kind: "command", id: "palette.tab" },
+    },
+  ]);
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  // Untitled groups, as ChatGPT's + menu: attach, the composer's actions, then each host group.
+  expect(host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-header")).toHaveLength(0);
+  expect(
+    [...host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].map((group) =>
+      [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map((row) => row.dataset.value),
+    ),
+  ).toEqual([["add.files"], ["add.project", "add.mention"], ["browser"], ["chat"], ["tab"]]);
+  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(host.querySelector('[data-value="browser"]')).toBeTruthy();
+});
+
+test("the + menu lists no skill: its one Skills… row opens the slash list with the draft", async () => {
+  const commands = Array.from({ length: 30 }, (_, index) => ({
+    name: `skill${index}`,
+    description: `Skill ${index}`,
+    source: "skill" as const,
+  }));
+  await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  const rows = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+  expect(rows.some((row) => row.dataset.value?.startsWith("add.skill."))).toBe(false);
+  expect(rows.some((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toBe(false);
+  const skills = rows.filter((row) => row.dataset.value === "add.commands");
+  expect(skills.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Skills…"]);
+  await act(async () => skills[0]!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(field().textContent).toBe("/");
+  expect(host.querySelector("#acpmux-slash-menu, .acpmux-slash-menu")).toBeTruthy();
 });

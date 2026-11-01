@@ -59,9 +59,45 @@ public nonisolated struct HomeTunables {
         help: "Tables in the Chief's replies break out of the bubble as full-width cards, and assignment tables (who does what) show as a plan card with owner chips, live states and pull requests. Off keeps tables as text in the bubble.",
         default: true, code: "HomeTunables.richTables")
 
+    /// The message box's mic (`HomeVoiceDictation`): on-device dictation into the field. On by
+    /// default (Leo 2026-10-20); off shows Messages' drawn waveform, which does nothing.
+    public static let voiceInput = Tunable<Bool>.toggle(
+        "home.voiceInput", section, "Mic button in the message box",
+        help: "The mic in the empty message box dictates into it (on-device speech). Off shows the drawn waveform instead.",
+        default: true, code: "HomeTunables.voiceInput")
+
+    /// The chat's header over the transcript (MessagesLabHome `HeaderGlassView`): the Chief's avatar
+    /// centered and its "Chief >" pill on a glass band, as Messages; the pill opens the Chief's
+    /// settings. On by default (Lawrence 2026-10-23: "chief centered profile pic is gone, chief
+    /// settings gone"; #23796 had turned it off on 2026-10-21). Off: no header, the rows start at the
+    /// top and fade out there. Conversations opened after a change follow it.
+    public static let chatHeader = Tunable<Bool>.toggle(
+        "home.chatHeader", section, "Avatar and name over the chat",
+        help: "The chat shows the Chief's avatar and name pill at its top over the chat's own background, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
+        default: true, code: "HomeTunables.chatHeader")
+
+    /// How the chat ends at its top under the avatar and the "Chief >" pill (MessagesLabHome
+    /// ``HomeTopFadeStyle``), switched live in every open Home chat. The background tint by default:
+    /// the header is the chat's own background, no separate band (Lawrence 2026-10-30: "bg of chief
+    /// header is ugly"; one background across Home, 2026-10-30). Only with ``chatHeader`` on; no
+    /// header keeps its own short fade.
+    public static let topFadeStyle = Tunable<HomeTopFadeChoice>.choice(
+        "home.topFadeStyle", section, "Top of the chat",
+        help: "How the messages end at the top of the chat as they scroll under the avatar and name pill: the chat's own background (the default), a glass band, a soft fade, a progressive blur, a material band with a hairline, a hard edge with a shadow, a fade that starts below the pill, or Messages' blurred bar. Changes every open chat at once.",
+        default: .backgroundTint, code: "HomeTunables.topFadeStyle")
+
+    /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
+    /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in
+    /// an empty band); on keeps the avatar-only column for it.
+    public static let loneConversationRail = Tunable<Bool>.toggle(
+        "home.loneConversationRail", section, "Avatar list for one conversation",
+        help: "A narrow Home column whose list holds one conversation (only the Chief) still shows the avatar-only list beside the chat. Off gives the chat the whole width; compose stays at its top-left.",
+        default: false, code: "HomeTunables.loneConversationRail")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor]
+         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
+         topFadeStyle.descriptor, loneConversationRail.descriptor]
     }
 }
 

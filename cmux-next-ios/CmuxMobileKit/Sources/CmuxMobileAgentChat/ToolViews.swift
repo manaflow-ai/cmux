@@ -25,12 +25,14 @@ extension EnvironmentValues {
 struct ToolRowView: View {
     let call: ACPToolCall
     @State private var expanded = false
+    @Environment(\.openSessionFile) private var openFile
+    @Environment(\.transcriptFoldHold) private var holdFold
     private let wording = ToolWording()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.cmuxMobileSmooth) { expanded.toggle() }
+                toggleDisclosure(holdFold) { expanded.toggle() }
             } label: {
                 header
             }
@@ -38,11 +40,25 @@ struct ToolRowView: View {
             // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
             .padding(.vertical, -6)
             if expanded {
+                // Grows down from under the row, never slides in over it.
                 ToolOutputView(call: call)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.disclosureReveal)
             }
         }
         .accessibilityElement(children: .contain)
+        // The files the call read or wrote open in the preview (long press).
+        .contextMenu {
+            if openFile.isAvailable {
+                ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
+                    Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
+                        openFile(location.path, line: location.line)
+                    }
+                }
+            }
+            if let path = call.locations.first?.path {
+                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+            }
+        }
     }
 
     private var header: some View {
@@ -114,6 +130,7 @@ struct ToolGroupView: View {
     let calls: [ACPToolCall]
     let turnRunning: Bool
     @State private var userExpanded: Bool?
+    @Environment(\.transcriptFoldHold) private var holdFold
     private let wording = ToolWording()
 
     private var expanded: Bool { userExpanded ?? false }
@@ -121,7 +138,7 @@ struct ToolGroupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Button {
-                withAnimation(.cmuxMobileSmooth) { userExpanded = !expanded }
+                toggleDisclosure(holdFold) { userExpanded = !expanded }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: calls.contains(where: \.isFailed) ? "exclamationmark.triangle.fill" : "square.stack.3d.down.right")
@@ -150,6 +167,9 @@ struct ToolGroupView: View {
             }
             .buttonStyle(.plain)
             .padding(.vertical, -6)
+            // The header's 44 pt target overlaps the first call's: the header
+            // wins, so a tap on it always closes the group.
+            .zIndex(1)
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(calls) { call in
@@ -160,9 +180,12 @@ struct ToolGroupView: View {
                 .overlay(alignment: .leading) {
                     Rectangle().fill(Color(uiColor: .separator)).frame(width: 1).padding(.leading, 8).padding(.vertical, 6)
                 }
-                .transition(.opacity)
+                .transition(.disclosureReveal)
             } else if let live = calls.last(where: \.isRunning) {
                 ToolRowView(call: live)
+                    // Each running call is its own row: one call's expansion
+                    // does not carry over to the next.
+                    .id(live.id)
                     .padding(.leading, 12)
                     .transition(.opacity)
             }
@@ -176,16 +199,20 @@ struct ToolGroupView: View {
     }
 }
 
-/// Collapsed "Thought" row; expands to the reasoning text in label2.
+/// Collapsed "Thought" row; expands to the reasoning text in label2. While
+/// the agent thinks it shows the last three lines until the person closes it.
 struct ThoughtRow: View {
     let text: String
     let isLive: Bool
-    @State private var expanded = false
+    @State private var choice = DisclosureChoice()
+    @Environment(\.transcriptFoldHold) private var holdFold
+
+    private var expanded: Bool { choice.isOpen(automatic: isLive) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.cmuxMobileSmooth) { expanded.toggle() }
+                toggleDisclosure(holdFold) { choice.toggle(automatic: isLive) }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "brain").font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
@@ -206,13 +233,17 @@ struct ThoughtRow: View {
             }
             .buttonStyle(.plain)
             .padding(.vertical, -6)
-            if expanded || isLive {
-                Text(text)
+            if expanded {
+                // Opened by the person: all of it. Opened because it is live: its newest
+                // lines (a line limit alone keeps the first three, which stop changing).
+                Text(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(expanded ? nil : 3)
+                    .lineLimit(choice.chosen == true ? nil : 3)
+                    // Wrapped, the tail can be more than three lines: cut its start, never its newest words.
+                    .truncationMode(.head)
                     .padding(.leading, 26)
-                    .transition(.opacity)
+                    .transition(.disclosureReveal)
             }
         }
     }
@@ -222,6 +253,7 @@ struct ThoughtRow: View {
 struct DiffSnippet: View {
     let call: ACPToolCall
     let changeSet: DiffChangeSet
+    @Environment(\.openSessionFile) private var openFile
     @Environment(\.openDiff) private var openDiff
     @State private var showAll = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
@@ -301,6 +333,9 @@ struct DiffSnippet: View {
         }
         .contextMenu {
             Button("Open Diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
+            if openFile.isAvailable, file.status != .deleted {
+                Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
+            }
             Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
         }
     }

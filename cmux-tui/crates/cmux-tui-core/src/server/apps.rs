@@ -17,6 +17,7 @@
 //! receives `apps-changed` and `apps-host` events after its first apps
 //! command; mount events go to the mounting connection only.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -161,9 +162,9 @@ fn reply(
             // unchanged (a page reads details.status, details.upstream_code).
             let Ok(mut value) = serde_json::to_value(response) else { return false };
             if let Some(details) = e.details {
-                value["error_details"] = details;
+                value.insert("error_details", details);
             }
-            value["retryable"] = Value::Bool(e.retryable);
+            value.insert("retryable", Value::Bool(e.retryable));
             return writer.send_control(&value).is_ok();
         }
     };

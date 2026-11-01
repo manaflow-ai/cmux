@@ -9,11 +9,14 @@ import AppKit
 final class PaneThread {
     /// The owning controller (it holds this object; weak, so no cycle).
     private weak var controller: ChatController?
-    /// The thread or reply view a reply was last sent from (nil after the view opens or closes).
-    private var sentInView: PartRef?
     private var monitors: [Any] = []
     /// The press the outside-click monitor took (a mouse down and its up share the number).
     private var swallowedPress: Int?
+    /// The transcript row whose "N Replies" or thread preview opened the view (its row key), while the
+    /// view is open. A click on that row again is a click on the thread, not on the backdrop: the
+    /// view moves its rows, so the opener's spot is blurred backdrop, and closing there flipped the
+    /// view shut on the person's second click (Lawrence's scrawl capture, 2026-10-29).
+    private var openerKey: String?
 
     init(controller: ChatController) { self.controller = controller }
 
@@ -22,29 +25,26 @@ final class PaneThread {
     private var openThread: PartRef? { controller?.store?.state.ui.openThread }
     private var field: NSTextView? { controller?.demo?.compose.textView.view }
 
-    /// Host.swift's dispatch: a send in an open view marks it; opening or closing clears it.
+    /// Host.swift's dispatch: opening or closing a view.
     func note(_ a: Action) {
         switch a {
-        case .send: sentInView = openThread
         case .reply, .closeThread, .openThreadPath:
-            sentInView = nil
+            openerKey = nil
             // The user moved: a permalink still waiting for its message no longer opens it later.
             controller?.intents?.threadMovedByUser()
         default: break
         }
     }
 
-    /// Esc while a view is open. Messages: before a send in the view, the first Esc only
-    /// unfocuses its field (the transcript takes the focus, so the next Esc still reaches
-    /// this pane); after a reply was sent there, or with the field not focused, Esc closes
-    /// the view. False when no view is open.
+    /// Esc while a view is open: one Esc closes it and the caret goes to the composer, so
+    /// the person is back in the main chat ready to type. cmux: Messages' first Esc only
+    /// unfocused the field, which read as Esc doing nothing (Lawrence 2026-10-21: "pressing
+    /// esc when in reply view ... needs to escape it"). False when no view is open (the key
+    /// goes on to other handlers).
     func escape() -> Bool {
-        guard let controller, let open = openThread else { return false }
-        if let field, controller.window?.firstResponder === field, sentInView != open {
-            focusTranscript()
-        } else {
-            controller.dispatch(.closeThread)
-        }
+        guard let controller, openThread != nil else { return false }
+        controller.dispatch(.closeThread)
+        controller.focusCompose()
         return true
     }
 
@@ -62,12 +62,16 @@ final class PaneThread {
         guard controller.intents?.canReply == true else { return false }
         if openThread != nil {
             guard !demo.threadContentContains(p), !demo.compose.fieldRect.insetBy(dx: -60, dy: -8).contains(p) else { return false }
+            // The opener again: Messages keeps the thread open (and still).
+            if let key = openerKey, demo.rowFrame(key: key)?.contains(p) == true { return true }
             controller.dispatch(.closeThread)
             return true
         }
         guard let root = demo.repliesHit(p) else { return false }
+        let opener = demo.rowKey(at: p)
         focusTranscript()
         controller.dispatch(.reply(root))
+        if controller.store?.state.ui.openThread != nil { openerKey = opener }
         return true
     }
 

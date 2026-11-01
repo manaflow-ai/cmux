@@ -29,8 +29,12 @@
 //     extended attribute, then an app-side copy (MARKDOWN-TABLE-WIDTHS-DESIGN.md). The config sends
 //     them back as `tableWidths`. `cmux.markdown.contextTable {table}` says which table (its index,
 //     or null) a right-click was on, for the native menu's Reset Column Widths;
+//   - `cmux.markdown.history {canBack, canForward}` tells the host after every change of the
+//     page's link history, so the native omnibar's Back and Forward buttons follow it;
 //   - page commands (cmux.page.command) from the app's key dispatcher: `save` (Cmd-S), `back`
-//     (Cmd-[) and `forward` (Cmd-]) through the page's link history, `link` (Cmd-K) the link
+//     (Cmd-[) and `forward` (Cmd-]) through the page's link history, `reload` (Cmd-R, the omnibar's
+//     Reload) reads the file from disk again and keeps the scroll, `open` (`text` an absolute
+//     path, a file typed in the omnibar) opens it as a new history entry, `link` (Cmd-K) the link
 //     popover on the selection.
 // Resources the host serves from the page's origin (the strict PageCSP allows nothing else):
 // `<assetBase><path relative to the file's folder>` for images, `<libBase>ondine.js`, `<libBase>mermaid.js` and
@@ -51,6 +55,8 @@ export const MARKDOWN_SELECTION_OP = "cmux.markdown.selection";
 /** Page to host: `{path, id}` forgets one viewer comment (its card's Delete); the host sends the list again. */
 export const MARKDOWN_DELETE_COMMENT_OP = "cmux.markdown.deleteComment";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
+/** Page to host: `{canBack, canForward}` after every change of the page's link history. */
+export const MARKDOWN_HISTORY_OP = "cmux.markdown.history";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
 /** A user click approves guarded web-image loads for the document currently shown in this tab. */
@@ -66,6 +72,8 @@ export const MARKDOWN_CHANGES = "cmux.markdown.changes";
 export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";
 export const MARKDOWN_READ_ONLY = "cmux.markdown.read_only";
+/** The file's machine cannot answer (#25581, a Cloud workspace's file): `message` is the host's reason. */
+export const MARKDOWN_UNAVAILABLE = "cmux.markdown.unavailable";
 
 /**
  * Why a file opens read only (FileReadOnlyReason in the host): not valid UTF-8, binary, not
@@ -132,12 +140,17 @@ export interface MarkdownSaveResult {
   hash: string;
 }
 
-/** A change of the file on disk. `text` is the new content; `deleted` when the file is gone. */
+/**
+ * A change of the file on disk. `text` is the new content; `deleted` when the file is gone.
+ * `unavailable` (hash null) reports the file's machine instead (#25581, a Cloud workspace's
+ * file): its reason while it cannot answer, null once it answers again; the file is unchanged.
+ */
 export interface MarkdownChange {
   path: string;
   hash: string | null;
   text?: string;
   deleted?: boolean;
+  unavailable?: string | null;
 }
 
 /** The details of a `cmux.markdown.conflict` error. */
@@ -157,6 +170,10 @@ export interface MarkdownFile {
   readOnly?: boolean;
   readOnlyReason?: MarkdownReadOnlyReason;
   assetBase?: string;
+  /** The file's own remote-image grant, saved table widths and viewer comments (as in the config). */
+  remoteImageBase?: string;
+  tableWidths?: unknown;
+  comments?: unknown;
 }
 
 export function isMarkdownConfig(value: unknown): value is MarkdownConfig {

@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20 (u5506): "when reordering groups around, we have an
 /// animation that makes it bigger, i dont like it, i think it should just
 /// stay in place, also bg of group when dragged around needs to be modern
 /// apple liquid glass (handle old macos versions well tho)".
-@MainActor @Suite(.serialized) struct SidebarDragLiftGlassTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDragLiftGlassTests {
     static let group = GroupID("g-lift-glass")
 
     static func list() -> (SidebarListView, NSWindow) {
@@ -61,7 +62,9 @@ import Testing
         }
         let lift = try #require(list.subviews.first { $0 is DragLiftView } as? DragLiftView)
         let last = try #require(list.displayed.row(for: .workspace(WorkspaceID("m3"))))
-        let block = list.frame(for: header).union(list.frame(for: last))
+        // The group's block: its rows and its members' line, which runs just left of them (#23975).
+        let line = try #require(SidebarGroupLine.lines(list.displayed.rows, colors: list.groups) { list.frame(for: $0) }.first)
+        let block = list.frame(for: header).union(list.frame(for: last)).union(line.frame)
         #expect(lift.frame.size == block.size, "the card is not the group's size")
         #expect(lift.frame.minX == block.minX, "the card moved sideways")
         #expect(CATransform3DIsIdentity(try #require(lift.layer).sublayerTransform))

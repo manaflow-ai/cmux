@@ -120,6 +120,9 @@ public final class CmuxSidebarView: NSView {
     /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
     /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
     public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
+    /// Delete Conversation… (the row's menu, after the host's items) and a left swipe's Delete;
+    /// nil: neither is offered. The host asks first and decides what a delete does.
+    public var onDelete: ((String) -> Void)?
     /// An extra search section under the conversations for a query (nil: none), asked once
     /// per keystroke; a later keystroke cancels the answer.
     public var searchSection: (String) -> CmuxSidebarSearchSection? = { _ in nil }
@@ -154,6 +157,29 @@ public final class CmuxSidebarView: NSView {
 
     let controller = SidebarController()
     private let link = SidebarLink()
+    /// The hover x of the ``closableID`` row (CmuxSidebarRowClose.swift).
+    private(set) lazy var rowClose = CmuxSidebarRowClose(list: self)
+
+    /// The row that shows an x at its trailing edge while the pointer is over it, as Messages'
+    /// New Message row does; nil (the default) shows it on no row. The avatar-only list and a
+    /// pinned tile never show it.
+    public var closableID: String? {
+        get { rowClose.rowID }
+        set { rowClose.rowID = newValue }
+    }
+    /// The ``closableID`` row's x was clicked (its id). The host removes the row.
+    public var onClose: (String) -> Void {
+        get { rowClose.onClose }
+        set { rowClose.onClose = newValue }
+    }
+    /// The x's tooltip and accessibility label ("Close New Message").
+    public var closeTitle: String {
+        get { rowClose.button.toolTip ?? "" }
+        set {
+            rowClose.button.toolTip = newValue
+            rowClose.button.setAccessibilityLabel(newValue)
+        }
+    }
     /// The list's scroll view, for the host's scroller style (cmux's scrollers are thin overlays).
     public var scrollView: NSScrollView { controller.scrollView }
     public private(set) var entries: [CmuxSidebarEntry] = []
@@ -175,6 +201,13 @@ public final class CmuxSidebarView: NSView {
         // Reduce Motion changes (the system setting or the host's pin) still or restart the typing
         // bubbles already pulsing (CmuxSidebarView+Motion.swift).
         motionObservers = observeReduceMotion()
+        _ = rowClose
+    }
+
+    public override func layout() {
+        super.layout()
+        // A width change can make the list avatar-only (no x) or move the row's trailing edge.
+        rowClose.refresh()
     }
 
     /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
@@ -211,6 +244,8 @@ public final class CmuxSidebarView: NSView {
     /// The compact (avatar-only) list's width and the width the list is designed for.
     public var minimumWidth: CGFloat { controller.minimumWidth }
     public var preferredWidth: CGFloat { controller.preferredWidth ?? 320 }
+    /// Below this width the list shows avatars only (no names, previews or section headers).
+    public static var compactBelow: CGFloat { SidebarMetrics.compactBelow }
     public var selectedID: String? { controller.selectedID }
 
     /// Shows `entries` (newest first, pinned included) with `pinned` in tile order.
@@ -224,6 +259,7 @@ public final class CmuxSidebarView: NSView {
         if !Self.animatesMovement { SidebarMotion.enabled = false }
         defer { SidebarMotion.enabled = listMotion }
         controller.reloadData()
+        rowClose.refresh()
     }
 
     /// The search field's text.
@@ -347,8 +383,10 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     // controller picks the title from the entry's unread count; the host keeps the mark). Hide
     // Alerts and Delete need owner support first: no item that does nothing.
     func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
-        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead] : [.pin]
+        guard let owner, owner.entries.contains(where: { $0.id == id }) else { return [.pin] }
+        return owner.onDelete == nil ? [.pin, .markRead] : [.pin, .markRead, .delete]
     }
+    func sidebar(_ sidebar: SidebarController, delete id: ConversationID) { owner?.onDelete?(id) }
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 
     func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest) {

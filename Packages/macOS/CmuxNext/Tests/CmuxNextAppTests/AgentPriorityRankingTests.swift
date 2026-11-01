@@ -39,6 +39,28 @@ struct AgentPriorityRankingTests {
         #expect(SidebarPriorityPanel(entries: entries).attentionCount == 4)
     }
 
+    /// A chat whose pull request's checks fail (the session tree's PR badge reads red) ranks as Red
+    /// CI: after a finished result nobody has seen and a failed turn, before the working ones. A
+    /// question or an unseen result outranks its red checks; read, the result leaves them showing.
+    @Test func aChatWhosePullRequestChecksFailRanksAsRedCIBeforeWorking() {
+        let red = Self.lane("red-ci", .idle, ago: 3), stale = Self.lane("red-stale", .idle, ago: 60 * 48)
+        let ranking = AgentPriorityRanking()
+        let entries = ranking.entries(Self.lanes + [red, stale], marks: .init(), now: Self.now, failingChecks: ["red-ci", "red-stale"])
+        #expect(entries.map(\.id) == ["asks-new", "asks", "done", "broke", "red-ci", "red-stale", "working", "idle-new", "idle-old"])
+        #expect(entries[4].state == .ciFailing && entries[4].needsAttention)
+        #expect(ranking.nextChange([stale], marks: .init(), now: Self.now, failingChecks: ["red-stale"]) == nil)
+
+        let overlapping: Set<String> = ["asks", "done", "working"]
+        var states = Dictionary(uniqueKeysWithValues: ranking.entries(Self.lanes, marks: .init(), now: Self.now,
+                                                                      failingChecks: overlapping).map { ($0.id, $0.state) })
+        #expect(states["asks"] == .needsYou && states["done"] == .done && states["working"] == .ciFailing)
+        let marks = AgentPriorityMarks(defaults: nil)
+        marks.markRead(Self.lane("done", .idle, ago: 20, unread: true))
+        states = Dictionary(uniqueKeysWithValues: ranking.entries(Self.lanes, marks: marks.state, now: Self.now,
+                                                                  failingChecks: overlapping).map { ($0.id, $0.state) })
+        #expect(states["done"] == .ciFailing)
+    }
+
     @Test func aPinnedChatLeadsItsTierAndStaysWhileIdleForLong() {
         let marks = AgentPriorityMarks(defaults: nil)
         let stale = Self.lane("stale", .idle, ago: 60 * 48)
@@ -104,6 +126,48 @@ struct AgentPriorityRankingTests {
         marks.archive("broke")
         marks.unarchive("broke")
         #expect(ranking.entries(Self.lanes, marks: marks.state, now: Self.now).contains { $0.id == "broke" })
+    }
+
+    /// Leo 2026-10-21: "the click and drag doesn't quite work for moving guys up... some sort of basic
+    /// baked-in priority view thing sends your chat down since you're idle whereas upper ones are
+    /// unread". A chat the person drags keeps the place they dropped it in until they drag it again;
+    /// the other chats keep ranking around it.
+    @Test func aDraggedChatKeepsItsPlaceWhileTheOthersRank() {
+        let marks = AgentPriorityMarks(defaults: nil)
+        let ranking = AgentPriorityRanking()
+        // Ranked: asks-new, asks, done, broke, working, idle-new, idle-old. The person drags idle-new to the top.
+        var order = ranking.entries(Self.lanes, marks: marks.state, now: Self.now).map(\.id)
+        order.removeAll { $0 == "idle-new" }
+        order.insert("idle-new", at: 0)
+        marks.place("idle-new", in: order)
+        #expect(ranking.entries(Self.lanes, marks: marks.state, now: Self.now).map(\.id) == order)
+
+        // The working chat asks a question: it climbs over the others, never over the dragged chat.
+        let lanes = Self.lanes.map { $0.id == "working" ? Self.lane("working", .input, ago: 0) : $0 }
+        let shown = ranking.entries(lanes, marks: marks.state, now: Self.now).map(\.id)
+        #expect(shown == ["idle-new", "working", "asks-new", "asks", "done", "broke", "idle-old"])
+
+        // A second drag: broke goes under it, and idle-new keeps the place it shows at.
+        var next = shown.filter { $0 != "broke" }
+        next.insert("broke", at: 1)
+        marks.place("broke", in: next)
+        #expect(ranking.entries(lanes, marks: marks.state, now: Self.now).map(\.id) == next)
+
+        // A placed idle chat stays past the idle horizon, like a pinned one; the others still age out.
+        let later = ranking.entries(lanes, marks: marks.state, now: Self.now.addingTimeInterval(48 * 3600)).map(\.id)
+        #expect(later.first == "idle-new" && !later.contains("idle-old"))
+        #expect(ranking.nextChange(lanes.filter { $0.id == "idle-new" }, marks: marks.state, now: Self.now) == nil)
+
+        // The places go with the chat when acpmux stops listing it.
+        marks.prune(keeping: ["broke"])
+        #expect(marks.state.placed == ["broke": 1])
+    }
+
+    /// Marks saved before the dragged places existed still load.
+    @Test func marksSavedBeforePlacesLoad() throws {
+        let saved = Data(#"{"pinned":["a"],"read":{},"snoozed":{},"archived":[],"collapsed":true}"#.utf8)
+        let state = try JSONDecoder().decode(AgentPriorityMarks.State.self, from: saved)
+        #expect(state.pinned == ["a"] && state.collapsed && state.placed.isEmpty)
     }
 
     @Test func theBellDotShowsOnlyWhileTheRowsAreOutOfSight() {

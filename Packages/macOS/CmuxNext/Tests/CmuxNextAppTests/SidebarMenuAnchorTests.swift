@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-19 (u2250): "The context menu should open next to the three dots when I
@@ -8,7 +9,7 @@ import Testing
 /// header's more button opened the group editor under the header's full-width color bar, so
 /// the bubble sat at the sidebar's leading edge, far from the button in a wide sidebar. A
 /// popup opened from a button opens under that button, on its trailing edge, at any width.
-@MainActor @Suite(.serialized) struct SidebarMenuAnchorTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarMenuAnchorTests {
     nonisolated static let widths: [CGFloat] = [200, 400, 700]
 
     /// A sidebar `width` wide in a window that is never ordered front (the bubble is laid out,
@@ -28,6 +29,14 @@ import Testing
         return (sidebar, ids[0], window)
     }
 
+    /// Closes the window and the editor bubble the sidebar opened in it. `hide()` only fades the
+    /// bubble out and orders it out (it is kept for the next open), so the test closes it.
+    static func close(_ sidebar: SidebarView, _ window: NSWindow) {
+        sidebar.list.groupEditor.hide()
+        sidebar.list.groupEditor.bubble?.close()
+        window.close()
+    }
+
     static func screenRect(of rect: NSRect, in view: NSView) throws -> CGRect {
         let window = try #require(view.window)
         return window.convertToScreen(view.convert(rect, to: nil))
@@ -42,7 +51,7 @@ import Testing
     @Test(arguments: widths)
     func theMoreButtonOpensTheGroupEditorUnderTheButton(width: CGFloat) throws {
         let (sidebar, id, window) = try Self.sidebar(width: width)
-        defer { sidebar.list.groupEditor.hide(); window.close() }
+        defer { Self.close(sidebar, window) }
         let header = try #require(sidebar.list.rowViews[.group(id)] as? GroupHeaderRowView)
         header.isHovered = true
         header.layoutSubtreeIfNeeded()
@@ -58,11 +67,34 @@ import Testing
                 "width \(width): card \(card) is not just under the button \(button)")
     }
 
+    /// Sidebar sweep 2026-10-21: in a window wider than a narrow sidebar, the editor under the
+    /// more button hung about 80 pt past the window's leading edge (the card is wider than the
+    /// sidebar, and it lined its trailing edge up with the button). The card stays inside the
+    /// window: on the button's leading edge when its trailing edge leaves no room.
+    @Test func theGroupEditorStaysInsideTheWindow() throws {
+        let width: CGFloat = 200
+        let (sidebar, id, window) = try Self.sidebar(width: width)
+        defer { Self.close(sidebar, window) }
+        window.setContentSize(NSSize(width: 900, height: 600))
+        let header = try #require(sidebar.list.rowViews[.group(id)] as? GroupHeaderRowView)
+        header.isHovered = true
+        header.layoutSubtreeIfNeeded()
+        let more = header.moreButton
+        #expect(more.sendAction(more.action, to: more.target), "the more button has no action")
+
+        let content = window.convertToScreen(window.contentLayoutRect)
+        let button = try Self.screenRect(of: more.frame, in: header)
+        let card = try Self.card(sidebar)
+        #expect(content.contains(card), "width \(width): card \(card) leaves the window's content \(content)")
+        #expect(abs(card.minX - button.minX) <= 1, "width \(width): card \(card) is not on the button \(button)'s leading edge")
+        #expect(card.maxY <= button.minY + 0.5 && button.minY - card.maxY <= 12)
+    }
+
     /// A click on the group's name still opens the editor under the name, on its leading edge.
     @Test(arguments: widths)
     func theNameOpensTheGroupEditorUnderTheName(width: CGFloat) throws {
         let (sidebar, id, window) = try Self.sidebar(width: width)
-        defer { sidebar.list.groupEditor.hide(); window.close() }
+        defer { Self.close(sidebar, window) }
         let header = try #require(sidebar.list.rowViews[.group(id)] as? GroupHeaderRowView)
         sidebar.list.groupEditing.open(id)
         let name = try Self.screenRect(of: header.nameHitFrame, in: header)
@@ -88,7 +120,7 @@ import Testing
     @Test(arguments: widths)
     func aWorkspaceRowMoreButtonOpensItsMenuUnderTheButton(width: CGFloat) throws {
         let (sidebar, _, window) = try Self.sidebar(width: width, menu: { _ in Self.wideMenu() })
-        defer { window.close() }
+        defer { Self.close(sidebar, window) }
         var shown: (NSMenu, PopupAnchor, NSView)?
         sidebar.list.menuPresenter = { shown = ($0, $1, $2) }
         let row = try #require(sidebar.list.rowViews.values.compactMap { $0 as? WorkspaceRowView }.first, "no workspace row")
@@ -108,7 +140,7 @@ import Testing
     @Test(arguments: widths)
     func moreGroupActionsOpensTheMenuUnderTheMoreButton(width: CGFloat) throws {
         let (sidebar, id, window) = try Self.sidebar(width: width)
-        defer { window.close() }
+        defer { Self.close(sidebar, window) }
         sidebar.contextMenuProvider = { _ in Self.wideMenu() }
         var shown: (NSMenu, PopupAnchor, NSView)?
         sidebar.list.menuPresenter = { shown = ($0, $1, $2) }
@@ -126,10 +158,12 @@ import Testing
     /// now shows the group's flat menu, Lawrence 2026-10-20; the pointer opener stays for callers.)
     @Test func aRightClickOpensTheGroupEditorAtThePointer() throws {
         let (sidebar, id, window) = try Self.sidebar(width: 700)
-        defer { sidebar.list.groupEditor.hide(); window.close() }
+        defer { Self.close(sidebar, window) }
         let list = sidebar.list
         let row = try #require(list.displayed.row(for: .group(id)))
-        let point = NSPoint(x: 500, y: list.frame(for: row).midY)
+        // Room for the card on the pointer's trailing side: past the window's edge it slides back
+        // inside (theGroupEditorStaysInsideTheWindow), which only a host with no screen skipped.
+        let point = NSPoint(x: 300, y: list.frame(for: row).midY)
         list.groupEditing.open(id, from: .pointer(point))
         let pointer = try #require(list.window).convertPoint(toScreen: list.convert(point, to: nil))
         let card = try Self.card(sidebar)

@@ -1,0 +1,248 @@
+/* The drop overlay (composer/DropOverlay.tsx). A file drag over the agent pane marks the chat column
+   without hiding it (Lawrence 2026-10-21: "needs to keep stuff behind more visible"): a faint tint
+   of the accent, no blur, a dashed accent frame inset from the edges, and one compact glass pill in
+   the middle with a mark, "Drop to attach" and what the drag holds. Only the pill is glass; the
+   transcript reads through the rest. Phases (data-phase): armed (the drag is over the pane, not the
+   chat: quieter), over (frame solid in tone, pill lifted), refused (the danger color, a plain
+   refusal), landing (the sheet shrinks into the composer and fades, then hides on animationend).
+   Only opacity and transform animate, so a drag never relayouts the transcript. Reduce Motion keeps
+   the fades and drops every move; no backdrop filter or Reduce Transparency makes the pill opaque.
+   The overlay is a size container: the pill fits a narrow chat. */
+.acpmux-drop-overlay {
+  --acpmux-drop-accent: var(--cmux-accent, var(--agent-accent));
+  --acpmux-drop-tone: var(--acpmux-drop-accent);
+  --acpmux-drop-in: calc(var(--cmux-motion-micro, 120ms) * 1.25);
+  --acpmux-drop-spring: cubic-bezier(0.2, 0.9, 0.3, 1.18);
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-overlay);
+  container-type: size;
+  display: flex;
+  padding: var(--ds-space-2);
+  box-sizing: border-box;
+  pointer-events: none;
+  /* No opacity, transform, filter, will-change or paint containment here: any of them makes this
+     box the pill's backdrop root, and its glass would blur nothing. */
+}
+.acpmux-drop-overlay[data-phase="refused"] {
+  --acpmux-drop-tone: var(--agent-danger, #ff453a);
+}
+
+/* The sheet: a tint light enough that the chat stays readable, no blur. */
+.acpmux-drop-sheet {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ds-radius-composer);
+  background: color-mix(in srgb, var(--acpmux-drop-tone) var(--acpmux-drop-wash, 3%), transparent);
+  /* No will-change: it would make the sheet the pill's backdrop root for as long as it shows. */
+  animation: acpmux-drop-in var(--acpmux-drop-in) var(--cmux-ease-out, ease-out) backwards;
+  transition: --acpmux-drop-wash var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+@property --acpmux-drop-wash {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 3%;
+}
+.acpmux-drop-overlay[data-phase="over"] .acpmux-drop-sheet,
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-sheet,
+.acpmux-drop-overlay[data-phase="landing"] .acpmux-drop-sheet {
+  --acpmux-drop-wash: 6%;
+}
+
+/* The dashed frame, drawn as an SVG stroke so the dashes stay even around the rounded corners. */
+.acpmux-drop-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.acpmux-drop-frame-line {
+  x: 6px;
+  y: 6px;
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  rx: 13px;
+  ry: 13px;
+  fill: none;
+  stroke: color-mix(in srgb, var(--acpmux-drop-tone) 40%, transparent);
+  stroke-width: 1.5px;
+  stroke-dasharray: 7 6;
+  stroke-linecap: round;
+  transition: stroke var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
+}
+.acpmux-drop-overlay[data-phase="over"] .acpmux-drop-frame-line,
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-frame-line {
+  stroke: var(--acpmux-drop-tone);
+  stroke-width: 2px;
+}
+
+/* The pill: the one glass piece, small, in the middle. */
+.acpmux-drop-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 40px);
+  padding: 6px 16px 6px 6px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--glass-surface, var(--agent-page-bg, Canvas)) 86%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.5);
+  backdrop-filter: blur(12px) saturate(1.5);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--acpmux-drop-tone) 30%, transparent),
+    inset 0 1px 0 var(--glass-specular, color-mix(in srgb, #fff 40%, transparent)),
+    var(--elevation-2);
+  opacity: 0.88;
+  transform: scale(0.97);
+  transition:
+    transform var(--cmux-motion-standard, 180ms) var(--acpmux-drop-spring),
+    opacity var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
+  animation: acpmux-drop-pill-in var(--acpmux-drop-in) var(--acpmux-drop-spring) backwards;
+}
+.acpmux-drop-overlay[data-phase="over"] .acpmux-drop-pill,
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-pill,
+.acpmux-drop-overlay[data-phase="landing"] .acpmux-drop-pill {
+  opacity: 1;
+  transform: translateY(-2px) scale(1.03);
+}
+.acpmux-drop-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ds-control-primary);
+  height: var(--ds-control-primary);
+  border-radius: 999px;
+  color: var(--acpmux-drop-tone);
+  background: color-mix(in srgb, var(--acpmux-drop-tone) 14%, transparent);
+}
+.acpmux-drop-mark svg {
+  width: 18px;
+  height: 18px;
+}
+.acpmux-drop-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-drop-title,
+.acpmux-drop-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-drop-title {
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis, 600);
+  line-height: 17px;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-drop-hint {
+  color: var(--agent-muted, color-mix(in srgb, var(--agent-text) 62%, transparent));
+  font-size: var(--text-caption);
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-hint {
+  color: color-mix(in srgb, var(--acpmux-drop-tone) 80%, var(--agent-text));
+}
+
+/* A narrow chat (a split, a floating chat): the refusal's reason may wrap under the title. */
+@container (max-width: 300px) {
+  .acpmux-drop-pill {
+    border-radius: var(--ds-radius-composer);
+  }
+  .acpmux-drop-hint {
+    white-space: normal;
+  }
+}
+
+/* The drop: the sheet flies into the composer (--acpmux-drop-fly-x/y, set from the composer's box
+   when it lands) and fades as the chips appear there. */
+.acpmux-drop-overlay[data-phase="landing"] .acpmux-drop-sheet {
+  animation: acpmux-drop-land var(--cmux-motion-large, 240ms) cubic-bezier(0.4, 0, 0.6, 1) both;
+}
+@keyframes acpmux-drop-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-drop-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.92);
+  }
+}
+@keyframes acpmux-drop-land {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translate(var(--acpmux-drop-fly-x, 0px), var(--acpmux-drop-fly-y, 40%)) scale(0.14);
+  }
+}
+@keyframes acpmux-drop-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-drop-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* A refusal nudges once, side to side. */
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-mark {
+  animation: acpmux-drop-refuse var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+}
+@keyframes acpmux-drop-refuse {
+  25% {
+    transform: translateX(-3px);
+  }
+  60% {
+    transform: translateX(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-drop-overlay[data-phase] .acpmux-drop-sheet {
+    transform: none;
+    animation: acpmux-drop-fade-in var(--acpmux-drop-in) linear backwards;
+  }
+  .acpmux-drop-overlay[data-phase="landing"] .acpmux-drop-sheet {
+    animation: acpmux-drop-fade-out var(--cmux-motion-standard, 180ms) linear both;
+  }
+  .acpmux-drop-overlay[data-phase] .acpmux-drop-pill,
+  .acpmux-drop-overlay[data-phase] .acpmux-drop-mark {
+    transform: none;
+    animation: none;
+  }
+}
+
+/* No backdrop filter, or Reduce Transparency: the pill is an opaque material. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .acpmux-drop-pill {
+    background: var(--surface-popup, var(--agent-page-bg, Canvas));
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-drop-pill {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--surface-popup, var(--agent-page-bg, Canvas));
+  }
+}
+:root[data-reduce-transparency] .acpmux-drop-pill {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--surface-popup, var(--agent-page-bg, Canvas));
+}

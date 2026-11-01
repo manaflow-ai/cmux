@@ -1,6 +1,8 @@
 import CmuxNextActions
 import CmuxNextLayout
 import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 
 /// A click on a cmux app link in rendered Markdown (the Home transcript, an agent chat, a
 /// Markdown file page) or a terminal: a path (`file:///…`, ``openPath(_:services:)``),
@@ -10,15 +12,15 @@ import Foundation
 /// build, so the link is opened as this build's `link.open` (the one shared path) and never goes
 /// to another app through the system: the plain `cmux` scheme belongs to the Release app.
 enum CmuxAppLinks {
-    /// The scheme the Chief writes.
-    static let chiefScheme = "cmux"
-
     /// Runs `link.open` on `url` when ``link(for:linkScheme:chiefHost:)`` accepts it; false
     /// (nothing runs) for any other URL.
     @MainActor
     @discardableResult
     static func open(_ url: URL, services: AppServices) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
+        if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
+            return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
+        }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
               let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
         return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
@@ -33,15 +35,18 @@ enum CmuxAppLinks {
     static func openPath(_ url: URL, services: AppServices) -> Bool {
         guard url.isFileURL, url.path.hasPrefix("/") else { return false }
         let path = url.standardizedFileURL.path
+        let work = services.work
         // task-owner: one disk check, then one open
         Task { @MainActor [weak services] in
-            let isDirectory = await Task.detached(priority: .userInitiated) { () -> Bool in
+            // A person clicked the link: the disk check runs on the files lane at userBlocking (a stalled volume
+            // holds a lane thread, never a cooperative-pool one).
+            let isDirectory = (try? await work.run(.userBlocking, mayBlock: .files) { () -> Bool in
                 var directory: ObjCBool = false
-                return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-            }.value
+                return FileManager.checked.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+            }) ?? false
             guard let services else { return }
-            // A tab of the focused pane (LinkOpener): the pinned Home column, which takes no tabs,
-            // gets the pane on its right or a new split.
+            // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which
+            // takes no tabs, gets the pane on its right or a new split.
             let source = services.windows.active?.focusedPane
             if isDirectory {
                 services.linkOpener.openFolder(path, from: source)
@@ -52,19 +57,11 @@ enum CmuxAppLinks {
         return true
     }
 
-    /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a
-    /// workspace, pane, tab or chat session; a Chief subagent's chat only for this app's own
-    /// Chief home (`chiefHost`, `chief:<home id>`) and on this machine. Nil for anything else (an
-    /// unknown scheme or host, a malformed id, a legacy UUID link, another Chief's subagent).
+    /// The action a settings link runs (``DeepLink/settingsAction(for:linkScheme:)``).
+    static func settingsAction(for url: URL, linkScheme: String) -> ActionID? { DeepLink.settingsAction(for: url, linkScheme: linkScheme) }
+
+    /// The link `url` opens in this app (``DeepLink/appLink(for:linkScheme:chiefHost:)``).
     static func link(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {
-        guard let link = DeepLink.parse(url, scheme: chiefScheme) ?? DeepLink.parse(url, scheme: linkScheme) else { return nil }
-        switch link.target {
-        case .workspace, .pane, .tab, .session:
-            return link
-        case .chiefSession(let home, _):
-            return link.machine == nil && chiefHost == "chief:" + home ? link : nil
-        case .legacyWorkspace, .legacyPane, .legacySurface:
-            return nil
-        }
+        DeepLink.appLink(for: url, linkScheme: linkScheme, chiefHost: chiefHost)
     }
 }

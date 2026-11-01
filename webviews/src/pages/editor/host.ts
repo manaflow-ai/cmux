@@ -22,7 +22,9 @@
 //     own palette (F1, the context menu's Command Palette) is replaced by it;
 //   - page commands (cmux.page.command) from the app's key dispatcher: `save`, `find`, `findNext`,
 //     `findPrevious`, `useSelectionForFind`, `hideFind`, `zoomIn`, `zoomOut`, `zoomReset`, and
-//     `editorAction` with `text` a Monaco action id from `EDITOR_ACTIONS` (keys.ts).
+//     `editorAction` with `text` a Monaco action id from `EDITOR_ACTIONS` (keys.ts), and `reveal` with
+//     `text` "line:column" (1-based): the cursor goes there and the line is centered (a Find result
+//     opened in a tab that already shows its file; a new tab gets the config's `reveal` instead).
 // The text is the file's bytes decoded as UTF-8 with nothing removed: a BOM stays as U+FEFF and line
 // endings stay as they are, so writing the saved `text` as UTF-8 reproduces the file byte for byte.
 import type { DiffViewerAppearance } from "../../appearance";
@@ -53,6 +55,8 @@ export const EDITOR_READ_ONLY = "cmux.editor.read_only";
 export const EDITOR_NOT_FOUND = "cmux.editor.not_found";
 export const EDITOR_NOT_FILE = "cmux.editor.not_file";
 export const EDITOR_TOO_LARGE = "cmux.editor.too_large";
+/** The file's machine cannot answer (#25581, a Cloud workspace's file): `message` is the host's reason. */
+export const EDITOR_UNAVAILABLE = "cmux.editor.unavailable";
 
 /** Why a file opens read only. */
 export type ReadOnlyReason = "outside" | "encoding" | "binary" | "permission";
@@ -76,6 +80,9 @@ export interface EditorFile {
 export interface EditorConfig extends EditorFile {
   /** A recovered crash draft of this file: the page loads it as an unsaved edit (once). */
   recoveredText?: string;
+  /** Where the cursor goes once the file is loaded (a Find result), 1-based; the column counts UTF-16
+   * code units. Sent once: a later config of the same tab starts at the top. */
+  reveal?: { line: number; column: number };
   /** The terminal appearance, as the diff viewer gets it (code font, palette, colors). */
   appearance?: DiffViewerAppearance;
   /** The `editor` settings section (settings.ts `EditorSettings`), unparsed. */
@@ -104,12 +111,17 @@ export interface EditorSaveResult {
   hash: string;
 }
 
-/** A disk change of the page's file. `text` is the new content; `deleted` when the file is gone. */
+/**
+ * A disk change of the page's file. `text` is the new content; `deleted` when the file is gone.
+ * `unavailable` (hash null) reports the file's machine instead: its reason while it cannot
+ * answer, null once it answers again; the file is unchanged either way.
+ */
 export interface EditorChange {
   path: string;
   hash: string | null;
   text?: string;
   deleted?: boolean;
+  unavailable?: string | null;
 }
 
 /** The details of a `cmux.editor.conflict` error. */

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextSettings
 @testable import CmuxNextDaemon
 import CmuxNextTabs
 import Foundation
@@ -11,6 +12,9 @@ import Testing
 /// the history and an OSC 7501 done keeps its done state on the row. Approval, question, plan
 /// review and error always mark unread, watched or not, and an unwatched pane behaves as before.
 /// Showcase captures (`CMUX_NEXT_SHOWCASE`) take the same path, without banners.
+/// That read on sight is the `focus` dismissal's, the default again since
+/// https://github.com/manaflow-ai/cmux/issues/25662. Under `click` a watched finish posts no banner
+/// but keeps its ring until the pane is clicked or typed in.
 @MainActor
 struct WatchedDoneReadTests {
     static let watched = TerminalVisibility(tabSelected: true, paneOnScreen: true, windowShown: true, appActive: true)
@@ -27,7 +31,8 @@ struct WatchedDoneReadTests {
     /// records are `records`, seen as `visibility`.
     static func arrive(source: String, level: String, title: String, records: String = "[]",
                        marker: TabNotification? = nil,
-                       visibility: TerminalVisibility, showcase: Bool = false) throws -> Arrival {
+                       visibility: TerminalVisibility, showcase: Bool = false,
+                       dismissal: NotificationDismissal = .focus) throws -> Arrival {
         _ = NSApplication.shared
         let store = DaemonStore()
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7", notification: marker)])
@@ -43,6 +48,7 @@ struct WatchedDoneReadTests {
         let located = LocatedTab(tab: try #require(paneModel.tabs.first), pane: paneModel, workspace: workspace)
 
         let service = NotificationCenterService()
+        service.preferences.dismissal = dismissal
         service.terminalNotificationsEnabled = { true }
         service.desktopPostingEnabled = !showcase
         service.arrive(notification, located: located, visibility: visibility)
@@ -61,6 +67,40 @@ struct WatchedDoneReadTests {
         let arrival = try Self.arrive(source: "terminal", level: "info", title: "make is done", records: records, visibility: Self.watched)
         #expect(arrival.read)
         #expect(StatusMapping.shared.outcome(arrival.located.tab) == .success, "the row still shows it done")
+    }
+
+    /// The default `focus`: a finish in the pane the person watches is read at once, with no banner
+    /// and no ring to click away (https://github.com/manaflow-ai/cmux/issues/25662).
+    @Test func aWatchedTurnIsReadWithoutABannerByDefault() throws {
+        let arrival = try Self.arrive(source: "agent", level: "info", title: "Claude finished", visibility: Self.watched,
+                                      dismissal: NotificationPreferences().dismissal)
+        #expect(arrival.read, "a watched finish rang the pane again")
+        #expect(arrival.service.desktop.posted.isEmpty, "a watched finish posted a banner")
+    }
+
+    @Test func aWatchedProgramDoneIsReadWithoutABannerByDefault() throws {
+        let records = #"[{"id":"","state":"done","app":"make","updated_seq":"4"}]"#
+        let arrival = try Self.arrive(source: "terminal", level: "info", title: "make is done", records: records, visibility: Self.watched,
+                                      dismissal: NotificationPreferences().dismissal)
+        #expect(arrival.read, "a watched done rang the pane again")
+        #expect(arrival.service.desktop.posted.isEmpty, "a watched done posted a banner")
+    }
+
+    /// Under `click`, chosen in Settings, a watched finish keeps its ring until the pane is clicked.
+    @Test func aWatchedTurnKeepsItsRingUnderTheClickMode() throws {
+        let arrival = try Self.arrive(source: "agent", level: "info", title: "Claude finished", visibility: Self.watched,
+                                      dismissal: .click)
+        #expect(!arrival.read, "the ring cleared with no click in the pane")
+        #expect(arrival.service.desktop.posted.isEmpty, "a watched finish posted a banner")
+    }
+
+    /// The timeout dismissal keeps a watched finish unread and still clears it at its deadline.
+    @Test func aWatchedTurnUnderTheTimeoutModeGetsItsDeadline() throws {
+        let arrival = try Self.arrive(source: "agent", level: "info", title: "Claude finished", visibility: Self.watched,
+                                      dismissal: .timeout)
+        #expect(!arrival.read)
+        #expect(arrival.service.log.contains { $0.hasPrefix("timeout \(arrival.located.tab.id) ") }, "no deadline was scheduled")
+        #expect(arrival.service.desktop.posted.isEmpty)
     }
 
     @Test(arguments: [("warning", "Claude needs approval"), ("warning", "Claude asked a question"),

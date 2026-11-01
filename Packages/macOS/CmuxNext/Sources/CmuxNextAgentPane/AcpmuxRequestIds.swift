@@ -12,6 +12,8 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     private nonisolated struct Entry {
         var pageID: String
         var method: String
+        /// The chat a reply in place named (``AgentPaneAgentReply``).
+        var subject: String?
     }
 
     private nonisolated struct State {
@@ -19,7 +21,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         var entries: [Int: Entry] = [:]
         var inFlight: Set<String> = []
         /// Told when the daemon answers a relay id (``whenAnswered(_:_:)``).
-        var answered: [Int: @Sendable () -> Void] = [:]
+        var answered: [Int: @Sendable (Bool) -> Void] = [:]
     }
 
     private let state = Mutex(State())
@@ -33,6 +35,11 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     /// Calls `handler` (off the main thread) when the daemon answers request `id`, with a result
     /// or an error; never when the request is cancelled.
     func whenAnswered(_ id: Int, _ handler: @escaping @Sendable () -> Void) {
+        state.withLock { $0.answered[id] = { _ in handler() } }
+    }
+
+    /// A host-owned request's acknowledgement, distinguishing a result from a refusal.
+    func whenResult(_ id: Int, _ handler: @escaping @Sendable (Bool) -> Void) {
         state.withLock { $0.answered[id] = handler }
     }
 
@@ -47,13 +54,14 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     }
 
     /// The relay id for a page request with raw id `pageID`; nil while that page id is in flight.
-    func begin(pageID: String, method: String) -> Int? {
+    /// `subject`: the chat a reply in place names (``AgentPaneAgentReply``).
+    func begin(pageID: String, method: String, subject: String? = nil) -> Int? {
         state.withLock { state in
             guard !state.inFlight.contains(pageID) else { return nil }
             let id = state.next
             state.next += 1
             state.inFlight.insert(pageID)
-            state.entries[id] = Entry(pageID: pageID, method: method)
+            state.entries[id] = Entry(pageID: pageID, method: method, subject: subject)
             return id
         }
     }
@@ -66,11 +74,23 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         }
     }
 
+    /// Cancels a host-owned request and wakes its waiter (used when a socket closes before a reply).
+    func cancelAndNotify(_ id: Int) {
+        let handler = state.withLock { state -> (@Sendable (Bool) -> Void)? in
+            state.answered.removeValue(forKey: id)
+        }
+        handler?(false)
+        cancel(id)
+    }
+
     /// What the socket does with one daemon frame.
     nonisolated enum Inbound {
         /// To the page: the fresh serialization, the parsed frame (its id the page's) for the
         /// observers, and the request a reply answers.
         case page(String, object: [String: Any], replyTo: String?)
+        /// A reply in place that acpmux answered: the host finishes it (``AgentPaneAgentReply``);
+        /// acpmux's answer never reaches the page as it is.
+        case complete(object: [String: Any], pageID: String, subject: String?)
         case drop
         /// A duplicate key: two parsers could read the frame differently, so the socket closes.
         case close
@@ -95,13 +115,18 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             return .page(fresh, object: object, replyTo: nil)
         }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
-        state.withLock { $0.answered.removeValue(forKey: relayID) }?()
+        state.withLock { $0.answered.removeValue(forKey: relayID) }?(object["error"] == nil && object["result"] != nil)
         guard let entry = state.withLock({ state -> Entry? in
             guard let entry = state.entries.removeValue(forKey: relayID) else { return nil }
             state.inFlight.remove(entry.pageID)
             return entry
         }), let id = Self.value(entry.pageID) else { return .drop }
         object["id"] = id
+        // The page id is free again from here, while the host still sends the reply: the page
+        // never reuses an id (direct.ts counts them up), so its answer cannot go to another request.
+        if entry.method == AgentPaneAgentReply.method {
+            return .complete(object: object, pageID: entry.pageID, subject: entry.subject)
+        }
         if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
             return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)
         }

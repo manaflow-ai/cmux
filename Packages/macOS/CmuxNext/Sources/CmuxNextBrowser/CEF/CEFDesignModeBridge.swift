@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Design mode's messages in a Chromium page (`BrowserDesignModeScript`), through the DevTools
@@ -7,7 +8,7 @@ import Foundation
 /// emits `.designMode`. Nothing is added until the user turns design mode on (``prepare()``), so an
 /// idle tab pays nothing.
 final class CEFDesignModeBridge {
-    /// The isolated world `CEFTab.evaluate(_:world: .isolated)` creates.
+    /// The isolated world `CEFTab.evaluate(_:world: .isolated, gesture:)` creates.
     static let world = "cmux"
 
     /// Weak: the tab owns the relay that owns this bridge.
@@ -20,17 +21,21 @@ final class CEFDesignModeBridge {
     func prepare() async throws {
         guard let tab, let browser = tab.browserID else { throw BrowserTabError.closed }
         tab.agentRelay.designModeListens = true
-        _ = try await tab.evaluate("true", world: .isolated)
-        _ = try await tab.runtime.devTools(browser, method: "Runtime.addBinding",
-                                           params: ["name": BrowserDesignModeScript.chromiumBinding, "executionContextName": Self.world])
+        // `CEFTab.runtime` is `unowned`, so it is read before the evaluate below, while it is known
+        // alive: reading it after that await would trap once the runtime's last owner went, which
+        // aborts the process rather than failing this call (see `CEFMediaBridge.run`).
+        let runtime = tab.runtime
+        _ = try await tab.evaluate("true", world: .isolated, gesture: .cmux)
+        _ = try await runtime.devTools(browser, method: "Runtime.addBinding",
+                                       params: ["name": BrowserDesignModeScript.chromiumBinding, "executionContextName": Self.world])
     }
 
     /// A `Runtime.bindingCalled` of the design mode binding: emits its JSON payload. False for
     /// every other message.
-    func handle(_ json: String) -> Bool {
+    func handle(_ head: DevToolsMessageHead) -> Bool {
         let binding = BrowserDesignModeScript.chromiumBinding
-        guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(binding)\""),
-              let data = json.data(using: .utf8),
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(binding)\""),
+              let data = head.json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == binding

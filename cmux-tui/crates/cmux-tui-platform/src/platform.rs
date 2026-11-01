@@ -25,6 +25,14 @@ pub fn unix_peer_uid(socket: &impl std::os::fd::AsRawFd) -> io::Result<u32> {
     peer_uid_of(socket.as_raw_fd())
 }
 
+/// Linux: the executable of the connected socket peer a `token:<pid>.<start
+/// time>` peer key names (`Stream::peer_process_key`), only while that pid
+/// still has the key's start time. Nil when the key is malformed or stale.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn peer_executable(peer_key: &str) -> Option<PathBuf> {
+    peer_process::executable(peer_key)
+}
+
 /// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
 /// before writing anything to a socket found at a path the caller derived.
 #[cfg(unix)]
@@ -936,6 +944,13 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
 /// terminal, or the platform denies the lookup.
 pub fn foreground_process_name(pid: u32) -> Option<String> {
     process_name(foreground_process_group(pid)?)
+}
+
+/// PID of a terminal's live foreground process-group leader (see
+/// [`foreground_cwd`] for the leader resolution contract): the program that
+/// holds the terminal now. `None` when the lookup fails.
+pub fn foreground_leader(pid: u32) -> Option<u32> {
+    foreground_process_group(pid)
 }
 
 /// Program name (basename only, never arguments) of the job a terminal runs

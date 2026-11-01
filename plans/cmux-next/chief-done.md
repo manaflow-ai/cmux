@@ -82,3 +82,25 @@ backend lead after home-scale.md).
 - Attachments: upload intent, R2 by content hash, image parts, vision input for the Chief.
 - OptChat debug view (Mac, DEV/NIGHTLY).
 - Domain-based team invites.
+
+## 5. Status of checks 1-4, 8, 9 (a673, 2026-10-26)
+
+Live on staging: `bun backend/scripts/chief-multiplayer-staging.ts` (two throwaway Stack accounts,
+deleted at the end; 28/28 on 2026-10-26 after the fixes below). Hermetic:
+`backend/apps/api/test/chief-multiplayer-e2e.test.ts`, `chief-group-rules.test.ts`. Model evals:
+`Native/OptChat/optchat-chief/evals/cases/multiplayer-a673-*.json` (old prompt 8/12, new 12/12).
+
+| Check | State | Proof |
+| --- | --- | --- |
+| 1 Two people sign in, each sees Home | done (API) | staging script: user.ensure, main Chief, inbox.list for both. The Mac UI was not driven on two Macs. |
+| 2 Team members DM and make groups | done | Stack team mirrored into TeamDO in about 3 s (webhook); dm.open by id; group with both. |
+| 3 Invites by email: verified domain gets a team invite, else a DM invite | open | DM invites by email work (home-dm-group-e2e). Team invites by email exist only in the web console (web/services/teams/invitations.ts); domain claims exist in TeamDO (domain.claim/verify). Missing: the Home invite path that sends a verified-domain address to a team invite. |
+| 4 Live on both: messages, edits, reactions, read state, typing | done (sockets) | staging script: each socket gets the other's message in about 70-160 ms, typing, edit, reaction, read cursor, unread in the inbox. Push in the background is not checked. |
+| 8 Chiefs in shared conversations, each with its own owner's grants | done | each person adds only their own Chief (another's is forbidden); the reply rule (auto, all) picks who answers; two Chiefs never wake each other. |
+| 9 Owner autonomy, approval rule for others | done | a teammate's effect request gets "owner approval required" and nothing runs; the owner's runs at once. |
+
+Fixes found by these checks: a non-owner's message in the same batch made the owner's own request
+refused (fixed: only a message that asks this Chief removes its autonomy); a Chief's ready reply was
+dropped after 5 agent_rate refusals in a busy group (fixed: agent_rate retries for 2 min); neither
+the Cloud Chief nor the Mac Chief knew which group member was its owner (fixed: the header says
+"(your owner)" / "from your owner", and both prompts carry the owner rule).

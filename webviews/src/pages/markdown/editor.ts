@@ -58,12 +58,15 @@ import {
   topIndexForLine,
   type ViewerComment,
 } from "./comments";
+import { NearCodeBlocks } from "./nearCode";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
+import { paddingSelectPlugin } from "./paddingSelect";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
 import {
   ResizableTableView,
   tableClipboard,
   tableDragOutPlugin,
+  tableTextSelectPlugin,
   tableKeyDown,
   tableViewAt,
   type TableWidths,
@@ -331,6 +334,8 @@ export class MarkdownEditor {
           },
         }));
       })
+      // Before gfm's table editing: its Shift-click handler would end the event first.
+      .use(tableTextSelectPlugin)
       .use(commonmark)
       .use(gfm)
       .use(referenceLinkSchema)
@@ -342,6 +347,7 @@ export class MarkdownEditor {
       .use(clipboard)
       .use(rawSchema)
       .use(pointerSelectPlugin)
+      .use(paddingSelectPlugin)
       .use(tableDragOutPlugin)
       .use(activeBlockPlugin)
       .use(taskCheckboxPlugin())
@@ -817,18 +823,55 @@ function userEditPlugin(onUserEdit: () => void) {
   );
 }
 
-const highlightKey = new PluginKey<DecorationSet>("cmuxMarkdownHighlight");
+/** The code colors, and the positions of the code blocks near the viewport (null: all of them). */
+type HighlightState = { decorations: DecorationSet; near: readonly number[] | null };
+type HighlightMeta = "refresh" | { near: number[] };
 
-/** Colors code blocks with the host's highlighter (shiki, the diff viewer's terminal theme). */
+const highlightKey = new PluginKey<HighlightState>("cmuxMarkdownHighlight");
+
+/** The editor's near-viewport watcher (nearCode.ts), made by its first code block. */
+const nearWatchers = new WeakMap<EditorView, NearCodeBlocks>();
+function nearCodeBlocks(view: EditorView): NearCodeBlocks | null {
+  if (!NearCodeBlocks.supported) return null;
+  let watcher = nearWatchers.get(view);
+  if (!watcher) {
+    watcher = new NearCodeBlocks(view.dom, (near) => {
+      if (!view.isDestroyed)
+        view.dispatch(
+          view.state.tr.setMeta(highlightKey, { near } satisfies HighlightMeta).setMeta("addToHistory", false),
+        );
+    });
+    nearWatchers.set(view, watcher);
+  }
+  return watcher;
+}
+
+/** Whether the code block at `pos` is colored now (near the viewport, or every block is). */
+function codeBlockNear(state: EditorState, pos: number | undefined): boolean {
+  const near = highlightKey.getState(state)?.near;
+  return near === null || near === undefined || (pos !== undefined && near.includes(pos));
+}
+
+/**
+ * Colors code blocks with the host's highlighter (shiki, the diff viewer's terminal theme): only the
+ * blocks near the viewport (nearCode.ts), so a long file with code in many languages loads and
+ * tokenizes only the grammars the reader sees. Near positions map through edits, so a block keeps
+ * its colors while it is edited.
+ */
 function codeHighlightPlugin(host: MarkdownEditorHost) {
   return $prose(() => {
-    const decorate = (doc: ProseNode, refresh: () => void): DecorationSet => {
+    const decorate = (doc: ProseNode, near: readonly number[] | null, refresh: () => void): DecorationSet => {
       if (!host.highlight) return DecorationSet.empty;
+      if (near?.length === 0) return DecorationSet.empty;
+      const nearSet = near && new Set(near);
       const decorations: Decoration[] = [];
       doc.descendants((node, pos) => {
         if (node.type.name !== "code_block") return true;
         const language = String(node.attrs.language ?? "").toLowerCase();
-        if (!language || DIAGRAM_LANGUAGES.has(language)) return false;
+        if (!language || DIAGRAM_LANGUAGES.has(language) || (nearSet && !nearSet.has(pos))) return false;
+        // Marks the block near, so a block that stops being near (a reload replaced it with an equal
+        // node) no longer matches its decorations: ProseMirror updates its view, which watches it again.
+        if (nearSet) decorations.push(Decoration.node(pos, pos + node.nodeSize, { "data-near": "" }));
         const tokens = host.highlight!(node.textContent, language, refresh);
         for (const token of tokens ?? []) {
           decorations.push(Decoration.inline(pos + 1 + token.from, pos + 1 + token.to, { style: token.style }));
@@ -841,19 +884,38 @@ function codeHighlightPlugin(host: MarkdownEditorHost) {
     const refresh = () => {
       if (view) view.dispatch(view.state.tr.setMeta(highlightKey, "refresh").setMeta("addToHistory", false));
     };
-    return new Plugin<DecorationSet>({
+    return new Plugin<HighlightState>({
       key: highlightKey,
       state: {
-        init: (_config, state) => decorate(state.doc, refresh),
-        apply: (tr, previous, _old, state) =>
-          tr.docChanged || tr.getMeta(highlightKey) ? decorate(state.doc, refresh) : previous.map(tr.mapping, tr.doc),
+        init: (_config, state) => {
+          const near = NearCodeBlocks.supported ? [] : null;
+          return { near, decorations: decorate(state.doc, near, refresh) };
+        },
+        apply: (tr, previous, _old, state) => {
+          const meta = tr.getMeta(highlightKey) as HighlightMeta | undefined;
+          let near = previous.near;
+          if (near && tr.docChanged)
+            near = near.flatMap((pos) => {
+              const mapped = tr.mapping.mapResult(pos, 1);
+              return mapped.deleted ? [] : [mapped.pos];
+            });
+          if (near && typeof meta === "object") near = [...new Set([...near, ...meta.near])];
+          if (!tr.docChanged && !meta) return { near, decorations: previous.decorations.map(tr.mapping, tr.doc) };
+          return { near, decorations: decorate(state.doc, near, refresh) };
+        },
       },
       view(editorView) {
         view = editorView;
-        return { destroy: () => void (view = null) };
+        return {
+          destroy: () => {
+            nearWatchers.get(editorView)?.disconnect();
+            nearWatchers.delete(editorView);
+            view = null;
+          },
+        };
       },
       props: {
-        decorations: (state) => highlightKey.getState(state),
+        decorations: (state) => highlightKey.getState(state)?.decorations,
       },
     });
   });
@@ -977,6 +1039,8 @@ class CodeBlockView {
     pre.append(this.contentDOM);
     this.dom.append(this.label, this.preview, pre);
     this.apply(node);
+    // Colored once it comes near the viewport (codeHighlightPlugin).
+    nearCodeBlocks(view)?.watch(this.dom, getPos);
   }
 
   private apply(node: ProseNode): void {
@@ -1006,6 +1070,8 @@ class CodeBlockView {
     if (node.type !== this.node.type) return false;
     this.node = node;
     this.apply(node);
+    // A block replaced in place (a reload from disk) lost its near position: watch it again.
+    if (!codeBlockNear(this.view.state, this.getPos())) nearCodeBlocks(this.view)?.watch(this.dom, this.getPos);
     return true;
   }
 
@@ -1019,6 +1085,7 @@ class CodeBlockView {
 
   destroy(): void {
     if (this.renderTimer) clearTimeout(this.renderTimer);
+    nearWatchers.get(this.view)?.forget(this.dom);
   }
 }
 

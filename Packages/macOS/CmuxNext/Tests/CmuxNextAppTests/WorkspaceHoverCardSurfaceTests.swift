@@ -43,6 +43,7 @@ import Testing
         panel.glass.contentView.addSubview(body)
         scope.adopt(panel)
         body.configure(Self.content)
+        body.detailsToggle.performClick(nil)
         panel.themeDidChange()
         body.applyColors()
         return (panel, body)
@@ -114,7 +115,8 @@ import Testing
         #expect(reply.truncatesLastVisibleLine)
     }
 
-    /// The last reply is the card's last line, under the metadata (the folder, branch and machine).
+    /// The last reply is the card's last line, under the metadata (the repository and branch, the
+    /// machine): one place line, "cmux · fix/session-hover-card-glass" (Leo 2026-10-21).
     @Test func theLastReplyComesAfterTheMetadata() {
         var workspace = SidebarWorkspace(id: WorkspaceID("ws-chat"), title: "Make the card glass")
         workspace.agentName = "Codex"
@@ -123,7 +125,7 @@ import Testing
         workspace.directory = "~/code/cmux"
         workspace.branch = "fix/session-hover-card-glass"
         let kinds = WorkspaceHoverCardContent.make(workspace, machine: nil, now: Date()).facts.map(\.kind)
-        #expect(kinds == ["agent", "folder", "branch", "lastReply"])
+        #expect(kinds == ["agent", "branch", "lastReply"])
     }
 
     private static func same(_ lhs: NSColor, _ rhs: NSColor) -> Bool {

@@ -1,7 +1,12 @@
 // The interaction state of one question card: which item is shown, which row is highlighted,
-// what is chosen and the Other drafts. A pure reducer, ported 1:1 from the Swift
-// AgentQuestionCardState (Packages/Shared/CmuxAgentQuestion), so keyboard behavior is the same
-// in the Mac card and the agent tab.
+// what is chosen and the Other drafts. A pure reducer, adapted from the Swift
+// AgentQuestionCardState (Packages/Shared/CmuxAgentQuestion). The web card additionally wraps
+// option navigation and Enter chooses its focused option before submitting. Click inputs differ
+// (Leo, 2026-10-24: "just
+// clicking it directly just automatically sends the input. So it makes the skip and submit buttons
+// redundant"): a click only chooses its row and never advances or sends, and on a single-choice
+// question the arrows move the choice with the highlight, as a radio group does, so Submit and ⌘↩
+// send the row the person sees. A double-click sends (`doubleClick`).
 //
 // Rows of an item are its options, then one "Other" row when the item allows free text. Only
 // `sendCard` with a person's key or click produces a `submit` effect; nothing answers on a timer
@@ -33,8 +38,10 @@ export type CardInput =
   | { type: "confirm" }
   /// Space: toggle the highlighted row (multi-select) or choose it.
   | { type: "toggle" }
-  /// A click on a row.
+  /// A click on a row: chooses it, never sends.
   | { type: "click"; row: number }
+  /// A double-click on a row of a single-choice question: choose it, then advance or submit.
+  | { type: "doubleClick"; row: number }
   /// Text typed into the active item's Other field.
   | { type: "otherText"; text: string }
   | { type: "escape" }
@@ -135,9 +142,9 @@ export function sendCard(state: CardState, input: CardInput): Step {
       return choose(highlight(input.value - 1), input.value - 1, item, !item.multiSelect);
     }
     case "up":
-      return { state: highlight(Math.max(highlightedRow(state, item) - 1, 0)), effect: NONE };
+      return rows ? move(state, item, (highlightedRow(state, item) + rows - 1) % rows) : { state, effect: NONE };
     case "down":
-      return { state: highlight(Math.min(highlightedRow(state, item) + 1, rows - 1)), effect: NONE };
+      return rows ? move(state, item, (highlightedRow(state, item) + 1) % rows) : { state, effect: NONE };
     case "previousItem":
       return { state: { ...state, editingOther: false, activeItem: Math.max(state.activeItem - 1, 0) }, effect: NONE };
     case "nextItem":
@@ -153,13 +160,24 @@ export function sendCard(state: CardState, input: CardInput): Step {
       return choose(state, highlightedRow(state, item), item, false);
     case "click": {
       if (input.row < 0 || input.row >= rows) return { state, effect: NONE };
-      return choose(highlight(input.row), input.row, item, !item.multiSelect);
+      return choose(highlight(input.row), input.row, item, false);
     }
-    case "confirm":
+    case "doubleClick": {
+      // The first click of the pair already chose the row; a multi-select row or Other stays as it is.
+      if (input.row < 0 || input.row >= rows || item.multiSelect || isOtherRow(input.row, item))
+        return { state, effect: NONE };
+      return choose(highlight(input.row), input.row, item, true);
+    }
+    case "confirm": {
       if (state.editingOther) return advance({ ...state, editingOther: false });
-      // Multi-select: Enter ends this item's choices (Space toggles).
-      if (item.multiSelect) return advance(state);
-      return choose(state, highlightedRow(state, item), item, true);
+      const row = highlightedRow(state, item);
+      if (row < 0 || row >= rows) return { state, effect: NONE };
+      // Enter includes the focused option. Preserve an already-checked option rather than
+      // toggling it off; Space still toggles without submitting.
+      if (item.multiSelect && !isOtherRow(row, item) && isChosen(state, item.options[row]!, item))
+        return advance(state);
+      return choose(state, row, item, true);
+    }
     case "otherText": {
       if (!item.allowsOther) return { state, effect: NONE };
       const next: CardState = { ...state, otherDrafts: { ...state.otherDrafts, [item.id]: input.text } };
@@ -184,6 +202,17 @@ const withChosen = (state: CardState, item: Item, ids: readonly string[]): CardS
   chosen: { ...state.chosen, [item.id]: ids },
 });
 
+/// Moves the highlight to `row`. On a single-choice question the choice moves with it, as in a
+/// radio group, so Submit and ⌘↩ send the highlighted row: an option row chooses that option (and
+/// drops typed Other text, as a click on it does), and the Other row chooses Other (its typed text,
+/// if any) without opening the field.
+function move(state: CardState, item: Item, row: number): Step {
+  const next: CardState = { ...state, highlighted: { ...state.highlighted, [item.id]: row } };
+  if (item.multiSelect) return { state: next, effect: NONE };
+  if (isOtherRow(row, item)) return { state: withChosen(next, item, []), effect: NONE };
+  return choose(next, row, item, false);
+}
+
 function choose(state: CardState, row: number, item: Item, shouldAdvance: boolean): Step {
   if (isOtherRow(row, item)) {
     const editing = { ...state, editingOther: true };
@@ -202,6 +231,8 @@ function choose(state: CardState, row: number, item: Item, shouldAdvance: boolea
     const { [item.id]: _dropped, ...drafts } = state.otherDrafts;
     next = { ...withChosen(state, item, [option]), otherDrafts: drafts };
   }
+  // An option chosen while the Other field is open closes it, so the keyboard goes to that row.
+  next = { ...next, editingOther: false };
   return shouldAdvance ? advance(next) : { state: next, effect: NONE };
 }
 

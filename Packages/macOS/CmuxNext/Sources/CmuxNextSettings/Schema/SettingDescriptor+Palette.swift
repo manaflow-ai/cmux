@@ -2,18 +2,20 @@ public import CmuxNextDesign
 import Foundation
 
 /// One value the palette offers for a setting (R93): `value` nil resets the
-/// key to its default. A color carries its swatch (R98).
+/// key to its default. A color carries its swatch (R98); a font picked lately says so (`RecentFonts`).
 public nonisolated struct SettingOption: Hashable, Sendable {
     public let value: JSONValue?
     public let title: String
     public let swatches: [ThemeRGB]
     public let isCurrent: Bool
+    public let isRecent: Bool
 
-    public init(value: JSONValue?, title: String, swatches: [ThemeRGB] = [], isCurrent: Bool) {
+    public init(value: JSONValue?, title: String, swatches: [ThemeRGB] = [], isCurrent: Bool, isRecent: Bool = false) {
         self.value = value
         self.title = title
         self.swatches = swatches
         self.isCurrent = isCurrent
+        self.isRecent = isRecent
     }
 
     /// A stable id for the palette row: the compact JSON text, or "reset".
@@ -23,6 +25,20 @@ public nonisolated struct SettingOption: Hashable, Sendable {
 extension SettingDescriptor {
     /// Most values a number lists; a wider range is sampled on its step grid.
     static let maximumNumberOptions = 41
+
+    /// The JSON value for typed text (a number off the steps, a hex color, a font, a sound, an
+    /// address), when the schema accepts it.
+    public func value(typed text: String) -> JSONValue? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let candidate: JSONValue = switch kind {
+        case .number, .choiceOrNumber: Double(trimmed).map(JSONValue.number) ?? .string(trimmed)
+        // A typed address is the object form (`{"selfHosted": url}`); a choice stays its string.
+        case .choiceOrURL(let choices, let urlKey):
+            choices.contains { $0.value == trimmed } ? .string(trimmed) : .object([urlKey: .string(trimmed)])
+        default: .string(trimmed)
+        }
+        return accepts(candidate) ? candidate : nil
+    }
 
     /// The values the palette lists for this setting, the current one marked:
     /// a toggle's on and off, a choice's values, a number's steps (the
@@ -36,7 +52,13 @@ extension SettingDescriptor {
             let on = current?.boolValue ?? false
             return [SettingOption(value: .bool(true), title: SettingsText.text("settings.choice.on", "On"), isCurrent: on),
                     SettingOption(value: .bool(false), title: SettingsText.text("settings.choice.off", "Off"), isCurrent: !on)]
-        case .choice(let choices), .choiceOrNumber(let choices, _):
+        case .choiceOrNumber(let choices, _) where defaultValue == nil:
+            // Unset is a value of its own (`browser.hibernation`: never discard): listed first, it
+            // removes the key.
+            let unset = SettingOption(value: nil, title: defaultLabel ?? SettingsText.text("settings.choice.default", "Default"),
+                                      isCurrent: current == nil)
+            return [unset] + choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
+        case .choice(let choices), .choiceOrNumber(let choices, _), .choiceOrURL(let choices, _):
             let options = choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
             return path == BackdropSelectionSetting().configPath ? Self.backgroundOptions(options, current: current) : options
         case .number(let number):
@@ -64,7 +86,7 @@ extension SettingDescriptor {
                 options.append(SettingOption(value: .string(text), title: text, swatches: [selected], isCurrent: true))
             }
             return options
-        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet:
+        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .soundRules, .stringList, .orderedChoices, .choiceSet:
             return []
         }
     }

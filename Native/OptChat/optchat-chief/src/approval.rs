@@ -12,26 +12,31 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 /// Tools that only read (the OptChat memory, the versions): allowed without asking.
-pub const MEMORY_TOOLS: [&str; 3] = [
+pub const MEMORY_TOOLS: [&str; 4] = [
     "mcp__optchat__zoom",
     "mcp__optchat__date",
     "mcp__optchat__version",
+    "mcp__optchat__transcript",
 ];
 
 /// The Chief's own tools: Chief talking to the person and to its
 /// subagents, never a local effect of their own. `spawn` is safe in a gated turn because a child spawned there
 /// takes the ask floor (`spawn_policy`); `tell` and `control` are checked
-/// against their target by the brain (`Brain::internal_allowed`).
-pub const CHIEF_TOOLS: [&str; 9] = [
+/// against their target by the brain (`Brain::internal_allowed`), and
+/// `cloud_workspace` (a billed Cloud machine) runs only in the owner's turn.
+pub const CHIEF_TOOLS: [&str; 12] = [
     "mcp__optchat__send",
     "mcp__optchat__reply",
     "mcp__optchat__react",
     "mcp__optchat__stop",
     "mcp__optchat__sleep",
+    "mcp__optchat__watch",
     "mcp__optchat__spawn",
     "mcp__optchat__tell",
     "mcp__optchat__control",
     "mcp__optchat__profile",
+    "mcp__optchat__remember",
+    "mcp__optchat__cloud_workspace",
 ];
 
 /// The tools a turn session runs without a permission request (its
@@ -203,13 +208,22 @@ fn code_span(text: &str) -> String {
 /// A request's identity within one turn: the tool and its input. A
 /// repeat of a refused request counts toward stopping the turn.
 pub fn signature(pending: &Pending) -> String {
-    let input = pending
-        .request
-        .pointer("/toolCall/rawInput")
-        .map(Value::to_string)
-        .unwrap_or_default();
-    format!("{}\u{0}{input}", pending.tool)
+    signature_of(&pending.tool, pending.request.pointer("/toolCall/rawInput"))
 }
+
+/// [`signature`] of a call of `tool` with `input` (a permission request's
+/// `rawInput`, or the arguments a Chief tool runs with).
+pub fn signature_of(tool: &str, input: Option<&Value>) -> String {
+    let input = input.map(Value::to_string).unwrap_or_default();
+    format!("{tool}\u{0}{input}")
+}
+
+/// The longest a permission request of the Chief's turn session or of one
+/// of its children may wait with no answer before the host denies it
+/// (`Brain::deny_overdue_permissions_at`): a request nobody sees never holds
+/// a turn forever. A subagent's prompt that the person's app shows with an
+/// approval button waits for the person instead.
+pub const PERMISSION_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Appends one `approval` event to the trace in `dir`
 /// (`traces/YYYY-MM-DD.jsonl`, the monitoring trace's layout:

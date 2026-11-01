@@ -14,6 +14,8 @@ mod creation_history;
 mod error;
 mod output;
 mod prompt;
+mod run;
+pub mod token;
 
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
@@ -35,6 +37,8 @@ Configuration:
   CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.dev
   CMUX_VM_TEAM_ID    team for session tokens (or --team, or \"teamId\")
   CMUX_VM_CONFIG     config file; default $XDG_CONFIG_HOME/cmux/vm.json or ~/.config/cmux/vm.json
+  Without CMUX_VM_API_KEY or --config, the token `token create` stored is used
+  (login Keychain on macOS, else ~/.config/cmux/vm-token.json)
 
 Exit codes:
   0  success
@@ -85,6 +89,11 @@ enum Command {
     /// Inspect or reconcile an original VM creation without allocating another VM
     #[command(subcommand)]
     Creation(CreationCommand),
+    /// Run one command on a fresh VM, deleted when it ends (paused with --keep)
+    Run(run::RunArgs),
+    /// Mint, show or revoke the stored VM-only agent token
+    #[command(subcommand)]
+    Token(token::TokenCommand),
     /// Create a VM
     Create(CreateArgs),
     /// Grow an existing VM to at least the requested resources
@@ -105,6 +114,8 @@ enum Command {
     Retire(DeleteArgs),
     /// Resume a paused VM
     Resume(VmArg),
+    /// Run a command in a VM (the guest's shell); fails when the command fails
+    Exec(ExecArgs),
     /// Fork a VM into a new VM with the same memory and disk
     Fork(ForkArgs),
     /// Delete a VM permanently (asks to type the VM id, or needs --yes without a terminal)
@@ -112,6 +123,9 @@ enum Command {
     /// Create, list, show and delete snapshots
     #[command(subcommand)]
     Snapshot(SnapshotCommand),
+    /// Mint and manage SSH client sessions for a VM
+    #[command(name = "client-session", subcommand)]
+    ClientSession(ClientSessionCommand),
     /// List approved service boot images
     #[command(subcommand)]
     Image(ImageCommand),
@@ -242,6 +256,45 @@ enum SnapshotCommand {
 }
 
 #[derive(Subcommand, Debug)]
+enum ClientSessionCommand {
+    /// Mint a one-time provider token and SSH line
+    Create(ClientSessionCreateArgs),
+    /// List live sessions without tokens
+    List(ClientSessionVmArgs),
+    /// Revoke one session
+    Revoke(ClientSessionRevokeArgs),
+}
+
+#[derive(Args, Debug)]
+struct ClientSessionVmArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+}
+
+#[derive(Args, Debug)]
+struct ClientSessionCreateArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Linux user for the SSH grant (defaults to ubuntu)
+    #[arg(long)]
+    user: Option<String>,
+    /// Write the one-time token to this new file with mode 0600
+    #[arg(long, value_name = "PATH")]
+    token_file: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+struct ClientSessionRevokeArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Client session id (vcs_...)
+    session_id: String,
+    /// Revoke without an interactive confirmation
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Subcommand, Debug)]
 enum ImageCommand {
     /// List images available to this service and team
     List,
@@ -336,6 +389,18 @@ struct ApiKeyRevokeArgs {
 struct VmArg {
     /// VM id (vm_...)
     vm_id: String,
+}
+
+#[derive(Args, Debug)]
+struct ExecArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Kill the command after this many milliseconds
+    #[arg(long)]
+    timeout_ms: Option<u64>,
+    /// The command; several words are joined with spaces (put them after `--`)
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+    command: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -449,6 +514,7 @@ where
     T: Into<OsString> + Clone,
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    error::set_program(args.first().map(OsString::as_os_str));
     let cli = match Cli::try_parse_from(&args) {
         Ok(cli) => cli,
         Err(e) if !e.use_stderr() => {
@@ -467,12 +533,47 @@ where
         }
     };
     let json = cli.json;
+    let missing = not_found(&cli.command);
     match execute(cli, env, prompt, stdout, stderr).await {
-        Ok(()) => exit::OK,
+        Ok(code) => code,
         Err(error) => {
+            let error = match &missing {
+                Some((what, list)) => error.with_not_found(what, list),
+                None => error,
+            };
             error.report(json, stderr);
             error.exit_code()
         }
+    }
+}
+
+/// What a 404 from `command` did not find, and the verb that lists them.
+fn not_found(command: &Command) -> Option<(String, &'static str)> {
+    let vm = |id: &str| Some((format!("VM {id}"), "list"));
+    match command {
+        Command::Get(a)
+        | Command::Start(a)
+        | Command::Stop(a)
+        | Command::Pause(a)
+        | Command::Resume(a) => vm(&a.vm_id),
+        Command::Delete(a) | Command::Retire(a) => vm(&a.vm_id),
+        Command::Exec(a) => vm(&a.vm_id),
+        Command::Fork(a) => vm(&a.vm_id),
+        Command::Resize(a) => vm(&a.vm_id),
+        Command::Identity(a) => vm(&a.vm_id),
+        Command::Snapshot(SnapshotCommand::Get(a)) => {
+            Some((format!("snapshot {}", a.snapshot_id), "snapshot list"))
+        }
+        Command::Snapshot(SnapshotCommand::Delete(a)) => {
+            Some((format!("snapshot {}", a.snapshot_id), "snapshot list"))
+        }
+        Command::Creation(
+            CreationCommand::Get(_) | CreationCommand::Reconcile(_) | CreationCommand::Cancel(_),
+        ) => Some((
+            "a creation under this idempotency key".to_owned(),
+            "creation list",
+        )),
+        _ => None,
     }
 }
 
@@ -506,7 +607,7 @@ async fn execute(
     prompt: &mut dyn Prompt,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-) -> Result<(), CliError> {
+) -> Result<i32, CliError> {
     if matches!(
         &cli.command,
         Command::Device(DeviceCommand::RedeemServerCode(_))
@@ -531,13 +632,50 @@ async fn execute(
             prompt,
             output::Printer::new(cli.json, stdout),
         )
-        .await;
+        .await
+        .map(|()| exit::OK);
     }
-    let settings = Settings::resolve(
+    // The stored token: read for every verb but `token create` (an agent key
+    // cannot mint another) and `token status|revoke` (which act on it).
+    let stored = match &cli.command {
+        // token::create checks the store itself, under its create lock.
+        Command::Token(token::TokenCommand::Create(_)) => None,
+        Command::Token(command) => {
+            let token = token::load(env)
+                .map_err(CliError::unexpected)?
+                .ok_or_else(|| {
+                    CliError::unauthenticated("no stored VM token: run `cmux vm token create`")
+                })?;
+            return token_command(command, token, &cli, env, stdout).await;
+        }
+        // A stored token that cannot be read is refused, never skipped: the
+        // default config file's key may carry far more than the token's VM
+        // scopes and budget. An explicit key or config file is the override.
+        _ => match token::load(env) {
+            Ok(token) => token,
+            Err(problem)
+                if cli.config.is_some()
+                    || ["CMUX_VM_API_KEY", "CMUX_VM_CONFIG"]
+                        .iter()
+                        .any(|name| env(name).is_some_and(|value| !value.is_empty())) =>
+            {
+                error::report_warning(&problem, cli.json, stderr);
+                None
+            }
+            Err(problem) => {
+                return Err(CliError::unauthenticated(format!(
+                    "the stored VM token cannot be used: {problem}; fix it, run `cmux vm token create` again, or set CMUX_VM_API_KEY"
+                )));
+            }
+        },
+    };
+    let settings = Settings::resolve_with_token(
         cli.base_url.as_deref(),
         cli.team.as_deref(),
         cli.config.as_deref(),
         env,
+        stored.as_ref(),
+        token::now_unix(),
     )?;
     for warning in &settings.warnings {
         error::report_warning(warning, cli.json, stderr);
@@ -549,8 +687,67 @@ async fn execute(
         concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
     )
     .map_err(|e| CliError::usage(e.to_string()))?;
-    let out = output::Printer::new(cli.json, stdout);
-    dispatch(&client, cli.command, prompt, out).await
+    match cli.command {
+        Command::Run(args) => run::run(&client, args, stdout, stderr).await,
+        Command::Token(token::TokenCommand::Create(args)) => {
+            let base = (settings.base_url != cmux_vm_client::DEFAULT_BASE_URL)
+                .then(|| settings.base_url.clone());
+            token::create(
+                &client,
+                &args,
+                settings.team_id.clone(),
+                base,
+                env,
+                cli.json,
+                stdout,
+            )
+            .await
+            .map(|()| exit::OK)
+        }
+        command => {
+            let out = output::Printer::new(cli.json, stdout);
+            dispatch(&client, command, prompt, out)
+                .await
+                .map(|()| exit::OK)
+        }
+    }
+}
+
+/// `token status` and `token revoke`, on the stored token.
+async fn token_command(
+    command: &token::TokenCommand,
+    stored: token::StoredToken,
+    cli: &Cli,
+    env: &dyn Fn(&str) -> Option<String>,
+    stdout: &mut dyn Write,
+) -> Result<i32, CliError> {
+    match command {
+        token::TokenCommand::Status => {
+            let (verb, code) = stored.status(token::now_unix());
+            token::report(&stored, verb, cli.json, stdout)?;
+            Ok(code)
+        }
+        token::TokenCommand::Revoke => {
+            let requested = cli
+                .base_url
+                .clone()
+                .or_else(|| env("CMUX_VM_BASE_URL").filter(|url| !url.is_empty()));
+            let base_url = stored.issuer_for(requested.as_deref())?;
+            let client = cmux_vm_client::authenticated_raw_client(
+                &base_url,
+                &stored.key,
+                stored.team_id.as_deref(),
+                concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+            )
+            .map_err(|e| CliError::usage(e.to_string()))?;
+            token::revoke(&client, &stored, env, cli.json, stdout)
+                .await
+                .map(|()| exit::OK)
+        }
+        token::TokenCommand::Create(_) => {
+            unreachable!("token create mints with the resolved credential")
+        }
+    }
 }
 
 async fn dispatch(
@@ -620,7 +817,7 @@ async fn dispatch(
             let response =
                 fetch_body(client.vms_resize_vm(vm_id.as_str(), Some(&key), None, &body))
                     .await
-                    .map_err(|e| e.with_retry_key(&key_text))?;
+                    .map_err(|e| e.with_retry_key(&key_text).for_vm(vm_id.as_str(), "resize"))?;
             let confirmed = serde_json::from_slice::<types::Vm>(&response)
                 .ok()
                 .is_some_and(|actual| {
@@ -698,7 +895,9 @@ async fn dispatch(
             out.image_list(&images)
         }
         Command::Get(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_get_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_get_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "get"))?;
             out.vm(&vm)
         }
         Command::List(args) => {
@@ -721,7 +920,9 @@ async fn dispatch(
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_start_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_start_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "start"))?;
             out.vm(&vm)
         }
         Command::Identity(IdentityArgs {
@@ -751,11 +952,15 @@ async fn dispatch(
             out.identity(&body)
         }
         Command::Stop(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_stop_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_stop_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "stop"))?;
             out.vm(&vm)
         }
         Command::Pause(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_pause_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_pause_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "pause"))?;
             out.vm(&vm)
         }
         Command::Retire(DeleteArgs { vm_id, yes }) => {
@@ -765,7 +970,9 @@ async fn dispatch(
             if !yes {
                 confirm(prompt, Destroy::RetireVm, id.as_str())?;
             }
-            let response = fetch_body(client.vms_retire_vm(id.as_str(), None)).await?;
+            let response = fetch_body(client.vms_retire_vm(id.as_str(), None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "retire"))?;
             let receipt: serde_json::Value = serde_json::from_slice(&response).map_err(|_| {
                 CliError::unexpected("retirement is unconfirmed; retry retire for the same VM")
             })?;
@@ -779,8 +986,20 @@ async fn dispatch(
             }
             out.retired(&response, id.as_str())
         }
+        Command::Exec(args) => {
+            let body: types::ExecRequest = request_body(json!({
+                "command": args.command.join(" "),
+                "timeoutMs": args.timeout_ms,
+            }))?;
+            let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body))
+                .await
+                .map_err(|e| e.for_vm(&args.vm_id, "exec"))?;
+            out.exec(&result)
+        }
         Command::Resume(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_resume_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_resume_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "resume"))?;
             out.vm(&vm)
         }
         Command::Fork(args) => {
@@ -792,16 +1011,22 @@ async fn dispatch(
             let key = parse_key::<types::VmsForkVmIdempotencyKey>(&key_text)?;
             let vm = fetch_body(client.vms_fork_vm(&args.vm_id, Some(&key), None, &body))
                 .await
-                .map_err(|e| e.with_idempotency_hint(&key_text))?;
+                .map_err(|e| {
+                    e.with_idempotency_hint(&key_text)
+                        .for_vm(&args.vm_id, "fork")
+                })?;
             out.vm(&vm)
         }
         Command::Delete(DeleteArgs { vm_id, yes }) => {
             if !yes {
                 confirm(prompt, Destroy::DeleteVm, &vm_id)?;
             }
-            call(client.vms_delete_vm(&vm_id, None)).await?;
+            call(client.vms_delete_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "delete"))?;
             out.deleted(&vm_id)
         }
+        Command::ClientSession(command) => client_session(client, command, prompt, out).await,
         Command::Snapshot(command) => snapshot(client, command, prompt, out).await,
         Command::Device(DeviceCommand::OverlayPolicy(args)) => {
             let id = args
@@ -895,6 +1120,9 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
+        Command::Run(_) | Command::Token(_) => {
+            Err(CliError::usage("this verb needs the API credential"))
+        }
         Command::File(FileCommand::Stat(args)) => {
             let id = args
                 .vm_id
@@ -913,8 +1141,84 @@ async fn dispatch(
                 .path
                 .parse::<types::GuestPath>()
                 .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None)).await?;
+            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
             out.file_stat(&body)
+        }
+    }
+}
+
+async fn client_session(
+    client: &Client,
+    command: ClientSessionCommand,
+    prompt: &mut dyn Prompt,
+    mut out: output::Printer<'_>,
+) -> Result<(), CliError> {
+    match command {
+        ClientSessionCommand::Create(args) => {
+            let body: types::CreateClientSessionRequest = request_body(json!({
+                "linuxUser": args.user,
+            }))?;
+            let reserved = match args.token_file.as_ref() {
+                Some(path) => {
+                    if path.to_str().is_none() {
+                        return Err(CliError::usage(
+                            "--token-file must be a UTF-8 path so JSON output can name it",
+                        ));
+                    }
+                    Some((path.clone(), output::reserve_token_file(path)?))
+                }
+                None => None,
+            };
+            let response =
+                match fetch_body(client.agents_create_client_session(&args.vm_id, None, &body))
+                    .await
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        // Keep the empty 0600 reservation in place. Removing
+                        // by pathname after a network wait could unlink a
+                        // different file if a parent was replaced.
+                        return Err(error.for_vm(&args.vm_id, "client-session create"));
+                    }
+                };
+            out.client_session_create(&response, reserved, &args.vm_id)
+        }
+        ClientSessionCommand::List(ClientSessionVmArgs { vm_id }) => {
+            let response = fetch_body(client.agents_list_client_sessions(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "client-session list"))?;
+            out.client_session_list(&response, &vm_id)
+        }
+        ClientSessionCommand::Revoke(ClientSessionRevokeArgs {
+            vm_id,
+            session_id,
+            yes,
+        }) => {
+            if !yes {
+                if !prompt.is_interactive() {
+                    return Err(CliError::usage(format!(
+                        "client-session revoke for VM {vm_id} session {session_id} requires --yes without a terminal"
+                    )));
+                }
+                let answer = prompt
+                    .ask(&format!(
+                        "Revoke client session {session_id} on VM {vm_id}? Type the session id to confirm: "
+                    ))
+                    .map_err(|e| {
+                        CliError::cancelled(format!("could not read confirmation: {e}"))
+                    })?;
+                if answer.trim() != session_id {
+                    return Err(CliError::cancelled(format!(
+                        "revocation of client session {session_id} on VM {vm_id} was not confirmed"
+                    )));
+                }
+            }
+            call(client.agents_revoke_client_session(&vm_id, &session_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "client-session revoke"))?;
+            out.revoked_session(&vm_id, &session_id)
         }
     }
 }
@@ -937,7 +1241,10 @@ async fn snapshot(
             let snapshot =
                 fetch_body(client.snapshots_create_snapshot(&args.vm_id, Some(&key), None, &body))
                     .await
-                    .map_err(|e| e.with_idempotency_hint(&key_text))?;
+                    .map_err(|e| {
+                        e.with_idempotency_hint(&key_text)
+                            .for_vm(&args.vm_id, "snapshot")
+                    })?;
             out.snapshot(&snapshot)
         }
         SnapshotCommand::Get(SnapshotArg { snapshot_id }) => {

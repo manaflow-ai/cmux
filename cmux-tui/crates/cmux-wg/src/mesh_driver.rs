@@ -69,6 +69,9 @@ pub(crate) struct MeshDriver {
     /// burst into a socket buffer loses segments.
     pub(crate) pacer: Pacer,
     pace_deadline: Option<Instant>,
+    /// Set by [`MeshCommand::Close`]: the driver stops once every connection delivered what
+    /// its owner wrote, or at this deadline.
+    closing: Option<Instant>,
     commands: mpsc::Receiver<MeshCommand>,
     wake: Arc<Notify>,
     pub(crate) scratch: Vec<u8>,
@@ -105,6 +108,7 @@ impl MeshDriver {
             gate,
             pacer: Pacer::default(),
             pace_deadline: None,
+            closing: None,
             commands,
             wake,
             scratch: vec![0u8; BUFFER_BYTES + 32],
@@ -137,11 +141,15 @@ impl MeshDriver {
                 () = wake.notified() => Event::Wake,
                 () = sleep_until(next_tick) => Event::Wake,
                 () = sleep_until(stack_deadline.map(|delay| Instant::now() + delay)) => Event::Wake,
+                () = sleep_until(self.closing) => Event::Wake,
             };
             self.run_timers();
             match event {
                 Event::Datagram(count, source) => {
-                    self.handle_datagram(&datagram[..count], source.map(PeerRoute::Udp));
+                    // A count past the buffer is not a datagram: drop it.
+                    if let Some(received) = datagram.get(..count) {
+                        self.handle_datagram(received, source.map(PeerRoute::Udp));
+                    }
                     self.receive_ready(&mut datagram);
                 }
                 Event::Gateway(received) => self.receive_gateways(received),
@@ -149,12 +157,22 @@ impl MeshDriver {
                     self.shutdown();
                     return;
                 }
+                Event::Command(Some(MeshCommand::Close { deadline })) => {
+                    self.stack.close_all();
+                    self.closing = Some(self.closing.map_or(deadline, |d| d.min(deadline)));
+                }
                 Event::Command(Some(command)) => self.handle_command(command),
                 Event::Drained | Event::Wake => {}
             }
             self.out.udp.flush();
             self.service();
             self.out.udp.flush();
+            if let Some(deadline) = self.closing
+                && (self.stack.delivered() || Instant::now() >= deadline)
+            {
+                self.shutdown();
+                return;
+            }
         }
     }
 
@@ -163,7 +181,9 @@ impl MeshDriver {
         for _ in 1..RECEIVE_BATCH {
             match self.out.udp.socket().try_recv_from(buffer) {
                 Ok((count, source)) => {
-                    self.handle_datagram(&buffer[..count], Some(PeerRoute::Udp(source)));
+                    if let Some(received) = buffer.get(..count) {
+                        self.handle_datagram(received, Some(PeerRoute::Udp(source)));
+                    }
                 }
                 // WouldBlock, or an error the next wait reports.
                 Err(_) => break,
@@ -272,7 +292,7 @@ impl MeshDriver {
             MeshCommand::PeerRoute { public_key, reply } => {
                 let _ = reply.send(self.table.get_mut(&public_key).and_then(|peer| peer.route));
             }
-            MeshCommand::Shutdown => {}
+            MeshCommand::Close { .. } | MeshCommand::Shutdown => {}
         }
     }
 

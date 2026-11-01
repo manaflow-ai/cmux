@@ -51,6 +51,11 @@ fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
         );
     }
     for (wire, _) in v2_tools::EXCLUDED {
+        // `agent.report` is reserved by the dispatch MCP adapter even though the
+        // CLI keeps its resource-operation case for direct command coverage.
+        if *wire == "agent.report" {
+            continue;
+        }
         if let Some((args, _)) = cases.iter().find(|(_, operation)| operation == wire) {
             assert_eq!(
                 sends(args.as_slice()),
@@ -96,7 +101,9 @@ fn tool_schemas_follow_the_catalog() {
     }
     let create = v2_tools::find("workspace_create").expect("workspace_create").input_schema();
     assert_eq!(create["properties"]["initial_content"]["enum"], json!(["terminal", "empty"]));
-    assert!(create["required"].as_array().unwrap().contains(&json!("initial_content")));
+    // The wire requires it; an MCP call may leave it out for a terminal, as the CLI.
+    assert!(!create["required"].as_array().unwrap().contains(&json!("initial_content")));
+    assert_eq!(create["properties"]["initial_content"]["default"], "terminal");
     assert_eq!(create["properties"]["ephemeral"]["type"], "boolean");
     assert!(v2_tools::find("workspace_list").unwrap().paginated);
     assert!(!v2_tools::find("notification_list").unwrap().paginated, "owner's own limit");

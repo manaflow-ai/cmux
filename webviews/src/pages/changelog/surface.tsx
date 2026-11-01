@@ -6,7 +6,10 @@
 // Updated card also reads the notes of every build the update spans (`cmux.changelog.list` and
 // `get`, the page's own ChangelogStore), so it sums up skipped nightlies too.
 import { createRoot } from "react-dom/client";
+import { languageDirection, UiProvider } from "../../ui/UiProvider";
+import { routeChipHost } from "./ChangePullRequest";
 import { CARD_SCROLL_ATTRIBUTE } from "../../scrollers";
+import { NATIVE_GLASS_ATTRIBUTE } from "../../ui/glass/glassState";
 import type { PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
@@ -35,9 +38,13 @@ export function parseSurface(hash: string): SurfaceKind | null {
 }
 
 export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client: PageClient | null): void {
+  routeChipHost(client);
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.documentElement.dataset.surface = kind;
+  // The sidebar draws the Updated card's glass natively under this page (SidebarUpdatedCardHost):
+  // the lens draws no wallpaper copy over it, not even around a tooltip's glass.
+  if (kind === "updated") document.documentElement.setAttribute(NATIVE_GLASS_ATTRIBUTE, "");
   const call = (op: string, params: unknown = {}) => void client?.call(op, params).catch(() => undefined);
   const actions: UpdateSurfaceActions =
     kind === "updated"
@@ -46,17 +53,36 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
           dismiss: () => call(SurfaceOps.dismiss),
         }
       : { openChangelog: () => call(SurfaceOps.openChangelog) };
+  // The sidebar host draws the Updated card's x natively (SidebarUpdatedCardHost: WebKit shows no
+  // hover and takes no first click while a Chromium page's window has the key). Escape closes the
+  // card once the page has the keyboard (a click into it).
+  if (kind === "updated") {
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || latest === null) return;
+      event.preventDefault();
+      actions.dismiss?.();
+    });
+  }
   const react = createRoot(root);
   const spans = kind === "updated" && client ? new SpanNotes(client, () => render(latest)) : null;
   let latest: UpdateHighlights | null = null;
   const render = (data: UpdateHighlights | null) => {
     latest = data;
     react.render(
-      data === null ? null : kind === "ready" ? (
-        <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
-      ) : (
-        <UpdatedCard data={data} span={spans?.notes(data.changelog)} strings={strings} actions={actions} />
-      ),
+      <UiProvider container={root} dir={languageDirection(strings.language)} overlayPosition="fixed">
+        {data === null ? null : kind === "ready" ? (
+          <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
+        ) : (
+          <UpdatedCard
+            data={data}
+            span={spans?.notes(data.changelog)}
+            strings={strings}
+            actions={actions}
+            closeButton={false}
+            glass={false}
+          />
+        )}
+      </UiProvider>,
     );
     // The new rows exist after React's commit: size them from the next frame on.
     requestAnimationFrame(observeCard);

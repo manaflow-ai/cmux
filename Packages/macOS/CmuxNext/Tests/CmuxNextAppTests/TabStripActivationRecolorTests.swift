@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
-/// A window becoming or leaving main changes one thing in its tab strip: whether the selected
-/// tab shows its fill. Every tab of every strip used to re-resolve its theme and recolor itself
+/// A window becoming or leaving main changes one thing in its tab strip: how strongly the
+/// selected tab shows its fill (dimmer in back, never gone: Lawrence 2026-10-20). Every tab of every strip used to re-resolve its theme and recolor itself
 /// on each activation (where a DEV build's 10 s watchdog hang was sampled, cosmic-gray
 /// 2026-10-14), so activation repaints the selected tab only, however many tabs the strip holds.
-@MainActor @Suite(.serialized) struct TabStripActivationRecolorTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripActivationRecolorTests {
     static let tabs = 300
 
     /// Marks every unselected tab's title with a color no theme draws: a tab that repaints
@@ -22,7 +23,7 @@ import Testing
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = strip
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.layoutSubtreeIfNeeded()
         #expect(strip.cells.count == Self.tabs)
         let selected = try #require(strip.cells[TabID("tab1")])
@@ -36,7 +37,8 @@ import Testing
         for cell in others { cell.titleLayer.foregroundColor = Self.sentinel }
         let clock = ContinuousClock()
         let resign = clock.measure { strip.windowMain.changed(isMain: false) }
-        #expect(selected.backgroundLayer.backgroundColor == nil, "a window in back fills no tab")
+        let back = selected.backgroundLayer.backgroundColor.map { $0.alpha } ?? 0
+        #expect(back > 0, "a window in back still fills its selected tab, dimmer")
         let become = clock.measure { strip.windowMain.changed(isMain: true) }
         #expect(selected.backgroundLayer.backgroundColor != nil, "the fill is back when the window is main again")
 

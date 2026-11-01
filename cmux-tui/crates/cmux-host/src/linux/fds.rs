@@ -67,7 +67,11 @@ impl Epoll {
             // SAFETY: `events` holds 16 entries.
             let n = unsafe { libc::epoll_wait(self.0.as_raw_fd(), events.as_mut_ptr(), 16, -1) };
             if n >= 0 {
-                return Ok(events[..n as usize].iter().map(|e| e.u64).collect());
+                // The kernel reports at most the 16 entries it was given.
+                let ready = usize::try_from(n).ok().and_then(|n| events.get(..n));
+                let ready =
+                    ready.ok_or_else(|| io::Error::other("epoll_wait count out of range"))?;
+                return Ok(ready.iter().map(|e| e.u64).collect());
             }
             let err = io::Error::last_os_error();
             if err.raw_os_error() != Some(libc::EINTR) {
@@ -225,15 +229,18 @@ impl Inotify {
             if n == 0 {
                 break;
             }
-            let mut at = 0;
-            while at + header <= n {
-                // SAFETY: the kernel wrote a whole event header at `at`;
+            let Some(filled) = buf.get(..n) else {
+                return Err(io::Error::other("inotify read longer than its buffer"));
+            };
+            let mut at: usize = 0;
+            while let Some(head) = filled.get(at..at.saturating_add(header)) {
+                // SAFETY: `head` is a whole event header the kernel wrote;
                 // read_unaligned copes with the byte buffer's alignment.
                 let event: libc::inotify_event =
-                    unsafe { std::ptr::read_unaligned(buf[at..].as_ptr().cast()) };
-                let name_start = at + header;
-                let name_end = (name_start + event.len as usize).min(n);
-                let raw = &buf[name_start..name_end];
+                    unsafe { std::ptr::read_unaligned(head.as_ptr().cast()) };
+                let name_start = at.saturating_add(header);
+                let name_end = name_start.saturating_add(event.len as usize).min(n);
+                let raw = filled.get(name_start..name_end).unwrap_or_default();
                 let name = raw.split(|b| *b == 0).next().unwrap_or_default().to_vec();
                 out.push(InotifyEvent {
                     wd: event.wd,

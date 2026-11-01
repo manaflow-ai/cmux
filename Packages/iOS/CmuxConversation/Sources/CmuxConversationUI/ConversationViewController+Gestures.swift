@@ -277,6 +277,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             openThread(rootID: model.message.id)
             return
         }
+        if let replies = cell.cellLayout?.quoteRepliesFrame, replies.contains(local), let parent = model.message.replyToID {
+            openThread(rootID: parent)
+            return
+        }
         if let quote = cell.cellLayout?.quoteFrame, quote.contains(local), let parent = model.message.replyToID {
             openThread(rootID: parent)
             return
@@ -294,6 +298,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             return
         }
         if let textFrame = cell.cellLayout?.textFrame, textFrame.contains(local), let url = link(in: model, at: cell.textLabel.convert(local, from: cell)) {
+            if onOpenLink?(url) == true { return }
             UIApplication.shared.open(url)
         }
     }
@@ -347,9 +352,12 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
-            alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
+            let tryAgain = UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
                 self?.store.retryUnsend(messageID: messageID)
-            })
+            }
+            alert.addAction(tryAgain)
+            // The likely choice is the preferred action (bold, Return), not Cancel (HIG Alerts).
+            alert.preferredAction = tryAgain
         } else {
             alert = UIAlertController(
                 title: title,

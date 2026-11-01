@@ -54,24 +54,6 @@ impl AgentSource {
     }
 }
 
-/// The agent-record state a committed hook journal event implies, or `None`
-/// for events that carry no lifecycle transition (child agents, unclassified
-/// state changes) so they never churn the record.
-pub(super) fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
-    Some(match kind {
-        // A freshly started session sits at its prompt; a completed turn
-        // returns to it.
-        "agent.session.started" | "agent.turn.completed" => AgentState::Idle,
-        "agent.turn.started" => AgentState::Working,
-        "agent.approval.requested"
-        | "agent.question.requested"
-        | "agent.plan_review.requested"
-        | "agent.error.reported" => AgentState::Blocked,
-        "agent.session.ended" => AgentState::Done,
-        _ => return None,
-    })
-}
-
 /// Title, body, and level for the notification an agent hook event earns,
 /// or `None` for transitions that need no attention (session start, turn
 /// start, child lifecycle, session end).
@@ -166,6 +148,9 @@ pub struct AgentRecord {
     /// The reporting adapter id (`claude`, `codex`, ...) when a hook has
     /// claimed the terminal; absent for socket-only reports.
     pub agent: Option<String>,
+    /// The harness's own session id a hook reported (`published_agent_session_id`):
+    /// hook reports keep no `session`, so clients find the agent by this.
+    pub agent_session_id: Option<String>,
     pub updated_at_ms: u64,
     /// When the terminal's agent entered `state` (Unix ms). A report that
     /// keeps the state keeps it; it restarts at a daemon restart.

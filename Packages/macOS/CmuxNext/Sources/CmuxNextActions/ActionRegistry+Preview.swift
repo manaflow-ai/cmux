@@ -59,14 +59,20 @@ extension ActionRegistry {
     /// Runs `perform` for `id` with the preview settled: running the
     /// previewed action keeps its look (the run sets the same value; a
     /// handler that refuses calls `endPreview`), running anything else, or
-    /// a run that did not happen, reverts first.
-    func settlingPreview(for id: ActionID, _ perform: () -> Bool) -> Bool {
-        guard let previewed = activePreview?.id else { return perform() }
+    /// a run that did not happen, reverts.
+    ///
+    /// `perform` gets `settle`, which it calls inside the run's timing (or its gate's), before
+    /// the work: putting the look back is part of what the person waits for, so it is in
+    /// `action.perform` / `action.commit`. A refused run never calls it and records nothing; its
+    /// revert happens after.
+    func settlingPreview(for id: ActionID, _ perform: (_ settle: () -> Void) -> Bool) -> Bool {
+        guard let previewed = activePreview?.id else { return perform {} }
         guard previewed == canonicalID(for: id) else {
+            let ran = perform { endPreview() }
             endPreview()
-            return perform()
+            return ran
         }
-        let ran = perform()
+        let ran = perform {}
         if activePreview?.id == previewed {
             if ran { activePreview = nil } else { endPreview() }
         }

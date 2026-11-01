@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextRemote
 import Foundation
@@ -13,6 +14,7 @@ extension ServerReachService {
         let cli = bundled.flatMap { FileManager.default.isExecutableFile(atPath: $0.path) ? $0 : nil }
         return ServerReachService(
             machines: services.machines,
+            mainWork: services.mainWork,
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)

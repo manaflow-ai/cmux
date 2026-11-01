@@ -520,19 +520,28 @@ class JanitorSnapshot(unittest.TestCase):
 
 
 # The pull-request lane, wherever its event condition puts it: compile admission
-# also takes it for main's full-suite dispatch (#14158), where the inputs are empty.
-PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.MACOS_RUNNER_PR[^()]*)\)")
+# also takes it for main's full-suite dispatch (#14158), where the inputs are empty. Groups inside
+# the lane nest up to five deep: the rescue-actor test, contains(fromJSON(...), ...), sits inside the
+# attempt group, which may itself hold an `||` group.
+def _nested(depth: int) -> str:
+    group = r"\([^()]*\)"
+    for _ in range(depth - 1):
+        group = r"\((?:[^()]|" + group + r")*\)"
+    return group
+
+
+PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|" + _nested(5) + r")*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
-    return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -543,7 +552,7 @@ def gui_lane(key: str) -> str:
 
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -814,7 +823,7 @@ class OwnedPools(unittest.TestCase):
                       head="someone/cmux", default="", pins={})
         self.assertFalse(fork.runner.startswith("glaeda-"))
         # The workflows ask who started a later re-run: only github-actions[bot]'s goes to Blacksmith.
-        self.assertIn("github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]'",
+        self.assertIn("github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
                       (WORKFLOWS / "remote-daemon.yml").read_text())
         # main() reads the attempt and the actor Actions sets on every step.
         fresh = snap
@@ -867,6 +876,8 @@ class OwnedPools(unittest.TestCase):
         self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
         # The fast tier's reserved runner (CI_FAST_LANE_RUNNER) is owned too.
         self.assertTrue(pool.persistent("glaeda-fast-std-xcode-26.6"))
+        # So is generated files' session runner (CI_SESSION_LANE_RUNNER).
+        self.assertTrue(pool.persistent("glaeda-session-light-xcode-26.6"))
         for label in (SMALL, "ubuntu-24.04", "glaeda-mini", "glaeda-class-std", ""):
             self.assertFalse(pool.persistent(label), label)
 
@@ -2440,10 +2451,11 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_runs_routing(self):
         changes = self.workflow("ci.yml")["jobs"]["changes"]
         ids = [step.get("id") for step in changes["steps"]]
-        for step_id in ("detect", "standalone", "suite"):
+        for step_id in ("detect", "standalone", "suite", "next-route"):
             self.assertLess(ids.index(step_id), ids.index("macos-pool"), step_id)
         env = changes["steps"][ids.index("macos-pool")]["env"]
-        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.suite.outputs.full_suite }}")
+        # A feat-cmux-next pull request's routing (next-route) wins, as in the job's outputs.
+        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}")
         self.assertNotIn("RUN_CLI", env)
         self.assertNotIn("RUN_CLAUDE_WRAPPER", env)
         self.assertNotIn("OWNED_JOBS_PER_RUN", env)
@@ -2469,7 +2481,7 @@ class Wiring(unittest.TestCase):
         cli = self.workflow("ci-macos.yml")["jobs"]["cli-product-tests"]
         self.assertEqual(cli["runs-on"], "${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')"
                                          "['cli-product'] "
-                                         "|| (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
+                                         "|| (github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
                                          "' cli-product ')) && inputs.pr_retry_runner "
                                          "|| inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         # The Claude wrapper lane went with the wrapper; ci.yml runs no Mac job of its own.
@@ -2617,7 +2629,7 @@ class Wiring(unittest.TestCase):
         # attempts that read it, when owned_jobs names ' swift-package '.
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-                 "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+                 "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
                  "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
@@ -2650,7 +2662,7 @@ class Wiring(unittest.TestCase):
         # macOS 26 variable, and its product-contract mirror says the same.
         job = self.workflow("ci-macos.yml")["jobs"]["release-build"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-                 "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+                 "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
                  "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
@@ -2685,8 +2697,10 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_package_lane_routing(self):
         env = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
                    if step.get("id") == "macos-pool")["env"]
-        self.assertEqual(env["RUN_SWIFT_PACKAGES"], "${{ steps.detect.outputs.swift_packages }}")
-        self.assertEqual(env["RUN_RELEASE_BUILD"], "${{ steps.detect.outputs.release_build }}")
+        self.assertEqual(env["RUN_SWIFT_PACKAGES"],
+                         "${{ steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages }}")
+        self.assertEqual(env["RUN_RELEASE_BUILD"],
+                         "${{ steps.next-route.outputs.release_build || steps.detect.outputs.release_build }}")
 
 
 IOS_SIM = "glaeda-ios-sim"
@@ -2695,7 +2709,9 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
 # test-ios.yml's per-job Xcode pin: only on an owned Mac, and never for a fork's pull request.
+# feat-cmux-next pushes run test-ios on the owned minis too (adaccb5c3755), so they read the pin.
 IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || "
+                 "github.event_name == 'push' || "
                  "github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}")
 
 
@@ -3120,6 +3136,12 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual((route.label, route.persistent, calls), (SMALL, False, 0))
         self.assertEqual(ios_pool.sim_jobs("screenshots", ""), 1)
 
+    def test_the_kit_lane_uses_one_owned_mac_and_one_simulator(self):
+        route, calls = ios_route(sim_fleet(), lane="kit")
+        self.assertTrue(route.persistent)
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        self.assertEqual(calls, 1)
+
     def test_a_queue_error_or_no_snapshot_keeps_the_default(self):
         def broken():
             raise RuntimeError("GET /actions/artifacts failed (500)")
@@ -3133,7 +3155,7 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": 1, "status": "in_progress"}, {"id": 2, "status": "completed"},
                                          {"id": 9, "status": "queued"}],
-                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}]}[workflow]
+                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}], "cmux-next-ios-kit.yml": []}[workflow]
         # Untitled runs are charged in full: two in flight, two simulators each.
         self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 4)
 
@@ -3276,6 +3298,39 @@ class IOSRouting(unittest.TestCase):
         hosted = dict(waiting, labels=["blacksmith-6vcpu-macos-26"])
         self.assertEqual(ios_pool.hold(capture, [picker, hosted], MINI, placed, NOW), ios_pool.Hold())
 
+    def test_a_kit_run_needs_one_machine_and_one_simulator(self):
+        kit = {"id": 1, "display_title": "cmux-next-ios kit tests",
+               "path": ".github/workflows/cmux-next-ios-kit.yml",
+               "created_at": pool.iso(NOW - dt.timedelta(minutes=10))}
+        self.assertEqual((ios_pool.charged_jobs(kit), ios_pool.charged_sim_jobs(kit)), (1, 1))
+        self.assertEqual(ios_pool.charged_sim_jobs(kit, ios_pool.Placements(frozenset()), NOW), 0)
+
+    def test_kit_workflow_wiring_and_simulator_hold(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-ios-kit.yml").read_text())
+        picker = workflow["jobs"]["runner"]
+        self.assertEqual(picker.get("name", "runner"), ios_pool.PICKER_JOB)
+        steps = picker["steps"]
+        pick = next(step for step in steps if step.get("id") == "pool")
+        self.assertEqual(pick["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
+        for mint_id in ("route-token", "route-token-repo"):
+            mint = next(step for step in steps if step.get("id") == mint_id)
+            self.assertEqual(mint["with"]["permission-actions"], "read")
+            self.assertTrue(all(value == "read" for key, value in mint["with"].items()
+                                if key.startswith("permission-")))
+        self.assertIn("--queue-rounds 0", pick["run"])
+        uploads = [step for step in steps if "upload-artifact@" in step.get("uses", "")]
+        self.assertEqual(len(uploads), 3)
+        for upload in uploads:
+            self.assertEqual(upload["uses"], "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+        kit = {"id": 1, "path": ".github/workflows/cmux-next-ios-kit.yml", "run_attempt": 1}
+        job = {"name": workflow["jobs"]["kit-tests"]["name"], "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "mini-a-glaeda"}
+        self.assertEqual(ios_pool.hold(kit, [job], MINI, None, NOW),
+                         ios_pool.Hold(0, 0, frozenset({"mini-a"})))
+        job["status"] = "completed"
+        job["conclusion"] = "success"
+        self.assertEqual(ios_pool.hold(kit, [job], MINI, None, NOW), ios_pool.Hold())
+
     def test_live_placements_reads_markers_again_after_a_picker_finishes(self):
         title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
         runs = [{"id": n, "run_attempt": 1, "display_title": title,
@@ -3391,7 +3446,7 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": n, "status": "in_progress", "run_attempt": 1,
                                           "display_title": title, "created_at": old} for n in (1, 2, 3)],
-                        "ios-screenshots.yml": []}[workflow]
+                        "ios-screenshots.yml": [], "cmux-next-ios-kit.yml": []}[workflow]
         since = "2026-09-24T10:00:00Z"
         self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None), 6)
         placed = ios_pool.Placements(frozenset({2}))
@@ -3517,6 +3572,93 @@ class IOSRouting(unittest.TestCase):
         # No runner in the pool: raise, so main() falls back to the snapshot.
         with self.assertRaises(RuntimeError):
             ios_pool.live_free([runner("mini-e", 0, IOS_SIM)], MINI, [], now=NOW, capacity=3)
+
+    def test_kit_queue_reads_use_routing_token_before_exhausted_job_token(self):
+        idle = [{"name": "mini-a-glaeda", "status": "online", "busy": False,
+                 "labels": [{"name": MINI}, {"name": IOS_SIM}]}]
+        for route_fails, job_fails in ((False, True), (True, False), (True, True)):
+            calls = []
+
+            class Client:
+                def __init__(self, token, repo):
+                    self.token = token
+
+                def runners(self):
+                    self_outer.assertEqual(self.token, "route")
+                    return idle
+
+                def read(self):
+                    calls.append(self.token)
+                    if (route_fails if self.token == "route" else job_fails):
+                        raise urllib.error.HTTPError("https://api.github.com", 403, "Forbidden", {}, None)
+
+                def runs_since(self, workflow, since, **filters):
+                    self.read()
+                    return []
+
+                def get(self, path):
+                    self.read()
+                    return {"artifacts": []}
+
+                def snapshot(self, *, now):
+                    self.read()
+                    return None
+
+            self_outer = self
+            out, err = io.StringIO(), io.StringIO()
+            args = ["--lane", "kit", "--owned", "1", "--ios-owned", "1", "--owned-slots",
+                    json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", MINI]
+            with self.subTest(route_fails=route_fails, job_fails=job_fails), \
+                    unittest.mock.patch.object(pool, "GitHub", Client), \
+                    unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
+                self.assertEqual(ios_pool.main(args, env={"GH_TOKEN": "job", "ROUTE_TOKEN": "route",
+                                                         "GH_REPO": "manaflow-ai/cmux"}), 0)
+                outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+                self.assertEqual(outputs["persistent"], str(not (route_fails and job_fails)).lower(), err.getvalue())
+                self.assertEqual(calls[0], "route")
+                if not route_fails:
+                    self.assertNotIn("job", calls)
+                else:
+                    self.assertIn("job", calls)
+                if route_fails and job_fails:
+                    self.assertEqual(calls.count("route"), 2)  # live queue, then snapshot
+                    self.assertEqual(calls.count("job"), 2)
+
+    def test_kit_uses_routing_token_for_snapshot_when_live_runners_are_unreadable(self):
+        calls = []
+
+        class Client:
+            def __init__(self, token, repo):
+                self.token = token
+
+            def runners(self):
+                raise RuntimeError("runner listing unavailable")
+
+            def snapshot(self, *, now):
+                calls.append(self.token)
+                return {**sim_fleet(), "generated_at": pool.iso(now)}
+
+            def pull_request_runs_since(self, since, *, exclude_run_id):
+                calls.append(self.token)
+                return 0
+
+            def runs_since(self, workflow, since, **filters):
+                calls.append(self.token)
+                return []
+
+            def get(self, path):
+                calls.append(self.token)
+                return {"artifacts": []}
+
+        args = ["--lane", "kit", "--owned", "1", "--ios-owned", "1", "--owned-slots",
+                json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", MINI]
+        out = io.StringIO()
+        with unittest.mock.patch.object(pool, "GitHub", Client), \
+                unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(ios_pool.main(args, env={"ROUTE_TOKEN": "route", "GH_REPO": "manaflow-ai/cmux"}), 0)
+        self.assertIn("persistent=true", out.getvalue())
+        self.assertTrue(calls)
+        self.assertEqual(set(calls), {"route"})
 
     def test_main_reads_runners_with_the_route_token_and_falls_back_on_error(self):
         idle = [{"name": f"mini-{n}-glaeda", "status": "online", "busy": False,
@@ -3694,7 +3836,12 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(runner["permissions"], {"contents": "read", "actions": "read"})
         step = self.picker_step(runner)
         self.assertIn("--lane test-ios", step["run"])
-        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner }}")
+        # The cmux-next lane (feat-cmux-next pushes, same-repository pull requests into it)
+        # asks for the owned minis (user, 2026-10-20, adaccb5c3755); a fork pull request
+        # fails the same-repository clause and asks for nothing.
+        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner || ((github.event_name == 'push' || "
+                         "(github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == "
+                         "github.repository)) && 'owned' || '') }}")
         self.assertEqual(step["env"]["RUNNER_VARIABLE"], "${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}")
         self.assertEqual(step["env"]["IOS_OWNED"], "${{ vars.CI_IOS_OWNED }}")
         self.assertEqual(step["env"]["IOS_VERSION"], "${{ inputs.ios_version }}")

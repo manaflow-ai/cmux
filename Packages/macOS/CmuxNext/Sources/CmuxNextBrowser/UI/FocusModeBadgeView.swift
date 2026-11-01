@@ -13,6 +13,8 @@ final class FocusModeBadgeView: NSView {
     var onPress: (() -> Void)?
     /// The text shown now (tests).
     var shownText: String { label.stringValue }
+    /// The label's color now (tests).
+    var shownTextColor: NSColor? { label.textColor }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -46,6 +48,13 @@ final class FocusModeBadgeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The badge takes the whole press (not its image or label) and the first
+    /// one in a browser window that is not key: one click acts, as Chrome's
+    /// omnibar buttons do (user, 2026-10-28, "click the star twice").
+    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     func show(armed: Bool) {
         label.stringValue = armed ? Strings.focusModeArmed : Strings.focusModeActive
         let help = Strings.focusModeExitHelp(Strings.focusModeEscapeHint)
@@ -66,10 +75,11 @@ final class FocusModeBadgeView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
+        // A lit chip in the theme's accent, never orange (Leo 2026-10-21: "the accent is never orange").
         performWithTheme {
-            layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.16).cgColor
-            label.textColor = NSColor.systemOrange
-            glyph.contentTintColor = NSColor.systemOrange
+            layer?.backgroundColor = Palette.accentFill.withAlphaComponent(0.16).cgColor
+            label.textColor = Palette.litGlyph
+            glyph.contentTintColor = Palette.litGlyph
         }
     }
 }

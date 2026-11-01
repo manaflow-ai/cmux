@@ -46,6 +46,9 @@ final class AppResourceSource: ResourceSampleSource {
     func sample(_ target: ResourceTarget) async -> ResourceSampleSet {
         let resolved = resolve(target)
         var tabs = resolved.tabs
+        var tabIndex: [String: Int] = [:]
+        tabIndex.reserveCapacity(tabs.count)
+        for (index, tab) in tabs.enumerated() { tabIndex[tab.tabID] = index }
         var localPIDs = Set<Int32>([getpid()])
         var shared: [SharedProcess] = []
         if resolved.includesAppShare { shared.append(SharedProcess(key: ProcessKey(pid: getpid()), role: .app)) }
@@ -83,13 +86,13 @@ final class AppResourceSource: ResourceSampleSource {
             guard query.supported, let connection = query.connection,
                   let response = try? await connection.request(request, timeout: .seconds(1)) else {
                 for terminal in query.terminals {
-                    if let index = tabs.firstIndex(where: { $0.tabID == terminal.tabID }) { tabs[index].available = false }
+                    if let index = tabIndex[terminal.tabID] { tabs[index].available = false }
                 }
                 continue
             }
             let bySurface = Dictionary(response.terminals.map { ($0.surface, $0) }, uniquingKeysWith: { first, _ in first })
             for terminal in query.terminals {
-                guard let index = tabs.firstIndex(where: { $0.tabID == terminal.tabID }) else { continue }
+                guard let index = tabIndex[terminal.tabID] else { continue }
                 guard let tree = bySurface[terminal.surface] else { continue }
                 var keys: [ProcessKey] = []
                 for process in [tree.host].compactMap({ $0 }) + tree.processes {
@@ -120,7 +123,7 @@ final class AppResourceSource: ResourceSampleSource {
         let entries: [(TabModel, DaemonService)]
         switch target {
         case .tab(let id):
-            guard let (tab, pane) = services.locateTab(id) else { return resolved }
+            guard let (tab, pane) = services.locateTabOnAnyMachine(id) else { return resolved }
             entries = [(tab, services.daemon(for: pane))]
             resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != tab.id }.flatMap { _, entry -> [Int32] in
                 if case .chromiumRendererClients(let clients) = (entry.tab as? any BrowserProcessReporting)?.contentProcesses { clients } else { [] }

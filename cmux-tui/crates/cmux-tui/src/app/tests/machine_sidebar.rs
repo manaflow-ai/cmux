@@ -706,7 +706,7 @@ fn scoped_frame_cursor_reset_preserves_host_cursor_without_inner_authorship() {
     let mut app = test_app(session);
     app.surface_only = Some(surface_id);
     app.desired_outer_cursor = OuterCursorSpec::Terminal {
-        color: Rgb { r: 1, g: 2, b: 3 },
+        color: Some(Rgb { r: 1, g: 2, b: 3 }),
         shape: CursorShape::Bar,
         blinking: true,
     };
@@ -720,12 +720,12 @@ fn scoped_frame_cursor_reset_preserves_host_cursor_without_inner_authorship() {
     assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
     surface.test_scan_cursor_provenance(b"\x1b[5 q");
     surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[5 q"));
-    app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
+    app.use_terminal_cursor_spec(Some(Rgb { r: 1, g: 2, b: 3 }), CursorShape::Bar, true);
     surface.test_scan_cursor_provenance(b"\x1b[0 q");
     surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[0 q"));
     app.reset_frame_cursor_spec();
     assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
-    app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
+    app.use_terminal_cursor_spec(Some(Rgb { r: 1, g: 2, b: 3 }), CursorShape::Bar, true);
     app.reassert_scoped_host_terminal_state();
     assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
 }

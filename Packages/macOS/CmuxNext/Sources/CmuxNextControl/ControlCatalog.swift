@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextSettings
+import Foundation
 
 /// One argument of an action's schema, in wire form. Built on the main
 /// actor from `ActionArgument` so the socket can validate off the main actor.
@@ -64,6 +65,8 @@ public struct ControlArgumentInfo: Sendable, Hashable {
 public struct ControlActionInfo: Sendable, Hashable {
     public var id: String
     public var title: String
+    /// What the action does and returns (`ActionDescriptor.description`), or nil.
+    public var description: String?
     public var category: String
     public var categoryTitle: String
     public var cliName: String
@@ -171,13 +174,42 @@ public struct ControlActionInfo: Sendable, Hashable {
             "focuses": .bool(focuses),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
+        if let description { members["description"] = .string(description) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
+        members.merge(contextGap(contextMask: contextMask)) { current, _ in current }
         if !surfaces.isEmpty {
             var surfaceMembers = surfaces.mapValues(JSONValue.string)
             surfaceMembers["context_menus"] = .array(contextMenus.map(JSONValue.string))
             members["surfaces"] = .object(surfaceMembers)
         }
         return .object(members)
+    }
+
+    /// Why `available` is false in this context, for `action.list` and
+    /// `action.describe`: the context facts it lacks (`missing_context`), the
+    /// target kinds whose explicit target supplies them (`available_with_target`:
+    /// a `machine:` target stands in for a focused Cloud workspace), and one
+    /// sentence saying so (`context_reason`). Empty when nothing is missing.
+    func contextGap(contextMask: UInt32) -> [String: JSONValue] {
+        let missing = ActionContext(rawValue: requiresMask & ~contextMask)
+        guard !missing.isEmpty else { return [:] }
+        let names = ActionContext.keyNames.filter { missing.contains($0.0) }.map(\.1)
+        guard !names.isEmpty else { return [:] }
+        let supplying = targets.filter { kind in
+            ActionTargetKind(rawValue: kind).map { ActionContext.implied(byTargetKind: $0).isSuperset(of: missing) } ?? false
+        }
+        let listed = names.joined(separator: ", ")
+        var members: [String: JSONValue] = ["missing_context": .array(names.map(JSONValue.string))]
+        if let kind = supplying.first {
+            members["available_with_target"] = .array(supplying.map(JSONValue.string))
+            let format = String(localized: "control.action.needsContextOrTarget",
+                                defaultValue: "Needs %1$@ in the focused window, or pass --target %2$@:<id>.", bundle: .module)
+            members["context_reason"] = .string(String(format: format, listed, kind))
+        } else {
+            let format = String(localized: "control.action.needsContext", defaultValue: "Needs %@ in the focused window.", bundle: .module)
+            members["context_reason"] = .string(String(format: format, listed))
+        }
+        return members
     }
 
     /// Whether the action applies in the current context (not whether its
@@ -257,11 +289,29 @@ public struct ControlCatalog: Sendable {
     }
 
     /// Availability for a run with an explicit target, which stands in for
-    /// the facts it implies (`ActionContext.implied(byTargetKind:)`).
+    /// the facts it implies (`ActionContext.implied(byTargetKind:)`) and
+    /// leaves the facts only the App can read to the registry
+    /// (`deferredToRegistry(byTargetKind:)`).
     func isAvailable(_ action: ControlActionInfo, target: ControlTargetRef?) -> Bool {
         let kind = target.flatMap { ActionTargetKind(rawValue: $0.kind) }
         let mask = contextMask | ActionContext.implied(byTargetKind: kind).rawValue
+            | Self.deferredToRegistry(byTargetKind: kind).rawValue
         return action.isAvailable(contextMask: mask, debugActionsAvailable: debugActionsAvailable)
+    }
+
+    /// The facts a pane or tab target may bring that only the App knows live:
+    /// whether it shows an agent chat (`agentPaneFocused`, so `cmux agent
+    /// set-model --target pane:<id>` runs with no chat focused) and whether it
+    /// sits on a canvas screen (`canvasLayout`). This snapshot can lag the
+    /// App's tabs (at startup, or just after a chat opened), so `action.run`
+    /// does not decide them here. The registry reads them on the main actor
+    /// (`ActionRegistry.targetContext`) and refuses a target without them as
+    /// `unavailable` before the handler runs.
+    static func deferredToRegistry(byTargetKind kind: ActionTargetKind?) -> ActionContext {
+        switch kind {
+        case .pane, .tab: .decidedByPaneOrTabTarget
+        default: []
+        }
     }
 
     func json(_ action: ControlActionInfo) -> JSONValue {

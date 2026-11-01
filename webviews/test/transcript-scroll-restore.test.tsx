@@ -1,10 +1,12 @@
 // cx-6bgzj: a chat reopens where the reader left it. The transcript reports where it rests once a
 // scroll settles (a row and the offset into it, or nothing at the latest message) and opens at such a
 // place after a relaunch, a crash or a reload instead of at the latest message.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { layoutScrollTop } from "../src/agent-session/acpmux/conversation/scrollCoordinates";
+import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -45,18 +47,8 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
-const offsets = new WeakMap<object, number>();
-Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
-  configurable: true,
-  get(this: object) {
-    return offsets.get(this) ?? 0;
-  },
-  set(this: object, value: number) {
-    offsets.set(this, value);
-  },
-});
+installJsdomScroller(dom.window as never, () => VIEWPORT);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -78,7 +70,32 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 ]).flat();
 
 type Anchor = { rowId: string; offset: number } | null;
-const settle = () => new Promise((resolve) => setTimeout(resolve, SCROLL_ANCHOR_SETTLE_MS + 50));
+/// A scroll, then the pause after it on a fake clock: one report once the scroll has rested
+/// SCROLL_ANCHOR_SETTLE_MS, and none a moment before.
+async function scrollAndRest(scroller: HTMLElement, top: number, anchors: Anchor[]) {
+  jest.useFakeTimers();
+  try {
+    const reported = anchors.length;
+    // A reader scroll starts with input: a layout-driven scroll alone must not resume follow.
+    await act(
+      async () =>
+        void scroller.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", {
+            key: top < scroller.scrollTop ? "PageUp" : "End",
+            bubbles: true,
+          }),
+        ),
+    );
+    scroller.scrollTop = top;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => void jest.advanceTimersByTime(SCROLL_ANCHOR_SETTLE_MS - 1));
+    expect(anchors.length).toBe(reported);
+    await act(async () => void jest.advanceTimersByTime(1));
+    expect(anchors.length).toBe(reported + 1);
+  } finally {
+    jest.useRealTimers();
+  }
+}
 
 test("a scrolled-up chat reports where it rests and reopens there, not at the latest message", async () => {
   const rows = turnView(turns, new Set());
@@ -96,21 +113,20 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
         />,
       ),
     );
-    const latest =
-      parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    const latest = scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
     expect(scroller().scrollTop).toBe(latest);
 
     // The reader scrolls up and stops: one report, a row and how far into it.
     const resting = Math.round(latest / 3);
-    scroller().scrollTop = resting;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
-    await act(settle);
+    await scrollAndRest(scroller(), resting, anchors);
+    const logicalResting = layoutScrollTop(scroller());
     const anchor = anchors.at(-1);
     expect(anchor).toBeTruthy();
     expect(rows.some((row) => row.id === anchor!.rowId)).toBe(true);
     expect(anchor!.offset).toBeGreaterThanOrEqual(0);
 
-    // A relaunch: a new transcript opened at that place shows the same offset.
+    // A relaunch preserves the logical row position. The browser can round the physical
+    // offset differently; the retained CSS origin must keep the same painted coordinate.
     await act(async () => root.unmount());
     root = createRoot(dom.window.document.getElementById("root")!);
     await act(async () =>
@@ -124,12 +140,14 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
         />,
       ),
     );
-    expect(scroller().scrollTop).toBe(resting);
+    expect(layoutScrollTop(scroller())).toBe(logicalResting);
+    expect(Math.abs(scroller().scrollTop - logicalResting)).toBeLessThanOrEqual(1);
+    // The DOM correction, not just the coordinate bookkeeping, must preserve the rendered place.
+    const cssOrigin = Number.parseFloat(scroller().style.getPropertyValue("--acpmux-scroll-origin")) || 0;
+    expect(scroller().scrollTop - cssOrigin).toBe(logicalResting);
 
     // Back at the latest message: the place is forgotten, so the next open follows the reply.
-    scroller().scrollTop = latest;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
-    await act(settle);
+    await scrollAndRest(scroller(), latest, anchors);
     expect(anchors.at(-1)).toBeNull();
   } finally {
     await act(async () => root.unmount());
@@ -150,8 +168,7 @@ test("a place whose row is gone opens at the latest message", async () => {
         />,
       ),
     );
-    const latest =
-      parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    const latest = scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
     expect(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop).toBe(latest);
   } finally {
     await act(async () => root.unmount());
@@ -182,8 +199,7 @@ test("switching chats opens the new chat at latest instead of the old chat's scr
         <VirtualTranscript rows={rowsB} sessionId="session-b" onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
-    const latest =
-      parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    const latest = scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
     expect(scroller().scrollTop).toBe(latest);
   } finally {
     await act(async () => root.unmount());

@@ -545,6 +545,11 @@ pub fn load() -> Config {
     if let Some(animation) = raw.viewport.animation {
         config.viewport.animation = animation;
     }
+    let env = |name: &str| std::env::var(name).ok();
+    config.viewport.docked_workspaces = crate::feature_flags::docked_workspaces_enabled(
+        raw.viewport.docked_workspaces.unwrap_or(false),
+        &env,
+    );
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     if let Some(detached_owner) = raw.server.detached_owner {

@@ -3,11 +3,12 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Leo, 2026-10-12: cmux-next's tooltips were macOS's stock yellow-gray bubble ("Default" on the
 /// sidebar's space tile). Controls hand their tooltip to the app's themed one instead: no AppKit
 /// `toolTip`, while VoiceOver still reads the same text as the control's help.
-@MainActor @Suite(.serialized) struct ThemedTooltipTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct ThemedTooltipTests {
     @Test func controlsUseTheThemedTooltipNotAppKits() {
         let views: [(NSView, String)] = [
             (SidebarIconButton(icon: .actionClose, label: "Close Workspace"), "Close Workspace"),
@@ -36,7 +37,7 @@ import Testing
         #expect(button.accessibilityHelp() == "New Tab")
 
         let presenter = Self.instantPresenter()
-        defer { presenter.timing = nil }
+        defer { Self.putAway(presenter) }
         let tracker = try #require(TooltipTracker.whole(of: button))
         presenter.dismiss()
         // The hover delay is TooltipHoverIntentTests'; here it is zero, so the tooltip shows on enter.
@@ -47,13 +48,10 @@ import Testing
         #expect(panel.isVisible)
         #expect(Self.same(try #require(panel.text.textColor), scope.perform { Palette.textPrimary }))
         #expect(Self.same(try #require(panel.hint.textColor), scope.perform { Palette.textSecondary }))
-        let fill = try #require(panel.tint.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-        // The tooltip surface (`TooltipSurface`): frosted glass under the theme's tint, or the
-        // solid popup surface under Reduce Transparency.
-        let surface = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
-        let expected = ReduceTransparency.shared.isEnabled ? surface.fill : surface.tint
-        #expect(Self.same(fill, expected.nsColor))
-        #expect(panel.tint.layer?.cornerRadius == TooltipPanel.radius)
+        // The shared overlay glass, drawn in the button's theme scope (Leo 2026-10-21: glass, never solid).
+        #expect(panel.glass.themeScope === scope.fullStrength)
+        #expect(!panel.glass.isCard)
+        #expect(panel.glass.cornerRadius == TooltipPanel.radius)
 
         // Below the button, centered on it (the surface; the window has room for its shadow).
         let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
@@ -66,7 +64,7 @@ import Testing
         button.themedToolTip = nil
         #expect(presenter.shown == nil)
         #expect(!panel.isVisible || panel.isFadingOut)
-        window.orderOut(nil)
+        window.closeAfterTest()
     }
 
     @Test func theDeepestTooltipUnderThePointerShowsAndRegionsWin() throws {
@@ -79,6 +77,7 @@ import Testing
         header.themedToolTip = "This Mac"
         add.themedToolTip = "New Workspace"
         let presenter = Self.instantPresenter()
+        defer { Self.putAway(presenter) }
         presenter.dismiss()
 
         // The pointer comes straight onto the button: whichever enter arrives last, the button's shows.
@@ -96,8 +95,7 @@ import Testing
         #expect(presenter.shown?.text == "Default")
         presenter.dismiss()
         #expect(presenter.shown == nil)
-        presenter.timing = nil
-        window.orderOut(nil)
+        window.closeAfterTest()
     }
 
     /// Review of #19902: with no hover delay, scrolling a list under a resting pointer flashed each
@@ -115,9 +113,8 @@ import Testing
         let presenter = Self.instantPresenter()
         presenter.dismiss()
         defer {
-            presenter.dismiss()
-            presenter.timing = nil
-            window.orderOut(nil)
+            Self.putAway(presenter)
+            window.closeAfterTest()
         }
 
         presenter.enter(try #require(TooltipTracker.whole(of: first)))
@@ -147,6 +144,15 @@ import Testing
         timing.tooltipDelay = .zero
         presenter.timing = timing
         return presenter
+    }
+
+    /// Hides the shared tooltip, closes its panel and restores the tunables' timing. The shared
+    /// presenter keeps its panel for the process and only orders it out, so a test that showed it
+    /// closes it (`.closesItsWindows`); the next show orders the same panel back in.
+    static func putAway(_ presenter: TooltipPresenter) {
+        presenter.dismiss()
+        presenter.timing = nil
+        presenter.panel.close()
     }
 
     static func near(_ lhs: NSPoint, _ rhs: NSPoint) -> Bool {

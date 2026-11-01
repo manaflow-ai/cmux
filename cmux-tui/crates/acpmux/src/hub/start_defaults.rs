@@ -31,6 +31,7 @@
 use super::*;
 
 use crate::catalog::CatalogHarness;
+use cmux_json::JsonSet as _;
 
 /// Longest model id or effort a pick saves (the pane's own limits).
 const MAX_VALUE: usize = 256;
@@ -194,13 +195,6 @@ impl Hub {
         if pick && effort.is_some() && before.as_deref() != effort {
             self.note_pick(session, None, effort).await;
         }
-        // The mode as a config option (Claude Code's `mode`): a mode pick.
-        if pick
-            && resolved == "mode"
-            && let Some(mode) = value.as_str()
-        {
-            self.note_mode_pick(session, mode).await;
-        }
         Ok(r)
     }
 
@@ -264,8 +258,13 @@ impl Hub {
         // The harness's own config, read (blocking file IO) only when the request and the saved
         // pick leave a value open.
         let read = std::cell::OnceCell::new();
+        // Never a capture fixture's harness (`harness_fixture.rs`): this host's config would show.
+        let fixture = crate::harness_fixture::active().is_some_and(|f| f.names(agent));
         let own = || {
             read.get_or_init(|| {
+                if fixture {
+                    return crate::harness_config::Choice::default();
+                }
                 crate::harness_config::read(
                     &crate::config::derive_family(agent, profile),
                     &[&profile.env, &saved.env],
@@ -400,12 +399,12 @@ impl Hub {
         }
         let mut v = json!({});
         if let Some(m) = model {
-            v["model"] = json!(m.value);
-            v["modelSource"] = json!(m.source.as_str());
+            v.set("model", json!(m.value));
+            v.set("modelSource", json!(m.source.as_str()));
         }
         if let Some(e) = effort {
-            v["effort"] = json!(e.value);
-            v["effortSource"] = json!(e.source.as_str());
+            v.set("effort", json!(e.value));
+            v.set("effortSource", json!(e.source.as_str()));
         }
         Some(v)
     }

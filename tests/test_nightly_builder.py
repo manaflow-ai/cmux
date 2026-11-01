@@ -2,6 +2,7 @@
 """The dedicated cmux-next nightly builder admits only the NEXT app build and reports its health."""
 import datetime as dt
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -57,6 +58,60 @@ class AdmitTest(unittest.TestCase):
         ok, reason = nb.admit(job_env(), free_bytes=10 * GIB)
         self.assertFalse(ok)
         self.assertIn("disk", reason)
+
+
+def gate_env(**over):
+    env = {
+        "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+        "GITHUB_WORKFLOW_REF": "manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml@refs/heads/feat-cmux-next",
+        "GITHUB_JOB": "cmux-next-daemon-tests",
+        "GITHUB_EVENT_NAME": "push",
+        "GITHUB_REF": "refs/heads/feat-cmux-next",
+    }
+    env.update(over)
+    return env
+
+
+class GateRoleTest(unittest.TestCase):
+    """The next-gate runner admits only the nightly gate's daemon tests, and the
+    role comes from the hook script's argument, never from the job's env."""
+
+    def hook(self, env, *args):
+        # The runner's job-started hook runs the CLI; a refusal must exit non-zero
+        # before any disk check, so these cases do not depend on this disk.
+        return subprocess.run([sys.executable, str(ROOT / "scripts/ci/nightly_builder.py"), "admit", *args],
+                              env={**env, "PATH": os.environ.get("PATH", ""),
+                                   "NIGHTLY_BUILDER_LOG": os.devnull},
+                              capture_output=True, text=True)
+
+    def test_admits_the_gate_daemon_tests(self):
+        ok, reason = nb.admit(gate_env(), free_bytes=100 * GIB, role="next-gate")
+        self.assertTrue(ok, reason)
+
+    def test_gate_runner_refuses_other_jobs(self):
+        cases = {
+            "nightly app build": job_env(),
+            "pin branch daemon tests": gate_env(GITHUB_REF="refs/heads/cmux-tui-pin-abc"),
+            "pull request daemon tests": gate_env(GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/1/merge"),
+            "dispatch": gate_env(GITHUB_EVENT_NAME="workflow_dispatch"),
+            "build leg": gate_env(GITHUB_JOB="build"),
+            "fork": gate_env(GITHUB_REPOSITORY="someone/cmux"),
+        }
+        for name, env in cases.items():
+            with self.subTest(name):
+                result = self.hook(env, "--role", "next-gate")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_job_env_cannot_choose_the_gate_role(self):
+        # The nightly-app runner (no --role) refuses the gate job even if the job sets a role.
+        result = self.hook(gate_env(NIGHTLY_BUILDER_ROLE="next-gate"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not .github/workflows/nightly.yml", result.stderr)
+
+    def test_unknown_role_refuses(self):
+        ok, reason = nb.admit(gate_env(), free_bytes=100 * GIB, role="seed")
+        self.assertFalse(ok)
+        self.assertIn("role", reason)
 
 
 def run(conclusion, sha, created, status="completed"):
@@ -145,6 +200,27 @@ class PruneTest(unittest.TestCase):
             self.assertTrue(paths["new_temp"].exists())
             self.assertTrue(paths["cache"].exists())
             self.assertEqual(len(removed), 2)
+
+
+
+class GlaedaFloor(unittest.TestCase):
+    """glaeda passes the runner's own floor (GLAEDA_MIN_FREE_GIB): the builder admits by that one number."""
+
+    def test_the_glaeda_floor_is_used_when_valid(self) -> None:
+        self.assertEqual(nb.min_free_bytes({"GLAEDA_MIN_FREE_GIB": "40"}), 40 * GIB)
+        self.assertEqual(nb.min_free_bytes({"GLAEDA_MIN_FREE_GIB": "25.5"}), int(25.5 * GIB))
+        for bad in ("", "0", "-1", "nan", "inf", "x", "20000"):
+            with self.subTest(bad=bad):
+                self.assertEqual(nb.min_free_bytes({"GLAEDA_MIN_FREE_GIB": bad}), nb.MIN_FREE_BYTES)
+        self.assertEqual(nb.min_free_bytes({}), nb.MIN_FREE_BYTES)
+
+    def test_admission_follows_the_glaeda_floor(self) -> None:
+        floor = nb.min_free_bytes({"GLAEDA_MIN_FREE_GIB": "30"})
+        ok, _ = nb.admit(job_env(), free_bytes=35 * GIB, min_free=floor)
+        self.assertTrue(ok)
+        ok, reason = nb.admit(job_env(), free_bytes=25 * GIB, min_free=floor)
+        self.assertFalse(ok)
+        self.assertIn("below 30 GiB", reason)
 
 
 if __name__ == "__main__":

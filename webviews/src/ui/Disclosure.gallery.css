@@ -5,7 +5,7 @@
   min-height: 240px;
   padding: 28px;
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .disclosure-gallery-copy {
@@ -14,6 +14,7 @@
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .disclosure-gallery-copy strong {
@@ -21,6 +22,7 @@
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .disclosure-gallery {
@@ -43,6 +45,7 @@
   line-height: var(--text-control--line-height);
   font-weight: 600;
   text-align: start;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .disclosure-gallery .ui-disclosure-trigger:hover {
@@ -70,6 +73,7 @@
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 72%, transparent));
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .disclosure-gallery-panel p {
@@ -85,6 +89,7 @@
   color: var(--cmux-text, CanvasText);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .disclosure-gallery-receipt {
@@ -92,4 +97,5 @@
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }

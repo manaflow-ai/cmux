@@ -4,20 +4,20 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextPages
 
-/// The docked Home's two views over `HomeDockSwitchView` (cx-ebm.59.5, cx-frn2y): Messages, the native
-/// MessagesLab list and transcript (`TopHomePageView`, the same view classic Home shows; the sidebar's
-/// Home entry), and Channels, hq-ec's `home-channels` page (the sidebar's Channels entry). Messages -> Channels
-/// opens `#/conversation/<id>[/message/<id>]` in the page; Channels -> Messages asks the page for
-/// its selection (`home.currentSelection`).
-final class HomeDockView: HomeDockSwitchView {
+/// The docked Home's two views over `HomeDockSwitchView` (cx-ebm.59.5, cx-frn2y): Messages, the native MessagesLab
+/// list and transcript (`TopHomePageView`, as classic Home; the sidebar's Home entry), and Channels, hq-ec's `home-channels`
+/// page (the sidebar's Channels entry). Messages -> Channels opens `#/conversation/<id>[/message/<id>]` in the page;
+/// Channels -> Messages asks the page for its selection (`home.currentSelection`).
+final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
     typealias Mode = HomeDockMode
     typealias Selection = HomeDockSelection
 
     private weak var services: AppServices?
     private(set) var messages: TopHomePageView?
     private(set) var channels: PageWebView?
-    /// Asks the Channels page for its selection (`home.currentSelection`); nil when it has none
-    /// or does not answer. Set by the provider (the page's reply path).
+    /// The page the focus model gives the keyboard to (``PageWebView/shown(in:)``): Channels while it shows.
+    var shownPageView: PageWebView? { mode == .channels ? channels : nil }
+    /// Asks the Channels page for its selection (`home.currentSelection`); nil when none or no answer (the page's reply path).
     var channelsSelection: (@MainActor (PageWebView) async -> Selection?)?
 
     init(services: AppServices, mode: Mode) {
@@ -48,9 +48,9 @@ final class HomeDockView: HomeDockSwitchView {
         switch mode {
         case .messages:
             guard let shown = messages?.shown else { return nil }
-            // A Cloud conversation's message link has no resolver in the page yet (hq-ec G4): the conversation only.
-            let cloud = services?.home.isCloudConversation(shown) ?? false
-            let thread = cloud ? nil : messages?.host.flatMap { HomePageTab.transcript(in: $0) }?.openThreadMessage
+            // A Cloud conversation keeps its message too: with no owner resolver, the page pages its own
+            // timeline to the message and opens its thread (store.ts openKnown), as the native view does.
+            let thread = messages?.host.flatMap { HomePageTab.transcript(in: $0) }?.openThreadMessage
             return Selection(conversation: shown.rawValue, message: thread)
         case .channels:
             guard let channels, let ask = channelsSelection else { return nil }

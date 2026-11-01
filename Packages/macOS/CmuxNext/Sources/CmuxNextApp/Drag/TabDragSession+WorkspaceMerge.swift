@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSidebar
 
 // A sidebar workspace dropped on a pane of the shown workspace (Leo
 // 2026-10-06): its tabs come in the way a tab drag would bring one. The
@@ -19,13 +20,15 @@ enum WorkspaceMerge {
         guard let source = services.workspace(id: workspaceID), let outcome = outcome(kind) else { return }
         let tabs = source.screens.flatMap(\.panes).flatMap(\.tabs)
         guard let first = tabs.first, let daemon = services.machines.daemon(forWorkspace: workspaceID) else { return }
+        // Into a workspace shown beside the focused one (`sidebar.multiView`): it is focused first, as a press does.
+        if !drag.filesAway { window.focusDropTarget(outcome, atScreen: drag.point) }
         session.claimClosing(source)
         let transaction = ClientTransactionID.generate()
         session.executeTab(outcome, tab: first, dropWindow: window, drag: drag, transaction: transaction) { [weak session] ok in
             guard let session else { return }
             guard ok else { return session.finishClosing(source, moved: false) }
             daemon.whenApplied(transaction) { [weak session] in
-                moveRest(Array(tabs.dropFirst()), following: first.id, services: services) { moved in
+                moveRest(Array(tabs.dropFirst()), following: first, services: services) { moved in
                     session?.finishClosing(source, moved: moved)
                 }
             }
@@ -36,17 +39,22 @@ enum WorkspaceMerge {
     /// drag that may merge there, and the layout adapter showing it.
     static func hit(_ point: CGPoint, ids: [String], group: String?, window: WindowController,
                     layout: LayoutTabDropTarget, services: AppServices) -> TabDropProposal? {
-        guard let id = ids.first, allowed(ids, group: group, into: window, services: services),
+        guard let id = ids.first, allowed(ids, group: group, into: window.content(atScreen: point)?.workspace, services: services),
               let proposal = layout.workspaceHitTest(screenPoint: point, workspaceID: id), outcome(proposal.kind) != nil else { return nil }
+        // Multi-view: a screen edge dock band places the workspace beside the shown one, not in a new dock of it.
+        if SidebarTunables.multiView.value, case .newDock = proposal.kind {
+            layout.dropExited()
+            return nil
+        }
         return proposal
     }
 
-    /// Whether `ids` may merge into `window`'s shown workspace: one
+    /// Whether `ids` may merge into `shown`, a workspace on screen: one
     /// workspace (any number of tabs, even one), not a fixed one, not the
     /// shown one, on the same machine.
-    static func allowed(_ ids: [String], group: String?, into window: WindowController, services: AppServices) -> Bool {
+    static func allowed(_ ids: [String], group: String?, into shown: WorkspaceModel?, services: AppServices) -> Bool {
         guard group == nil, ids.count == 1, let id = ids.first, let source = services.workspace(id: id),
-              !staysPut(kind: source.kind), let shown = window.content?.workspace, shown.id != id else { return false }
+              !staysPut(kind: source.kind), let shown, shown.id != id else { return false }
         return services.machines.daemon(forWorkspace: id) === services.machines.daemon(forWorkspace: shown.id)
     }
 
@@ -73,10 +81,10 @@ enum WorkspaceMerge {
     }
 
     /// Moves `tabs` one at a time to the end of the pane holding `anchor`.
-    static func moveRest(_ tabs: [TabModel], following anchor: String, services: AppServices,
+    static func moveRest(_ tabs: [TabModel], following anchor: TabModel, services: AppServices,
                          completion: @escaping @MainActor (Bool) -> Void) {
         guard let tab = tabs.first else { return completion(true) }
-        guard let (_, pane) = services.locateTab(anchor) else { return completion(false) }
+        guard let (_, pane) = services.locateTab(model: anchor) else { return completion(false) }
         TabMoves.move(tab, to: pane, index: pane.tabs.count, services: services) { ok in
             guard ok else { return completion(false) }
             moveRest(Array(tabs.dropFirst()), following: anchor, services: services, completion: completion)

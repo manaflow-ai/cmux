@@ -45,6 +45,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn spawn_surface_with(
         self: &Arc<Self>,
         cwd: Option<String>,
@@ -151,11 +152,15 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (
-                        Some(terminal_id),
+                    crate::surface::HostLaunch {
+                        terminal_id: Some(terminal_id),
                         // Reopen Closed of an archived terminal (ARCHIVE-1).
-                        &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
-                    ),
+                        seed: &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
+                        // Its first record names the workspace, so the
+                        // recovery mirror below needs no second synced write.
+                        workspace_key,
+                        standby: None,
+                    },
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
@@ -164,6 +169,9 @@ impl Mux {
             let surface = match spawned {
                 Ok(surface) => surface,
                 Err(error) => {
+                    if pty_reclaim::is_pty_exhaustion(&error) {
+                        self.note_pty_exhausted();
+                    }
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
@@ -304,7 +312,7 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (None, &[]),
+                    crate::surface::HostLaunch::default(),
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
@@ -316,7 +324,7 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (None, &[]),
+                    crate::surface::HostLaunch::default(),
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,

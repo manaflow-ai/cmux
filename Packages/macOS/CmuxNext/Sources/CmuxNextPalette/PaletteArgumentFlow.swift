@@ -15,11 +15,14 @@ struct PaletteArgumentFlow {
     var preview: PaletteArgumentPreview?
     /// Colors for a suggested value's row (theme swatch strips, R98).
     var swatches: PaletteArgumentSwatches?
+    /// An argument a handler asks for although the schema makes it optional (a menu Rename with
+    /// no name, ``ActionRegistry/ask(_:_:_:)``): it is collected like a required one.
+    var ask: ActionArgumentAsk?
 
     func effect(collected: ActionInvocation) -> PaletteEffect {
         let registry = registry
         let id = descriptor.id
-        guard let argument = descriptor.arguments.first(where: { $0.isRequired && collected.arguments[$0.name] == nil }) else {
+        guard let argument = descriptor.arguments.first(where: { asks(for: $0) && collected.arguments[$0.name] == nil }) else {
             return .perform { registry.perform(id, invocation: collected) }
         }
         // An input step follows, and the action runs after the palette
@@ -29,6 +32,8 @@ struct PaletteArgumentFlow {
             collected.target = target
         }
         switch argument.kind {
+        case .string where argument.suggestions?.allowsMultiple == true:
+            return .push(multipleChoicePage(for: argument, chosen: [], collected: collected))
         case .string where argument.suggestions != nil:
             return .push(withPreview(suggestionPage(for: argument, collected: collected), argument, collected))
         case .string, .int:
@@ -43,8 +48,39 @@ struct PaletteArgumentFlow {
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
-            return .push(listPage(for: argument, options: targets.targets(of: kind), collected: collected))
+            var page = listPage(for: argument, options: targets.targets(of: kind, for: descriptor.id), collected: collected)
+            if let updates = targets.targetUpdates(of: kind, for: descriptor.id) {
+                let flow = self
+                let invocation = collected
+                page.providers = [AsyncPaletteProvider.streaming(id: "argument", immediateItems: page.providers.first?.immediateItems) {
+                    let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
+                    // task-owner: maps one open's option lists to rows; ends with the stream's consumer
+                    let task = Task { @MainActor in
+                        for await options in updates() {
+                            let loaded = flow.listPage(for: argument, options: options, collected: invocation)
+                            continuation.yield(await loaded.providers.first?.items() ?? [])
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                    return stream
+                }]
+            } else if let refresh = targets.targetRefresh(of: kind, for: descriptor.id) {
+                let flow = self
+                let invocation = collected
+                page.providers = [AsyncPaletteProvider(id: "argument", immediateItems: page.providers.first?.immediateItems) {
+                    let options = await refresh()
+                    guard !Task.isCancelled else { return [] }
+                    let loaded = flow.listPage(for: argument, options: options, collected: invocation)
+                    return await loaded.providers.first?.items() ?? []
+                }]
+            }
+            return .push(page)
         }
+    }
+
+    private func asks(for argument: ActionArgument) -> Bool {
+        argument.isRequired || argument.name == ask?.argument
     }
 
     /// Live preview of the highlighted option (theme pickers).
@@ -92,7 +128,7 @@ struct PaletteArgumentFlow {
         return nil
     }
 
-    private func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
+    func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
         guard let value = argument.parse(text) else { return nil }
         var next = collected
         next.arguments[argument.name] = value
@@ -106,8 +142,8 @@ struct PaletteArgumentFlow {
             title: Self.stepTitle(descriptor, argument),
             placeholder: argument.title,
             symbol: descriptor.symbol,
-            initialText: currentText(for: argument, of: collected.target) ?? "",
-            skipsUnchangedText: argument.isTargetName || argument.isTargetDescription,
+            initialText: askedText(for: argument) ?? currentText(for: argument, of: collected.target) ?? "",
+            skipsUnchangedText: argument.isTargetName || argument.isTargetDescription || askedText(for: argument) != nil,
             submitTitle: { text in PaletteStrings.submitText(title: descriptor.title, text: text) },
             isValid: { text in
                 !text.trimmingCharacters(in: .whitespaces).isEmpty && argument.parse(text) != nil
@@ -117,6 +153,11 @@ struct PaletteArgumentFlow {
                 return flow.effect(collected: next)
             }
         )
+    }
+
+    /// The text a handler's ask starts `argument`'s prompt from (the current name it read).
+    private func askedText(for argument: ActionArgument) -> String? {
+        argument.name == ask?.argument ? ask?.initialText : nil
     }
 
     /// The text `argument`'s prompt starts from: `target`'s current name
@@ -139,7 +180,7 @@ struct PaletteArgumentFlow {
                 subtitle: option.subtitle,
                 symbol: option.symbol ?? descriptor.symbol,
                 section: section,
-                isEnabled: next != nil,
+                isEnabled: next != nil && option.isEnabled,
                 primary: PaletteCommand(
                     id: "choose",
                     title: PaletteStrings.choose,
@@ -152,8 +193,14 @@ struct PaletteArgumentFlow {
             item.ball = PaletteGroupColor.ball(action: descriptor.id, argument: argument.name, value: option.id)
             return item
         }
+        // The value in effect (the current team or theme) reads "Current" and is the row the
+        // step opens on, as in the settings pickers.
+        let current = currentValue(of: argument, collected: collected).map { "option:\($0)" }
+        if let current, let index = items.firstIndex(where: { $0.id == current }) {
+            items[index].accessory = PaletteStrings.current
+        }
         items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))
-        return PalettePageSpec(
+        var page = PalettePageSpec(
             id: "argument:\(descriptor.id.rawValue):\(argument.name)",
             title: Self.stepTitle(descriptor, argument),
             placeholder: PaletteStrings.chooseArgument(argument.title),
@@ -161,6 +208,15 @@ struct PaletteArgumentFlow {
             providers: [StaticPaletteProvider(id: "argument", items: items)],
             showsRecent: true
         )
+        if let current, items.contains(where: { $0.id == current }) { page.emptyQuerySelectionID = current }
+        return page
+    }
+
+    /// The value `argument` has now for the run's target (`ActionRegistry.choiceState`), when it is
+    /// the action's one choice: with several arguments the state names none of them.
+    private func currentValue(of argument: ActionArgument, collected: ActionInvocation) -> String? {
+        guard descriptor.arguments.filter(asks).count == 1 else { return nil }
+        return registry.choiceState?(descriptor.id, collected.target ?? capturedTarget)
     }
 
     /// The option value behind a list row (`option:<value>`).
@@ -168,10 +224,20 @@ struct PaletteArgumentFlow {
         item.id.hasPrefix("option:") ? String(item.id.dropFirst("option:".count)) : nil
     }
 
+    /// An action title without the trailing ellipsis that marks it as asking for more ("New Group
+    /// Chat…" is "New Group Chat"): "…" or "...", and the space some locales put before it ("Neuer
+    /// Gruppenchat …").
+    static func baseTitle(_ title: String) -> String {
+        var text = Substring(title)
+        if text.hasSuffix("…") { text = text.dropLast() } else if text.hasSuffix("...") { text = text.dropLast(3) }
+        while let last = text.last, last.isWhitespace { text = text.dropLast() }
+        return text.isEmpty ? title : String(text)
+    }
+
     /// "Set Tab Group Color: Color" reads badly; use the action title for
     /// single-argument actions and "Title › Argument" otherwise.
     static func stepTitle(_ descriptor: ActionDescriptor, _ argument: ActionArgument) -> String {
-        let base = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
+        let base = baseTitle(descriptor.title)
         let required = descriptor.arguments.filter(\.isRequired)
         return required.count <= 1 ? base : "\(base) › \(argument.title)"
     }

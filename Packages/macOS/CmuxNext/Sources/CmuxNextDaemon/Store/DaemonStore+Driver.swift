@@ -5,14 +5,30 @@ import CmuxNextCompat
 /// Off-main event buffer. The pump appends; the main actor takes whole
 /// batches. At most one frame is requested per non-empty buffer.
 ///
+/// Coalescing (plans/cmux-next/main-thread-budget.md): an event that states
+/// the whole current value of one surface's field (title, size, scroll,
+/// agent presence: ``CoalesceKey``) replaces an earlier one for the same
+/// surface still in the buffer, so a batch applies each object's newest
+/// value once, however often it changed since the last frame. Workspace,
+/// screen, pane and tab deltas are never coalesced: they carry consecutive
+/// revisions and structural moves. Agent statuses are never coalesced
+/// either: the store records each transition.
+///
 /// Bounded (architecture.md 5a): past `limit` events the buffer collapses
 /// into one `.overflow` marker, which the store answers with one snapshot
 /// that supersedes everything dropped. Lifecycle events and transaction
 /// echoes (which settle intents and waiters) survive the collapse; every
 /// other event is dropped until the next `take()`.
 final class EventInbox: Sendable {
-    private struct State {
-        var events: [DaemonEventEnvelope] = []
+    fileprivate struct State {
+        /// Buffered events in order; nil where a newer event of the same coalescing key replaced one.
+        var events: [DaemonEventEnvelope?] = []
+        /// Live (non-nil) entries of `events`.
+        var live = 0
+        /// The slot of the newest event per coalescing key (normal mode only).
+        var latest: [CoalesceKey: Int] = [:]
+        /// Events replaced by a newer one since creation (debug).
+        var coalesced = 0
         var framePending = false
         /// Set once the buffer collapsed; cleared by `take()`.
         var collapsed = false
@@ -34,14 +50,24 @@ final class EventInbox: Sendable {
         state.withLock { state in
             if state.collapsed {
                 Self.keep(envelope, in: &state)
-            } else if state.events.count >= limit {
-                let buffered = state.events
+            } else if let key = CoalesceKey(envelope.event), let old = state.latest[key] {
+                // The newest value of the same field of the same surface: the older one never applies.
+                state.events.modify(checked: old) { $0 = nil }
+                state.coalesced += 1
+                state.latest[key] = state.events.count
+                state.events.append(envelope)
+            } else if state.live >= limit {
+                let buffered = state.events.compactMap { $0 }
                 state.events = [DaemonEventEnvelope(sequence: envelope.sequence, event: .overflow("app event inbox exceeded \(limit) events"))]
+                state.live = 1
+                state.latest.removeAll(keepingCapacity: true)
                 state.collapsed = true
                 for old in buffered { Self.keep(old, in: &state) }
                 Self.keep(envelope, in: &state)
             } else {
+                if let key = CoalesceKey(envelope.event) { state.latest[key] = state.events.count }
                 state.events.append(envelope)
+                state.live += 1
             }
             guard !state.framePending else { return false }
             state.framePending = true
@@ -49,43 +75,49 @@ final class EventInbox: Sendable {
         }
     }
 
+    /// Events a newer one replaced so far (debug).
+    var coalescedCount: Int { state.withLock { $0.coalesced } }
+
+    /// Events buffered and not taken yet (debug, tests).
+    var bufferedCount: Int { state.withLock { $0.live } }
+
     /// While collapsed: keep lifecycle and bookmark events and one echo per transaction
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
         case .connected, .disconnected, .daemonShutdown, .sessionState:
             // Session state: not in the snapshot the collapse refetches.
-            state.events.append(envelope)
+            state.append(envelope)
         case .terminalRegistryChanged:
             // Only an invalidation: keep the newest from each original control
             // connection. A replacement source must not inherit the old stamp.
-            state.events.removeAll {
+            state.removeAll {
                 if case .terminalRegistryChanged = $0.event {
                     return $0.sourceID == envelope.sourceID && $0.connectionSerial == envelope.connectionSerial
                 }
                 return false
             }
-            state.events.append(envelope)
+            state.append(envelope)
         case .agentChanged(let status):
             // Agent state is not in the snapshot either (cx-ag5.6.8). Each event is the whole state
             // of one surface, so a collapsed inbox keeps only the newest one per surface.
-            state.events.removeAll { if case .agentChanged(let held) = $0.event { held.surface == status.surface } else { false } }
-            state.events.append(envelope)
+            state.removeAll { if case .agentChanged(let held) = $0.event { held.surface == status.surface } else { false } }
+            state.append(envelope)
         case .notification:
             // Its text is not in the snapshot either (`outlivesSnapshot`).
-            state.events.append(envelope)
+            state.append(envelope)
         case .agentPresenceChanged(let presence):
-            state.events.removeAll {
+            state.removeAll {
                 if case .agentPresenceChanged(let held) = $0.event { held.surface == presence.surface } else { false }
             }
-            state.events.append(envelope)
+            state.append(envelope)
         case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
             // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1).
-            state.events.append(envelope)
+            state.append(envelope)
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }
-            state.events.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction)))
+            state.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction)))
         }
     }
 
@@ -95,14 +127,30 @@ final class EventInbox: Sendable {
             state.framePending = false
             state.collapsed = false
             state.echoes.removeAll(keepingCapacity: true)
+            state.latest.removeAll(keepingCapacity: true)
+            state.live = 0
             defer { state.events.removeAll(keepingCapacity: true) }
-            return state.events
+            return state.events.compactMap { $0 }
         }
     }
 
     /// Keeps new events from scheduling frames (during a resync).
     func hold() {
         state.withLock { $0.framePending = true }
+    }
+}
+
+extension EventInbox.State {
+    /// Appends a live event (collapsed mode; no coalescing key is tracked there).
+    mutating func append(_ envelope: DaemonEventEnvelope) {
+        events.append(envelope)
+        live += 1
+    }
+
+    /// Removes the live events `predicate` matches (collapsed mode).
+    mutating func removeAll(where predicate: (DaemonEventEnvelope) -> Bool) {
+        events = events.compactMap { $0 }.filter { !predicate($0) }
+        live = events.count
     }
 }
 
@@ -133,7 +181,11 @@ extension DaemonStore {
             }
         }
         let failure = await pump.value
+        // Everything left: a frame asked for after this would find no driver.
         drain()
+        // What a script batch's stage still holds is this connection's, and a commit now could start a resync on
+        // it: dropped (held intents show again as pending); the next connection's snapshot is the truth.
+        stage?.discard()
         // The connection is gone: no echo or barrier will come for its commands.
         drainAppliedWaiters = true
         flushAppliedWaiters()
@@ -147,7 +199,12 @@ extension DaemonStore {
         self.driver = nil
     }
 
-    /// Applies everything buffered as one batch.
+    /// Applies everything buffered as one batch, never split across frames: one daemon transaction
+    /// (close twelve panes and the layout change, close other workspaces) never shows half applied,
+    /// and the echo of a person's action with no intent (close other tabs, close a workspace from
+    /// the palette or the CLI) shows in the frame after it arrives, whatever else is queued. The
+    /// batch's cost is what changed since the last frame: whole-value events coalesce in the inbox,
+    /// and a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift).
     func drain() {
         guard let driver, !isResyncing else { return }
         let batch = driver.inbox.take()
@@ -215,7 +272,10 @@ extension DaemonStore {
             var failed = false
             do {
                 let (tree, barrier) = try await driver.connection.snapshot()
-                apply(snapshot: tree)
+                // The comparison with the last applied snapshot reads the whole tree: off the main
+                // thread. Main applies only what differs (or everything, when the memo cannot vouch).
+                let diff = await snapshotDiff(of: tree)
+                apply(snapshot: tree, diff: diff)
                 snapshotBarrier = max(snapshotBarrier, barrier)
                 snapshotCoveredPersonal(through: barrier)
                 advanceAppliedSequence(to: barrier)

@@ -36,17 +36,26 @@ extension AgentTabStore {
                 : localHost == nil ? RefusalStrings.agentTabCreateFailed : RefusalStrings.agentTabsUnsupported
             throw AgentTabRefusal(message: reason)
         }
-        // A Chief subagent's tab names this app's Chief home (`chief:<home id>`); no other host.
         let record: AgentSessionRef
-        if let host, host != chiefHost {
+        if let refusal = Self.hostRefusal(host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemon.isLocal) {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
-            throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
+            throw AgentTabRefusal(message: refusal)
         }
+        // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
+        // that machine's own chat, filed under its store, which checks it against its own list. Its
+        // lineage is read under that store's `registry:<id>` (the wire notes it there too); with no
+        // store id yet the tab could not be filed under it either, so the open is refused below.
+        let remoteHost = !daemon.isLocal ? Self.registryHost(of: daemon) : nil
+        let remoteChild = !daemon.isLocal && host == nil && adopt == nil
+            && session.map { id in
+                guard let remoteHost else { return false }
+                return RemoteAgentSessionLinks.shared.parent(of: id, host: remoteHost) != nil
+            } == true
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
         // the New Tab page's open-here included). The store binds a `registry:` tab's session only
         // through that machine's agent-session-start (cmux-tui conversation_tabs_wire.rs).
-        if !daemon.isLocal, session != nil || adopt != nil || seed?.namesLocalChat == true {
+        if !daemon.isLocal, !remoteChild, session != nil || adopt != nil || seed?.namesLocalChat == true {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch)
         }
@@ -65,16 +74,16 @@ extension AgentTabStore {
             // chat starts on that machine at the first send (``RemoteAcpmuxWire``). A prewarmed
             // spare is connected to this Mac's acpmux, so it is never adopted here.
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
-            seed = seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd))
+            seed = remoteChild ? nil : (seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd)))
             spare = nil
-            record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: nil, harness: nil)
+            record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: remoteChild ? session : nil, harness: nil)
         } else {
             record = AgentSessionRef(host: host ?? localHost, hostName: localHostName, session: session, harness: adopt?.harness)
         }
         let provisional = ProvisionalTab()
         let key = provisional.id, snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
         let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
-        let sendsSplitID = daemon.supports(DaemonCapabilities.shared.splitClientSplitID)
+        let sendsSplitID = daemon.supports(DaemonCapability.splitClientSplitID.rawValue)
         let store = daemon.store
         store.onTabCreated = { [weak self] provisional, tab in
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
@@ -117,6 +126,18 @@ extension AgentTabStore {
         return pending
     }
 
+    /// Why a tab cannot open on the session host `host`, nil when it can: none, this Mac's own
+    /// host, or this app's Chief home (`chief:<home id>`, a Chief subagent's tab), or in a pane of
+    /// this Mac any other Chief home's, which is this Mac's too (#25262). Another
+    /// machine's session never opens in a tab of this Mac (cx-k21v), and the refusal says so
+    /// (`app_agent_open` with `host: "cmux16"` said only "see the app log", 2026-10-20). This
+    /// Mac's host never opens in a pane of another machine (`daemonIsLocal` false) either.
+    static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?, daemonIsLocal: Bool) -> String? {
+        guard let host, host != chiefHost, !(daemonIsLocal && host.hasPrefix(ChiefHomeAcpmux.hostPrefix)) else { return nil }
+        if host == localHost { return daemonIsLocal ? nil : RefusalStrings.agentTabMachineMismatch }
+        return RefusalStrings.agentTabRunsOnHost(host)
+    }
+
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
     /// shows and is selected now (unless `select` is false); the store's tab keeps the selection
     /// when it replaces it, then `then` gets its id. A refusal is reported through the registry.
@@ -143,14 +164,14 @@ extension AgentTabStore {
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {
-            pane.pendingDock.insert(pending.key)
+            pane.pendingDock.opened(pending.key)
             pane.apply(pane.snapshot())
         }
         pane.services.registry.track(Task {
             do {
                 let created = try await pending.value()
                 content?.expectFocus(on: created.surface, generation: intent)
-                if hidden { pane.pendingDock.insert(created.key) }
+                if hidden { pane.pendingDock.created(pending.key, as: created.key) }
                 // A remote store can answer before its tree lists the provisional tab, so the
                 // provisional selection never took: the store's tab is selected now (cx-k21v).
                 if select, !hidden, !daemon.isLocal, pane.stripModel.selectedID?.rawValue != created.key {
@@ -182,6 +203,7 @@ extension AgentTabStore {
     func rekey(_ key: String, to real: String) {
         guard key != real else { return }
         aliases[key] = real
+        OutboundTab.rekeyed(key, to: real) // a tab on its way out of its pane stays out under its new id
         if remoteCreations[key] != nil || remoteSeeds[key] != nil { remoteAliases[key] = real }
         if let view = views.removeValue(forKey: key) {
             // A page made under the store's id meanwhile (another window) gives way to the one shown.
@@ -201,8 +223,7 @@ extension AgentTabStore {
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
         if let store = tabStores.removeValue(forKey: key) { tabStores[real] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
-        // The provisional alias is removed once the tree settles. Live callbacks
-        // must then name the store tab directly, including conversion and project reads.
+        // The provisional alias goes once the tree settles: live callbacks then name the store tab (conversion, project reads).
         if let view = views[real] { wire(view.model, key: real) }
         seenLive.remove(key)
     }
@@ -265,7 +286,10 @@ extension AgentTabStore {
 
     /// The tab already resuming the outside chat `adopt` while a tree lists it.
     func tab(resuming adopt: AgentPaneAdopt) -> String? {
-        guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"], isAgentTab(key) else { return nil }
+        guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"],
+              let (record, store) = lookup(key), isAgentTab(key),
+              case .connected = store.connectionState,
+              record.host == localHost else { return nil }
         return key
     }
 
@@ -289,6 +313,8 @@ extension AgentTabStore {
     /// Stops tab `key`'s page and forgets its view state.
     func release(_ key: String) {
         if let view = views.removeValue(forKey: key) {
+            // Its machine link is no longer pushed; the last page gone ends that observation.
+            machineLink.forget(view)
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
             // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).
             if newTabPages[key] != nil, recycle?(view) == true {
@@ -322,31 +348,26 @@ extension AgentTabStore {
     /// with a live tree. While the daemon is away its tabs keep their views; a tab the tree has
     /// not listed yet (its creation just answered) is kept.
     func releaseGoneTabs(in store: DaemonStore) {
-        guard let live = Self.liveTabs(store) else { return }
+        guard store.liveTabListRevision != nil else { return }
         for (key, owner) in tabStores where owner === store {
-            if live.contains(key) {
+            if store.liveTreeLists(tab: key) == true {
                 seenLive.insert(key)
             } else if seenLive.contains(key) {
                 release(key)
             }
         }
-        aliases = aliases.filter { live.contains($0.key) || !ProvisionalTab.isProvisional($0.key) }
-    }
-
-    static func liveTabs(_ store: DaemonStore) -> Set<String>? {
-        guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+        aliases = aliases.filter { store.liveTreeLists(tab: $0.key) == true || !ProvisionalTab.isProvisional($0.key) }
     }
 
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore) {
         tabStores[key] = store
-        if Self.liveTabs(store)?.contains(key) == true { seenLive.insert(key) }
+        if store.liveTreeLists(tab: key) == true { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tab belongs to the store
         watches[id] = Task { [weak self] in
-            for await live in ObservationStream({ Self.liveTabs(store) }) where live != nil {
+            for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
                 guard let self else { return }
                 self.releaseGoneTabs(in: store)
             }

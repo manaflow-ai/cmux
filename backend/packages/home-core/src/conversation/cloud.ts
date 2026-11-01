@@ -1,9 +1,9 @@
 import { fail } from "./reject.ts"
 import { conversationChanged, type Commit, type Draft, type OpRequest } from "./request.ts"
 import { validateSettings } from "./settings.ts"
-import { DEFAULT_SETTINGS, MAX_DISPLAY_NAME_CHARS, type CloudOp, type ConversationHead, type Invite, type Participant } from "./types.ts"
+import { DEFAULT_SETTINGS, MAX_DISPLAY_NAME_CHARS, type CloudOp, type ConversationHead, type Invite, type Message, type Participant, type ParticipantRole } from "./types.ts"
 import { checkGrant, checkOver, grantableRole, isManager, roleOf } from "./roles.ts"
-import { charCount, currentParticipant } from "./validate.ts"
+import { charCount, currentParticipant, findParticipant } from "./validate.ts"
 
 /**
  * Cloud extensions of the reducer (home-messaging.md section 4.1): leave and
@@ -52,9 +52,13 @@ export const isOpen = (invite: Invite): boolean => invite.status === "pending" |
  * host writes the ban row (domain.ts) and refuses adds until `participants.unban`.
  */
 export const removeParticipant = (head: ConversationHead, next: Draft, request: OpRequest, actor: Participant, op: OpOf<"participants.remove">): Commit => {
-  if (head.kind === "dm" || head.kind === "chief") fail("kind_forbids")
+  if (head.kind === "dm") fail("kind_forbids")
   const target = currentParticipant(head, op.participant)
   if (!target) return fail("unknown_participant")
+  // A Chief's conversation keeps its owner and its Chief; only the people it was shared with leave or are removed.
+  if (head.kind === "chief" && (target.kind !== "human" || roleOf(target) === "owner")) fail("kind_forbids")
+  // A Chief's conversation has no ban list to manage (no unban there): the owner just removes.
+  if (head.kind === "chief" && op.ban === true) fail("kind_forbids")
   const self = target.id === actor.id
   const ownChief = target.kind === "agent" && target.owner_user === actor.id
   if (!self && !ownChief) checkOver(actor, target)
@@ -69,10 +73,32 @@ export const removeParticipant = (head: ConversationHead, next: Draft, request: 
   return conversationChanged(next, request)
 }
 
+/**
+ * A Chief's conversation shared with teammates (cmux#25569): its owner adds people (never an agent:
+ * the conversation has one Chief), as members who talk to the Chief or read-only people who only see
+ * it. Nobody else adds anyone, and nobody becomes an admin. The Worker resolves the reach (a shared
+ * team only, domain.ts). The Chief keeps its owner's grants: a teammate's request to it gets the
+ * approval rule (chief-brain effect-policy.ts), and only the owner answers its questions.
+ */
+export const checkChiefShare = (actor: Participant, participant: Participant, role: ParticipantRole | undefined): void => {
+  if (participant.kind !== "human") fail("invalid_participant")
+  if (roleOf(actor) !== "owner") fail("forbidden")
+  if (role !== undefined && role !== "member" && role !== "read_only") fail("forbidden")
+}
+
+/** In a Chief's conversation an agent's question is its owner's to answer (an approval), not a teammate's. */
+export const checkChiefAnswer = (head: ConversationHead, question: Message, actor: Participant): void => {
+  if (head.kind !== "chief") return
+  const asker = findParticipant(head, question.author)
+  if (asker?.kind === "agent" && asker.owner_user !== actor.id) fail("forbidden")
+}
+
 /** `participants.set_role`: a manager strictly above the target sets a role it may grant. */
 export const setRole = (head: ConversationHead, next: Draft, request: OpRequest, actor: Participant, op: OpOf<"participants.set_role">): Commit => {
-  if (head.kind === "dm" || head.kind === "chief") fail("kind_forbids")
+  if (head.kind === "dm") fail("kind_forbids")
   const role = grantableRole(op.role)
+  // In a Chief's conversation only its owner manages: a teammate is a member (talks) or read-only (sees).
+  if (head.kind === "chief" && (roleOf(actor) !== "owner" || role === "admin")) fail("forbidden")
   const target = currentParticipant(head, op.participant)
   if (!target) return fail("unknown_participant")
   if (target.kind !== "human") fail("invalid_participant")

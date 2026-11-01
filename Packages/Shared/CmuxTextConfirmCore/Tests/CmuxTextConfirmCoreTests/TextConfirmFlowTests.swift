@@ -1,25 +1,32 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 import Testing
 @testable import CmuxTextConfirmCore
 
+// The signers hold the key's raw bytes, not the key: swift-crypto's P256 keys are not Sendable on Linux.
 struct KeySigner: PresenceSigner {
-    let key: P256.Signing.PrivateKey
+    let keyBytes: Data
     let der: Bool
+    init(key: P256.Signing.PrivateKey, der: Bool) { keyBytes = key.rawRepresentation; self.der = der }
     func sign(_ message: Data) async throws -> Data {
-        let s = try key.signature(for: message)
+        let s = try P256.Signing.PrivateKey(rawRepresentation: keyBytes).signature(for: message)
         return der ? s.derRepresentation : s.rawRepresentation
     }
 }
 
 /// A broken client: re-encodes the JSON after the domain line before signing.
 struct ReEncodingSigner: PresenceSigner {
-    let key: P256.Signing.PrivateKey
+    let keyBytes: Data
+    init(key: P256.Signing.PrivateKey) { keyBytes = key.rawRepresentation }
     func sign(_ message: Data) async throws -> Data {
         let prefix = Data((TextConfirmChallenge.domain + "\n").utf8)
         let object = try JSONSerialization.jsonObject(with: message.dropFirst(prefix.count))
         let reencoded = prefix + (try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
-        return try key.signature(for: reencoded).rawRepresentation
+        return try P256.Signing.PrivateKey(rawRepresentation: keyBytes).signature(for: reencoded).rawRepresentation
     }
 }
 
@@ -35,7 +42,10 @@ final class TestClock: @unchecked Sendable { var now = Date(timeIntervalSince197
 
     func owner(_ clock: TestClock, level: TextConfirmLevel = .strict, locked: TextConfirmLevel? = nil,
                registeredHoursAgo: Double = 25, nonCanonical: Bool = false) -> MockTextConfirmOwner {
-        MockTextConfirmOwner(level: level, lockedLevel: locked, presenceKey: key.publicKey,
+        // A fresh copy of the public key, so the actor gets a value nothing else holds
+        // (swift-crypto's P256 keys are not Sendable on Linux).
+        MockTextConfirmOwner(level: level, lockedLevel: locked,
+                             presenceKey: try! P256.Signing.PublicKey(rawRepresentation: key.publicKey.rawRepresentation),
                              keyRegisteredAt: clock.now.addingTimeInterval(-registeredHoursAgo * 3600),
                              nonCanonical: nonCanonical, now: { clock.now })
     }

@@ -22,7 +22,7 @@ extension MainPaneGutterSuites {
     /// gutter stepped darker than the card over the art. The window's frame is an edge too: with the
     /// flush opt-in (Debug Settings gutter 0) the main pane takes the window's own edge and corners
     /// where it meets the window, so one outline shows. The default keeps today's 6 pt gutter.
-    @MainActor @Suite(.serialized) struct WebviewPaneOneEdgeTests {
+    @MainActor struct WebviewPaneOneEdgeTests {
         private actor NoHost: AgentPaneHostProviding {
             func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
         }
@@ -213,7 +213,7 @@ extension MainPaneGutterSuites {
         /// trailing, bottom, and the leading edge with the sidebar hidden) exactly one rounded outline
         /// shows, the window's own, over wallpaper art and on an opaque theme, with the sidebar on
         /// either side or hidden.
-        @Test(arguments: [BackdropArt?.some(.goyaSaturn), nil])
+        @Test(arguments: [BackdropArt?.some(.friedrichForestMoonlight), nil])
         func whereThePaneMeetsTheWindowOneOutlineShows(art: BackdropArt?) throws {
             try #require(Metrics.mainPaneCurved, "the curved main pane is on by default")
             try MainPaneGutterSuites.withGutter(0) {

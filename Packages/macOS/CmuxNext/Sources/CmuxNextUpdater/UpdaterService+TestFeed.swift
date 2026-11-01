@@ -1,7 +1,7 @@
 import CmuxUpdater
 import Foundation
 
-/// "Use Test Update Feed" (coordinator 2026-10-04): DEV and NIGHTLY builds
+/// "Use Test Update Feed" (coordinator 2026-10-04): DEV and NIGHTLY (classic or NEXT) builds
 /// may read a test appcast instead of the baked feed. Sparkle still checks
 /// every item against the app's own EdDSA key, so a test feed can only
 /// offer builds signed with that key. The feed shows in the card stack and
@@ -13,7 +13,7 @@ extension UpdaterService {
     /// Uses `url` (nil clears) for every check until relaunch, or until
     /// cleared when `pinned`.
     public func useTestFeed(_ url: String?, pinned: Bool) throws {
-        guard identity.track == .nightly || identity.track == .development else {
+        guard identity.track.allowsTestFeed else {
             throw UpdaterUnavailable.testFeedRefused
         }
         guard let url else {
@@ -21,6 +21,7 @@ extension UpdaterService {
             defaults.removeObject(forKey: Self.pinnedTestFeedKey)
             controller?.feedOverride = nil
             log.append("test feed cleared")
+            refreshReleasePush()
             return
         }
         guard Self.acceptsTestFeed(url) else { throw UpdaterUnavailable.testFeedRefused }
@@ -32,6 +33,8 @@ extension UpdaterService {
         }
         controller?.feedOverride = url
         log.append("test feed \(url)\(pinned ? " (pinned)" : "")")
+        // A test feed is never one the release push serves: the socket closes.
+        refreshReleasePush()
     }
 
     /// https anywhere, or http on a loopback host (a local test server).
@@ -53,7 +56,7 @@ extension UpdaterService {
 
     /// Restores a pinned test feed at launch (DEV and NIGHTLY only).
     func restorePinnedTestFeed() {
-        guard identity.track == .nightly || identity.track == .development,
+        guard identity.track.allowsTestFeed,
               let pinned = defaults.string(forKey: Self.pinnedTestFeedKey), Self.acceptsTestFeed(pinned) else { return }
         testFeedURL = pinned
         controller?.feedOverride = pinned

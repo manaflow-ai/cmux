@@ -277,6 +277,11 @@ final class ExtensionActionToolbar {
         host?.hideExtensionPopups()
     }
 
+    /// The page is closing: the Extensions bubble's panel closes for good.
+    func closeMenuPanel() {
+        menuController.closePanel()
+    }
+
     private var handler: (any ExtensionMenuHandling)? {
         if let menuHandler { return menuHandler }
         guard let host else { return nil }
@@ -329,7 +334,7 @@ final class ExtensionActionToolbar {
         // Pressed while the menu is open, normal again when it closes (Chrome keeps the ink).
         (view as? ExtensionActionButton)?.isMenuOpen = true
         (view as? ChromeIconButton)?.isMenuOpen = true
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 0), in: view)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: view, gap: 0), in: view)
         (view as? ExtensionActionButton)?.isMenuOpen = false
         (view as? ChromeIconButton)?.isMenuOpen = false
         presentedMenu = previous

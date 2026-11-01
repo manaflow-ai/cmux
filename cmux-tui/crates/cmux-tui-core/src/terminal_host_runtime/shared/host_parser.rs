@@ -1,8 +1,9 @@
 //! The authoritative parser worker of one terminal host. It applies PTY
 //! output and lifecycle commands to the host's Ghostty terminal in order and
-//! flushes the terminal's own replies (queries, clipboard reads) to the PTY
-//! after every command.
+//! hands the terminal's own replies (queries, clipboard reads) to the PTY
+//! reply writer (`pty_replies`) after every command.
 
+use crate::panic_free::RecoverPoison;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -14,6 +15,7 @@ use super::super::*;
 use super::clipboard_read::*;
 use super::host_shared::HostShared;
 use super::host_state::*;
+use super::pty_replies::{PtyReplies, write_to_pty};
 
 /// State the parser shares with the terminal's callbacks.
 pub(crate) struct ParserSignals {
@@ -42,7 +44,9 @@ impl ParserSignals {
         Callbacks {
             on_pty_write: Some(Box::new({
                 let pending = self.pending_responses.clone();
-                move |bytes| pending.lock().unwrap().extend_from_slice(bytes)
+                move |bytes| {
+                    pending.lock().recover_poison().extend_from_slice(bytes);
+                }
             })),
             on_title_changed: Some(Box::new({
                 let title_changed = self.title_changed.clone();
@@ -103,16 +107,13 @@ impl HostShared {
         let (lock, published) = &self.parser_progress;
         // Exit publication sets `dead`, then bumps parser progress under
         // this lock, so a check made under the lock cannot miss the wake.
-        let mut generation = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut generation = lock.lock().recover_poison();
         while !self.dead.load(Ordering::Acquire) {
             let now = Instant::now();
             if now >= deadline {
                 return false;
             }
-            generation = published
-                .wait_timeout(generation, deadline - now)
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .0;
+            generation = published.wait_timeout(generation, deadline - now).recover_poison().0;
         }
         true
     }
@@ -135,27 +136,29 @@ pub(crate) fn run_host_parser(
     // after PTY output, so lifecycle operations (for example resize
     // during a Pi reload) cannot leave replies queued in memory and
     // deliver them to a later TUI write.
+    // The answers go to the PTY on their own thread (`pty_replies`): a
+    // program that stops reading its input must never stop this parser.
+    let replies = PtyReplies::start({
+        let host = parser_host.clone();
+        move |bytes| write_to_pty(&host.writer, bytes)
+    });
     let flush_pending_responses = || {
-        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-        if !responses.is_empty() {
-            let mut writer = parser_host.writer.lock().unwrap();
-            let _ = writer.write_all(&responses);
-            let _ = writer.flush();
-        }
+        let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
+        replies.send(responses, |bytes| write_to_pty(&parser_host.writer, bytes));
     };
     while let Ok(command) = parser_command_receiver.recv() {
         match command {
             ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
                 let title = {
-                    let mut term = parser_host.term.lock().unwrap();
-                    let cursor_activity = term
-                        .cursor_activity()
-                        .expect("valid host terminals expose cursor activity");
+                    let mut term = parser_host.term.lock().recover_poison();
+                    // A terminal that cannot report cursor activity reports
+                    // no cursor change.
+                    let cursor_activity = term.cursor_activity().ok();
                     let normalized =
                         crate::prompt_mode_reset::write_output(&mut term, &bytes, &mut shell_marks)
                             .into_owned();
                     {
-                        let mut metadata = parser_host.terminal_metadata.lock().unwrap();
+                        let mut metadata = parser_host.terminal_metadata.lock().recover_poison();
                         metadata.observe_output(&bytes);
                         // Whether a running command took the terminal for
                         // interaction, so an adopting daemon still reads it
@@ -171,10 +174,7 @@ pub(crate) fn run_host_parser(
                     }
                     let pwd = term.pwd();
                     let colors = term.color_overrides();
-                    let cursor_changed = term
-                        .cursor_activity()
-                        .expect("valid host terminals expose cursor activity")
-                        != cursor_activity;
+                    let cursor_changed = term.cursor_activity().ok() != cursor_activity;
                     let colors = if colors != last_colors || cursor_changed {
                         let encoded = encode_terminal_color_overrides(&colors);
                         last_colors = colors;
@@ -246,7 +246,11 @@ pub(crate) fn run_host_parser(
                 let _ = response.send(result);
             }
             ParserCommand::ClipboardReadComplete { token, text } => {
-                parser_host.term.lock().unwrap().complete_clipboard_read(token, text.as_deref());
+                parser_host
+                    .term
+                    .lock()
+                    .recover_poison()
+                    .complete_clipboard_read(token, text.as_deref());
                 flush_pending_responses();
             }
             ParserCommand::Barrier(response) => {
@@ -255,9 +259,10 @@ pub(crate) fn run_host_parser(
             ParserCommand::Drain => {
                 // FIFO reception proves every source byte published by
                 // the PTY reader has reached the authoritative parser.
-                parser_host
-                    .clipboard
-                    .end(&mut parser_host.term.lock().unwrap(), &parser_host.broadcast_lock);
+                parser_host.clipboard.end(
+                    &mut parser_host.term.lock().recover_poison(),
+                    &parser_host.broadcast_lock,
+                );
                 parser_host.mark_pty_drained();
                 parser_host.publish_exit_if_drained();
                 flush_pending_responses();

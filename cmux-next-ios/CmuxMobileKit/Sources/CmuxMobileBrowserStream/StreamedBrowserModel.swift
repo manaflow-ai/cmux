@@ -24,17 +24,37 @@ public protocol BrowserTabState: AnyObject {
 }
 
 extension BrowserTabState {
-    /// A URL, a bare host, or a search.
+    /// Schemes the address bar hands the Mac as typed. The Mac decides what loads and says
+    /// why it refuses the rest (`rb.navigate.refused`, PROTOCOL.md `browser`), so a typed
+    /// `javascript:` or `chrome:` is never turned into a search.
+    static var macSchemes: Set<String> {
+        ["file", "data", "blob", "view-source", "about", "javascript", "chrome", "chrome-extension", "devtools", "mailto", "tel"]
+    }
+
+    /// A URL, a Mac path (`/Users/...`, a `file:` URL), a bare host, or a search.
     public static func url(for text: String) -> URL? {
         if text.isEmpty { return nil }
-        if let url = URL(string: text), let scheme = url.scheme, ["http", "https"].contains(scheme.lowercased()) { return url }
+        if text.hasPrefix("/"), !text.hasPrefix("//") { return URL(filePath: text, directoryHint: .inferFromPath) }
+        // `localhost:3000`, `mac.local:8080/x`: a host and port, on the web.
+        if !text.contains(" "), let match = text.wholeMatch(of: /([A-Za-z0-9.-]+):[0-9]{1,5}(\/.*)?/),
+           !macSchemes.contains(String(match.1).lowercased()) {
+            return URL(string: "http://\(text)")
+        }
+        if let url = URL(string: text), let scheme = url.scheme?.lowercased() {
+            if ["http", "https"].contains(scheme) || macSchemes.contains(scheme) { return url }
+            // Another app's address (`zoommtg://...`): the Mac says it does not open those.
+            if text.dropFirst(scheme.count).hasPrefix("://") { return url }
+        }
         if !text.contains(" "), text.contains("."), let url = URL(string: "https://\(text)") { return url }
         var components = URLComponents(string: "https://duckduckgo.com/")
         components?.queryItems = [URLQueryItem(name: "q", value: text)]
         return components?.url
     }
 
+    /// Safari's short label (TabsKitAddress.displayLabel(for:) is the toolbar's): the host,
+    /// or a local file's name, never a whole `file:` path.
     static func displayHost(_ url: URL?) -> String {
+        if let url, url.isFileURL { return url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent }
         guard let host = url?.host() else { return url?.absoluteString ?? "" }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
@@ -66,11 +86,46 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var isLoading = false
     public var progress: Double { isLoading ? 0.5 : 1 }
     public private(set) var phase: Phase = .connecting
+    /// Why the Mac did not load an address (the address bar's, or a link's inside the
+    /// page): shown over the page until the next navigation or a tap.
+    public private(set) var notice: String?
+    /// The page's focused text field (`rb.text_input`): the keyboard rises for it.
+    public private(set) var field: StreamedBrowserField?
     /// The newest numbers for the overlay: frames per second, kbit/s,
     /// capture-to-decoded latency (median of the last second), decode time.
     public private(set) var meter = Meter()
     /// The last shown picture for the grid card.
     public private(set) var snapshot: CGImageBox?
+    /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
+    /// its options until the person picks or cancels, or the page closes it.
+    public private(set) var selectMenu: OpenMenu?
+    /// The page's open JavaScript dialog (`rb.dialog.show`), until it is answered or the
+    /// page closes it itself (`rb.dialog.cancel`).
+    public private(set) var dialog: OpenDialog?
+    /// The page's context menu for the long press in progress (`rb.menu.show` of kind
+    /// `context`); the page view hands it to the system menu.
+    @ObservationIgnored public private(set) var contextMenu: OpenMenu?
+    /// Called when the page's context menu arrives (or the wait for it ends with none).
+    @ObservationIgnored private var contextMenuWaiters: [@MainActor (OpenMenu?) -> Void] = []
+    /// A long press asked the page for its menu and it has not come yet.
+    @ObservationIgnored private var contextMenuAsked = false
+    /// Which long press the running wait belongs to (a later press has its own).
+    @ObservationIgnored private var contextMenuAsk = 0
+    /// Opens a page's new tab or window (`rb.open_tab`) beside this tab: the new tab's id,
+    /// or nil when none opened. Nil: the phone refuses every one.
+    @ObservationIgnored public var openTab: (@MainActor (RemoteBrowserOpenTab) async -> String?)?
+
+    /// A menu the page opened and its token (tokens restart with each stream session).
+    public struct OpenMenu: Equatable, Sendable, Identifiable {
+        public var token: UInt64
+        public var menu: RemoteBrowserMenu
+        public var id: UInt64 { token }
+    }
+
+    public struct OpenDialog: Equatable, Sendable {
+        public var token: UInt64
+        public var dialog: RemoteBrowserDialog
+    }
     public var host: String { Self.displayHost(url) }
 
     @ObservationIgnored public let decoder = BrowserVideoDecoder()
@@ -109,6 +164,21 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// opens it: the Mac stopped the page, or another viewer took it.
     public private(set) var canReopen = false
     @ObservationIgnored private var samples: [Meter.Sample] = []
+    /// A shown page that stopped (no picture after a keyframe was asked for):
+    /// asks again, restarts the decoder, then opens the stream again.
+    @ObservationIgnored private var watchdog = BrowserStallWatchdog()
+    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
+    /// How often the watchdog looks (tests replace it).
+    @ObservationIgnored var watchdogTick: @Sendable () async throws -> Void = {
+        try await ContinuousClock().sleep(for: .seconds(1))
+    }
+    /// The stream is being opened again after a stall: the page says so.
+    @ObservationIgnored private var reconnecting = false
+    /// Reconnects after a stall since the page last stayed live a while: after
+    /// ``maxStallReconnects`` the page waits for Reopen instead of cycling.
+    @ObservationIgnored private var stallReconnects = 0
+    static let maxStallReconnects = 3
+    static var reconnectingText: String { String(localized: "Reconnecting browser…") }
     /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
     /// verify/parity-mac.md): the browser reports the old history while the page loads, so
     /// until the history moved the buttons follow the step, and a second step waits for it.
@@ -186,7 +256,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard connection == nil, !connecting, screen != nil else { return }
         connecting = true
         canReopen = false
-        phase = .connecting
+        phase = reconnecting ? .waiting(Self.reconnectingText) : .connecting
         let sink = Sink(model: self)
         self.sink = sink
         let open = open
@@ -246,6 +316,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard visible != before else { return }
         connection?.setVisible(visible)
         if welcomed { send(wire.visibility(visible)) }
+        updateWatch()
         // Shown again (on screen, app active) with its stream gone: open it.
         if visible { reconnect() }
     }
@@ -259,6 +330,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// another viewer took it).
     public func reopen() {
         autoReopens = 0
+        stallReconnects = 0
         if connection == nil { connect() }
     }
 
@@ -266,6 +338,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         connection?.close()
         connection = nil
         sink = nil
+        updateWatch()
     }
 
     private func opened(_ connection: any BrowserStreamConnection, sink: Sink) {
@@ -278,19 +351,24 @@ public final class StreamedBrowserModel: BrowserTabState {
         if !visible { connection.setVisible(false) }
         welcomed = false
         let decoder = decoder
-        decoder.requestKeyframe = { [weak connection] in connection?.requestKeyframe() }
+        decoder.requestKeyframe = { [weak connection, weak self] in
+            connection?.requestKeyframe()
+            Task { @MainActor in self?.watchdog.keyframeAsked(at: .now) }
+        }
         decoder.now = { [weak connection] in connection?.nowMicros() ?? 0 }
         decoder.reset()
     }
 
     private func unavailable() {
         connecting = false
+        reconnecting = false
         sink = nil
         phase = .unavailable
     }
 
     private func failed(_ reason: String) {
         connecting = false
+        reconnecting = false
         sink = nil
         phase = .waiting(reason)
     }
@@ -300,7 +378,12 @@ public final class StreamedBrowserModel: BrowserTabState {
         switch json["t"] as? String {
         case "welcome":
             welcomed = true
+            updateWatch()
             appliedScreen = nil
+            // The host reports focus only when it changes: a new session starts with none.
+            field = nil
+            // Menu and dialog tokens restart with the session: nothing from the last one is open.
+            dropPageUI()
             if let screen, let connection {
                 screenSeq = 0
                 try? connection.send(message: wire.open(tab: tab, viewer: "phone", screen: screen))
@@ -312,11 +395,41 @@ public final class StreamedBrowserModel: BrowserTabState {
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
+        case "rb.text_input":
+            let next = StreamedBrowserField(json: json)
+            if next != field { field = next }
+        case "rb.navigate.refused":
+            refused(code: json["code"] as? String, reason: json["reason"] as? String)
         case "rb.page":
             guard let page = RemoteBrowserPage(json: json) else { return }
             apply(page)
         case "rb.screen_applied":
             phase = .live
+        case "rb.menu.show":
+            guard let token = (json["token"] as? NSNumber)?.uint64Value,
+                  let menu = (json["menu"] as? [String: Any]).flatMap(RemoteBrowserMenu.init(json:)) else { return }
+            menuShown(OpenMenu(token: token, menu: menu))
+        case "rb.menu.cancel":
+            guard let token = (json["token"] as? NSNumber)?.uint64Value else { return }
+            menuCancelled(token)
+        case "rb.dialog.show":
+            guard let token = (json["token"] as? NSNumber)?.uint64Value,
+                  let dialog = (json["dialog"] as? [String: Any]).flatMap(RemoteBrowserDialog.init(json:)) else { return }
+            // A new dialog replaces one still open (the host cancelled it).
+            log.notice("browser \(self.tab, privacy: .public): dialog \(token) \(dialog.kind.rawValue, privacy: .public)")
+            self.dialog = OpenDialog(token: token, dialog: dialog)
+        case "rb.dialog.cancel":
+            guard let token = (json["token"] as? NSNumber)?.uint64Value else { return }
+            log.notice("browser \(self.tab, privacy: .public): dialog \(token) closed by the page (open: \(self.dialog?.token ?? 0))")
+            if dialog?.token == token { dialog = nil }
+        case "rb.open_tab":
+            guard let request = RemoteBrowserOpenTab(json: json) else { return }
+            openRequestedTab(request, from: sink)
+        case "rb.state" where ["crashed", "closed"].contains(json["state"] as? String ?? ""), "rb.closed":
+            // The page crashed or its session closed: its dialog and menus go with it,
+            // unanswered (nothing waits for an answer), as the Mac's viewer closes them.
+            log.notice("browser \(self.tab, privacy: .public): page \(json["state"] as? String ?? "closed", privacy: .public); its dialog and menus close")
+            dropPageUI()
         default:
             break
         }
@@ -327,10 +440,17 @@ public final class StreamedBrowserModel: BrowserTabState {
         connection = nil
         self.sink = nil
         welcomed = false
+        field = nil
+        dropPageUI()
         liveSince = nil
         decoder.reset()
+        updateWatch()
         log.info("browser \(self.tab, privacy: .public) closed: \(code, privacy: .public) \(reason, privacy: .public)")
         switch Self.afterClose(code: code, shown: visible, autoReopens: autoReopens) {
+        case .reconnect:
+            // The library's watchdog: the page stopped answering input, or the
+            // channel stopped moving. A new stream, and the page says so.
+            reconnectAfterStall()
         case .reopen:
             // The Mac stopped this page to make room (its host limit): a shown
             // page opens again at once, never a frozen frame.
@@ -350,10 +470,12 @@ public final class StreamedBrowserModel: BrowserTabState {
         }
     }
 
-    enum AfterClose: Equatable { case reopen, waitForView, offerReopen, waitForLink }
+    enum AfterClose: Equatable { case reopen, reconnect, waitForView, offerReopen, waitForLink }
 
     /// What a closed stream does next. `evicted`: cmux-mobile-host's host limit
-    /// stopped the page; `replaced`: another viewer opened the tab. A dropped
+    /// stopped the page; `replaced`: another viewer opened the tab; `stalled`:
+    /// the library's watchdog ended a stream that stopped answering; `eof`: the
+    /// Mac ended it (its browser host went away) with the link up. A dropped
     /// link reopens when the next link is up (``StreamedBrowserDirectory``).
     static func afterClose(code: String, shown: Bool, autoReopens: Int) -> AfterClose {
         switch code {
@@ -362,6 +484,10 @@ public final class StreamedBrowserModel: BrowserTabState {
             return autoReopens < maxAutoReopens ? .reopen : .offerReopen
         case "replaced":
             return .offerReopen
+        case "stalled", "eof":
+            // `eof`: the Mac ended the stream on a link that is still up (its
+            // browser host exited or crashed); a new open starts a new host.
+            return shown ? .reconnect : .waitForView
         default:
             return .waitForLink
         }
@@ -375,9 +501,14 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     private func note(_ shown: BrowserVideoDecoder.Shown) {
         if phase != .live { phase = .live }
+        reconnecting = false
+        watchdog.pictureShown(at: .now)
         let instant = ContinuousClock.now
         if let liveSince {
-            if liveSince.duration(to: instant) >= Self.forgiveAfter { autoReopens = 0 }
+            if liveSince.duration(to: instant) >= Self.forgiveAfter {
+                autoReopens = 0
+                stallReconnects = 0
+            }
         } else {
             liveSince = instant
         }
@@ -449,6 +580,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     public func goBack() { step("back") }
     public func goForward() { step("forward") }
     public func reloadOrStop() { send(wire.history(isLoading ? "stop" : "reload")) }
+    /// The Mac's Hard Reload: the page again, bypassing its cache.
+    public func hardReload() { send(wire.history("reload_no_cache")) }
 
     /// Back or Forward. Right after another step the browser still reports the old history,
     /// so it would ignore this one: it waits until that step commits (a few hundred ms).
@@ -463,8 +596,37 @@ public final class StreamedBrowserModel: BrowserTabState {
         send(wire.history(op))
     }
 
+    /// The Mac did not load an address: the page stays where it is (the address bar
+    /// goes back to it) and the person reads why, in this phone's words when the Mac
+    /// named the reason.
+    func refused(code: String?, reason: String?) {
+        // The refusal of the phone's own navigation: nothing loads. A link's inside the
+        // page: the Mac is taking the page back, and its reports say when it is done.
+        if let (_, from) = navigating {
+            navigating = nil
+            url = from
+            isLoading = false
+        }
+        notice = Self.refusalText(code: code) ?? reason ?? String(localized: "Your Mac can't open this address.")
+    }
+
+    static func refusalText(code: String?) -> String? {
+        switch code {
+        case "file_not_shared": String(localized: "This file isn't in a folder this Mac shares with your iPhone.")
+        case "file_missing": String(localized: "There's no such file in the folders this Mac shares.")
+        case "script": String(localized: "Scripts can't run from your iPhone's address bar.")
+        case "browser_page": String(localized: "Browser settings and internal pages can't open from your iPhone.")
+        case "app_scheme": String(localized: "Links that open other apps on your Mac can't open from your iPhone.")
+        case "malformed": String(localized: "This address can't be opened.")
+        default: nil
+        }
+    }
+
+    public func dismissNotice() { notice = nil }
+
     public func navigate(to text: String) {
         guard let target = Self.url(for: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+        notice = nil
         navigating = (target, url)
         url = target
         history = nil
@@ -479,6 +641,129 @@ public final class StreamedBrowserModel: BrowserTabState {
         }
     }
 
+    // MARK: Page menus, dialogs and new tabs
+
+    /// How long a long press waits for the page's menu before it says there is none (a
+    /// page that handles `contextmenu` itself sends none); a UI bound, not synchronization.
+    static let contextMenuWait: Duration = .milliseconds(1500)
+    /// The wait for the page's menu (tests replace it).
+    @ObservationIgnored var contextMenuTimer: @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
+
+    /// A long press at CSS pixels: the page's own menu for that spot, as a secondary
+    /// click asks for it on the Mac. `then` gets the menu, or nil when the page sent none
+    /// in time.
+    public func requestContextMenu(x: Double, y: Double, then: @escaping @MainActor (OpenMenu?) -> Void) {
+        guard connection != nil, welcomed else { return then(nil) }
+        // A menu from an earlier press that nobody took: the page waits for an answer.
+        if let open = contextMenu { choose(.cancel, in: open.token) }
+        contextMenuWaiters.append(then)
+        guard !contextMenuAsked else { return }
+        contextMenuAsked = true
+        contextMenuAsk += 1
+        let ask = contextMenuAsk
+        input(wire.pointer("move", x: x, y: y, buttons: 0), mustDeliver: false)
+        input(wire.secondaryClick(x: x, y: y, down: true))
+        input(wire.secondaryClick(x: x, y: y, down: false))
+        let timer = contextMenuTimer
+        // task-owner: one bounded wait per long press; it ends the wait only if no menu came
+        Task { [weak self] in
+            try? await timer(Self.contextMenuWait)
+            guard let self, contextMenuAsk == ask else { return }
+            contextMenuWaitEnded()
+        }
+    }
+
+    private func contextMenuWaitEnded() {
+        guard contextMenuAsked else { return }
+        contextMenuAsked = false
+        let waiters = contextMenuWaiters
+        contextMenuWaiters = []
+        for waiter in waiters { waiter(nil) }
+    }
+
+    private func menuShown(_ open: OpenMenu) {
+        func describe(_ items: [RemoteBrowserMenuItem]) -> String {
+            items.map { "\($0.id):\($0.type)" + ($0.items.isEmpty ? "" : " [\(describe($0.items))]") }.joined(separator: ", ")
+        }
+        // Ids and types only in the clear: the labels are the page's text (a select's options).
+        let items = describe(open.menu.items)
+        let labels = open.menu.items.map(\.label).joined(separator: ", ")
+        log.notice("browser \(self.tab, privacy: .public): menu \(open.token) \(open.menu.kind.rawValue, privacy: .public) [\(items, privacy: .public)] [\(labels, privacy: .private)]")
+        switch open.menu.kind {
+        case .select:
+            selectMenu = open
+        case .context:
+            guard contextMenuAsked else {
+                // No long press waits for it (one that gave up, or a key the page took):
+                // the page's menu must not stay open on the Mac with nobody to answer it.
+                send(wire.menuResult(token: open.token, choice: .cancel))
+                return
+            }
+            contextMenuAsked = false
+            contextMenu = open
+            let waiters = contextMenuWaiters
+            contextMenuWaiters = []
+            for waiter in waiters { waiter(open) }
+        }
+    }
+
+    private func menuCancelled(_ token: UInt64) {
+        if selectMenu?.token == token { selectMenu = nil }
+        if contextMenu?.token == token { contextMenu = nil }
+    }
+
+    /// The person's answer to the menu `token`: sent once, and only a choice that menu
+    /// offered (anything else is a cancel). A menu already closed sends nothing.
+    public func choose(_ choice: RemoteBrowserMenuChoice, in token: UInt64) {
+        let open: OpenMenu
+        if let select = selectMenu, select.token == token {
+            open = select
+            selectMenu = nil
+        } else if let context = contextMenu, context.token == token {
+            open = context
+            contextMenu = nil
+        } else {
+            log.notice("browser \(self.tab, privacy: .public): menu \(token) already closed; \(String(describing: choice), privacy: .public) not sent")
+            return
+        }
+        let answer = open.menu.accepts(choice) ? choice : .cancel
+        log.notice("browser \(self.tab, privacy: .public): menu \(token) answer \(String(describing: answer), privacy: .public)")
+        send(wire.menuResult(token: token, choice: answer))
+    }
+
+    /// The person answered the dialog `token` (`text`: a prompt's answer).
+    public func answerDialog(_ token: UInt64, accept: Bool, text: String? = nil) {
+        guard let open = dialog, open.token == token else { return }
+        dialog = nil
+        log.notice("browser \(self.tab, privacy: .public): dialog \(token) answer accept=\(accept)")
+        send(wire.dialogResult(token: token, accept: accept, text: accept && open.dialog.kind == .prompt ? (text ?? "") : nil))
+    }
+
+    /// A new stream session: menus and dialogs of the old one are gone with it.
+    private func dropPageUI() {
+        selectMenu = nil
+        contextMenu = nil
+        dialog = nil
+        contextMenuWaitEnded()
+    }
+
+    /// The page opened a link in a new tab or window: the phone opens it beside this tab
+    /// and tells the page which tab it is, or that none opened (as the Mac's viewer).
+    private func openRequestedTab(_ request: RemoteBrowserOpenTab, from sink: Sink) {
+        log.notice("browser \(self.tab, privacy: .public): open_tab \(request.request) \(request.disposition.rawValue, privacy: .public)")
+        guard let openTab else {
+            send(wire.openTabResult(request: request.request, tab: nil, refused: "refused"))
+            return
+        }
+        // task-owner: one tab request; the answer goes back on the stream session it came on
+        Task { [weak self] in
+            let tab = await openTab(request)
+            guard let self, self.sink === sink else { return }
+            log.notice("browser \(self.tab, privacy: .public): open_tab \(request.request) -> \(tab ?? "refused", privacy: .public)")
+            send(wire.openTabResult(request: request.request, tab: tab, refused: tab == nil ? "refused" : nil))
+        }
+    }
+
     // MARK: Input (CSS pixels)
 
     func send(_ message: Data) {
@@ -487,6 +772,105 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     func input(_ event: Data, mustDeliver: Bool = true) {
         try? connection?.send(input: event, mustDeliver: mustDeliver)
+        if connection != nil { watchdog.inputSent(at: .now) }
+    }
+
+    // MARK: Watchdog
+
+    /// Watches while the stream is open, welcomed and shown.
+    private func updateWatch() {
+        let watch = visible && welcomed && connection != nil
+        if !watch {
+            // Also after a reopen (the watchdog is restarted at the next welcome).
+            watchdogTask?.cancel()
+            watchdogTask = nil
+            if watchdog.watching { watchdog.stop() }
+        } else if !watchdog.watching {
+            watchdogTask?.cancel()
+            watchdog.start(at: .now)
+            let tick = watchdogTick
+            // task-owner: the model's watchdog; cancelled when the page stops being watched
+            watchdogTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await tick() } catch { return }
+                    guard let self else { return }
+                    self.checkStall(at: .now)
+                }
+            }
+        }
+    }
+
+    /// One look of the watchdog (tests call it with their own instants).
+    func checkStall(at now: ContinuousClock.Instant) {
+        switch watchdog.check(at: now) {
+        case .none:
+            break
+        case .askKeyframe:
+            connection?.requestKeyframe()
+        case .restartDecoder:
+            log.notice("browser \(self.tab, privacy: .public): no picture after a keyframe request; restarting the decoder")
+            decoder.reset()
+            connection?.requestKeyframe()
+        case .reopen:
+            log.notice("browser \(self.tab, privacy: .public): still no picture; opening the stream again")
+            reconnectAfterStall()
+        }
+    }
+
+    private func reconnectAfterStall() {
+        guard stallReconnects < Self.maxStallReconnects else {
+            close()
+            welcomed = false
+            reconnecting = false
+            canReopen = true
+            phase = .waiting(String(localized: "This page stopped responding."))
+            return
+        }
+        stallReconnects += 1
+        connection?.close()
+        connection = nil
+        sink = nil
+        welcomed = false
+        field = nil
+        dropPageUI()
+        liveSince = nil
+        decoder.reset()
+        updateWatch()
+        reconnecting = true
+        connect()
+    }
+
+    // MARK: Simulator surfaces (0...1 of the simulator's screen)
+
+    /// The simulator page's keyboard is up (its accessory bar toggles it).
+    public var wantsKeyboard = false
+
+    /// A finger on a simulator: `down`, `move` or `up` at 0...1 of its screen.
+    /// Moves may be dropped under load; down and up always arrive.
+    public func touch(_ kind: String, at point: CGPoint) {
+        input(wire.pointer(kind, x: Double(point.x), y: Double(point.y), buttons: kind == "up" ? 0 : 1),
+              mustDeliver: kind != "move")
+    }
+
+    /// Home or Lock on a simulator.
+    public func pressButton(_ button: String) {
+        input(wire.button(button))
+    }
+
+    /// `point` in a view of `size` showing `picture` aspect fit, as 0...1 of the
+    /// picture (top-left origin), clamped to its edges. Before the first frame the
+    /// picture is taken to fill the view.
+    public static func normalized(_ point: CGPoint, in size: CGSize, picture: CGSize) -> CGPoint {
+        guard size.width > 0, size.height > 0 else { return CGPoint(x: 0.5, y: 0.5) }
+        var drawn = CGRect(origin: .zero, size: size)
+        if picture.width > 0, picture.height > 0 {
+            let scale = min(size.width / picture.width, size.height / picture.height)
+            let fitted = CGSize(width: picture.width * scale, height: picture.height * scale)
+            drawn = CGRect(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2,
+                           width: fitted.width, height: fitted.height)
+        }
+        let x = (point.x - drawn.minX) / drawn.width, y = (point.y - drawn.minY) / drawn.height
+        return CGPoint(x: min(max(x, 0), 1), y: min(max(y, 0), 1))
     }
 
     /// The CSS pixel under a point of a view of `size` points.
@@ -549,12 +933,18 @@ enum LinkErrorText {
     /// Mac's "this build has no browser host" (never shown as is).
     static func noBrowserHost(_ error: any Error) -> Bool {
         guard let error = error as? LinkError else { return false }
+        // `no_surface_host`: the Mac streams no simulators (an older Mac refuses `surface` as unknown).
+        if ["no_surface_host", "unknown_service"].contains(error.code) { return true }
         return error.code == "no_browser_host" || error.message.localizedCaseInsensitiveContains("no browser host")
     }
 
     static func describe(_ error: any Error) -> String {
         if let error = error as? LinkError {
             if error.code == "no-link" { return "Not connected to the Mac" }
+            // An older Mac's scheme list (before the shared-folder rules): say what to do.
+            if error.code == "forbidden", error.message == "only http, https and about:blank load" {
+                return String(localized: "Update cmux on your Mac to open this page on your iPhone.")
+            }
             return error.message.isEmpty ? error.code : error.message
         }
         return String(describing: error)

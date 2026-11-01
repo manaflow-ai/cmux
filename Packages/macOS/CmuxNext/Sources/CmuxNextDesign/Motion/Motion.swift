@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The one source of animation timing for cmux-next chrome
 /// (plans/cmux-next/motion.md). Every animation reads a token here; no
@@ -14,15 +15,19 @@ public import AppKit
 public struct Motion {
     public init() {}
     /// Tests set this to pin Reduce Motion; nil reads the system setting.
-    /// A change posts `reduceMotionDidChange`, so a host that caches a value
+    /// A change posts `reduceMotionDidChange` and tells ``changes``, so a host that caches a value
     /// derived from `reduceMotion` (StatusIndicatorAppearance) re-reads it at
     /// once, as it does for the system setting's notification.
     public static var reduceMotionOverride: Bool? {
         didSet {
             guard reduceMotionOverride != oldValue else { return }
-            NotificationCenter.default.post(name: reduceMotionDidChange, object: nil)
+            changes.post(.reduceMotion)
         }
     }
+
+    /// The app's one subscription to every motion-setting change, the system Reduce Motion
+    /// included (``MotionChanges``).
+    public static var changes: MotionChanges { DesignSettings.shared.motionChanges }
 
     /// Posted on the main actor when `reduceMotionOverride` changes. The
     /// system setting has its own notification
@@ -33,15 +38,17 @@ public struct Motion {
     /// master switch `ui.animations.enabled` or a category switch changes.
     public static let speedDidChange = Notification.Name("CmuxNextDesign.Motion.speedDidChange")
 
-    /// System Reduce Motion (Accessibility > Display), or the test override.
+    /// System Reduce Motion (Accessibility > Display) or calm mode (`ui.calm`, ``CalmMode``), or
+    /// the test override.
     public static var reduceMotion: Bool {
-        reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        reduceMotionOverride ?? (NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            || DesignSettings.shared.calmMode.reducesMotion)
     }
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
 
     /// The policy before a category is chosen: the master switch
-    /// `ui.animations.enabled`, the category switches, `ui.animationSpeed`,
+    /// `ui.animations.enabled` (calm mode `still` turns it off), the category switches, `ui.animationSpeed`,
     /// Reduce Motion and a live resize. Animations never read it directly:
     /// they ask their category's gate (`Motion.sidebar.policy`), which adds
     /// the category.
@@ -49,7 +56,7 @@ public struct Motion {
         let design = DesignSettings.shared
         return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
                             enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
-                            animationsEnabled: design.animationsEnabled,
+                            animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
                             disabledCategories: design.disabledAnimationCategories)
     }
 

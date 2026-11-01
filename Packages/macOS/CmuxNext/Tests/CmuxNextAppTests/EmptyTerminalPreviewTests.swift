@@ -1,14 +1,17 @@
+import CmuxNextBridge
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Leo 2026-10-13: a brand-new terminal showed a preview in its tab's hover card: a picture of
 /// an empty prompt. A terminal with no output yet has no preview (the card shows its plain
 /// state); once it has output, it has one.
+@Suite(.closesItsWindows)
 @MainActor struct EmptyTerminalPreviewTests {
     @Test func aTerminalWithNoOutputYetHasNoPreview() async throws {
         _ = NSApplication.shared
@@ -23,7 +26,7 @@ import Testing
         let session = TerminalSession(io: scripted)
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let attachment = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: nil, generation: nil)
-        let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), visible: false,
+        let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(), visible: false,
                                   endpoint: { throw CancellationError() })
         services.cache.terminals[tab.id] = TerminalEntry(validity: "test", session: session, io: io,
                                                          themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),

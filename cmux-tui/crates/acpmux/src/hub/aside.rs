@@ -30,17 +30,9 @@ impl Hub {
         let meta = session.meta();
         let (is_claude, env) = self.harness_env(&meta).await;
         let through = if is_claude {
-            let latest = self
-                .store
-                .events(&session.id, 0, 500_000)
-                .map_err(|e| RpcError::internal(e.to_string()))?
-                .into_iter()
-                .filter(|e| e.kind == "turn_result")
-                .map(|e| e.seq)
-                .max()
-                .ok_or_else(|| {
-                    RpcError::invalid_params("the chat has no finished turn to ask about")
-                })?;
+            let latest = self.latest_turn_result(&session.id)?.ok_or_else(|| {
+                RpcError::invalid_params("the chat has no finished turn to ask about")
+            })?;
             Some(latest)
         } else if matches!(meta.status, SessionStatus::Running | SessionStatus::Waiting) {
             return Err(RpcError::new(CONFLICT, "the chat is working; ask when the turn ends"));
@@ -48,7 +40,8 @@ impl Hub {
             None
         };
         let name = self.unique_name(&format!("{}-aside", meta.name));
-        let aside = self.fork(session, Some(name), None, Default::default(), None, through).await?;
+        let aside =
+            self.fork(session, Some(name), None, Default::default(), None, through, false).await?;
         let mut tag = serde_json::Map::new();
         tag.insert(ASIDE_TAG.into(), json!(session.id));
         self.set_tags(&aside, Some(&tag), &[], None);
@@ -62,6 +55,7 @@ impl Hub {
             .unwrap_or_default()
             .iter()
             .filter(|e| e.kind == "agent_message_chunk")
+            .filter(|e| !e.msg.get("params").is_some_and(crate::subagents::is_subagents))
             .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
             .collect();
         let agent_sid = aside.meta().agent_session_id;

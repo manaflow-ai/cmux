@@ -1,7 +1,8 @@
 /* A session reference's hover card (SessionHoverCard.tsx), as Claude desktop's and Codex's hover
-   previews read (Leo, 2026-10-20): the shared hover card surface (.ui-card in desktop.css: the popup
-   surface every menu and popover uses, never the grey of a user bubble, and the hover card elevation
-   --elevation-2), a hairline rim in the separator ink and a 12px corner. Inside, 10px by 14px of
+   previews read (Leo, 2026-10-20): the shared glass hover card (.ui-card.ui-glass in desktop.css: the
+   liquid glass, never the grey of a user bubble, with the hover card elevation --elevation-2; glass
+   under plain glass too), a hairline of clear border under the glass rim and a 12px
+   corner. Inside, 10px by 14px of
    padding and three steps: the title in the body step at emphasis (two lines at most), the status
    line (SessionStatusLine, styled in startedSessions.css), then the meta line, the folder and branch
    in the caption step and the muted ink. It is as wide as its title, 240px to 420px. The whole card is
@@ -9,8 +10,7 @@
 .acpmux-session-hover-card.ui-card {
   max-width: min(420px, calc(100vw - 12px));
   padding: 0;
-  border: var(--cmux-hairline-ring) solid
-    var(--cmux-separator, color-mix(in srgb, var(--agent-text) 14%, transparent));
+  border-width: var(--cmux-hairline-ring);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -31,7 +31,8 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   text-align: start;
-  cursor: pointer;
+  cursor: default;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-session-hover:hover {
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
@@ -57,6 +58,7 @@
   line-height: var(--text-caption--line-height);
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-session-hover {

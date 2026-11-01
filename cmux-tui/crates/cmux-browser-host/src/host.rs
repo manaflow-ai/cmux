@@ -645,6 +645,10 @@ fn cap(text: &mut String, max: usize) -> bool {
 }
 
 #[cfg(test)]
+#[path = "host_runtime_tests.rs"]
+mod runtime_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

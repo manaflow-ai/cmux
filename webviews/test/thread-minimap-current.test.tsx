@@ -4,7 +4,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-// These tests drive the compact (Codex) rail; the full-height map is the default arm (layout.experiment.ts).
+// These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -47,7 +47,7 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
-// Wide enough for the minimap's gutter (ThreadMinimap MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {

@@ -5,6 +5,7 @@
 //! (`MessageWriter`, `OutboundStream`) and the graphics cache
 //! (`RenderService`) stay in the parent module.
 
+use crate::panic_free::JsonFields;
 use std::collections::HashSet;
 use std::io::Write;
 use std::sync::Arc;
@@ -73,10 +74,10 @@ pub(super) fn styled_run_json(run: &StyledRun) -> Value {
         "attrs": run.attrs,
     });
     if let Some(underline) = underline {
-        value["underline"] = json!(underline);
+        value.insert("underline", json!(underline));
     }
     if let Some(width_hint) = run.width_hint {
-        value["width_hint"] = json!(width_hint);
+        value.insert("width_hint", json!(width_hint));
     }
     value
 }

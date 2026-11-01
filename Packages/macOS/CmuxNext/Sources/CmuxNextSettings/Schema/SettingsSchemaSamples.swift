@@ -28,6 +28,13 @@ nonisolated enum SettingsSchemaSamples {
         case .choiceOrNumber(let choices, let number):
             return (choices.map { .string($0.value) } + numbers(number).accept,
                     [.string("__not_a_choice__"), .bool(true)] + numbers(number).refuse)
+        case .choiceOrURL(let choices, let urlKey):
+            let url = { (text: String) in JSONValue.object([urlKey: .string(text)]) }
+            return (choices.map { .string($0.value) } + [url("http://mini.tail1234.ts.net:7320"), url("https://100.101.102.103/")],
+                    [.string("__not_a_choice__"), .string(urlKey), .number(1), url("ftp://mini.tail1234.ts.net"),
+                     url("http://mini.tail1234.ts.net/path"), url("http://mini.tail1234.ts.net?x=1"), url("not a url"),
+                     .object([urlKey: .number(7320)]), .object(["__other__": .string("http://mini.tail1234.ts.net")]),
+                     .object([urlKey: .string("http://mini.tail1234.ts.net"), "__extra__": .string("x")])])
         case .number(let number):
             return numbers(number)
         case .color:
@@ -59,6 +66,11 @@ nonisolated enum SettingsSchemaSamples {
         case .stringMap:
             return ([.object([:]), .object(["*": .string("★"), "Work": .string("")])],
                     [.string("★"), .array([]), .object(["Work": .number(1)])])
+        case .soundRules:
+            return ([.object([:]), .object(["ws_1": .string("none"), "Ops": .object(["sound": .string("Glass"), "volume": .number(0.5),
+                                                                                    "events": .object(["needsInput": .string("Ping")])])])],
+                    [.string("Glass"), .array([]), .object(["ws_1": .number(1)]), .object(["ws_1": .object(["volume": .string("loud")])]),
+                     .object(["ws_1": .object(["events": .object(["ringing": .string("Ping")])])])])
         case .stringList:
             return ([.array([]), .array([.string("ws-1"), .string("2B7F0C3A-workspace")])],
                     [.string("ws-1"), .array([.number(1)]), .array([.string("")]), .object([:])])

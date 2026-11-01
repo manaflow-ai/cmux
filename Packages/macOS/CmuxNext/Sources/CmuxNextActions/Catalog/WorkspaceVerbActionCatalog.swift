@@ -70,7 +70,7 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspace.clearIcon",
                 title: String(localized: "action.workspace.clearIcon", defaultValue: "Remove Workspace Icon", table: "WorkspaceActions", bundle: .module),
-                keywords: ["emoji", "symbol", "reset", "clear"], category: .workspace, symbol: "xmark.circle",
+                keywords: ["emoji", "symbol", "reset", "clear"], category: .workspace, symbol: "circle.dashed",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace clear-icon"
             ),
             ActionDescriptor(
@@ -84,6 +84,20 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.workspace.moveToBottom", defaultValue: "Move Workspace to Bottom", table: "WorkspaceActions", bundle: .module),
                 keywords: ["reorder", "last", "end"], category: .workspace, symbol: "arrow.down.to.line",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace move-to-bottom"
+            ),
+            // A drop next to any row, as a drag does: before or after the anchor, in the anchor's group or among
+            // the loose rows (cmux#29907). The CLI and MCP name the anchor; the palette asks for it.
+            ActionDescriptor(
+                id: "workspace.moveAbove",
+                title: String(localized: "action.workspace.moveAbove", defaultValue: "Move Workspace Above…", table: "WorkspaceActions", bundle: .module),
+                keywords: ["reorder", "before", "drag", "group", "place"], category: .workspace, symbol: "arrow.up.to.line.compact",
+                surfaces: [.palette, .keyboard], arguments: [CatalogArgument.anchorWorkspace], targets: [.workspace], cliName: "workspace move-above"
+            ),
+            ActionDescriptor(
+                id: "workspace.moveBelow",
+                title: String(localized: "action.workspace.moveBelow", defaultValue: "Move Workspace Below…", table: "WorkspaceActions", bundle: .module),
+                keywords: ["reorder", "after", "drag", "group", "place"], category: .workspace, symbol: "arrow.down.to.line.compact",
+                surfaces: [.palette, .keyboard], arguments: [CatalogArgument.anchorWorkspace], targets: [.workspace], cliName: "workspace move-below"
             ),
             ActionDescriptor(
                 id: "workspace.moveToNewGroup",
@@ -153,7 +167,7 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.mergeInto",
-                title: String(localized: "action.workspace.mergeInto", defaultValue: "Merge Workspace into…", table: "WorkspaceActions", bundle: .module),
+                title: String(localized: "action.workspace.mergeInto", defaultValue: "Merge Workspace Into…", table: "WorkspaceActions", bundle: .module),
                 keywords: ["combine", "join", "move tabs"], category: .workspace, symbol: "arrow.triangle.merge",
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.intoWorkspace], targets: [.workspace], cliName: "workspace merge-into"
             ),

@@ -198,7 +198,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             if let receipts = change.sendReadReceipts {
                 preferences.setSendsReadReceipts(receipts, id)
                 // Turning receipts back on reports where this phone has read to.
-                if receipts, let lastRead = lastReadHere { await markRead(lastRead) }
+                if receipts, let lastRead = lastReadHere ?? preferences.readHere(id) { await markRead(lastRead) }
             }
             guard var info = info ?? wire.info(["id": id]) else {
                 throw ConversationBackendError(code: -4, message: "no conversation")
@@ -258,14 +258,21 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             for part in object["parts"] as? [[String: Any]] ?? [] where part["type"] as? String == "attachment" {
                 guard let hash = part["hash"] as? String, attachmentBytes[hash] == nil else { continue }
                 var data = Data()
+                var complete = false
                 while true {
                     guard let chunk = try? await call("conversation-attachment-read", [
                         "conversation": id, "hash": hash, "offset": data.count, "length": Self.chunkBytes,
                     ]), let text = chunk["data"] as? String, let bytes = Data(base64Encoded: text) else { break }
                     data.append(bytes)
-                    if chunk["eof"] as? Bool ?? true || bytes.isEmpty { break }
+                    if chunk["eof"] as? Bool ?? true || bytes.isEmpty {
+                        complete = true
+                        break
+                    }
                 }
-                if !data.isEmpty { attachmentBytes[hash] = data }
+                // Only a whole file is kept: a read that failed partway keeps
+                // nothing, so the next time the message decodes it reads again
+                // (a kept half would draw as a broken image for good).
+                if complete, !data.isEmpty { attachmentBytes[hash] = data }
             }
         }
 
@@ -273,7 +280,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         private func decode(_ object: [String: Any]) async -> ConversationMessage? {
             await hydrate(object)
             let asked = ChiefQuestionFeed.questions(in: object)
-            questionFeed.update(asked.questions, seq: asked.seq)
+            questionFeed.update(asked.questions, seq: asked.seq, messageID: object["id"] as? String)
             if let id = object["id"] as? String { failureLog.record(wire.failure(object), messageID: id) }
             return wire.message(object, peerReadSeq: peerReadSeq, bytes: attachmentBytes)
         }
@@ -339,9 +346,11 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
 
         func markRead(_ seq: Int) async {
             guard let id = try? await resolve() else { return }
-            lastReadHere = max(lastReadHere ?? 0, seq)
-            // Send Read Receipts off: the read position stays on this phone.
+            lastReadHere = max(lastReadHere ?? preferences.readHere(id) ?? 0, seq)
+            // Send Read Receipts off: the read position stays on this phone
+            // (kept, so a new backend after a reconnect still knows it).
             guard preferences.sendsReadReceipts(id) else {
+                if let lastReadHere, preferences.readHere(id) != lastReadHere { preferences.setReadHere(lastReadHere, id) }
                 yieldReadState(lastRead: seq)
                 return
             }
@@ -404,7 +413,8 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             continuation?.yield(.connected(info: info, meID: identity.meID, lagged: lagged))
             // With receipts off the Mac's cursor lags what this phone read.
             let server = wire.readCursor(summary, of: identity.meID)
-            yieldReadState(lastRead: preferences.sendsReadReceipts(id) ? server : max(server, lastReadHere ?? 0))
+            let here = lastReadHere ?? preferences.readHere(id) ?? 0
+            yieldReadState(lastRead: preferences.sendsReadReceipts(id) ? server : max(server, here))
         }
 
         /// Takes a conversation summary's counters. `movingRev` advances the
@@ -484,7 +494,9 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
                 guard incoming > rev else { return }
                 if incoming > rev + 1, let id = conversationID {
                     // Missed ops: resync, and the store refetches the newest page.
-                    rev = incoming
+                    // The snapshot sets `rev`; if it fails, the next event finds
+                    // the same gap and tries again (moving `rev` first lost the
+                    // missed messages until some later gap).
                     try? await connect(id: id, lagged: true)
                     return
                 }
@@ -528,9 +540,13 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             }
         }
 
+        /// Ends the event stream and the daemon channel under it: without the
+        /// channel's close its read loop and the Mac's connection stayed up
+        /// for every conversation screen Home replaced.
         func close() async {
             continuation?.finish()
             continuation = nil
+            await client.close()
         }
     }
 }

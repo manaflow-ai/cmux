@@ -16,6 +16,12 @@ public nonisolated struct AgentPaneFlush: Equatable, Sendable {
 @MainActor public protocol AgentPaneTransportPacer: AnyObject {
     /// Frames arrived: arrange for `flush` to run, and again while it reports more waiting.
     func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush)
+    /// The same, saying whether the waiting frames include ones the page waits on: a reply to its
+    /// request, the close, or a backlog (``AcpmuxPaneSocket/pageWaits``). A hidden pane gets only those.
+    func schedule(urgent: Bool, _ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush)
+    /// The same, saying whether the waiting frames include a reply to the page's own request
+    /// (``AcpmuxPaneSocket/answersPage(_:)``), which a hidden pane gets without its hidden interval.
+    func schedule(urgent: Bool, answers: Bool, _ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush)
     /// The page has run the last call `flush` made.
     func delivered()
     /// The connection changed or closed: forget what was in flight.
@@ -23,6 +29,10 @@ public nonisolated struct AgentPaneFlush: Equatable, Sendable {
 }
 
 public extension AgentPaneTransportPacer {
+    func schedule(urgent: Bool, _ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) { schedule(flush) }
+    func schedule(urgent: Bool, answers: Bool, _ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
+        schedule(urgent: urgent, flush)
+    }
     func delivered() {}
     func reset() {}
 }

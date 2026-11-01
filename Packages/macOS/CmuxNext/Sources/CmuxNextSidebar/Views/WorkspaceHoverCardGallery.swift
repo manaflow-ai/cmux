@@ -12,46 +12,80 @@ public struct WorkspaceHoverCardGallery {
     /// Each state's name and its card on the overlay glass, configured; resources sampled a few
     /// times so the CPU bars show.
     @MainActor public static func cards(now: Date = Date()) -> [(name: String, view: NSView)] {
+        let mixedTabs = [
+                SidebarTab(id: TabID("terminal"), title: "app", kind: .terminal, folder: "~", state: .success),
+                SidebarTab(id: TabID("claude"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .working),
+                SidebarTab(id: TabID("review"), title: "Review changes", kind: .conversation, folder: "~/Projects/cmux", state: .waiting),
+        ]
         typealias Fact = WorkspaceHoverCardContent.Fact
         let agent = Fact(icon: .agentChat, text: "Codex · gpt-6.1-sol", kind: "agent")
-        let folder = Fact(icon: .folder, text: "cmux", kind: "folder")
-        let branch = Fact(icon: .gitBranch, text: "feat/shared-hover-card", kind: "branch")
+        let folder = Fact(icon: .folder, text: "docs", kind: "folder")
+        // The repository and branch on one line (Leo 2026-10-21); a home folder is no line at all.
+        let branch = Fact(icon: .gitBranch, text: "cmux · feat/shared-hover-card", kind: "branch")
         let reply = Fact(icon: .agentChatList, text: "Done: the tab and session cards share one row now, with the PR status in color.",
-                         lines: 2, kind: Fact.lastReplyKind)
+                         lines: 2, kind: Fact.lastReplyKind, isPreview: true)
         let context = Fact(icon: .contextUsage, text: "Context", kind: "context", accessory: .ring(0.62, tone: .secondary))
-        func pr(_ status: String, _ tone: HoverCardTone, adds: Int, dels: Int) -> Fact {
-            Fact(icon: .gitPullrequest, text: "cmux #22231", kind: "pullRequest", status: status, statusTone: tone,
-                 additions: adds, deletions: dels)
+        // A pull request as the card's preview: its state in color, the icon in that color too.
+        func pr(_ status: String, _ tone: HoverCardTone, adds: Int, dels: Int, preview: Bool = true) -> Fact {
+            Fact(icon: .gitPullrequest, text: "#22231 Share one hover card row", kind: "pullRequest", status: status, statusTone: tone,
+                 additions: adds, deletions: dels, iconTone: tone, isPreview: preview)
         }
-        let machine = Fact(icon: .machineRemote, text: "air-blue", kind: "machine", accessory: .dot(.danger))
+        // A made-up machine name: the capture's privacy check refuses a real host's.
+        let machine = Fact(icon: .machineRemote, text: "dev-mini", kind: "machine", accessory: .dot(.danger))
         let offline = Fact(icon: .statusDisconnected, text: "Remote environment is offline", kind: "machineStatus", ink: .danger)
         let states: [(String, WorkspaceHoverCardContent, [Double])] = [
             ("Agent running", WorkspaceHoverCardContent(
                 title: "Make the hover cards look like Codex's", icon: .agentChat, age: "3m",
-                facts: [agent, context, folder, branch, pr("Checks running", .attention, adds: 412, dels: 96), reply],
+                facts: [agent, context, branch, pr("Checks running", .attention, adds: 412, dels: 96)],
                 activity: .working, activitySince: now.addingTimeInterval(-192)), [0.4, 0.9, 1.3, 1.8, 2.2, 1.6, 2.4]),
             ("Agent idle", WorkspaceHoverCardContent(
                 title: "Fix the session hover card", icon: .agentChat, age: "1d",
-                facts: [agent, folder, branch, reply]), []),
+                facts: [agent, branch, reply]), []),
+            // A chat that never left the home folder: the name, then the last reply on its icon's line.
+            ("Chat at home", WorkspaceHoverCardContent(
+                title: "web-ota", icon: .agentChat, age: "2h",
+                facts: [reply]), []),
             ("Remote offline", WorkspaceHoverCardContent(
                 title: "Deploy the docs", icon: .machineRemote, age: "2h",
                 facts: [folder, machine, offline]), []),
             ("PR conflict", WorkspaceHoverCardContent(
                 title: "Sidebar rows badge their logo's corner", icon: .agentChat, age: "5h",
-                facts: [folder, branch, pr("Conflict", .attention, adds: 88, dels: 31),
+                facts: [branch, pr("Conflict", .attention, adds: 88, dels: 31, preview: false),
                         pr("Checks failed", .danger, adds: 88, dels: 31)]), []),
             ("PR merged", WorkspaceHoverCardContent(
                 title: "Overlays are themed Liquid Glass", icon: .agentChat, age: "4w",
-                facts: [folder, branch, pr("Merged", .merged, adds: 69, dels: 32)]), []),
+                facts: [branch, pr("Merged", .merged, adds: 69, dels: 32)]), []),
         ]
-        return states.map { name, content, cpu in
+        let richCards = states.map { name, content, cpu in
             let card = WorkspaceHoverCardView()
             card.configure(content, now: now)
+            card.detailsToggle.performClick(nil)
             for value in cpu {
                 card.setResources(ResourceReport(total: ResourceUsage(cpu: value, memoryBytes: 2_300 << 20), processCount: 6))
             }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
+        let content = WorkspaceHoverCardContent(
+            title: "Review the sidebar", icon: .agentChat, age: "3m",
+            facts: [agent, branch, reply], activity: .working, activitySince: now.addingTimeInterval(-192))
+        let overflow = mixedTabs + (1...4).map {
+            SidebarTab(id: TabID("docs-\($0)"), title: "Documentation \($0)", kind: .browser, state: .success)
+        }
+        let variants: [(String, WorkspaceHoverCardView.TabPlacement, Int, Bool, Bool)] = [
+            ("Tabs after status · 4 + more", .afterStatus, 4, true, true),
+            ("Tabs below title · 3 + more", .afterTitle, 3, true, true),
+            ("Tabs below details · 6 compact + more", .afterDetails, 6, false, true),
+            ("Tabs first · details collapsed · chosen", .afterTitle, 4, true, false),
+        ]
+        let tabCards = variants.map { name, placement, limit, details, expanded in
+            let card = WorkspaceHoverCardView(tabPlacement: placement, tabLimit: limit, tabDetails: details)
+            card.configure(content, now: now)
+            card.tabList.configure(title: content.title, tabs: overflow)
+            if expanded { card.detailsToggle.performClick(nil) }
+            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+        }
+        return tabCards + richCards
     }
+
 }
 #endif

@@ -1,0 +1,77 @@
+name: cmux-next remote daemon
+
+# nightly-next builds cmuxd-remote from the feat-cmux-next tree (nightly.yml's "Build immutable
+# SSH daemon assets" with scripts/build_remote_daemon_release_assets.sh, then
+# scripts/verify_remote_daemon_release.py), and feat-cmux-next work edits daemon/remote and those
+# scripts (the Go pin, the third-party notices, nightly-next's assets). remote-daemon.yml, which
+# runs these tests, is called by ci.yml only for pull requests into main and runs on main pushes,
+# so a feat-cmux-next pull request that broke them landed green (tests/test_pr_lane_coverage.py).
+# This runs the Linux packaging tests for every feat-cmux-next pull request and push that touches
+# the daemon or its release scripts; the Go unit and race tests stay in remote-daemon.yml.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "daemon/remote/**"
+      - "scripts/*remote_daemon*"
+      - "tests/*remote_daemon*"
+      - "tests/fixtures/remote-daemon-notices/**"
+      # The license guard's classifier and allowlist.
+      - "cmux-tui/build-support/notices/license_match.py"
+      - "scripts/cmux-next/check_app_crate_licenses.py"
+      - ".github/workflows/cmux-next-remote-daemon.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "daemon/remote/**"
+      - "scripts/*remote_daemon*"
+      - "tests/*remote_daemon*"
+      - "tests/fixtures/remote-daemon-notices/**"
+      # The license guard's classifier and allowlist.
+      - "cmux-tui/build-support/notices/license_match.py"
+      - "scripts/cmux-next/check_app_crate_licenses.py"
+      - ".github/workflows/cmux-next-remote-daemon.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-next-remote-daemon-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-packaging:
+    name: cmux-next remote daemon packaging
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
+          # build_remote_daemon_release_assets.sh refuses any other.
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
+      # The fast guard: the licenses cmuxd-remote links, read the way nightly's "Build immutable
+      # SSH daemon assets" reads them. An allowed license is approved with a warning that names
+      # it (generate --update-review records it in review.json); only an unknown or
+      # disallowed license fails, here, long before the nightly.
+      - name: cmuxd-remote licenses are allowed (fast guard)
+        run: python3 scripts/remote_daemon_notices.py check --daemon-root daemon/remote
+
+      - name: Reject broken app bundles and daemon artifacts
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_remote_daemon_release_verification.py
+
+      - name: cmuxd-remote third-party notices
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_remote_daemon_notices.py
+
+      - name: Build and exercise stable, nightly and rc daemon artifacts
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_remote_daemon_release_assets.py

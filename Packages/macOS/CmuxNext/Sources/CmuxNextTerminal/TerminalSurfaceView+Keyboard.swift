@@ -1,5 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
+import CmuxNextWakeups
 import GhosttyNextKit
 
 // Keyboard and IME input.
@@ -11,7 +12,8 @@ import GhosttyNextKit
 // and the IME candidate window is positioned from `ghostty_surface_ime_point`
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
-    public override func keyDown(with event: NSEvent) {
+    public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
+        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.hop("app.key.terminal") }
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
@@ -36,13 +38,16 @@ extension TerminalSurfaceView {
 
         let hadMarkedText = markedText.length > 0
         // A key that switches the input source (for example Ctrl-Space) must
-        // not also reach the terminal.
-        let inputSourceBefore = hadMarkedText ? nil : GhosttyInput.currentInputSourceID()
+        // not also reach the terminal. Only a key with Control, Option, Command
+        // or Fn can be such a shortcut: a plain key pays no TIS lookup (two
+        // TISCopyCurrentKeyboardInputSource calls per typed character).
+        let mayChangeInputSource = !hadMarkedText && GhosttyInput.mayChangeInputSource(event.modifierFlags)
+        let inputSourceBefore = mayChangeInputSource ? GhosttyInput.currentInputSourceID() : nil
         lastPerformKeyEventTimestamp = nil
 
         interpretKeyEvents([translationEvent])
 
-        if !hadMarkedText, inputSourceBefore != GhosttyInput.currentInputSourceID() {
+        if mayChangeInputSource, inputSourceBefore != GhosttyInput.currentInputSourceID() {
             return
         }
 
@@ -82,6 +87,20 @@ extension TerminalSurfaceView {
         )
     }
 
+    /// A key held for this terminal while another view had the keyboard (a creation hold, P0 1193), typed into it now
+    /// without taking the keyboard: this surface's own Ghostty key encoder (its modifiers, Option-as-Alt setting, cursor
+    /// and keypad modes, the Kitty keyboard protocol) turns it into bytes, written to this terminal as a typed key is
+    /// (by the terminal id its create chose while it is being made). No input method sees it: a held key has no
+    /// composition. A Command chord is an app action and never comes here.
+    public func typeHeldKey(_ event: NSEvent) {
+        guard let surface else { return }
+        let translationEvent = GhosttyInput.translationEvent(
+            for: event, translationMods: ghostty_surface_key_translation_mods(surface, GhosttyInput.mods(event.modifierFlags)))
+        let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+        sendKey(action, event: event, translationEvent: translationEvent, text: GhosttyInput.keyText(for: translationEvent))
+        sendKey(GHOSTTY_ACTION_RELEASE, event: event)
+    }
+
     public override func keyUp(with event: NSEvent) {
         if copyMode.handleKeyUp(event) { return }
         sendKey(GHOSTTY_ACTION_RELEASE, event: event)
@@ -90,6 +109,9 @@ extension TerminalSurfaceView {
     public override func flagsChanged(with event: NSEvent) {
         guard !hasMarkedText(), let action = GhosttyInput.modifierAction(for: event) else { return }
         sendKey(action, event: event)
+        // Ghostty looks for a link under a resting pointer only on a move to another cell (and, in
+        // a program that has the mouse, not on a key): a modifier change looks again, after the key.
+        linkPointer.modifiersChanged(event.modifierFlags)
     }
 
     /// Key equivalents reach the view before the main menu

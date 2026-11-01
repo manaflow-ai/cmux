@@ -1,3 +1,4 @@
+use crate::panic_free::RecoverPoison;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
@@ -12,8 +13,15 @@ use crate::{
     SessionJournalRecord,
 };
 
+/// The live ring keeps the newest records decoded for the subscribers that
+/// keep up; a subscriber behind it pages from SQLite on a reader of its own
+/// (`SharedJournalRead::Gap`), as Chrome keeps bounded in-memory history
+/// and pages the rest. Both bounds hold: at most this many records, and at
+/// most [`JOURNAL_FANOUT_BYTE_CAPACITY`] of resident bytes (the soak lead of
+/// 2026-10-28: agent turns' 8 KiB texts grew a 128 MiB-capped ring
+/// ~4.4 MB/h in a daemon that should stay small).
 const JOURNAL_FANOUT_CAPACITY: usize = 8192;
-const JOURNAL_FANOUT_BYTE_CAPACITY: usize = 128 * 1024 * 1024;
+const JOURNAL_FANOUT_BYTE_CAPACITY: usize = 4 * 1024 * 1024;
 const JOURNAL_READ_PAGE_SIZE: usize = 1024;
 
 /// One decoded journal record shared by every live subscriber.
@@ -294,7 +302,7 @@ impl JournalKernel {
         let tailer = std::thread::Builder::new()
             .name("mux-session-journal-fanout".into())
             .spawn(move || run_tailer(weak, reader, head_sequence))?;
-        *kernel.tailer.lock().unwrap() = Some(tailer);
+        *kernel.tailer.lock().recover_poison() = Some(tailer);
         Ok(())
     }
 
@@ -316,27 +324,29 @@ impl JournalKernel {
         if !self.enabled {
             return;
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.requested_epoch = state.requested_epoch.wrapping_add(1);
         self.changed.notify_all();
     }
 
     pub(crate) fn epoch(&self) -> u64 {
-        self.state.lock().unwrap().epoch
+        self.state.lock().recover_poison().epoch
     }
 
     /// Like `wait`, but `None` waits with no timeout (a real deadline or
     /// nothing, never a poll period).
     pub(crate) fn wait_until(&self, epoch: u64, deadline: Option<Instant>) -> u64 {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         while state.epoch == epoch {
             match deadline {
-                None => state = self.changed.wait(state).unwrap(),
+                None => {
+                    state = self.changed.wait(state).recover_poison();
+                }
                 Some(deadline) => {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         break;
                     };
-                    state = self.changed.wait_timeout(state, remaining).unwrap().0;
+                    state = self.changed.wait_timeout(state, remaining).recover_poison().0;
                 }
             }
         }
@@ -344,11 +354,11 @@ impl JournalKernel {
     }
 
     pub(crate) fn wait(&self, epoch: u64, timeout: Duration) -> u64 {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if state.epoch != epoch {
             return state.epoch;
         }
-        let (state, _) = self.changed.wait_timeout(state, timeout).unwrap();
+        let (state, _) = self.changed.wait_timeout(state, timeout).recover_poison();
         state.epoch
     }
 
@@ -359,9 +369,9 @@ impl JournalKernel {
         epoch: u64,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> u64 {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         while state.epoch == epoch && !interrupt.is_fired() {
-            state = self.changed.wait(state).unwrap();
+            state = self.changed.wait(state).recover_poison();
         }
         state.epoch
     }
@@ -373,7 +383,7 @@ impl JournalKernel {
     }
 
     pub(crate) fn wake_waiters(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         // The generation is the wait predicate. Advancing it makes a wake
         // observable even when the signal arrives just before wait() locks.
         state.epoch = state.epoch.wrapping_add(1);
@@ -382,12 +392,12 @@ impl JournalKernel {
 
     pub(crate) fn shutdown(&self) {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             state.shutdown_requested = true;
             state.epoch = state.epoch.wrapping_add(1);
             self.changed.notify_all();
         }
-        if let Some(tailer) = self.tailer.lock().unwrap().take()
+        if let Some(tailer) = self.tailer.lock().recover_poison().take()
             && tailer.join().is_err()
         {
             eprintln!("cmux-tui: session journal tailer panicked during shutdown");
@@ -398,7 +408,7 @@ impl JournalKernel {
         if !self.enabled || limit == 0 {
             return SharedJournalRead::Unavailable;
         }
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if !state.available {
             return SharedJournalRead::Unavailable;
         }
@@ -448,7 +458,7 @@ impl JournalKernel {
     }
 
     pub(crate) fn install_prepared_producer(&self, producer: PreparedJournalProducer) {
-        let mut producers = self.producers.write().unwrap();
+        let mut producers = self.producers.write().recover_poison();
         if producers
             .get(&producer.producer_id)
             .is_some_and(|current| current.manifest_version > producer.compiled.manifest_version)
@@ -465,7 +475,7 @@ impl JournalKernel {
         let producer = self
             .producers
             .read()
-            .unwrap()
+            .recover_poison()
             .get(&ingress.producer_id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("journal producer is not installed"))?;
@@ -494,7 +504,7 @@ impl JournalKernel {
 
     #[cfg(test)]
     pub(crate) fn database_reader_count(&self) -> u64 {
-        self.state.lock().unwrap().database_reader_count
+        self.state.lock().recover_poison().database_reader_count
     }
 }
 
@@ -558,7 +568,7 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
     loop {
         let Some(kernel) = weak.upgrade() else { break };
         let requested_epoch = {
-            let mut state = kernel.state.lock().unwrap();
+            let mut state = kernel.state.lock().recover_poison();
             loop {
                 if state.shutdown_requested {
                     return;
@@ -568,7 +578,7 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                 }
                 if state.available {
                     retry_at = None;
-                    state = kernel.changed.wait(state).unwrap();
+                    state = kernel.changed.wait(state).recover_poison();
                     continue;
                 }
                 let deadline = *retry_at.get_or_insert_with(|| Instant::now() + retry.next_delay());
@@ -576,7 +586,7 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                     retry_at = None;
                     break state.requested_epoch;
                 };
-                state = kernel.changed.wait_timeout(state, remaining).unwrap().0;
+                state = kernel.changed.wait_timeout(state, remaining).recover_poison().0;
             }
         };
         drop(kernel);
@@ -612,22 +622,43 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         }
 
         let Some(kernel) = weak.upgrade() else { break };
-        let mut state = kernel.state.lock().unwrap();
+        let mut state = kernel.state.lock().recover_poison();
         if state.shutdown_requested {
             return;
         }
         state.available = !read_failed;
         if !read_failed {
             retry.reset();
-            for record in appended {
-                let state = &mut *state;
-                push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);
-            }
+            publish_journal_batch(&mut state, appended, last_sequence);
             last_sequence = candidate_sequence;
             state.head_sequence = candidate_sequence;
         }
         state.epoch = state.epoch.wrapping_add(1);
         kernel.changed.notify_all();
+    }
+}
+
+/// Appends one tailer batch read after `last_sequence` to the live ring.
+/// The batch itself was bounded while it was read, so it may start past
+/// `last_sequence + 1` (a batch over the byte cap kept only its newest
+/// records): the ring then drops every older record first. The ring must
+/// stay contiguous, because `read_after` finds a sequence by its position;
+/// a reader behind the batch's first record then gets a `Gap` and pages
+/// from SQLite, instead of silently skipping the records the batch shed.
+fn publish_journal_batch(
+    state: &mut JournalFanoutState,
+    appended: VecDeque<Arc<JournalDocument>>,
+    last_sequence: u64,
+) {
+    if appended
+        .front()
+        .is_some_and(|first| first.record.sequence != last_sequence.saturating_add(1))
+    {
+        state.records.clear();
+        state.record_bytes = 0;
+    }
+    for record in appended {
+        push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);
     }
 }
 
@@ -646,6 +677,19 @@ fn push_bounded_journal_document(
         }
     }
 }
+
+impl JournalKernel {
+    /// Tests: the ring's records and their resident bytes.
+    #[cfg(test)]
+    pub(crate) fn ring_for_test(&self) -> (usize, usize) {
+        let state = self.state.lock().recover_poison();
+        (state.records.len(), state.record_bytes)
+    }
+}
+
+#[cfg(test)]
+#[path = "journal_kernel_ring_tests.rs"]
+mod ring_tests;
 
 #[cfg(test)]
 mod performance_tests {
@@ -736,7 +780,7 @@ mod performance_tests {
     }
 
     fn linear_read_after(kernel: &JournalKernel, sequence: u64, limit: usize) -> SharedJournalRead {
-        let state = kernel.state.lock().unwrap();
+        let state = kernel.state.lock().recover_poison();
         let records: Vec<_> = state
             .records
             .iter()
@@ -792,6 +836,74 @@ mod performance_tests {
         assert_ne!(kernel.wait(observed, Duration::ZERO), observed);
     }
 
+    /// A tailer batch over the byte cap keeps only its newest records; the
+    /// ring must not keep its older records beside them with a hole between
+    /// (a caught-up reader then skipped the shed records with no Gap; the
+    /// 4 MiB cap makes such a batch common). Several payload sizes, as the
+    /// hole depended on how many old records fit beside the batch.
+    #[test]
+    fn a_batch_trimmed_by_the_cap_leaves_no_hole_a_reader_could_skip() {
+        for padding in [16 * 1024, 40 * 1024, 60 * 1024, 87 * 1024] {
+            let kernel = JournalKernel {
+                state: Mutex::new(JournalFanoutState {
+                    epoch: 0,
+                    requested_epoch: 0,
+                    shutdown_requested: false,
+                    head_sequence: 0,
+                    records: VecDeque::new(),
+                    record_bytes: 0,
+                    available: true,
+                    database_reader_count: 0,
+                }),
+                changed: Condvar::new(),
+                tailer: Mutex::new(None),
+                enabled: true,
+                producers: RwLock::new(HashMap::new()),
+                database_path: None,
+            };
+            let big = |sequence: u64| {
+                let mut record = record(sequence);
+                record.payload = json!({"padding": "x".repeat(padding)});
+                Arc::new(JournalDocument::new(record))
+            };
+            {
+                let mut state = kernel.state.lock().unwrap();
+                // A caught-up ring: 1..=10, small records.
+                let first: VecDeque<_> = (1..=10)
+                    .map(|sequence| Arc::new(JournalDocument::new(record(sequence))))
+                    .collect();
+                publish_journal_batch(&mut state, first, 0);
+                state.head_sequence = 10;
+                // One batch 11..=200, read while the tailer was late, bounded
+                // as it was read.
+                let mut batch = VecDeque::new();
+                let mut batch_bytes = 0;
+                for sequence in 11..=200 {
+                    push_bounded_journal_document(&mut batch, &mut batch_bytes, big(sequence));
+                }
+                publish_journal_batch(&mut state, batch, 10);
+                state.head_sequence = 200;
+                let sequences: Vec<u64> =
+                    state.records.iter().map(|doc| doc.record.sequence).collect();
+                assert!(
+                    sequences.windows(2).all(|pair| pair[1] == pair[0] + 1),
+                    "padding {padding}: the ring has a hole: {sequences:?}"
+                );
+            }
+            // A reader caught up to 10 gets a Gap (it pages from SQLite), or
+            // a page that starts exactly at 11: never a later record.
+            match kernel.read_after(10, 4) {
+                SharedJournalRead::Gap { .. } => {}
+                SharedJournalRead::Page(page) => assert_eq!(
+                    page.records.first().map(|doc| doc.record.sequence),
+                    Some(11),
+                    "padding {padding}: a reader at 10 skipped records"
+                ),
+                SharedJournalRead::Unavailable => panic!("unavailable"),
+            }
+        }
+    }
+
     #[test]
     fn journal_fanout_batches_are_bounded_before_publication() {
         let mut records = VecDeque::new();
@@ -803,9 +915,17 @@ mod performance_tests {
                 Arc::new(JournalDocument::new(record(sequence))),
             );
         }
-        assert_eq!(records.len(), JOURNAL_FANOUT_CAPACITY);
-        assert_eq!(records.front().unwrap().record.sequence, 138);
-        assert_eq!(records.back().unwrap().record.sequence, JOURNAL_FANOUT_CAPACITY as u64 + 137);
+        // Whichever bound binds first (the byte cap, for these records), the
+        // ring holds the newest records, contiguous, within both bounds.
+        let newest = JOURNAL_FANOUT_CAPACITY as u64 + 137;
+        assert!(records.len() <= JOURNAL_FANOUT_CAPACITY);
+        assert!(record_bytes <= JOURNAL_FANOUT_BYTE_CAPACITY);
+        assert_eq!(records.back().unwrap().record.sequence, newest);
+        assert_eq!(
+            records.front().unwrap().record.sequence,
+            newest + 1 - records.len() as u64,
+            "the ring is not the newest contiguous records"
+        );
         assert_eq!(
             record_bytes,
             records.iter().map(|record| record.resident_bytes()).sum::<usize>()

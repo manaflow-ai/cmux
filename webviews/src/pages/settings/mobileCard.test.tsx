@@ -63,6 +63,9 @@ test("Mobile is its own category with the allow switch; Accounts has no iPhone c
   await act(async () => page.provider.setHost({ ...page.provider.host, iphone: state }));
   await settle();
   expect(page.container.querySelector('[data-row-key="mobile.allowIPhoneConnections"]')).not.toBeNull();
+  // The terminal sizing policy row; its priority order is set on the phone and stays hidden here.
+  expect(page.container.querySelector('[data-row-key="mobile.terminalSizing"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-row-key="mobile.terminalSizingOrder"]')).toBeNull();
   expect(card(page.container)).not.toBeNull();
   page.unmount();
   const accounts = await renderPage({ path: "/settings/accounts" });
@@ -94,12 +97,47 @@ test("the card shows status, space and phones with their transport, and follows 
   await act(async () =>
     page.provider.setHost({
       ...page.provider.host,
-      iphone: { ...state, allowed: false, account: null, space: null, phase: "off" },
+      // Off and signed out with no phones left; trusted phones stay listed while off (next test).
+      iphone: { ...state, allowed: false, account: null, space: null, phase: "off", phones: [] },
     }),
   );
   await settle();
   expect(card(page.container)!.querySelector("[data-mobile-phones]")).toBeNull();
   expect(card(page.container)!.textContent).not.toContain("Personal");
+  page.unmount();
+});
+
+test("Phone Access rows remain visible and removable when the legacy host is off", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      iphone: {
+        ...state,
+        allowed: false,
+        account: null,
+        space: null,
+        phase: "off",
+        phones: [
+          {
+            id: "iroh:peer",
+            title: "Demo iPhone · cmux next",
+            subtitle: "Device key demo",
+            connected: false,
+            removable: true,
+            transport: "iroh",
+            path: null,
+          },
+        ],
+      },
+    }),
+  );
+  await settle();
+  const element = card(page.container)!;
+  expect(element.querySelector('[data-mobile-phone="iroh:peer"]')).not.toBeNull();
+  await act(async () => element.querySelector<HTMLButtonElement>('[data-remove-phone="iroh:peer"]')!.click());
+  await settle();
+  expect(page.provider.log.some((entry) => entry.op === "cmux.settings.mobile.remove_phone")).toBe(true);
   page.unmount();
 });
 

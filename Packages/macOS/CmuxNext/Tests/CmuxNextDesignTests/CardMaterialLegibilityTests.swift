@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Lawrence, 2026-10-20: "The card is potentially too liquid glassy so it is very hard to see and
 /// use. Like the floating card when I hover over workspaces and tabs." Every floating card that
@@ -9,7 +11,7 @@ import Testing
 /// paints, on the glass or blur, a fill dense enough that its primary and secondary text keep
 /// WCAG AA (4.5:1) over any backdrop (pure black and pure white are the worst a blur can do), and
 /// a visible 1px rim that sets it apart from what is behind it.
-@MainActor @Suite(.serialized) struct CardMaterialLegibilityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CardMaterialLegibilityTests {
     private static let themes: [(String, ThemeInput)] = [
         ("light", ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x24292F))),
         ("dark", ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))),
@@ -33,8 +35,10 @@ import Testing
         window.isReleasedWhenClosed = false
         let root = try #require(window.contentView)
         scope.root(root)
+        // The card fill is opt-in since 2026-10-21 (overlays are the shared glass alone); this
+        // checks the fill itself, for a surface that opts in and for the web's --cmux-card-tint.
         let panel = Glass.makeOverlayPanel(content: NSTextField(labelWithString: "Workspace"),
-                                           cornerRadius: PopupStyle.standard.cornerRadius)
+                                           cornerRadius: PopupStyle.standard.cornerRadius, cardFill: true)
         panel.frame = NSRect(x: 10, y: 10, width: 240, height: 120)
         root.addSubview(panel)
         panel.materialOverride = material

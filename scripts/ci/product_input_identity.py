@@ -61,6 +61,7 @@ def scheme_action(scheme: str) -> str:
 PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
+    "scripts/ci/fleet-compilation-cache.sh",
     "scripts/ci/canonical-build-root.sh",
     # canonical-build-root.sh copies the source tree the product compiles from with it.
     "scripts/ci/apfs_clone.py",
@@ -118,6 +119,8 @@ IGNORED_JOB_LEVEL_KEYS = frozenset({
     "timeout-minutes",
     "permissions",
     "outputs",
+    # Which credentials the job may read (ci-build-cache-reader), like permissions; not what it builds.
+    "environment",
 })
 
 # Product recipe projection is fail-closed: every named admission step is part

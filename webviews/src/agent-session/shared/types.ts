@@ -1,18 +1,3 @@
-export type ProviderId = "codex" | "claude" | "opencode";
-
-export type RendererKind = "react" | "solid";
-
-export type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
-
-export type ProviderInfo = {
-  id: ProviderId;
-  displayName: string;
-  executableName: string;
-  transportKind: "stdio-jsonrpc" | "stdio-jsonl" | "http-loopback";
-  arguments: string[];
-  autoStart: boolean;
-};
-
 export type AgentSessionTheme = {
   isDark: boolean;
   pageBackground: string;
@@ -26,6 +11,9 @@ export type AgentSessionTheme = {
   softText: string;
   accent: string;
   accentSoft: string;
+  /// A lit (pressed, on) control's glyph or label: the accent lifted to at least the muted text's
+  /// contrast (`ThemeTokens.litGlyph`); without it, `accent`.
+  litGlyph?: string;
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
   /// Glyphs on `accent` where it fills a control (Send); without it, `accentText`.
@@ -47,13 +35,21 @@ export type AgentSessionTheme = {
   /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
   /// `borderStrong` are already transparent then. Absent means default.
   borders?: "default" | "none";
+  /// Whether keyboard focus outlines, including transcript response rows, are shown.
+  focusRingEnabled?: boolean;
   /// The chat column's width on a wide pane (Debug Settings `agent.chatWidth`, acpmux chatWidth.ts):
   /// `standard`, `wide` or `wideBlocks`. Absent means standard.
   chatWidth?: string;
   /// Codex-style tool runs in a running turn (Debug Settings `agentPane.debug.codexToolRuns`,
-  /// acpmux codexToolRuns.ts). Native hosts send their default explicitly; absent keeps the
-  /// browser fallback off. true opts in and false opts out.
+  /// acpmux codexToolRuns.ts). Native hosts send their default (true) explicitly; absent keeps it
+  /// on, and false opts out.
   codexToolRuns?: boolean;
+  /// A running turn's status line as its last row (Debug Settings `agentPane.debug.liveLineBelow`,
+  /// acpmux liveLineBelow.ts). Absent or true draws it there; false keeps it over the turn's work.
+  liveLineBelow?: boolean;
+  /// A collapsed tool run's look (acpmux toolRunLook.ts): `kind` (absent), `pencil`, `quiet` or
+  /// `quiet-pencil`. Only the gallery sends it, for the versions it keeps beside the default.
+  toolRunLook?: string;
   /// The answer footer's copy/retry/fork controls: right by default, or left when selected by the host.
   turnActionsPlacement?: "left" | "right";
   /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
@@ -65,149 +61,18 @@ export type AgentSessionTheme = {
   /// `data-status-indicators` on the root; under `static` no status loop runs and color-only
   /// marks draw a shape each. Absent means the stylesheet defaults (animated).
   statusIndicators?: "animated" | "static";
+  /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
+  /// `data-working-look` on the root. Absent means the stylesheet default, the spinner.
+  workingLook?: "breathe" | "shimmer" | "spinner";
+  /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
+  /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
+  /// false keeps the transcript's group cards and the agents pill.
+  subagentTray?: boolean;
+  /// Running tray placement; absent keeps the tray above the composer. The alternate is
+  /// fixture/Labs-driven until a native setting owns it.
+  subagentTrayPlacement?: "tray" | "after-latest-message";
+  /// The transcript's scrollbar fades out at rest (Debug Settings `agentPane.debug.scrollerFade`):
+  /// sets `data-cmux-scroller-fade` on the root (scrollers.ts). Absent or false keeps it shown while
+  /// the chat overflows.
+  scrollerFade?: boolean;
 };
-
-export type AppContext = {
-  panelId: string;
-  workspaceId: string;
-  renderer: RendererKind;
-  initialProviderId: ProviderId;
-  workingDirectory?: string;
-  rateLimitRows?: AgentSessionRateLimitRow[];
-  copy: AgentSessionCopy;
-  theme: AgentSessionTheme;
-};
-
-export type AgentSessionRateLimitRow = {
-  role: "primary" | "secondary";
-  remainingPercent: number;
-  usedPercent?: number;
-  windowDurationMins?: number;
-  resetsAt?: number;
-};
-
-export type AgentSessionCopy = {
-  start: string;
-  stop: string;
-  send: string;
-  provider: string;
-  rateLimits: string;
-  rateLimitUsageRemaining: string;
-  rateLimitPrimary: string;
-  rateLimitSecondary: string;
-  rateLimitWeekly: string;
-  rateLimitMonthly: string;
-  rateLimitDaysFormat: string;
-  rateLimitHoursFormat: string;
-  rateLimitMinutesFormat: string;
-  rateLimitResets: string;
-  voiceInput: string;
-  promptPlaceholder: string;
-  attachFile: string;
-  addFilesAndMore: string;
-  addPhotosAndFiles: string;
-  removeAttachment: string;
-  copyOutput: string;
-  copyAssistantMessage: string;
-  copiedAssistantMessage: string;
-  copyUserMessage: string;
-  copiedUserMessage: string;
-  shellLabel: string;
-  copyShellContents: string;
-  copiedShellContents: string;
-  collapseShell: string;
-  shellSuccess: string;
-  showMore: string;
-  showLess: string;
-  browseWeb: string;
-  autoContext: string;
-  includeIdeContext: string;
-  ideContext: string;
-  tools: string;
-  changePermissions: string;
-  permissionsDefault: string;
-  permissionsFullAccess: string;
-  permissionsAutoReview: string;
-  permissionsCustom: string;
-  reasoningEffortHigh: string;
-  mentionMenuTitle: string;
-  mentionCurrentWorkspace: string;
-  skillMenuTitle: string;
-  composerNoResults: string;
-  planMode: string;
-  planSuggestionAction: string;
-  planSuggestionDismiss: string;
-  planSuggestionShortcut: string;
-  planSuggestionTitle: string;
-  skillPlan: string;
-  skillCodeReview: string;
-  skillResearch: string;
-  loadingStatus: string;
-  idleStatus: string;
-  startingStatus: string;
-  runningStatus: string;
-  stoppingStatus: string;
-  failedStatus: string;
-  rendererReadyFormat: string;
-  stopped: string;
-  sentCharsFormat: string;
-  providerStarted: string;
-  providerExitedFormat: string;
-  requestFailed: string;
-};
-
-export type AgentSessionAttachment = {
-  dataUrl?: string;
-  fsPath?: string;
-  id: string;
-  kind: "file" | "image";
-  label: string;
-  mimeType?: string;
-  path: string;
-};
-
-export type AgentEvent =
-  | {
-      type: "app.theme";
-      theme: AgentSessionTheme;
-    }
-  | {
-      type: "app.rateLimitRows";
-      rateLimitRows: AgentSessionRateLimitRow[];
-    }
-  | {
-      type: "provider.started";
-      sessionId: string;
-      providerId: ProviderId;
-      executablePath: string;
-      arguments: string[];
-    }
-  | {
-      type: "provider.output";
-      sessionId: string;
-      providerId: ProviderId;
-      stream: "stdout" | "stderr";
-      text: string;
-    }
-  | {
-      type: "provider.activity";
-      sessionId: string;
-      providerId: ProviderId;
-      activityId: string;
-      kind: "command" | "fileChange" | "other";
-      status: "inProgress" | "completed" | "failed" | "stopped";
-      action: string;
-      detail?: string;
-      outputDelta?: string;
-    }
-  | {
-      type: "provider.turnComplete";
-      sessionId: string;
-      providerId: ProviderId;
-    }
-  | {
-      type: "provider.exit";
-      sessionId: string;
-      providerId: ProviderId;
-      status: number;
-    };

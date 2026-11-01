@@ -41,7 +41,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         super.init()
         window.title = "cmux-next browser (\(tab.engineKind.rawValue))"
         window.isReleasedWhenClosed = false
-        window.install(kind: .browserDebug, content: chrome, scope: .app)
+        window.install(kind: .browserDebug, content: chrome, scope: .app, activeLook: nil) // no app window owns it (a dev hook)
         tab.delegate = self
         if !activate { WindowPlacement.noActivate = true }
         WindowPlacement.present(window)
@@ -110,7 +110,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             evaluatedURL = url
             Task { [weak self] in
                 let result: String
-                do { result = String(describing: try await tab.evaluate(script)) } catch { result = "error: \(error)" }
+                do { result = String(describing: try await tab.evaluate(script, world: .page, gesture: .agent)) } catch { result = "error: \(error)" }
                 self?.evalResult = result
                 self?.report()
             }

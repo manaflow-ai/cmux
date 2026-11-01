@@ -97,6 +97,7 @@ fn abort_once_for_test() {
         // writing: the crash happens at the moment the test chose.
         let _ = std::fs::File::open(&trigger);
         // crash-allow: a test-only injected crash (debug builds, explicit env).
+        #[allow(clippy::panic, reason = "a test-only injected crash (debug builds, explicit env)")]
         let _ = std::panic::catch_unwind(|| panic!("test-injected host crash"));
         // No core dump: a dump of this process (systemd-coredump compresses
         // it) keeps the host alive for seconds under load, which delays the

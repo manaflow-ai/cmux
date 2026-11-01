@@ -78,6 +78,7 @@ extension ActionDescriptor {
         "announcements.show", "announcements.hide", "nowPlaying.showCard", "nowPlaying.disableCard",
         "nowPlaying.hideCardUntilRelaunch", "sidebar.profileControl.show", "sidebar.profileControl.hide",
         "tabs.overflow.scroll", "tabs.overflow.shrink", "links.openInCmuxBrowser", "links.openInDefaultBrowser",
+        "links.signInPagesInCmux", "links.signInPagesByLinkSettings",
         "browser.defaultEngine.chromium", "browser.defaultEngine.webkit", "layout.centerFocusedColumn.always",
         "layout.centerFocusedColumn.never", "layout.centerFocusedColumn.onOverflow", "layout.toggleStripScrollbar",
         "appearance.titlebar.minimal", "appearance.titlebar.standard", "increaseWorkspaceTerminalFontSize",
@@ -85,7 +86,8 @@ extension ActionDescriptor {
         // Interface Size is a Debug opt-in (chrome.interfaceSize); Interface Scale is the setting.
         "appearance.interfaceSize.increase", "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset",
         // Cloud machine plumbing.
-        "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "palette.cloud.promoteTemplate",
+        "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "cloudAPIKeyList", "cloudAPIKeyRevoke",
+        "palette.cloud.promoteTemplate",
     ]
 
     /// Built-in palette aliases: a query that is one of these words puts the action first (as a
@@ -109,7 +111,7 @@ extension ActionDescriptor {
     nonisolated public static let paletteFamilies: [PaletteFamily] = [
         PaletteFamily("workspace.move", title: familyTitle("palette.family.workspace.move", "Workspace: Move…"),
                       symbol: "arrow.up.arrow.down", members: [
-                          "moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom",
+                          "moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom", "workspace.moveAbove", "workspace.moveBelow",
                           "moveWorkspaceToGroup", "workspace.moveToNewGroup", "removeWorkspaceFromGroup", "moveWorkspaceToWindow",
                           "moveWorkspaceToNewWindow", "workspace.moveToSpace",
                       ]),
@@ -265,11 +267,13 @@ extension ActionDescriptor {
                           "notifications.dismissal.keystroke", "notifications.dismissal.never",
                           "notifications.dismissal.timeout",
                       ]),
-        PaletteFamily("forkConversation", title: familyTitle("palette.family.forkConversation", "Fork Conversation…"),
-                      symbol: "arrow.triangle.branch", members: [
+        PaletteFamily("forkConversation", parent: "palette.forkAgentConversation", members: [
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
+                          "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft",
+                          "palette.forkAgentConversationNewRow",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",
+                          "palette.forkAgentConversationNewWindow",
                       ]),
         PaletteFamily("sidebarSection", title: familyTitle("palette.family.sidebarSection", "Sidebar Section: Layout…"),
                       symbol: "sidebar.left", members: [
@@ -277,7 +281,7 @@ extension ActionDescriptor {
                           "sidebar.section.setAlignment", "sidebar.section.setColumns", "sidebar.section.setGap",
                           "sidebar.section.setMaxRows", "sidebar.section.useBuiltInLook", "sidebar.section.useListLook",
                           "sidebar.section.toggleTitle", "sidebar.section.toggleSpaceScope", "sidebar.section.moveToTop",
-                          "sidebar.section.moveToBottom", "sidebar.section.moveToScrolling",
+                          "sidebar.section.moveToScrolling",
                       ]),
         // Families whose parent action already opens the choices.
         PaletteFamily("space.color", parent: "space.setColor", members: colors("space.color")),

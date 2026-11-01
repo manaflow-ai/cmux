@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextFloating
@@ -46,11 +47,12 @@ final class AgentChatSplitToggles {
 
     /// Toggles header action `id` on chat tab `chat` (in `store`): closes the split it opened while it is in the chat's
     /// workspace, else opens one (an untracked kind just runs; Terminal always opens one with `terminalButtonAdds` on).
-    func toggle(_ id: String, cwd: String?, url: String? = nil, chat: String, store: DaemonStore?,
+    /// `extra`: more arguments for the action (Changes' chat turn, ``DiffTurnArgument``).
+    func toggle(_ id: String, cwd: String?, url: String? = nil, extra: [String: ActionValue] = [:], chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
-        if AgentChatTerminalAdds().adds(id) { return open(id, cwd: cwd, url: url, chat: chat, store: store, actions: actions) }
+        if AgentChatTerminalAdds().adds(id) { return open(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, actions: actions) }
         guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
-            return Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: nil, actions: actions)
+            return Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, on: nil, actions: actions)
         }
         let splits = splits(in: tabs, chat: chat)
         if let index = opened.lastIndex(where: { $0.id == id }) {
@@ -59,44 +61,49 @@ final class AgentChatSplitToggles {
             opened.remove(at: index)
             if let split = splits[index] { return actions.close(tab: split.id) }
         }
-        open(id, cwd: cwd, url: url, chat: chat, tabs: tabs, store: store, actions: actions)
+        open(id, cwd: cwd, url: url, extra: extra, chat: chat, tabs: tabs, store: store, actions: actions)
     }
 
     /// Opens header action `id`'s split (`mode: "open"`): another one on every click.
-    func open(_ id: String, cwd: String?, url: String? = nil, chat: String, store: DaemonStore?,
+    func open(_ id: String, cwd: String?, url: String? = nil, extra: [String: ActionValue] = [:], chat: String, store: DaemonStore?,
               actions: AgentChatTabActions) {
         guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
-            return Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: nil, actions: actions)
+            return Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, on: nil, actions: actions)
         }
-        open(id, cwd: cwd, url: url, chat: chat, tabs: tabs, store: store, actions: actions)
+        open(id, cwd: cwd, url: url, extra: extra, chat: chat, tabs: tabs, store: store, actions: actions)
     }
 
-    private func open(_ id: String, cwd: String?, url: String?, chat: String, tabs: [TabModel], store: DaemonStore,
-                      actions: AgentChatTabActions) {
+    private func open(_ id: String, cwd: String?, url: String?, extra: [String: ActionValue], chat: String, tabs: [TabModel],
+                      store: DaemonStore, actions: AgentChatTabActions) {
         // Preview opens the chat's page; a click with none (its page closed elsewhere) opens nothing.
         if id == Self.preview, url == nil { return }
+        // Split Down splits the chat itself. Documents (Preview, Changes and Files) always start
+        // from the chat so RightColumnPlacement can keep one right-side pane and put later opens
+        // below it (or in its lower pane), even when the user opened or moved the earlier pane.
+        // Terminal and Browser keep their existing toggle order: a later click splits beside the
+        // panel that button opened.
         let splits = splits(in: tabs, chat: chat)
-        // Split Down splits the chat itself; the panels right of it line up after the last one of theirs.
-        let anchor = id == Self.splitDown ? nil : opened.indices.reversed().lazy
+        let rightPlacement = id == Self.preview || id == Self.changes || id == Self.files
+        let anchor: String? = (id == Self.splitDown || rightPlacement) ? nil : opened.indices.reversed().lazy
             .filter { self.opened[$0].id != Self.splitDown }
             .compactMap { splits[$0] }
-            .first { Self.beside(chat, $0, in: store) }
-        // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
+            .first { Self.beside(chat, $0, in: store) }?.id
+        // Open mode adds one per click: keep the recent ones, enough to identify each button's tab.
         opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
         opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
-        Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: anchor?.id, actions: actions)
+        Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, on: anchor, actions: actions)
     }
 
-    /// Runs header action `id` on tab `target` (the last panel beside the chat), or on the chat.
-    /// Changes and Preview run as an agent's diff and browser do (AgentBesidePlacement): selected in
-    /// the target's column, or with no target in a new column right of the chat.
-    private static func run(_ id: String, cwd: String?, url: String?, chat: String, store: DaemonStore?,
-                            on target: String?, actions: AgentChatTabActions) {
+    /// Runs header action `id` on the chat. Changes and Preview run through the shared
+    /// AgentBesidePlacement right-column rule; the target is nil so it measures every pane on the
+    /// chat's right, including panes the user opened or moved independently.
+    private static func run(_ id: String, cwd: String?, url: String?, extra: [String: ActionValue] = [:], chat: String,
+                            store: DaemonStore?, on target: String?, actions: AgentChatTabActions) {
         switch id {
         case changes:
-            // The chat's repository, whichever tab the diff opens beside.
+            // The chat's repository, whichever tab the diff opens beside; with the chat's turn for Last turn.
             let path = cwd ?? store?.tab(id: chat)?.cwd
-            actions.runBeside(id, arguments: path.map { ["path": .string($0)] } ?? [:], on: target)
+            actions.runBeside(id, arguments: (path.map { ["path": .string($0)] } ?? [:]).merging(extra) { first, _ in first }, on: target)
         case files:
             actions.openFiles(cwd ?? store?.tab(id: chat)?.cwd, on: target)
         case preview:

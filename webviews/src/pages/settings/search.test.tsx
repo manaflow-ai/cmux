@@ -4,7 +4,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, fire, ops, renderPage, rowElement, run } = await import("./testing");
+const { changeValue, click, fire, ops, renderPage, rowElement, run } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -92,7 +92,8 @@ test("Up/Down move between rows, Space toggles; dispatcher commands reset, go ba
   await fire(first, "keydown", { key: "ArrowDown" });
   expect(document.activeElement).toBe(next);
 
-  await fire(page.container.querySelector('[data-section-link="browser"]')!, "click");
+  // A section entry is a router link: a click is a mouse click (WebKit sends one for Enter too).
+  await click(page.container.querySelector('[data-section-link="browser"]')!);
   expect(page.history.location.pathname).toBe("/settings/browser");
   await fire(document.body, "keydown", { key: "[", metaKey: true });
   expect(page.history.location.pathname).toBe("/settings/browser");
@@ -104,6 +105,25 @@ test("Up/Down move between rows, Space toggles; dispatcher commands reset, go ba
   expect(document.activeElement).not.toBe(search(page));
   await run(() => page!.provider.sendCommand("find"));
   expect(document.activeElement).toBe(search(page));
+});
+
+test("Up/Down in search skip rows an earlier, wider query left mounted but filtered out", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  await changeValue(search(page), "font");
+  await changeValue(search(page), "font family");
+  const visible = resultKeys(page);
+  expect(visible.length).toBeGreaterThan(0);
+  expect(page.container.querySelector("[data-search-results] [data-filtered]")).not.toBeNull();
+  await fire(search(page), "keydown", { key: "ArrowDown" });
+  const first = document.activeElement as HTMLElement;
+  expect(first.hasAttribute("data-filtered")).toBe(false);
+  expect(first.getAttribute("data-row-key")).toBe(visible[0]!);
+  // Walking down never lands on a filtered row, and the last visible row is the end of the list.
+  for (let step = 0; step < visible.length + 2; step += 1) {
+    await fire(document.activeElement!, "keydown", { key: "ArrowDown" });
+    expect((document.activeElement as HTMLElement).hasAttribute("data-filtered")).toBe(false);
+  }
+  expect((document.activeElement as HTMLElement).getAttribute("data-row-key")).toBe(visible.at(-1)!);
 });
 
 test("a focused route reveals its row once values arrive and focuses its visible control", async () => {

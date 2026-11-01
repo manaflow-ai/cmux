@@ -190,17 +190,71 @@ import Testing
         #expect(out == "\u{1B}c" + String(repeating: "\n", count: 109) + "1\r\n2\r\n$ \u{1B}[151;30H")
     }
 
+    /// The Mac's Clear Screen and Scrollback (`clear-history`) ends in `ESC[3J`: the rows
+    /// above the Mac's screen are history on the Mac, screen rows on the phone, and go too.
+    @Test func eraseSavedLinesAlsoErasesTheRowsAboveTheMacsScreen() {
+        #expect(run(["\u{1B}[3", "J"]) == "\u{1B}[3J\u{1B}7\u{1B}[109;9999H\u{1B}[1J\u{1B}8")
+        // Other erases, and no offset, pass through.
+        #expect(run(["\u{1B}[2J\u{1B}[J"]) == "\u{1B}[2J\u{1B}[J")
+        #expect(run(["\u{1B}[3J"], offset: 0) == "\u{1B}[3J")
+    }
+
     @Test func rowAddressingShiftsAcrossChunks() {
         #expect(run(["\u{1B}[", "5;", "1H x \u{1B}[H \u{1B}[3d"]) == "\u{1B}[114;1H x \u{1B}[110;1H \u{1B}[112d")
         // Column-only and relative moves are untouched.
         #expect(run(["\u{1B}[5G\u{1B}[2A\u{1B}[K"]) == "\u{1B}[5G\u{1B}[2A\u{1B}[K")
     }
 
+    /// Entering the alternate screen moves the copied cursor up to the Mac's
+    /// row (margins reset first so nothing stops it), then limits the scroll
+    /// margins to the Mac's rows (the alternate screen is drawn from the
+    /// mirror's top).
+    private let toTUIRows = "\u{1B}7\u{1B}[r\u{1B}8\u{1B}[109A"
+    private let tuiMargins = "\u{1B}7\u{1B}[1;42r\u{1B}8"
+    private var altEnter: String { "\u{1B}[?1049h" + toTUIRows + tuiMargins }
+
+    /// User report 2026-10-21 (Claude Code over 5G): the attach replay of a TUI
+    /// draws its rows from the cursor, so the copied cursor must be on the Mac's
+    /// row in the alternate screen; 47/1047 copy it back on the way out.
+    @Test func theCopiedCursorMovesBetweenTheMirrorsRowNumberings() {
+        #expect(run(["\u{1B}[?1047h", "\u{1B}[?1047l"]) == "\u{1B}[?1047h" + toTUIRows + tuiMargins + "\u{1B}[?1047l\u{1B}7\u{1B}[r\u{1B}8\u{1B}[109B")
+        // 1049 restores the cursor it saved on the primary screen: no move.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[?1049l"]) == altEnter + "\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8")
+        // Leaving while not on the alternate screen: no move.
+        #expect(run(["\u{1B}[?1047l"]) == "\u{1B}[?1047l\u{1B}7\u{1B}[r\u{1B}8")
+        // A mix that includes 1049 restores the saved cursor: no move.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[?1047;1049l"]) == altEnter + "\u{1B}[?1047;1049l\u{1B}7\u{1B}[r\u{1B}8")
+        // 47 leaving after a 1049 entry copies the cursor back: moved down.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[?47l"]) == altEnter + "\u{1B}[?47l\u{1B}7\u{1B}[r\u{1B}8\u{1B}[109B")
+        // A reset puts the mirror back on the primary screen.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}c", "\u{1B}[?1049h"]).hasSuffix(altEnter))
+    }
+
     @Test func alternateScreenIsNotShifted() {
         let out = run(["\u{1B}[?1049h\u{1B}[1;1Hvim\u{1B}[42;1H", "\u{1B}[?1049l\u{1B}[42;1H"])
-        #expect(out == "\u{1B}[?1049h\u{1B}[1;1Hvim\u{1B}[42;1H\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8\u{1B}[151;1H")
+        #expect(out == altEnter + "\u{1B}[1;1Hvim\u{1B}[42;1H\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8\u{1B}[151;1H")
         // vim's region for its 42 rows stays as is on the alternate screen; leaving resets it.
-        #expect(run(["\u{1B}[?1049h\u{1B}[1;42r", "\u{1B}[?1049l"]) == "\u{1B}[?1049h\u{1B}[1;42r\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8")
+        #expect(run(["\u{1B}[?1049h\u{1B}[1;42r", "\u{1B}[?1049l"]) == altEnter + "\u{1B}[1;42r\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8")
+    }
+
+    /// Live check (2026-10-21): `less` scrolls with a line feed on its last
+    /// row and sets no margins. On the 151-row mirror that line feed moved
+    /// the cursor below the Mac's 42 rows instead of scrolling, so the phone
+    /// kept showing the first page while the Mac's less moved on. The
+    /// alternate screen's margins are the Mac's rows, and a reset of the
+    /// margins there goes back to them.
+    @Test func theAlternateScreenScrollsAtTheMacsLastRow() {
+        #expect(run(["\u{1B}[?1049h"]) == altEnter)
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[r", "\u{1B}[1;42r", "\u{1B}[3;10r"])
+            == altEnter + "\u{1B}[1;42r\u{1B}[1;42r\u{1B}[3;10r")
+        // Every reset form is the Mac's screen; a bottom past it is clamped.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[;r\u{1B}[0;0r\u{1B}[1;0r\u{1B}[5r\u{1B}[2;99r"])
+            == altEnter + "\u{1B}[1;42r\u{1B}[1;42r\u{1B}[1;42r\u{1B}[5;42r\u{1B}[2;42r")
+        // Mode 47 and 1047 too; with no mirror offset, nothing is added.
+        #expect(run(["\u{1B}[?47h"]) == "\u{1B}[?47h" + toTUIRows + tuiMargins)
+        #expect(run(["\u{1B}[?1049h\u{1B}[r"], offset: 0) == "\u{1B}[?1049h\u{1B}[r")
+        // Already on the alternate screen (a repeated switch): set again, harmless.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[?1049h"]) == altEnter + "\u{1B}[?1049h" + tuiMargins)
     }
 
     @Test func fullScreenRegionKeepsTheScrollback() {

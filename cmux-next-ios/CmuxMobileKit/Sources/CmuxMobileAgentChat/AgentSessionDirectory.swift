@@ -29,23 +29,41 @@ public final class AgentSessionDirectory {
 
     public init() {}
 
+    /// A tab's store key: tab ids (`s<surface>`) repeat across Macs, so a
+    /// tab of a known Mac is keyed with it.
+    public static func key(id: String, macID: String) -> String {
+        macID.isEmpty ? id : "\(macID)\u{1}\(id)"
+    }
+
     public func store(for summary: AgentSessionSummary) -> AgentChatStore {
         _ = generation
-        if let store = stores[summary.id] { return store }
+        let key = Self.key(id: summary.id, macID: summary.macID)
+        if let store = stores[key] { return store }
         let store = AgentChatStore(source: makeSource(summary))
-        stores[summary.id] = store
+        stores[key] = store
         return store
     }
 
-    public func existingStore(id: String) -> AgentChatStore? {
+    /// Every chat loaded in this launch (notification previews save their last messages).
+    public var loadedStores: [AgentChatStore] { Array(stores.values) }
+
+    public func existingStore(id: String, macID: String = "") -> AgentChatStore? {
         _ = generation
-        return stores[id]
+        return stores[Self.key(id: id, macID: macID)]
     }
 
     /// Forgets the tab's store; the next `store(for:)` builds one from
     /// `makeSource` again (the tab's session changed on the Mac).
-    public func invalidate(id: String) {
-        guard stores.removeValue(forKey: id) != nil else { return }
+    public func invalidate(id: String, macID: String = "") {
+        guard stores.removeValue(forKey: Self.key(id: id, macID: macID)) != nil else { return }
+        generation += 1
+    }
+
+    /// Sign-out: no account's chats stay in memory (notification previews save `loadedStores`, and a
+    /// later sign-in must not meet a store bound to the old account's link).
+    public func removeAll() {
+        guard !stores.isEmpty else { return }
+        stores.removeAll()
         generation += 1
     }
 
@@ -53,7 +71,8 @@ public final class AgentSessionDirectory {
         store(for: AgentSessionSummary(
             id: tab.id, name: tab.subtitle ?? tab.title, harness: tab.harness ?? "claude", agentName: tab.title,
             cwd: workspace.directory, workspaceTitle: workspace.title, macName: macName, branch: workspace.branch,
-            status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle
+            status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle,
+            macID: workspace.macID
         ))
     }
 }

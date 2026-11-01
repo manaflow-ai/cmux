@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, note (developer note, not shown).",
+  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, note (developer note, not shown).",
   "lists": [
     {
       "name": "updates",
@@ -112,10 +112,10 @@
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: a found update waits, and one click downloads and installs it."
+            "text": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "download",
@@ -168,6 +168,52 @@
           ]
         },
         {
+          "key": "updates.web",
+          "note": "Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.",
+          "title": {
+            "key": "settings.updates.web",
+            "text": "Web UI Updates"
+          },
+          "help": {
+            "key": "settings.updates.web.help",
+            "text": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "every-merge",
+              "title": {
+                "key": "settings.choice.updatesWebEveryMerge",
+                "text": "Every Merge"
+              }
+            },
+            {
+              "value": "nightly",
+              "title": {
+                "key": "settings.choice.updatesWebNightly",
+                "text": "With Nightly"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.updatesWebOff",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "every-merge",
+          "keywords": [
+            "update",
+            "web",
+            "ota",
+            "hot reload",
+            "bundle",
+            "nightly",
+            "merge"
+          ]
+        },
+        {
           "key": "updates.installOnQuit",
           "title": {
             "key": "settings.updates.installOnQuit",
@@ -178,7 +224,7 @@
             "text": "A downloaded update installs as cmux quits. Terminals keep running."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "install",
@@ -265,6 +311,85 @@
             "changelog",
             "update",
             "sidebar"
+          ]
+        },
+        {
+          "key": "updates.showFeatureTips",
+          "note": "Feature tips: one small callout per launch at a new feature's control, from its What's New highlight (leo-workspace design/feature-tips.md). Followed by the agent chat (AgentPaneDisplaySetting.followedAppPaths).",
+          "title": {
+            "key": "settings.updates.showFeatureTips",
+            "text": "Show Feature Tips"
+          },
+          "help": {
+            "key": "settings.updates.showFeatureTips.help",
+            "text": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "tips",
+            "whats new",
+            "new feature",
+            "hint",
+            "callout"
+          ]
+        },
+        {
+          "key": "updates.idleInstallMaxWaitSeconds",
+          "name": "idleInstallMaxWait",
+          "note": "Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.",
+          "title": {
+            "key": "settings.updates.idleInstallMaxWait",
+            "text": "Install Within"
+          },
+          "help": {
+            "key": "settings.updates.idleInstallMaxWait.help",
+            "text": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+          },
+          "kind": "number",
+          "range": {
+            "min": 60,
+            "max": 7200,
+            "step": 60,
+            "unit": "seconds"
+          },
+          "default": 600,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "wait",
+            "automatic",
+            "nightly"
+          ]
+        },
+        {
+          "key": "updates.idleInstallQuietSeconds",
+          "name": "idleInstallQuiet",
+          "note": "Nightly idle install (#20295): how long keyboard and pointer input must be quiet before it installs.",
+          "title": {
+            "key": "settings.updates.idleInstallQuiet",
+            "text": "Quiet Time Before Installing"
+          },
+          "help": {
+            "key": "settings.updates.idleInstallQuiet.help",
+            "text": "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+          },
+          "kind": "number",
+          "range": {
+            "min": 5,
+            "max": 600,
+            "step": 5,
+            "unit": "seconds"
+          },
+          "default": 60,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "quiet",
+            "typing",
+            "nightly"
           ]
         }
       ]

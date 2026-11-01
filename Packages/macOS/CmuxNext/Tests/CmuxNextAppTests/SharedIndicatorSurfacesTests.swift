@@ -44,7 +44,7 @@ struct SharedIndicatorSurfacesTests {
     func aSectionItemShowsItsWorkspacesIndicator(busy: Bool) throws {
         let workspace = try #require(try store(busy: busy).workspaces.first)
         let row = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
-        row.configure(SidebarWorkspaceItems.workspaceInfo(workspace), style: .list)
+        row.configure(SidebarWorkspaceItems.workspaceInfo(workspace, machine: .local), style: .list)
         #expect(shown(row) == (busy ? .working(progress: nil) : nil))
     }
 
@@ -53,6 +53,7 @@ struct SharedIndicatorSurfacesTests {
         let workspace = try #require(try store(busy: busy).workspaces.first)
         let card = WorkspaceHoverCardView()
         card.configure(.make(SidebarMapping.shared.row(workspace, machine: .local), machine: nil, now: Date()))
+        card.detailsToggle.performClick(nil)
         #expect(shown(card) == (busy ? .working(progress: nil) : nil))
     }
 

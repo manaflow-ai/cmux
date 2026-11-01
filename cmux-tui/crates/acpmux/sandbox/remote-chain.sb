@@ -3,6 +3,8 @@
 ;; tool included) inherits it and cannot leave it. It is the only sandbox
 ;; (Claude Code's own cannot nest in it; hub/remote_sandbox.rs), and acpmux
 ;; proves it with a canary at each spawn.
+;; Linux enforces this same parsed policy through bwrap, seccomp, the
+;; user-notify supervisor and the proxy, with a canary at every spawn.
 ;;
 ;; Parameters (sandbox-exec -D, all canonical paths, no trailing slash):
 ;;   CWD                 the session folder

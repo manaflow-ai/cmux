@@ -36,9 +36,14 @@ public struct RemoteInstaller: Sendable {
     /// must also match the tree's own `source.json` (cx-z0uk). Release and
     /// nightly builds always have their own manifest.
     public func plan(commit: String, treeKey: String? = nil, platform: RemotePlatform, remoteBinary: String) async throws -> RemoteInstallPlan {
+        try await plan(commit: commit, treeKey: treeKey, artifact: platform.artifact, remoteBinary: remoteBinary)
+    }
+
+    /// ``plan(commit:treeKey:platform:remoteBinary:)`` for any published `artifact`.
+    public func plan(commit: String, treeKey: String? = nil, artifact: String, remoteBinary: String) async throws -> RemoteInstallPlan {
         let (status, data) = try await get(RemoteInstallPlan.manifestURL(commit: commit))
         if status == 200 {
-            return try RemoteInstallPlan(commit: commit, platform: platform, manifest: CmuxTUIManifest.decode(data), remoteBinary: remoteBinary)
+            return try RemoteInstallPlan(commit: commit, artifact: artifact, manifest: CmuxTUIManifest.decode(data), remoteBinary: remoteBinary)
         }
         let noManifest = RemoteInstallError.downloadFailed("manifest: HTTP \(status)")
         guard status == 404, let treeKey, RemoteInstallPlan.isHex(treeKey, count: 40) else { throw noManifest }
@@ -50,7 +55,7 @@ public struct RemoteInstaller: Sendable {
         guard tree.key.lowercased() == treeKey.lowercased(), RemoteInstallPlan.isHex(tree.commit, count: 40) else { throw RemoteInstallError.badCommit }
         let (treeStatus, treeData) = try await get(RemoteInstallPlan.manifestURL(commit: tree.commit))
         guard treeStatus == 200 else { throw RemoteInstallError.downloadFailed("manifest of tree \(treeKey.prefix(12)): HTTP \(treeStatus)") }
-        let plan = try RemoteInstallPlan(commit: tree.commit, platform: platform, manifest: CmuxTUIManifest.decode(treeData),
+        let plan = try RemoteInstallPlan(commit: tree.commit, artifact: artifact, manifest: CmuxTUIManifest.decode(treeData),
                                          remoteBinary: remoteBinary)
         // Two records of one published binary: they must agree, else nothing
         // installs. A tree that does not list the artifact does not vouch for it.
@@ -115,6 +120,16 @@ public struct RemoteInstaller: Sendable {
 
     private func failure(_ result: SSHProcessResult) throws -> RemoteInstallError {
         RemoteInstallError.fromScript(status: result.status, stderr: result.stderr)
+    }
+
+    /// A published artifact of the bundled build next to `binary` (its `cmux-tui.version`), in the
+    /// download cache and checked against the manifest: the acpmux peer update stages
+    /// `cmux-tui-acpmux-<target>` for `acpmux host update --binary-dir`. Returns the file and the
+    /// commit that published it (a tree build's may be an earlier commit).
+    public func download(artifact: String, nextTo binary: URL) async throws -> (file: URL, commit: String) {
+        guard let commit = await BundledCmuxTUI.commit(binary: binary) else { throw RemoteInstallError.badCommit }
+        let plan = try await plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), artifact: artifact, remoteBinary: "")
+        return (try await localCopy(plan, environment: ProcessInfo.processInfo.environment), plan.commit)
     }
 
     /// The artifact in the download cache, fetched with resume when needed

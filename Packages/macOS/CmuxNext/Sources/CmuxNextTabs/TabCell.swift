@@ -13,6 +13,8 @@ final class TabCell {
     let accessibility = TabAccessibilityElement()
     /// The strip's handler behind the element's Mute tab / Unmute tab action.
     var accessibilityToggleAudio: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
+    /// The strip's handler behind the element's Exit Zoom action, while the tab shows the zoom indicator.
+    var accessibilityToggleZoom: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
     private(set) var item: TabItem
     /// Instant (L4): the content switches in one frame, so the highlight does too.
     var isSelected = false {
@@ -31,14 +33,40 @@ final class TabCell {
     /// The pointer is on the speaker button, or presses it (TabCell+AudioBadge).
     var isAudioHovered = false { didSet { if oldValue != isAudioHovered { updateColors(animated: true, showing: isAudioHovered) } } }
     var isAudioPressed = false { didSet { if oldValue != isAudioPressed { updateColors(animated: false) } } }
+    /// The selected tab of a zoomed pane: it shows the zoom indicator (TabCell+ZoomBadge).
+    var showsZoom = false {
+        didSet {
+            guard oldValue != showsZoom else { return }
+            updateZoomBadge()
+            updateColors(animated: false)
+            layoutLayers()
+            updateAccessibility()
+        }
+    }
+    /// The pointer is on the zoom indicator, or presses it (TabCell+ZoomBadge).
+    var isZoomHovered = false { didSet { if oldValue != isZoomHovered { updateColors(animated: true, showing: isZoomHovered) } } }
+    var isZoomPressed = false { didSet { if oldValue != isZoomPressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
-    /// The strip's window is main (in front); off, the selected tab has no fill, so only it repaints.
+    /// The strip's window is main (in front); off, the selected tab's fill is dimmer (never
+    /// gone: a pane's active tab always looks active), so only it repaints.
     var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
     /// The strip's window is on screen and not fully covered: a busy indicator spins only then
     /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
     var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
-    /// The selected (or lifted) tab's fill shows.
-    var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
+    /// The strip shows in its window (not a parked workspace's strip or a hidden screen bar). An
+    /// app-wide indicator resync (the app coming back to the front) reaches the cell only then, so
+    /// an activation costs the tabs on screen, not every busy tab of the session; a resync that
+    /// came while hidden runs when the strip shows again.
+    var isStripShown = true {
+        didSet { if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() } }
+    }
+    /// A resync arrived while the strip was hidden (TabCell+StatusIndicator).
+    var owesIndicatorResync = false
+    /// The selected (or lifted) tab's fill shows: always for the pane's active tab, in a
+    /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
+    var fillsSelection: Bool { isSelected || isLifted }
+    /// The share of the selected fill's alpha a background window's active tab keeps.
+    static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
     var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     /// A closing tab keeps the content it showed when the close began
@@ -122,6 +150,8 @@ final class TabCell {
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
     var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
+    var zoomLayer: CALayer? // a zoomed pane's indicator on its selected tab (TabCell+ZoomBadge)
+    var zoomBackgroundLayer: CALayer? // the zoom indicator's hover and press fill
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
@@ -130,8 +160,8 @@ final class TabCell {
     /// Close button frame in this view's coordinates, or nil when hidden. Set with `setCloseButtonRect(_:pill:)`.
     var closeButtonRect: CGRect?
 
-    /// Title font; the strip updates it when the chrome font size changes.
-    var titleFont = Typography.body {
+    /// Title font; the strip updates it when the tab or chrome font size changes.
+    var titleFont = Typography.tabTitle {
         didSet {
             guard titleFont != oldValue else { return }
             titleLayer.font = titleFont
@@ -166,9 +196,12 @@ final class TabCell {
     private func buildLayers() {
         let root = layer
         root.masksToBounds = false
-        backgroundLayer.cornerCurve = .continuous
+        backgroundLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
+        // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
+        // "Helper 1" and "Helper 2"). The hover marquee still expands to the full title.
+        titleLayer.truncation = .middle
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
@@ -277,7 +310,7 @@ final class TabCell {
         let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isMultiSelected || isHovered)) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.tabs.duration) ?? 0) == 0 {
-            for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
+            for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer, zoomBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
         }
         Motion.tabs.transaction(token) { applyColors() }
     }
@@ -286,7 +319,9 @@ final class TabCell {
         themeScope.perform {
             backgroundLayer.shadowColor = Palette.shadow.cgColor
             let multi = isMultiSelected && !isSelected
-            let fill: NSColor? = fillsSelection ? Palette.selectionFill : multi ? Palette.secondarySelectionFill : (isHovered ? Palette.hoverFill : nil)
+            let selection = isWindowMain || isLifted ? Palette.selectionFill
+                : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
+            let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
@@ -296,10 +331,11 @@ final class TabCell {
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
             hibernationRingLayer?.strokeColor = Self.hibernationRingColor.cgColor
             titleLayer.foregroundColor = text.cgColor
-            machineLayer?.foregroundColor = Palette.textTertiary.cgColor
+            machineLayer?.foregroundColor = item.machineBadgeColor.cgColor
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
+            applyZoomIcon()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
@@ -381,11 +417,8 @@ final class TabCell {
         let midY = bounds.height / 2
         let iconSide = m.iconSize
         var closeRect: CGRect?
-        if visibility.showsClose {
+        if let x = visibility.closeButtonOriginX(pillWidth: bounds.width, metrics: m) {
             let side = m.closeButtonSize
-            let x = visibility.showsIcon || !visibility.centersContent
-                ? bounds.width - m.contentTrailingInset - side
-                : (bounds.width - side) / 2
             closeRect = CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side)
         }
         var iconX = Self.iconX(form: visibility, pillWidth: bounds.width, metrics: m)
@@ -455,9 +488,10 @@ final class TabCell {
         setCloseButtonRect(closeRect, pill: bounds)
 
         if visibility.showsTitle {
-            // The title always spans to the trailing inset, so it never moves
-            // or resizes when the x appears; the x overlays its end and the
-            // title fades out before it.
+            // The title spans to the trailing inset while it fits. A clipped
+            // title uses the visible area as its rest width so middle
+            // truncation and the trailing fade share the same edge; the x or
+            // badge still overlays the trailing inset without hiding its tail.
             let titleX = iconFrame.maxX + m.iconTitleSpacing
             let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
@@ -465,9 +499,18 @@ final class TabCell {
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
             let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath)
             // The marquee fades glyphs out across the icon-title gap.
+            let textWidth = titleWidth()
+            let visibleWidth = visibleEnd - titleX
+            let isMiddleTruncated = textWidth > visibleWidth + 0.5
+            let restWidth = isMiddleTruncated ? visibleWidth : span
             let geometry = TitleFadeGeometry(
-                textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
-                leadingPadding: m.iconTitleSpacing, trailingPadding: 0, fadeWidth: m.titleFadeWidth
+                textWidth: textWidth, span: span, visibleWidth: visibleWidth,
+                leadingPadding: m.iconTitleSpacing, trailingPadding: 0,
+                // Keep the existing trailing fade for every clipped title;
+                // the rest width above keeps the suffix inside that visible
+                // area before the close button or badge.
+                fadeWidth: m.titleFadeWidth,
+                restWidth: restWidth
             )
             let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
             if onPath {
@@ -477,7 +520,7 @@ final class TabCell {
             }
         } else {
             titleLayer.opacity = 0
-            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer, zoomLayer, zoomBackgroundLayer] { badge?.opacity = 0 }
             if onPath {
                 pathTitle = nil
             } else {

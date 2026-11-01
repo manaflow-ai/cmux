@@ -63,6 +63,8 @@ pub enum MuxEvent {
         source: Arc<str>,
         session: Option<Arc<str>>,
         agent: Option<Arc<str>>,
+        /// The harness's own session id a hook reported.
+        agent_session_id: Option<Arc<str>>,
         updated_at_ms: u64,
         /// When the agent entered `state` (Unix ms).
         since_ms: u64,
@@ -181,6 +183,12 @@ pub enum MuxEvent {
     /// The daemon's machine-level model spend readout changed. `None` means
     /// the readout is unavailable and frontends must hide it.
     MachineUsageChanged(Option<MachineUsage>),
+    /// The app supervisor committed an install-state change: its
+    /// `apps-changed` payload as apps clients get it (apps/supervisor.rs).
+    /// `subscribe` sends it only to a page relay whose page hears it
+    /// (page-router.json `events`); other connections hear it as apps
+    /// clients after their first `apps-*` command.
+    AppsChanged(Arc<Value>),
     /// Every workspace is gone.
     Empty,
 }

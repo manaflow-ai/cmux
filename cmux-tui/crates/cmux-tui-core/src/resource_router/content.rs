@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use ghostty_vt::{
     KeyEncoder, Mods, MouseAction, MouseButton, MouseInput, StyledRun, UnderlineStyle,
     key_input_from_chord, rows_to_runs,
@@ -334,10 +335,10 @@ fn terminal_process_get(
         "foreground_executable":crate::platform::foreground_process_name(pid),
     });
     if let Some(executable) = executable {
-        value["executable"] = json!(executable);
+        value.set("executable", json!(executable));
     }
     if let Some(cwd) = surface.local_cwd() {
-        value["cwd"] = json!(cwd);
+        value.set("cwd", json!(cwd));
     }
     Ok(value)
 }
@@ -445,10 +446,11 @@ fn browser_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Valu
         if request.envelope.operation != ResourceOperation::BrowserClose
             && surface.browser_source().is_none()
         {
-            return Err(browser_not_ready_error(
-                &surface,
-                super::operation_name(request.envelope.operation),
-            ));
+            let operation = super::operation_name(request.envelope.operation);
+            if mux.is_frontend_browser_surface(&surface) {
+                return Err(browser_rendered_by_app_error(&surface, &browser_id, operation));
+            }
+            return Err(browser_not_ready_error(&surface, operation));
         }
         Ok(json!({"browser_id":browser_id,"fields":fields}))
     })?;
@@ -556,6 +558,30 @@ fn execute_browser_effect(
             | "browser.activate"
     );
     commit_projected_browser_effect(mux, prepared, &browser_id, returns_browser)
+}
+
+/// The refusal of a browser effect on a browser the cmux app draws itself
+/// (WebKit or CEF): the daemon has no automation session for that page. The
+/// `extra.code` is `browser_rendered_by_app` and `extra.tab_id` names the
+/// tab the app knows the page by, so the CLI and MCP run the verb through the
+/// app's `browser.page.*` methods (`cli/app_browser_route.rs`).
+fn browser_rendered_by_app_error(
+    surface: &Surface,
+    browser_id: &BrowserPublicId,
+    operation: impl Into<String>,
+) -> ResourceError {
+    let tab_id = surface.resource_identity().map(|identity| identity.tab_id.as_str().to_string());
+    ResourceError::operation_failed(
+        operation,
+        "the cmux app draws this browser, so the daemon cannot drive it; \
+         run the command through the app (`cmux browser <tab_id> <verb>`)",
+        json!({
+            "code":"browser_rendered_by_app",
+            "browser_id":browser_id.as_str(),
+            "tab_id":tab_id,
+            "status":surface.browser_status().as_ref().map(|status| status.as_str()),
+        }),
+    )
 }
 
 fn browser_not_ready_error(surface: &Surface, operation: impl Into<String>) -> ResourceError {
@@ -794,9 +820,8 @@ fn terminal_keys(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
         .try_with_terminal(|terminal| {
             encoder.sync_from_terminal(terminal);
             for key in &keys {
-                let input = key_input_from_chord(key).ok_or_else(|| {
-                    validation_error("terminal key chord is invalid", json!({"key":key}))
-                })?;
+                let input = key_input_from_chord(key)
+                    .ok_or_else(|| validation_error(INVALID_CHORD, json!({"key":key})))?;
                 encoder.encode(&input, &mut encoded).map_err(|error| {
                     ResourceError::operation_failed(
                         "terminal.input.keys",
@@ -1008,6 +1033,12 @@ fn browser_wheel(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
         .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
 }
 
+/// The refusal of a key the encoder does not know names the form it takes: the key
+/// "ENTER" or "C-m" (tmux spelling) was refused with no hint, and agents tried four
+/// spellings before `enter` (tests/tool-evals r7a).
+const INVALID_CHORD: &str = "terminal key chord is invalid: a key is a lowercase name or one \
+    character, with modifiers joined by + (enter, tab, escape, up, ctrl+c, alt+left, shift+tab)";
+
 fn validate_terminal_effect_fields(request: &ParsedResourceRequest) -> Result<(), ResourceError> {
     if request.envelope.operation == ResourceOperation::TerminalInputKeys {
         for key in intent_string_array(&request.fields, "keys", "terminal.input.keys").map_err(
@@ -1017,7 +1048,7 @@ fn validate_terminal_effect_fields(request: &ParsedResourceRequest) -> Result<()
             },
         )? {
             if key_input_from_chord(&key).is_none() {
-                return Err(validation_error("terminal key chord is invalid", json!({"key":key})));
+                return Err(validation_error(INVALID_CHORD, json!({"key":key})));
             }
         }
     }
@@ -1094,16 +1125,19 @@ fn styled_run_json(run: &StyledRun) -> Value {
         "attrs":u32::from(run.attrs),
     });
     if let Some(underline) = run.underline {
-        value["underline"] = json!(match underline {
-            UnderlineStyle::Single => "single",
-            UnderlineStyle::Double => "double",
-            UnderlineStyle::Curly => "curly",
-            UnderlineStyle::Dotted => "dotted",
-            UnderlineStyle::Dashed => "dashed",
-        });
+        value.set(
+            "underline",
+            json!(match underline {
+                UnderlineStyle::Single => "single",
+                UnderlineStyle::Double => "double",
+                UnderlineStyle::Curly => "curly",
+                UnderlineStyle::Dotted => "dotted",
+                UnderlineStyle::Dashed => "dashed",
+            }),
+        );
     }
     if let Some(width_hint) = run.width_hint {
-        value["width_hint"] = json!(width_hint);
+        value.set("width_hint", json!(width_hint));
     }
     value
 }

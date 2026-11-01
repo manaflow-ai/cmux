@@ -15,6 +15,7 @@ workspace = true
 test-support = []
 
 [dependencies]
+cmux-json.workspace = true
 base64.workspace = true
 cmux-cloud-wire.workspace = true
 serde.workspace = true

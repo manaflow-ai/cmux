@@ -107,7 +107,7 @@ public nonisolated enum LayoutTunables {
         "drop.newColumnWidth", .tabDrag, "New column zone width", help: "Width of the new-column drop zone centered on each column gap.",
         default: 36, range: 8...160, step: 1, unit: .points, code: "LayoutTunables.newColumnDropWidth")
     public static let inactivePaneDimming = Tunable<CGFloat>.number(
-        "panes.inactiveDimming", .panes, "Inactive pane dim", help: "Dim of unfocused panes when dimming is on.", default: 0.14, range: 0...0.8, step: 0.01,
+        "panes.inactiveDimming", .panes, "Inactive pane dim", help: "Dim of unfocused panes when dimming is on (theme token ThemeTokens.inactivePaneDim).", default: 0.10, range: 0...0.8, step: 0.01,
         unit: .fraction, code: "LayoutTunables.inactivePaneDimming")
     public static let minimumContentWidth = Tunable<CGFloat>.number(
         "panes.minimumContentWidth", .panes, "Minimum pane width", help: "Smallest content width a pane keeps (about 25 columns).", default: 200,
@@ -132,8 +132,16 @@ public nonisolated enum LayoutTunables {
     /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
     public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
         "motion.pane.variant", .springs, "Pane close and expand",
-        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content keeps its final size; Reduce Motion still snaps.",
+        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content resizes live on every frame (Hold content size in pane motion keeps it at the larger size instead); Reduce Motion still snaps.",
         default: .standard, code: "LayoutTunables.paneMotionVariant")
+    // @intent live resize (Lawrence 2026-10-23): on every frame of a split, close, column or zoom each
+    // terminal and page shows its content at exactly that frame's size, no frozen content, no
+    // snapshot and no resize once at landing. Off by default; on brings back Leo's 2026-10-20 hold
+    // (content keeps the larger of its starting and final size until the spring lands) to compare.
+    public static let holdsContentInMotion = Tunable<Bool>.toggle(
+        "motion.pane.holdContent", .springs, "Hold content size in pane motion",
+        help: "While a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off (default): content resizes live on every frame.",
+        default: false, code: "LayoutTunables.holdsContentInMotion")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
@@ -148,9 +156,17 @@ public nonisolated enum LayoutTunables {
         help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real docked columns keep their own mode).",
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
+    /// Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md): a window frames whole workspaces at its edges
+    /// around the stage the sidebar switches. Off (the default): the actions refuse with this reason and no window
+    /// record gets docks.
+    public static let dockedWorkspaces = Tunable<Bool>.toggle(
+        "window.dockedWorkspaces", .sidebar, "Docked workspaces (window frame prototype)",
+        help: "Dock a whole workspace to a window edge: it stays while the sidebar switches the workspace in the middle. Palette: Dock Workspace Left, Toggle Bottom Dock, Float Docked Workspace.",
+        default: false, code: "LayoutTunables.dockedWorkspaces")
+
     public static var all: [TunableDescriptor] {
-        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
-         paneMotionVariant.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+        [dockedWorkspaces.descriptor, prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
+         paneMotionVariant.descriptor, holdsContentInMotion.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

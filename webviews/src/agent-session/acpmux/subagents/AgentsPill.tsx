@@ -13,6 +13,8 @@ import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { elapsed, running, useNow } from "./SubagentGroup";
 import type { Subagent } from "./subagentFold";
+import { AgentIdentity } from "./AgentIdentity";
+import { agentTone } from "./agentTones";
 
 /// A section's agents in its order, each nested agent moved right under the agent that spawned it
 /// when that one is in the section too, with how deep it then sits. An agent whose parent is in
@@ -88,7 +90,7 @@ export const AgentsPill = memo(function AgentsPill({
         <span>{t("subagents.pill", { n: live.length })}</span>
       </button>
       {open && (
-        <dialog ref={popover} id={listId} open className="acpmux-agents-list" aria-label={title}>
+        <dialog ref={popover} id={listId} open className="ui-popup ui-glass acpmux-agents-list" aria-label={title}>
           {sections.map((section) => (
             <section key={section.key} className="acpmux-agents-list__section">
               <h3 className="acpmux-agents-list__heading">{section.title}</h3>
@@ -113,7 +115,14 @@ export const AgentsPill = memo(function AgentsPill({
                           onOpen(agent.id);
                         }}
                       >
-                        <span className="acpmux-agents-list__dot" aria-hidden="true" />
+                        {/* The harness's mark when it has one, else the agent's dot in its own tone. */}
+                        <AgentIdentity
+                          className="acpmux-agents-list__mark"
+                          harness={agent.harness}
+                          tone={tones.get(agent.id) ?? agentTone(agent.id)}
+                          size={9}
+                          fallbackNode={<span className="acpmux-agents-list__dot" />}
+                        />
                         <span className="acpmux-agents-list__text">
                           <span className="acpmux-agents-list__name">{agent.name}</span>
                           <span className="acpmux-agents-list__state">{state}</span>

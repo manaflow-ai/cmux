@@ -16,6 +16,14 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// Keys typed while the terminal was unreachable were dropped, not sent
     /// late (a command must never run long after it was typed).
     case inputNotSent(bytes: Int)
+    /// The Mac's terminal has this grid from here on in the byte stream
+    /// (`vt-state`, `resized`): the bytes after it are drawn for it, so the
+    /// screen resizes its mirror (columns) and places it (rows) at exactly
+    /// this point.
+    case hostGrid(columns: Int, rows: Int)
+    /// The device that sets the Mac's grid changed (its name, or nil when it
+    /// is this phone or unknown), for the letterbox note.
+    case hostGridOwner(String?)
 }
 
 /// Whether the screen shows the Mac's terminal yet. Anything but `attached`
@@ -31,6 +39,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// keeps its last frame and says so, and attaches again by itself when
     /// the Mac is back.
     case offline(mac: String?)
+    /// Attachment failed; diagnostic output is not a successful connection.
+    case failed(message: String)
     /// Attached: the screen mirrors the Mac's terminal.
     case attached
 
@@ -67,6 +77,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
         case .offline(let mac):
             guard let mac, !mac.isEmpty else { return "Your Mac is offline" }
             return "\(mac) is offline"
+        case .failed(let message):
+            return message
         case .attached:
             return nil
         }
@@ -77,7 +89,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// what is going on.
     public var keepsWarmFrame: Bool {
         switch self {
-        case .reattaching, .offline: true
+        case .reattaching, .offline, .failed: true
         case .connecting, .attached: false
         }
     }
@@ -86,6 +98,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// which nothing on the phone is waiting on.
     public var showsProgress: Bool {
         if case .offline = self { return false }
+        if case .failed = self { return false }
         return true
     }
 
@@ -97,6 +110,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
         switch self {
         case .attached: return nil
         case .offline(let mac): return "Not sent: \(named(mac)) is offline. Send again when it's back."
+        case .failed(let message): return message
         // A first attach usually lands within a few hundred ms: the send
         // goes to the session, which holds it that long and says so if the
         // terminal never came (r13 review: a quick Send on a new tab was refused).
@@ -130,6 +144,10 @@ public protocol TerminalSession: AnyObject {
     func stop()
     /// Rows of the remote screen this session mirrors (nil: a local session).
     var remoteRows: Int? { get }
+    /// Columns of the remote screen (the Mac's PTY grid; nil: a local
+    /// session, or not known yet). When they are not the phone's own, the
+    /// screen renders them exactly and pans (`TerminalHostGridLayout`).
+    var remoteColumns: Int? { get }
     /// Whether the session shows the Mac's terminal now. Read once when the
     /// screen is built; changes arrive as ``TerminalSessionEvent/connection(_:)``.
     var connectionState: TerminalConnectionState { get }
@@ -137,6 +155,24 @@ public protocol TerminalSession: AnyObject {
     /// `.output` until it asks again (`false`). Sessions that cannot hold
     /// the program back ignore it.
     func setOutputPaused(_ paused: Bool)
+    /// The terminal is on screen in the foreground app (true) or not:
+    /// only then does this phone's size count on the Mac (a session on the
+    /// Mac releases its size when told false and claims it again on true).
+    /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
+    func setClaimsSize(_ claims: Bool)
+    /// The person tapped or typed in the terminal: on a Mac terminal this
+    /// view becomes the active device for the Mac's sizing policy (sessions
+    /// rate-limit it themselves). Sessions without a Mac ignore it.
+    func noteInteraction()
+    /// The name of the device whose size the Mac's grid has now, when that
+    /// is not this phone (the letterbox note). Nil when unknown.
+    var hostGridOwnerName: String? { get }
+    /// Whether ``clearHistory()`` clears the terminal where it runs (the Mac's daemon owns
+    /// a Mac terminal's screen and scrollback). False: the screen sends Ctrl-L instead.
+    var clearsHistory: Bool { get }
+    /// Clear Screen and Scrollback where the terminal runs, so every view of it clears
+    /// (the Mac's Cmd-K, `clear-history`). A full-screen app is left as it is.
+    func clearHistory() async throws
 }
 
 extension TerminalSession {
@@ -145,10 +181,22 @@ extension TerminalSession {
     /// screen onto the bottom of its taller surface (``TerminalRowShift``).
     public var remoteRows: Int? { nil }
 
+    public var remoteColumns: Int? { nil }
+
     /// Sessions that do not report a connection are always attached.
     public var connectionState: TerminalConnectionState { .attached }
 
     public func setOutputPaused(_ paused: Bool) {}
+
+    public func setClaimsSize(_ claims: Bool) {}
+
+    public func noteInteraction() {}
+
+    public var clearsHistory: Bool { false }
+
+    public func clearHistory() async throws {}
+
+    public var hostGridOwnerName: String? { nil }
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk

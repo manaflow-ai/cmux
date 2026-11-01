@@ -13,6 +13,7 @@ nonisolated enum WorkspaceVerbStrings {
     static var mergeIntoItself: String { text("workspaceVerbs.refusal.mergeIntoItself", "a workspace cannot merge into itself") }
     static var mergeIntoHome: String { text("workspaceVerbs.refusal.mergeIntoHome", "a workspace cannot merge into Home") }
     static var otherMachine: String { text("workspaceVerbs.refusal.otherMachine", "tabs cannot move to a workspace on another machine") }
+    static var anchorElsewhere: String { text("workspaceVerbs.refusal.anchorElsewhere", "the anchor must be another workspace in the same sidebar section") }
     static var onlyPane: String { text("workspaceVerbs.refusal.onlyPane", "the pane is the only pane of its workspace") }
     /// A grouped row's Move to Top and Move to Bottom (they move it inside its group).
     static var moveToTopOfGroup: String { text("workspaceVerbs.moveToTopOfGroup", "Move to Top of Group") }
@@ -22,7 +23,7 @@ nonisolated enum WorkspaceVerbStrings {
     static var unpinGroup: String { text("workspaceVerbs.unpinGroup", "Unpin Group") }
     /// A group header's Collapse/Expand row, titled as the change it makes.
     static var collapseGroup: String { text("workspaceVerbs.collapseGroup", "Collapse Group") }
-    static var subgroupTooDeep: String { text("workspaceVerbs.refusal.subgroupTooDeep", "groups nest at most 3 levels deep") }
+    static var subgroupTooDeep: String { text("workspaceVerbs.refusal.subgroupTooDeep", "groups nest at most 16 levels deep") }
     static var subgroupNeedsDocument: String { text("workspaceVerbs.refusal.subgroupNeedsDocument", "this sidebar cannot nest groups yet") }
     static var expandGroup: String { text("workspaceVerbs.expandGroup", "Expand Group") }
 

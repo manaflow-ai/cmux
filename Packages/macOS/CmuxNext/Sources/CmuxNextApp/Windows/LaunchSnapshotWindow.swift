@@ -1,5 +1,6 @@
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextLayout
 import Foundation
 
 /// The launch window drawn from the daemon's launch snapshot
@@ -43,7 +44,8 @@ struct LaunchSnapshotWindow {
         let id = UUID().uuidString.lowercased()
         manager.launchWindowID = id
         manager.registry.provisional[id] = workspaces
-        manager.makeController(for: WindowRegistry.Window(id: id))
+        let last = manager.services.daemon.launchSnapshotWindows
+        manager.makeController(for: WindowRegistry.Window(id: id, frame: last?.lastFrame?.rect, display: last?.lastDisplay))
         DebugTimings.markLaunch("launch_snapshot_shown")
         return true
     }

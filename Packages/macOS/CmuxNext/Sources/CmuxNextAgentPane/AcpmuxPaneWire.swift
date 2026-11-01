@@ -12,6 +12,14 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
     func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void)
     /// Ends the path (the host's decision).
     func cancel(code: Int, reason: String)
+    /// Reads one image from a remote chat's owning host. Local socket wires have no such route.
+    func loadRemoteImage(_ path: String) async throws -> Data
+}
+
+public extension AcpmuxPaneWire {
+    func loadRemoteImage(_ path: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "remote.unsupported", message: "remote media is unavailable")
+    }
 }
 
 /// A chat whose acpmux runs on another machine: the host's socket for it is a wire this route
@@ -20,12 +28,16 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
 public nonisolated final class AgentPaneRemoteRoute: Sendable {
     /// The machine's name, for logs (never a secret).
     public let machine: String
+    /// The canonical host key used by session lineage (`registry:<id>`).
+    public let hostID: String?
     /// The keyed restart of the machine's acpmux, when the app can do one (cx-0q7o).
     public let approvals: AgentPaneRemoteApprovals?
     private let make: @Sendable () -> any AcpmuxPaneWire
 
-    public init(machine: String, approvals: AgentPaneRemoteApprovals? = nil, make: @escaping @Sendable () -> any AcpmuxPaneWire) {
+    public init(machine: String, hostID: String? = nil, approvals: AgentPaneRemoteApprovals? = nil,
+                make: @escaping @Sendable () -> any AcpmuxPaneWire) {
         self.machine = machine
+        self.hostID = hostID
         self.approvals = approvals
         self.make = make
     }

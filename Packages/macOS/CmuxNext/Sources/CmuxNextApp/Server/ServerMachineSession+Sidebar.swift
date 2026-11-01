@@ -19,10 +19,19 @@ extension ServerMachineSession {
             }
         } else {
             // The brain's socket on this Mac: a down brain is unreachable, not "connecting".
+            // On the unix route its binary is this Mac's own install, so an older one is the app
+            // update's to say (the sidebar footer and update card), never "Update available" on
+            // the row: the local Chief owner outlives an app update and keeps the old build's
+            // capabilities. An overlay server is another machine and keeps its status.
+            // A drop (the owner restarting, a version handoff) reads connecting for the store's
+            // drop grace before it reads unreachable.
             let base = SidebarBridge.machine(for: session.daemon, name: session.name, kind: .server, compatibility: compatibility).status
-            status = switch session.daemon.store.connectionState {
-            case .failed, .disconnected: base == .updateRequired ? base : .unreachable
-            case .connecting, .connected: base
+            let onThisMac = if case .unix = session.reach.route { true } else { false }
+            let store = session.daemon.store
+            status = switch store.connectionState {
+            case .failed where !store.dropGrace.isActive, .disconnected where !store.dropGrace.isActive:
+                base == .updateRequired ? base : .unreachable
+            case .failed, .disconnected, .connecting, .connected: onThisMac && base == .updateAvailable ? .connected : base
             }
         }
         let detail: String? = switch session.reach.route {

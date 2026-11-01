@@ -10,6 +10,307 @@ fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }
 
+#[cfg(unix)]
+#[test]
+fn settings_separator_keeps_literal_confirm_with_daemon() {
+    let literal = strings(&["settings", "set", "--", "custom.label", "--confirm"]);
+    assert!(daemon_settings_scope(&literal));
+
+    let confirmed = strings(&["settings", "set", "custom.label", "value", "--confirm"]);
+    assert!(!daemon_settings_scope(&confirmed));
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_crud_help_stays_on_the_app_help_scope() {
+    for args in [
+        strings(&["settings", "get", "--help"]),
+        strings(&["config", "set", "custom.label", "value", "--help"]),
+    ] {
+        assert!(has_help_option(&args));
+        assert!(!daemon_settings_scope(&args));
+    }
+}
+
+#[cfg(unix)]
+mod remote_cli_docs {
+    use super::*;
+    use std::collections::HashSet;
+
+    const DOCUMENTS: &[(&str, &str)] = &[
+        (
+            "docs/remote-agents-and-cloud.md",
+            include_str!("../../../../../docs/remote-agents-and-cloud.md"),
+        ),
+        ("acpmux README", include_str!("../../../acpmux/README.md")),
+        ("acpmux skill", include_str!("../../../acpmux/skills/acpmux/SKILL.md")),
+    ];
+
+    fn command_lines(text: &str, binary: &str) -> Vec<Vec<String>> {
+        fn shell_words(text: &str) -> Vec<String> {
+            let mut words = Vec::new();
+            let mut word = String::new();
+            let mut quote = None;
+            let mut escaped = false;
+            for character in text.chars() {
+                if escaped {
+                    word.push(character);
+                    escaped = false;
+                    continue;
+                }
+                if character == '\\' && quote != Some('\'') {
+                    escaped = true;
+                    continue;
+                }
+                if let Some(closing) = quote {
+                    if character == closing {
+                        quote = None;
+                    } else {
+                        word.push(character);
+                    }
+                    continue;
+                }
+                match character {
+                    '\'' | '"' => quote = Some(character),
+                    ';' | '#' => break,
+                    character if character.is_whitespace() => {
+                        if !word.is_empty() {
+                            words.push(std::mem::take(&mut word));
+                        }
+                    }
+                    character => word.push(character),
+                }
+            }
+            if !word.is_empty() {
+                words.push(word);
+            }
+            words
+                .into_iter()
+                .map(|word| {
+                    word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned()
+                })
+                .collect()
+        }
+
+        let mut snippets = Vec::new();
+        let mut in_fence = false;
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence && (trimmed == binary || trimmed.starts_with(&format!("{binary} "))) {
+                snippets.push(trimmed.to_owned());
+            }
+            let mut rest = line;
+            while let Some(open) = rest.find('`') {
+                let after_open = &rest[open + 1..];
+                let Some(close) = after_open.find('`') else { break };
+                let snippet = &after_open[..close];
+                if snippet.trim_start() == binary
+                    || snippet.trim_start().starts_with(&format!("{binary} "))
+                {
+                    snippets.push(snippet.trim().to_owned());
+                }
+                rest = &after_open[close + 1..];
+            }
+        }
+        snippets
+            .into_iter()
+            .flat_map(|snippet| {
+                snippet
+                    .split(';')
+                    .filter_map(|part| {
+                        let words = shell_words(part.trim_start_matches("$ "));
+                        (words.first().is_some_and(|word| word == binary) && words.len() > 1)
+                            .then_some(words)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    fn action_names() -> HashSet<String> {
+        let catalog: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../plans/cmux-next/action-surfaces.json"
+        ))
+        .expect("action-surfaces.json is valid JSON");
+        catalog["actions"]
+            .as_array()
+            .expect("actions array")
+            .iter()
+            .filter(|action| action["cli"] == "offered")
+            .filter_map(|action| action["cli_name"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    fn action_name(words: &[String], names: &HashSet<String>) -> Option<String> {
+        let words = words
+            .iter()
+            .skip(1)
+            .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
+            .take_while(|word| !word.starts_with('-'))
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        (1..=words.len())
+            .rev()
+            .map(|count| words[..count].join(" "))
+            .find(|name| names.contains(name))
+    }
+
+    fn action_flag_allowed(action: &str, flag: &str) -> bool {
+        let common =
+            matches!(flag, "--target" | "--wait" | "--no-wait" | "--interactive" | "--focus");
+        match action {
+            "agent open" => {
+                common || matches!(flag, "--name" | "--key" | "--cwd" | "--host" | "--group")
+            }
+            "agent open-tab" => common || matches!(flag, "--host"),
+            "cloud exec" => common || matches!(flag, "--command" | "--arg"),
+            _ => true,
+        }
+    }
+
+    fn missing_commands(text: &str, names: &HashSet<String>) -> Vec<String> {
+        let mut missing = Vec::new();
+        for words in command_lines(text, "cmux") {
+            let parser_words = words[1..]
+                .iter()
+                .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
+                .cloned()
+                .collect::<Vec<_>>();
+            // A bare scope reference in prose (`cmux vm`, `cmux harness`) is
+            // not a noun/verb command and has no action to resolve.
+            if parser_words.len() < 2 {
+                continue;
+            }
+            let action = action_name(&words, names);
+            // Cloud verbs are app actions whose existence is checked by the
+            // socket. Require a catalog match rather than generic parsing.
+            // Resource commands still resolve through the CLI parser.
+            let parser = builtin_command(&parser_words)
+                || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
+            if action.is_none() && !parser {
+                missing.push(words.join(" "));
+            } else if let Some(action) = action {
+                let command_words = action.split_whitespace().count();
+                for flag in words
+                    .iter()
+                    .skip(1 + command_words)
+                    .filter(|word| word.starts_with("--"))
+                    .map(|word| word.split('=').next().unwrap_or(word))
+                {
+                    if !action_flag_allowed(&action, flag) {
+                        missing.push(format!("{} (flag {flag})", words.join(" ")));
+                    }
+                }
+            }
+        }
+        missing
+    }
+
+    fn builtin_command(words: &[String]) -> bool {
+        let words = words.iter().map(String::as_str).collect::<Vec<_>>();
+        matches!(
+            words.as_slice(),
+            ["action", "list", ..]
+                | ["action", "describe", ..]
+                | ["action", "run", ..]
+                | ["harness", "add", ..]
+                | ["harness", "secret", "set", ..]
+                | ["harness", "doctor", ..]
+                | ["link", "machine", "update", ..]
+                | ["docs", "search", ..]
+        )
+    }
+
+    #[test]
+    fn documented_cmux_commands_resolve_in_the_parser_or_action_catalog() {
+        let names = action_names();
+        let missing = DOCUMENTS
+            .iter()
+            .flat_map(|(source, text)| {
+                missing_commands(text, &names)
+                    .into_iter()
+                    .map(move |command| format!("{source}: {command}"))
+            })
+            .collect::<Vec<_>>();
+        assert!(missing.is_empty(), "documented cmux command drifted:\n{}", missing.join("\n"));
+    }
+
+    #[test]
+    fn a_deliberately_stale_cmux_line_is_rejected() {
+        let names = action_names();
+        let missing = missing_commands("`cmux cloud deliberately-stale-action`", &names);
+        assert_eq!(missing, vec!["cmux cloud deliberately-stale-action"]);
+    }
+
+    #[test]
+    fn cloud_help_lists_every_offered_cloud_action() {
+        let missing = action_names()
+            .into_iter()
+            .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
+            .filter(|name| !cloud_help::overview(false).contains(name))
+            .collect::<Vec<_>>();
+        assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
+    }
+
+    #[test]
+    fn cloud_exec_without_command_returns_actionable_usage() {
+        let args = strings(&["cloud", "exec", "--target", "machine:builder"]);
+        assert!(app::parse(&args).is_err());
+        let args =
+            strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
+        assert!(app::parse(&args).is_ok());
+        assert!(cloud_help::overview(false).contains("cloud <action>"));
+        assert!(AGENT_HELP.contains("agent open-tab"));
+        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+    }
+
+    #[test]
+    fn documented_action_flag_typos_are_rejected() {
+        let names = action_names();
+        let missing = missing_commands(
+            "```sh\ncmux cloud exec --target machine:builder --comand uname\n```",
+            &names,
+        );
+        assert_eq!(
+            missing,
+            vec!["cmux cloud exec --target machine:builder --comand uname (flag --comand)"]
+        );
+    }
+}
+
+#[test]
+fn removed_route_is_detected_after_global_options() {
+    assert!(removed_route_requested(&strings(&["route", "list"])));
+    assert!(removed_route_requested(&strings(&["--json", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["--socket", "/tmp/cmux.sock", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["--headless", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["help", "route"])));
+    assert!(removed_route_requested(&strings(&["--headless", "help", "route"])));
+    assert!(removed_route_requested(&strings(&["--state", "/tmp/state", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["--json", "acp", "route"])));
+    assert!(!removed_route_requested(&strings(&[
+        "--machine-provider-command",
+        "/bin/foo",
+        "route",
+        "list",
+        "--"
+    ])));
+    assert!(removed_route_requested(&strings(&[
+        "route",
+        "list",
+        "--machine-provider-command",
+        "foo",
+        "--"
+    ])));
+    assert!(removed_route_requested(&strings(&["--owner-ready-fd", "5", "route", "list"])));
+    assert!(!removed_route_requested(&strings(&["--socket", "route", "workspace", "list"])));
+    assert!(!removed_route_requested(&strings(&["--", "route", "list"])));
+}
+
 #[test]
 fn global_modes_are_mutually_exclusive() {
     let error = parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
@@ -51,6 +352,57 @@ fn global_value_options_accept_inline_equals_values() {
     assert_eq!(global.session.as_deref(), Some("review-session"));
     assert_eq!(global.machine.as_deref(), Some("builder"));
     assert_eq!(command, strings(&["workspace", "list"]));
+}
+
+/// `cmux workspace new-on-machine --machine m`: an app action run by its CLI
+/// name keeps a `--machine` after its words as its own argument (the global
+/// option swallowed it, so the app answered "requires --machine"). Before
+/// the first command word it stays the global option, and the mux grammar's
+/// routing (`workspace list --machine m`) is unchanged.
+#[cfg(unix)]
+#[test]
+fn an_app_actions_own_machine_flag_follows_its_words() {
+    for (line, own) in [
+        (&["workspace", "new-on-machine", "--machine", "vm-1"][..], &["--machine", "vm-1"][..]),
+        (&["workspace", "new-on-machine", "--machine=vm-1"][..], &["--machine=vm-1"][..]),
+        (
+            &["--json", "workspace", "new-on-machine", "--machine", "vm-1", "--focus"][..],
+            &["--machine", "vm-1", "--focus"][..],
+        ),
+    ] {
+        let (global, command) = parse_action_globals(&strings(line)).unwrap();
+        assert_eq!(global.machine, None, "{line:?}");
+        let mut expected = strings(&["workspace", "new-on-machine"]);
+        expected.extend(strings(own));
+        assert_eq!(command, expected, "{line:?}");
+        let words = command.iter().take_while(|arg| !arg.starts_with('-')).count();
+        let app::AppCommand::Call { params, .. } =
+            app::run_action(&command[..words].join(" "), &command[words..], app::ActionName::Cli)
+                .unwrap()
+        else {
+            panic!("expected a call")
+        };
+        assert_eq!(params["action"], "workspace new-on-machine", "{line:?}");
+        assert_eq!(params["args"]["machine"], "vm-1", "{line:?}: {params}");
+    }
+    // Before the action's words `--machine` is the global option.
+    for line in [
+        &["--machine", "vm-1", "workspace", "new-on-machine"][..],
+        &["--machine=vm-1", "workspace", "new-on-machine"][..],
+    ] {
+        let (global, command) = parse_action_globals(&strings(line)).unwrap();
+        assert_eq!(global.machine.as_deref(), Some("vm-1"), "{line:?}");
+        assert_eq!(command, strings(&["workspace", "new-on-machine"]), "{line:?}");
+    }
+    // The mux grammar keeps routing a `--machine` anywhere before `--`.
+    let (global, command) =
+        parse_globals(&strings(&["workspace", "list", "--machine", "vm-1"])).unwrap();
+    assert_eq!(global.machine.as_deref(), Some("vm-1"));
+    assert_eq!(command, strings(&["workspace", "list"]));
+    // After `--` it is a payload word for both.
+    let line = strings(&["workspace", "current", "run", "--", "tool", "--machine", "x"]);
+    assert_eq!(parse_action_globals(&line).unwrap().1, line);
+    assert_eq!(parse_globals(&line).unwrap().1, line);
 }
 
 #[test]
@@ -97,7 +449,7 @@ fn server_lifecycle_routing_flags_follow_action() {
     assert!(global.session.is_none());
     assert!(matches!(
         plan.action,
-        lifecycle::ServerAction::Stop { force: true, end_terminals: false }
+        lifecycle::ServerAction::Stop { force: true, end_terminals: false, .. }
     ));
 
     let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
@@ -107,7 +459,7 @@ fn server_lifecycle_routing_flags_follow_action() {
     };
     assert!(matches!(
         plan.action,
-        lifecycle::ServerAction::Stop { force: false, end_terminals: true }
+        lifecycle::ServerAction::Stop { force: false, end_terminals: true, .. }
     ));
 
     let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
@@ -589,6 +941,20 @@ fn remote_invocation_allows_leading_global_options() {
 }
 
 #[test]
+fn remote_app_action_words_run_the_app_action_not_the_remote_family() {
+    // `cmux remote new-group HOST` is the app's New Remote Group (remote.newGroup);
+    // only the remote command family's own words stay with it.
+    assert!(!is_remote_invocation(&strings(&["remote", "new-group", "--destination", "box"])));
+    assert!(!is_remote_invocation(&strings(&["--json", "remote", "remove-group"])));
+    assert!(!is_remote_invocation(&strings(&["--session", "dev", "remote", "reconnect"])));
+    assert!(is_remote_invocation(&strings(&["remote"])));
+    assert!(is_remote_invocation(&strings(&["remote", "--help"])));
+    assert!(is_remote_invocation(&strings(&["remote", "help"])));
+    assert!(is_remote_invocation(&strings(&["remote", "stop"])));
+    assert!(is_remote_invocation(&strings(&["remote", "connect", "ssh://box"])));
+}
+
+#[test]
 fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
     assert!(!is_remote_invocation(&strings(&["--session"])));
     assert!(!is_remote_invocation(&strings(&["--socket"])));
@@ -705,3 +1071,46 @@ fn agent_hook_emit_rejects_a_bad_terminal_like_every_other_terminal_flag() {
 }
 
 mod machine_catalog;
+
+#[test]
+fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        for scope in surface::CMUX_SCOPES.iter().chain(OWN_HELP_SCOPES) {
+            assert!(
+                help.lines().any(|line| line.starts_with(&format!("  {scope} "))),
+                "{locale}: `cmux --help` does not list {scope}"
+            );
+        }
+    }
+    let rewritten = |words: &[&str]| {
+        let mut args = strings(words);
+        rewrite_help_word_on(&mut args, Surface::Cmux);
+        args
+    };
+    for &scope in OWN_HELP_SCOPES {
+        let own_help = if scope == "device" { "help" } else { "--help" };
+        assert_eq!(rewritten(&["help", scope]), strings(&[scope, own_help]), "{scope}");
+    }
+    for with_globals in [
+        vec!["--session", "s", "help", "agents", "--json"],
+        vec!["help", "--json", "agents"],
+        vec!["help", "--session", "s", "agents"],
+        vec!["--session", "help", "help", "agents"],
+    ] {
+        assert_eq!(rewritten(&with_globals), strings(&["agents", "--help"]), "{with_globals:?}");
+    }
+    assert_eq!(rewritten(&["--session", "s", "help", "chats"]), strings(&["chats", "--help"]));
+    for unchanged in [
+        vec!["help", "workspace"],
+        vec!["help", "agents", "chat"],
+        vec!["agents", "help"],
+        vec!["--session", "help", "agents"],
+    ] {
+        assert_eq!(rewritten(&unchanged), strings(&unchanged), "{unchanged:?}");
+    }
+    let os = |words: &[&str]| words.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+    assert_eq!(acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
+    assert_eq!(acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
+    assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
+}

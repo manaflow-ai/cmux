@@ -25,7 +25,7 @@ public struct NewTerminalTabCommand: Sendable {
     /// Whether `daemon` takes the optimistic create: it accepts a caller-chosen terminal id
     /// (`terminal-placement-env-v1`), which is what names the daemon's tab as this one.
     @MainActor public func isOptimistic(on daemon: DaemonService) -> Bool {
-        daemon.supports(DaemonCapabilities.shared.terminalPlacementEnv)
+        daemon.supports(DaemonCapability.terminalPlacementEnv.rawValue)
     }
 
     /// The provisional tab, and the work that sends `new-tab`.
@@ -35,8 +35,9 @@ public struct NewTerminalTabCommand: Sendable {
         /// Its surface.
         public let surface: SurfaceID
         /// Sends the request; returns the daemon's tab. Throws ``NewTerminalTabFailure`` when the
-        /// daemon refused it (the stand-in is gone then) and ``NewTerminalTabCancelled`` when the
-        /// person closed the stand-in first.
+        /// daemon refused it (the stand-in is gone then), ``NewTerminalTabCancelled`` when the
+        /// person closed the stand-in first, `PendingPaneNotCreated` when its pane's own create failed (never sent),
+        /// and `PaneNotReady` when the request named another stand-in (never sent).
         public let send: @MainActor () async throws -> SurfaceCreated
     }
 
@@ -55,13 +56,23 @@ public struct NewTerminalTabCommand: Sendable {
         let transaction = ClientTransactionID.generate()
         let pane = pane, sent = options
         let intent = Intent.createTab(pane: pane, provisional: provisional.terminal(terminal, cwd: options.cwd))
-        let send = daemon.intendNow("new-tab", intent, transaction: transaction) { connection in
+        // The target at send time (as Cmd-D, New Column and New Row): a Ctrl-` pressed on a stand-in whose create is in
+        // flight (a split's, Cmd-N's first pane) waits for it and names the daemon's pane that took it over, never the
+        // stand-in (``DaemonStore/daemonTarget(_:)``). P0 STATUS 2080: refused there before, no terminal.
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
+        let send = daemon.intendNowReporting("new-tab", intent, transaction: transaction) { connection in
             var sent = sent
             if let cwd, let start = await cwd.value { sent.cwd = start }
-            return try await connection.newTab(in: pane, options: sent)
+            return try await connection.newTab(in: try await target(), options: sent)
         }
         return Pending(tab: provisional.id, surface: provisional.surface) {
-            guard let created = await send() else { throw NewTerminalTabFailure() }
+            let answer = await send()
+            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
+            // (or answered by a capturing caller), never the generic failure on top of it.
+            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
+            // The stand-in's own create failed or was closed: that reason, not a daemon refusal the daemon never sent.
+            if case .failure(let notCreated as PendingPaneNotCreated) = answer { throw notCreated }
+            guard case .success(let created) = answer else { throw NewTerminalTabFailure() }
             ProvisionalTab.created(transaction, surface: created.surface, in: daemon.store)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw NewTerminalTabCancelled() }
             return created

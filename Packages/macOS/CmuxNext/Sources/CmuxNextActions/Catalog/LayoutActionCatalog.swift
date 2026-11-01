@@ -4,7 +4,7 @@
 
 nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        tabMoveActions() + paneExtraActions() + columnActions() + dockColumnActions() + terminalExtraActions()
+        tabMoveActions() + paneExtraActions() + columnActions() + dockColumnActions() + dockedWorkspaceActions() + terminalExtraActions()
     }
 
     static func row(
@@ -27,7 +27,7 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
             row("tab.moveToNewColumn", String(localized: "action.tab.moveToNewColumn", defaultValue: "Move Tab to New Column", table: "LayoutActions", bundle: .module),
                 .tab, "rectangle.split.3x1", cli: "tab move-to-new-column", keywords: ["tab", "column"], targets: [.tab]),
             row("tab.moveToWorkspace", String(localized: "action.tab.moveToWorkspace", defaultValue: "Move Tab to Workspace…", table: "LayoutActions", bundle: .module),
-                .tab, "arrow.right.square", cli: "tab move-to-workspace", keywords: ["tab", "workspace"],
+                .tab, "arrow.right.circle", cli: "tab move-to-workspace", keywords: ["tab", "workspace"],
                 targets: [.tab], arguments: [CatalogArgument.workspaceWorkspace]),
             row("tab.moveToNewWindow", String(localized: "action.tab.moveToNewWindow", defaultValue: "Move Tab to New Window", table: "LayoutActions", bundle: .module),
                 .tab, "macwindow.badge.plus", cli: "tab move-to-new-window", keywords: ["tab", "window", "detach"], targets: [.tab]),
@@ -47,13 +47,13 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 .pane, "rectangle.tophalf.inset.filled", cli: "pane split-up", keywords: ["pane", "horizontal"], targets: [.pane],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], startsTerminal: true),
             row("swapPaneLeft", String(localized: "action.swapPaneLeft", defaultValue: "Swap Pane Left", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.left.arrow.right", cli: "pane swap-left", keywords: ["pane", "move"], targets: [.pane]),
+                .pane, "arrowshape.left", cli: "pane swap-left", keywords: ["pane", "move"], targets: [.pane]),
             row("swapPaneRight", String(localized: "action.swapPaneRight", defaultValue: "Swap Pane Right", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.left.arrow.right", cli: "pane swap-right", keywords: ["pane", "move"], targets: [.pane]),
+                .pane, "arrowshape.right", cli: "pane swap-right", keywords: ["pane", "move"], targets: [.pane]),
             row("swapPaneUp", String(localized: "action.swapPaneUp", defaultValue: "Swap Pane Up", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.up.arrow.down", cli: "pane swap-up", keywords: ["pane", "move"], targets: [.pane]),
+                .pane, "arrowshape.up", cli: "pane swap-up", keywords: ["pane", "move"], targets: [.pane]),
             row("swapPaneDown", String(localized: "action.swapPaneDown", defaultValue: "Swap Pane Down", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.up.arrow.down", cli: "pane swap-down", keywords: ["pane", "move"], targets: [.pane]),
+                .pane, "arrowshape.down", cli: "pane swap-down", keywords: ["pane", "move"], targets: [.pane]),
             row("closePane", String(localized: "action.closePane", defaultValue: "Close Pane", table: "LayoutActions", bundle: .module),
                 .pane, "xmark.rectangle", cli: "pane close", keywords: ["pane", "remove"], targets: [.pane]),
             // Chrome's Close Other Tabs for panes (cx-k9go): no question; each closed
@@ -75,9 +75,10 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
         let targets: [ActionTargetKind] = [.column, .pane]
         return [
             row("column.focusLeft", String(localized: "action.column.focusLeft", defaultValue: "Focus Column Left", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.left.to.line", cli: "column focus-left", keywords: ["column", "navigate"], targets: targets),
+                // "move", "go", "switch": a search for Move Column Left also lists Focus Column Left.
+                .pane, "arrow.left.to.line", cli: "column focus-left", keywords: ["column", "navigate", "move", "go", "switch"], targets: targets),
             row("column.focusRight", String(localized: "action.column.focusRight", defaultValue: "Focus Column Right", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.right.to.line", cli: "column focus-right", keywords: ["column", "navigate"], targets: targets),
+                .pane, "arrow.right.to.line", cli: "column focus-right", keywords: ["column", "navigate", "move", "go", "switch"], targets: targets),
             row("column.moveLeft", String(localized: "action.column.moveLeft", defaultValue: "Move Column Left", table: "LayoutActions", bundle: .module),
                 .pane, "arrow.left.square", cli: "column move-left", keywords: ["column", "reorder"], targets: targets),
             row("column.moveRight", String(localized: "action.column.moveRight", defaultValue: "Move Column Right", table: "LayoutActions", bundle: .module),
@@ -109,7 +110,7 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 id: "terminal.clear",
                 title: String(localized: "action.terminal.clear", defaultValue: "Clear Screen and Scrollback", table: "LayoutActions", bundle: .module),
                 keywords: ["clear", "scrollback", "reset"], defaultShortcut: Shortcut("k", modifiers: [.command]), category: .terminal,
-                symbol: "clear", surfaces: [.palette, .keyboard], requires: [.terminalFocused], targets: [.tab], cliName: "terminal clear"
+                symbol: "eraser.line.dashed", surfaces: [.palette, .keyboard], requires: [.terminalFocused], targets: [.tab], cliName: "terminal clear"
             ),
             row("terminal.increaseFontSize", String(localized: "action.terminal.increaseFontSize", defaultValue: "Increase Font Size", table: "LayoutActions", bundle: .module),
                 .terminal, "textformat.size.larger", cli: "terminal increase-font-size", keywords: ["font", "zoom", "bigger"], targets: [.tab],

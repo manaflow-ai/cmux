@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 
 /// `debug.label_parity` (DEBUG; text-weight-e2e.py, cx-8w027.26): ``ChromeLabel`` next to a stock
@@ -39,8 +39,8 @@ public struct LabelParityProbe {
                                 // Fallback fonts in a Latin line (emoji, CJK).
                                 "Deploy \u{1F680} build \u{2705} done \u{6F22}\u{5B57} notes"]
     private static let fonts: [(String, NSFont)] = [
-        ("13r", .systemFont(ofSize: TypeScale.body)), ("11r", .systemFont(ofSize: TypeScale.caption)),
-        ("12m", .systemFont(ofSize: TypeScale.detail, weight: .medium)),
+        ("13r", .systemFont(ofSize: TypeScale.Base.body)), ("11r", .systemFont(ofSize: TypeScale.Base.caption)),
+        ("12m", .systemFont(ofSize: TypeScale.Base.detail, weight: .medium)),
         ("10.5r", .systemFont(ofSize: 10.5)),
     ]
     private static let lineCounts: [Int?] = [nil, 1, 2, 0]

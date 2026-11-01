@@ -98,8 +98,34 @@ translator become harness-side processes (the holder's child), so an agent
 holder never needs them in-process.
 
 The holder binary is distributed content-addressed (as `host-exe` does
-today); a cmux update that does not change the holder reuses the same file,
-and old holders keep running their own copy, pinned by its lock.
+today); old holders keep running their own copy, pinned by its lock. A cmux
+update makes a new copy even when the holder code did not change: release and
+nightly strip the holder (`strip-release-bundle.sh`) and re-sign it with a
+secure timestamp (`sign-cmux-bundle-helpers.sh`), so its SHA-256 changes in
+every signed build (review 1 of holder items 1-3). Only unsigned builds of
+unchanged code reuse a copy. If reuse across releases matters later, name the
+copy by a hash of the unsigned code (for example the Mach-O `LC_UUID`).
+
+Built (terminals, holder item 2, 2026-10-23): crate `cmux-holder`, bin
+`cmux-holder`, std and libc only, about 3.6k lines with its unit tests. It ships as
+`Contents/Resources/bin/cmux-holder` beside `bin/cmux` (artifact
+`cmux-tui-holder-<target>`, built in its own cargo invocation, signed like
+every helper by `sign-cmux-bundle-helpers.sh`, notices mapped). The daemon
+starts every holder from a verified content-addressed copy of it under
+`~/Library/Application Support/cmux-tui/host-exe/<sha256>/cmux-holder`
+(`host_exe::holder_executable`), named by the holder file's own hash; the
+binary carries no build identity, so an unsigned build whose holder code did
+not change reuses the copy (a signed build's re-signed holder has a new hash). `cmux-holder --version` prints `cmux-holder wire MIN-MAX`; a daemon
+starts only a holder whose range it speaks, else the holder built into
+`cmux-tui-host` (`__holder`). A running holder holds its copy's
+`in-use.lock` shared for its whole life. An update keeps every holder: the
+socket is derived from the session's host root, which an update keeps, and
+the new daemon adopts the running (older) holder by the lower wire version
+(test: `holder_terminals.rs`
+`a_new_daemon_adopts_an_older_holder_by_its_wire_version` against the
+frozen version 3 fixture `cmux-holder-v3`). The terminal wire is
+`magic "CMHX"` (terminal-host-model-DESIGN.md section 4), versions 1-4; the
+`CMHL` v1 below is the earlier draft and is superseded for terminals.
 
 ### 2.1 Holder wire protocol v1 (frozen)
 
@@ -114,7 +140,7 @@ strings; no JSON in the holder.
 | --- | --- | --- |
 | HELLO | d->h | versions min/max, capability bits wanted, owner token |
 | WELCOME | h->d | chosen version, capability bits granted, identity record bytes |
-| ATTACH | d->h | `from_offset`; the holder streams DATA from there (or GAP if dropped) |
+| ATTACH | d->h | `from_offset`; the holder streams DATA from there (or GAP if dropped). A terminal the daemon SPAWNed or ADOPTed holds at most 256 KiB unsent (`UNSENT_HIGH_WATER`) until its ATTACH, DETACH or the end of the link: the daemon sends SPAWN and ATTACH as two writes, and a holder that read freely between them could lose the terminal's first output to the ring. A client that SPAWNs and never ATTACHes blocks its shell at 256 KiB; the daemon always ATTACHes. |
 | DATA | h->d | `offset`, bytes |
 | GAP | h->d | `requested`, `oldest_available` (log rolled past it) |
 | DETACH | d->h | stop streaming; the holder keeps running |

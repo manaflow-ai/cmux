@@ -5,11 +5,13 @@ import { useSettingsSelector, useStore } from "../context";
 import { ThemePicker } from "../components/ThemePicker";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
+import { configThemeColors, terminalThemeColors } from "../themeDefaults";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
 import { TextEditor } from "./TextEditor";
 import type { EditorProps } from "./types";
 
 const THEME_EDITS_KEY = "appearance.themeEdits";
+const THEME_KEY = "appearance.theme";
 
 /**
  * A `theme` row outside the Theme section (search results): the Theme section's own picker, so a
@@ -25,6 +27,15 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
   const edits = useSettingsSelector((state) => valueOf(state, THEME_EDITS_KEY) as ThemeEditMap | null);
   useEffect(() => void store.loadThemeColors(), [store]);
   const colors = useMemo(() => withAllEdits(themeColors, edits), [themeColors, edits]);
+  // The default choice's swatch, as the Theme card draws it: the Ghostty config's colors on the
+  // terminal theme, the terminal's resolved theme on the app theme.
+  const config = useSettingsSelector((state) => state.host?.theme?.config ?? null);
+  const terminalValue = useSettingsSelector((state) => valueOf(state, THEME_KEY));
+  const configLabel = text(row.default_label) || t("settingsWindow.themeUseConfig");
+  const configColors = useMemo(() => {
+    const ghostty = configThemeColors(config, colors, side, t("settingsWindow.themeUseConfig"));
+    return row.key === THEME_KEY ? ghostty : terminalThemeColors(terminalValue, colors, side, ghostty);
+  }, [config, colors, side, row.key, terminalValue]);
   if (names.length === 0) return <TextEditor row={row} value={value} disabled={disabled} labelId={labelId} />;
   const spec = typeof value === "string" && value !== row.default ? parseThemeSpec(value) : null;
   const current = spec ? themeFor(spec, side, "") || null : null;
@@ -35,8 +46,8 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
       colors={colors}
       labelId={labelId}
       disabled={disabled}
-      configLabel={text(row.default_label) || t("settingsWindow.themeUseConfig")}
-      configColors={undefined}
+      configLabel={configLabel}
+      configColors={configColors}
       custom={(name) => isEdited(edits, name)}
       // A light/dark pair keeps its other side: the pick replaces the side in effect.
       onPick={(name) => {
@@ -49,7 +60,7 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
               : { ...spec, dark: name };
         return store.set(row.key, formatThemeSpec(next));
       }}
-      onPreview={(name) => (name ? store.preview(row.key, name) : store.previewEnd(row.key))}
+      onPreview={(name, owner) => (name ? store.preview(row.key, name, owner) : store.previewEnd(row.key, owner))}
     />
   );
 }

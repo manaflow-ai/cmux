@@ -13,12 +13,14 @@ impl Mux {
 
     pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
+        self.journal_maintenance_control.note_change();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Test-only: output goes to the output store, never the journal.
+    #[cfg(test)]
     pub(crate) fn journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -36,6 +38,7 @@ impl Mux {
         });
     }
 
+    #[cfg(test)]
     pub(crate) fn try_journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -72,56 +75,6 @@ impl Mux {
                 Err(error)
             }
         }
-    }
-
-    pub(crate) fn wait_for_terminal_journal_space_until(
-        &self,
-        observed: u64,
-        deadline: Instant,
-    ) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space_until(observed, deadline)
-    }
-
-    pub(crate) fn terminal_journal_durable_deadline(&self) -> Instant {
-        self.journal_ingress.durable_deadline()
-    }
-
-    pub(crate) fn try_journal_terminal_output_gap(
-        &self,
-        terminal_id: Arc<TerminalPublicId>,
-        generation: Arc<str>,
-        reason: &'static str,
-    ) -> anyhow::Result<()> {
-        self.journal_ingress.send_durable(
-            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-                terminal_id,
-                generation,
-                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-                reason,
-            },
-        )
-    }
-
-    /// Like [`Self::try_journal_terminal_output_gap`], bounded by the capture
-    /// deadline that already elapsed or is about to: past it, only a free
-    /// queue slot records the gap, without a second durability wait.
-    pub(crate) fn try_journal_terminal_output_gap_until(
-        &self,
-        terminal_id: Arc<TerminalPublicId>,
-        generation: Arc<str>,
-        reason: &'static str,
-        deadline: Instant,
-    ) -> anyhow::Result<()> {
-        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            reason,
-        };
-        if Instant::now() >= deadline {
-            return self.journal_ingress.try_send_terminal_gap(event);
-        }
-        self.journal_ingress.send_durable_until(event, deadline)
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
@@ -176,6 +129,22 @@ impl Mux {
             occurred_at_ms: crate::workspace_registry::unix_epoch_ms()?,
             event,
         })
+    }
+
+    /// A `terminal.output.gap` marker (surface/journal_reconnect.rs): small
+    /// and structural, it carries no output.
+    pub(crate) fn journal_terminal_output_gap(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+    ) {
+        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+            terminal_id,
+            generation,
+            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+            reason,
+        });
     }
 
     pub(crate) fn journal_terminal_resize(
@@ -262,6 +231,14 @@ impl Mux {
         self.workspace_registry.stats().snapshot()
     }
 
+    /// The registry and state locks by site (`server-stats` `locks`).
+    pub fn lock_detail_stats(&self) -> crate::diagnostics::LocksSnapshot {
+        crate::diagnostics::LocksSnapshot {
+            registry: self.workspace_registry.stats().detail(),
+            state: self.state.stats().detail(),
+        }
+    }
+
     /// Journal writer metrics, `None` for ephemeral sessions without a
     /// durable journal.
     pub fn journal_writer_stats(&self) -> Option<crate::diagnostics::JournalWriterSnapshot> {
@@ -274,8 +251,18 @@ impl Mux {
         self.resource_projection_stats.snapshot()
     }
 
+    /// Flush the registry commits made so far to disk, soon, off the
+    /// caller's thread: after a reply went out, or after a background batch
+    /// (`workspace_registry::wal_durability`).
+    pub(crate) fn request_registry_flush(&self) {
+        self.registry_connection.request_flush();
+    }
+
     pub fn write_path_stats(&self) -> crate::diagnostics::WritePathSnapshot {
-        self.registry_connection.write_path_stats().snapshot()
+        let mut snapshot = self.registry_connection.write_path_stats().snapshot();
+        (snapshot.wal_commits, snapshot.wal_synced_commits) =
+            self.registry_connection.durability_counts();
+        snapshot
     }
 
     pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
@@ -308,6 +295,29 @@ impl Mux {
         let _connection = self.registry_connection.get();
         entered.send(()).unwrap();
         release.recv().unwrap();
+    }
+
+    /// Caps the registry database at `pages` (its current size for None),
+    /// so a commit that needs a page fails with SQLITE_FULL as on a full disk.
+    #[cfg(test)]
+    pub(crate) fn set_registry_max_page_count_for_test(
+        &self,
+        pages: Option<i64>,
+    ) -> rusqlite::Result<()> {
+        let connection = self.registry_connection.get();
+        let pages = match pages {
+            Some(pages) => pages,
+            None => connection.query_row("PRAGMA page_count", [], |row| row.get(0))?,
+        };
+        let _: i64 =
+            connection
+                .query_row(&format!("PRAGMA max_page_count = {pages}"), [], |row| row.get(0))?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn journal_disk_full_for_test(&self) -> bool {
+        self.journal_ingress.disk_full_for_test()
     }
 
     #[cfg(test)]

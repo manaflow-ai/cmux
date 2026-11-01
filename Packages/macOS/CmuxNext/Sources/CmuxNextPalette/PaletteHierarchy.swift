@@ -53,6 +53,19 @@ extension PaletteModel {
         return true
     }
 
+    /// A click on chip `index` of a multi-value step: the page without that value.
+    public func removeToken(at index: Int) {
+        guard let current, case .list(let page) = current.kind, page.tokens.indices.contains(index) else { return }
+        replaceCurrentPage(with: page.tokens[index].remove())
+    }
+
+    /// Backspace on an empty query of a multi-value step: takes out the last chip. False with none.
+    func removeLastToken() -> Bool {
+        guard let current, case .list(let page) = current.kind, let last = page.tokens.last else { return false }
+        replaceCurrentPage(with: last.remove())
+        return true
+    }
+
     /// A click on footer segment `index`: its page in the current one's place.
     public func openCrumb(at index: Int) {
         guard let current, case .list(let page) = current.kind, page.crumbs.indices.contains(index),
@@ -109,5 +122,15 @@ extension PaletteController {
         let selection = editor.selectedRange()
         guard selection.length == 0 else { return (false, false) }
         return (selection.location == 0, selection.location == (editor.string as NSString).length)
+    }
+
+    /// Whether an input method is composing in the query (marked text):
+    /// it then owns Return, Escape, Tab and the arrows, as in a content
+    /// window (`KeyRouter.belongsToInputMethod`); a Command chord still
+    /// reaches the palette.
+    static func inputMethodOwns(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard !event.modifierFlags.contains(.command),
+              let client = window?.firstResponder as? NSTextInputClient else { return false }
+        return client.hasMarkedText()
     }
 }

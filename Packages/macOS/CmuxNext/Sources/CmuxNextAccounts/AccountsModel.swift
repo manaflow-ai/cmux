@@ -16,7 +16,11 @@ public final class AccountsModel {
     /// The provider whose Connect confirmation is open (Codex: its refresh
     /// token moves to CodeRouter).
     public var confirmTarget: AIProvider?
+    /// Why the last team switch failed, until the next switch or refresh.
+    public private(set) var teamError: String?
     @ObservationIgnored public let services: any AccountsServices
+    /// Roles, team details and the create, rename and delete forms.
+    public let teamsModel: AccountsTeamsModel
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     /// Providers whose login was started here; re-detected on activation.
@@ -27,6 +31,7 @@ public final class AccountsModel {
 
     public init(services: any AccountsServices) {
         self.services = services
+        teamsModel = AccountsTeamsModel(services: services)
         rows = AIProvider.allCases.map(AccountRowState.init(provider:))
     }
 
@@ -50,6 +55,7 @@ public final class AccountsModel {
         generation += 1
         let current = generation
         refreshTask?.cancel()
+        teamError = nil
         isRefreshing = true
         apply(.detectionStarted)
         apply(.cmuxSignIn(services.isSignedInToCmux))
@@ -58,6 +64,10 @@ public final class AccountsModel {
             // Detection and the CodeRouter list run concurrently.
             let detecting = Task { await services.detect() }
             let loading = Task { await Self.loadLinked(services) }
+            // Membership re-reads on its own; the team list updates when it lands.
+            if let active = services.activeTeam { Task { await active.refresh() } }
+            // Roles (and the open team's details) re-read on their own too.
+            if let teamsModel = self?.teamsModel { Task { await teamsModel.reload() } }
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
             for detection in found { self.apply(.detected(detection), to: detection.provider) }
@@ -68,6 +78,18 @@ public final class AccountsModel {
             case nil: break
             }
             self.isRefreshing = false
+        }
+    }
+
+    /// Makes `id` the active team. The App reloads what follows the team
+    /// (this screen's CodeRouter accounts included) when the switch lands.
+    public func selectTeam(_ id: String) async {
+        teamError = nil
+        guard let active = services.activeTeam else { return }
+        do {
+            try await active.select(id)
+        } catch {
+            teamError = AccountsStrings.teamSwitchFailed
         }
     }
 
@@ -85,7 +107,9 @@ public final class AccountsModel {
         }
     }
 
-    /// The app became active: re-detect if a login ran in a tab meanwhile.
+    /// The app became active, or the Settings window came forward (a login
+    /// in a cmux terminal tab never makes the app inactive): re-detect if a
+    /// login or logout ran in a tab meanwhile.
     public func appDidBecomeActive() {
         guard !pendingReauth.isEmpty else { return }
         for provider in pendingReauth { apply(.reauthEnded, to: provider) }
@@ -104,7 +128,7 @@ public final class AccountsModel {
         guard state.phase == .idle || state.phase == .reauthenticating else { return AccountsStrings.errorBusy }
         if state.phase == .idle { apply(.reauthStarted, to: provider) }
         pendingReauth.insert(provider)
-        services.reauthenticate(provider, plan: provider.reauthPlan)
+        guard services.reauthenticate(provider, plan: provider.reauthPlan) else { return nothingOpened(provider) }
         return nil
     }
 
@@ -113,6 +137,26 @@ public final class AccountsModel {
     public func performReauthenticate(_ provider: AIProvider) async -> String? {
         await settle()
         return reauthenticate(provider)
+    }
+
+    /// Runs the provider's own logout in a terminal tab; re-detects when the
+    /// app becomes active again, like a re-authentication. Returns why
+    /// nothing ran when no local pane could take the tab, or nil.
+    @discardableResult
+    public func signOut(_ provider: AIProvider) -> String? {
+        guard row(provider).canSignOut, !row(provider).isBusy else { return nil }
+        apply(.reauthStarted, to: provider)
+        pendingReauth.insert(provider)
+        guard services.reauthenticate(provider, plan: provider.signOutPlan) else { return nothingOpened(provider) }
+        return nil
+    }
+
+    /// No local pane took the login or logout: the row is free again and
+    /// says why, instead of waiting for a re-detect that never comes.
+    private func nothingOpened(_ provider: AIProvider) -> String {
+        pendingReauth.remove(provider)
+        apply(.reauthFailed(AccountsStrings.errorNoLocalPane), to: provider)
+        return AccountsStrings.errorNoLocalPane
     }
 
     /// Connect: asks for a paste first when there is no local secret to send.
@@ -208,6 +252,9 @@ public final class AccountsModel {
     public func saveKey(_ key: String, for provider: AIProvider) -> String? {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return AccountsStrings.errorNeedsPaste }
+        // Detection trusts a saved key by its presence (it never reads the secret), so a key
+        // Connect would refuse is never saved: it would read signed in and fail on Connect.
+        guard CredentialResolver.isWellFormedKey(trimmed, for: provider) else { return AccountsStrings.errorInvalidFormat }
         do {
             try services.saveKey(trimmed, for: provider)
         } catch {

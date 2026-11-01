@@ -16,6 +16,7 @@ self-hosted-runner:
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-4vcpu-ubuntu-2404-arm
     - blacksmith-8vcpu-ubuntu-2404
+    - blacksmith-16vcpu-ubuntu-2404
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - warp-ubuntu-latest-x64-4x
@@ -41,10 +42,10 @@ paths:
       - 'string should not be empty'
   .github/workflows/nightly.yml:
     ignore:
-      # await-release-surface-ack and promote-nightly-next-acked are disabled on
-      # purpose with `if: false` (the release-surface approval is retired). They
-      # stay in the file for the workflow contract: promote-nightly-next.mjs
-      # pendingPromotions() reads the waiter's job name, and the promotion and
-      # signing-secret tests read both jobs. Each keeps its old condition as a
-      # comment beside the `if: false`.
+      # await-release-surface-ack and promote-nightly-next-acked are retired
+      # with `if: false` (main retired the live release-surface ack on
+      # 2026-10-18, #21544; feat-cmux-next took main's copy in #25995). They
+      # stay in main's exact shape so a sync between the branches never
+      # brings the live approval back, and tests/test_nightly_promotion_admission.py
+      # pins that shape. Deleting them is a cross-branch decision, not a lint fix.
       - 'constant expression "false" in condition'

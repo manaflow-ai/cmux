@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPages
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -9,6 +10,7 @@ import WebKit
 /// them (each table in an `overflow: auto hidden` wrapper as wide as the column): a 20-column
 /// table, one long unbroken cell, code in cells, a 40-row table and a small table.
 @MainActor
+@Suite(.closesItsWindows)
 struct PageSidewaysScrollerTests {
     private static let html: String = {
         let row = { (cells: [String]) in "<tr>" + cells.map { "<td>\($0)</td>" }.joined() + "</tr>" }
@@ -31,7 +33,15 @@ struct PageSidewaysScrollerTests {
           <div class="tableWrapper"><table id="code">\(row(["tab", code, "<code>tab_a85e</code>"]))</table></div>
           <div class="tableWrapper"><table id="tall">\(tall)</table></div>
           <div class="tableWrapper"><table id="small">\(row(["Left", "Center", "Right"]))</table></div>
-        </div></body></html>
+          <div id="shadowWide"></div>
+          <div id="shadowFits"></div>
+        </div><script>
+          // A code card as @pierre/diffs draws one: its sideways scroller is inside the host's shadow root.
+          for (const [id, text] of [['shadowWide', '\(long)\(long)'], ['shadowFits', 'short line']]) {
+            const root = document.getElementById(id).attachShadow({ mode: 'open' });
+            root.innerHTML = '<pre style="margin:0;overflow:scroll clip;white-space:pre"><code>' + text + '</code></pre>';
+          }
+        </script></body></html>
         """
     }()
 
@@ -80,6 +90,7 @@ struct PageSidewaysScrollerTests {
     @Test(arguments: ["wide", "long"])
     func aTableWiderThanTheColumnScrollsSideways(_ id: String) async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: id))
     }
@@ -88,6 +99,7 @@ struct PageSidewaysScrollerTests {
     /// words still do not fit, and the report follows the wrapper.
     @Test func codeInCellsIsReportedExactlyWhenItsTableOverflows() async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         let overflows = try await page.webView.callAsyncJavaScript(
             "const w = document.getElementById('code').parentElement; return w.scrollWidth > w.clientWidth + 1;",
@@ -98,16 +110,28 @@ struct PageSidewaysScrollerTests {
     @Test(arguments: ["tall", "small", "text"])
     func aTableThatFitsAndPlainTextDoNot(_ id: String) async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: id) == false)
     }
 
     @Test func movingOffTheTableOrThePageClearsTheReport() async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: "wide"))
         #expect(try await page.pointer(over: "small") == false)
         #expect(try await page.pointer(over: "long"))
         #expect(try await page.pointer(over: nil) == false)
+    }
+
+    /// A code block or diff drawn in a shadow root (@pierre/diffs in the agent chat): the box that
+    /// scrolls sideways is inside it, where `document.elementFromPoint` does not reach.
+    @Test func aScrollerInsideAShadowRootScrollsSideways() async throws {
+        let page = Page()
+        defer { page.window.closeAfterTest() }
+        await page.load()
+        #expect(try await page.pointer(over: "shadowWide"))
+        #expect(try await page.pointer(over: "shadowFits") == false)
     }
 }

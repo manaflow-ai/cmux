@@ -1,5 +1,8 @@
 # cmux-next INTERNAL iOS TestFlight builder
 
+> **Moved 2026-10-25.** All nine M6 minis (cmux16..cmux24) are reserved for the cmux Performance Lead
+> (Lawrence). The INTERNAL iOS archive now runs on cmux9s (M4 Pro, runner `cmux9s-mac-mini-ios-internal`, `CI_IOS_INTERNAL_RUNNER=glaeda-runner-cmux9s-mac-mini-ios-internal`). Install with `scripts/ci/ios-internal-builder-install.sh HOST`; the old M6 runner is removed.
+
 Owner: Chief subagent "iOS internal TestFlight builder" (2026-10-20). User ask:
 "a builder for cmux-next cmux INTERNAL iOS ... that just keeps on churning out
 new testflight builds, similar to what we have for the mac app".
@@ -77,6 +80,19 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
    - **fallback:** the last upload is older than 12 hours and the head moved
      (any change), so non-iOS shared changes still ship twice a day.
    An unknown diff (compare failed, history missing) builds (fail open).
+   **A failing builder holds** (cmuxterm-hq#5424: 58 failures in a row, every
+   new head rebuilt, 23.2 Mac hours a day). Before any of the rules above the
+   plan runs `check-tabskit-sync.sh`'s comparison on Linux (trees only); a head
+   whose shared packages drift from upstream is never dispatched, because the
+   archive refuses it. While the newest completed build failed: no dispatch
+   while a build still runs; a head whose change since the failed SHA touches
+   no iOS path waits 6 hours (one retry for an infra failure); otherwise the
+   second failure in a row starts a backoff of 30 minutes after the newest
+   failure, doubling per failure to 6 hours. A success resets it. A manual
+   dispatch of the trigger skips the backoff, never the drift check. A held
+   plan writes `BLOCKED: <why>` as an error annotation on the decide run, and
+   the red builder shows in ci-dash's alerts (`ios_internal_red`, from the
+   builder's newest completed run), so a hold is never silent.
    A dispatch with `workflow_dispatch` from `GITHUB_TOKEN` starts a run (the
    documented exception), so no extra credential is needed.
 6. **Coalescing.** The build workflow has one concurrency group with
@@ -146,7 +162,15 @@ free disk, the newest build runs (public API, every 5 min), and
 `~/Library/Application Support/ios-internal-builder/status.json` and a JSON line
 per change to `~/Library/Logs/ios-internal-builder.log`. Alerts: `runner-down`,
 `disk-low`, `build-failed`. It prunes runner `_diag` logs older than 7 days and
-build outputs older than 3 days; it never deletes `.cache`.
+build outputs older than 3 days or beyond the newest 5 `*-testflight` folders. Below 60 GiB
+free, and only while no build runs (no `Runner.Worker`, `testflight-build.sh` or
+`build-xcframework.sh` process), it also trims caches, moving each into `.trash` first: the pre-rename `~/cnx-ios-builds`,
+every `.work` folder (failed builds' source and DerivedData), xcframeworks beyond the
+newest 3 keys, and the cargo target (rebuilt only on an xcframework cache miss).
+SwiftPM checkouts stay. `~/cmux-mobile-builds` on cmux23 belongs to this builder only. The admission hook does the same trim once before it refuses
+an archive job for disk, then checks again. (cmux23 fell to 39.9 GiB free on
+2026-10-22 and refused every archive job; the old root and failed builds' `.work`
+had no cleanup.)
 
 ```bash
 ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
@@ -170,8 +194,9 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
 - After `scripts/ci/ios_internal_builder.py` changes, copy it to the mini:
   `scp scripts/ci/ios_internal_builder.py cmux23:ios-internal-builder/` (the
   admission hook and watch loop run that copy; a stale copy refuses jobs).
-- The trigger does not retry a head that failed for 12 hours; to retry one at
-  once, dispatch `ios-internal-nightly.yml` on `rc/cnx-ios-builder` with `sha`.
+- The trigger does not retry a head that failed for 12 hours, and backs off
+  while builds keep failing (rule 5); to build at once, dispatch the trigger
+  (skips the backoff) or `ios-internal-nightly.yml` on `rc/cnx-ios-builder` with `sha`.
 - Pause: set repo variable `IOS_INTERNAL_HOLD=1`; the trigger then dispatches
   nothing.
 - Production naming (2026-10-20): the app moved from `cnx-ios/` to `cmux-next-ios/`

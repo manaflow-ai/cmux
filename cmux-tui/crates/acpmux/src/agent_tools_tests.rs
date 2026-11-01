@@ -110,3 +110,90 @@ fn cmux_cua_falls_back_to_the_nested_helper_app() {
     assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), None);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// On a Linux machine `acpmux` is a symlink to `cmux-tui`, and `current_exe`
+/// resolves it: the daemon runs as `cmux-tui acp daemon run` with the prefix
+/// `acp`. cmux-tui starts acpmux only under `acp` (or as argv0 `acpmux`), so
+/// this daemon's own MCP servers must be `cmux-tui acp <word>` too, or the
+/// sub-session tools never start on a cloud VM.
+#[test]
+fn own_servers_run_under_the_daemon_prefix() {
+    let root = std::env::temp_dir().join(format!("acpmux-own-servers-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui");
+    let inputs = |prefix: &[&str]| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            exe.clone(),
+            prefix.iter().map(std::ffi::OsString::from).collect(),
+        )),
+        cua_v2: Some(root.join("cua-v2")),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let servers = |prefix: &[&str]| -> Vec<(String, Vec<String>)> {
+        let tools = super::resolve(&inputs(prefix));
+        assert!(tools.servers.iter().all(|s| s.command == exe), "{:?}", tools.servers);
+        tools.servers.into_iter().map(|s| (s.name, s.args)).collect()
+    };
+    let expect = |prefix: &[&str]| -> Vec<(String, Vec<String>)> {
+        [
+            (crate::cua_v2::SERVER_NAME, "cua-mcp"),
+            (crate::secret_mcp::SERVER_NAME, "secret-mcp"),
+            (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
+            (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
+            (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
+            (crate::acpmux_mcp::SERVER_NAME, "acpmux-mcp"),
+        ]
+        .into_iter()
+        .map(|(name, word)| {
+            let args = prefix.iter().copied().chain([word]).map(str::to_owned).collect();
+            (name.to_owned(), args)
+        })
+        .collect()
+    };
+    // A standalone acpmux (the app's bundled copy): the bare command word.
+    assert_eq!(servers(&[]), expect(&[]));
+    // cmux-tui: `cmux-tui acp subsession-mcp`.
+    assert_eq!(servers(&["acp"]), expect(&["acp"]));
+    // Per-workspace displays (a Linux cloud machine) still drop the helper v2
+    // bridge, which cannot be pinned to a display, under the prefix too.
+    let mut tools = super::resolve(&inputs(&["acp"]));
+    tools.displays = Some(root.join("displays"));
+    let env = std::collections::BTreeMap::from([(
+        crate::agent_displays::WORKSPACE_KEY.to_owned(),
+        "ws-1".to_owned(),
+    )]);
+    let names: Vec<String> = tools.scoped(&env).servers.into_iter().map(|s| s.name).collect();
+    assert!(!names.iter().any(|n| n == crate::cua_v2::SERVER_NAME), "{names:?}");
+    assert!(names.iter().any(|n| n == crate::subsession_mcp::SERVER_NAME), "{names:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A launch without servers removes the last launch's MCP config, so the background-shell hook
+/// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has, and every launch drops
+/// the calls the hook turned away under the last one.
+#[test]
+fn a_launch_without_servers_removes_the_last_mcp_config() {
+    let root = std::env::temp_dir().join(format!("acpmux-stale-mcp-{}", uuid::Uuid::now_v7()));
+    let file = root.join("s.json");
+    let mut with = super::AgentTools::default();
+    with.servers.push(super::McpServer {
+        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        command: "acpmux".into(),
+        args: vec![],
+        env: vec![],
+    });
+    assert!(with.claude_args(&file).contains(&"--mcp-config".to_owned()));
+    assert!(file.is_file());
+    // A call the hook turned away under the last launch is no retry under the next.
+    let denied = crate::bg_hook::denied_path(&file);
+    std::fs::write(&denied, "a-hash\n").unwrap();
+    with.claude_args(&file);
+    assert!(!denied.exists(), "a launch kept the last launch's turned-away calls");
+    let args = super::AgentTools::default().claude_args(&file);
+    assert!(!args.contains(&"--mcp-config".to_owned()), "{args:?}");
+    assert!(!file.exists(), "the last launch's config stayed for the hook to read");
+    let _ = std::fs::remove_dir_all(&root);
+}

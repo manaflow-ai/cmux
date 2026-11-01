@@ -37,6 +37,8 @@ on:
       - "tests/test_tui_package_contract.py"
       - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
+      - "scripts/cmux-next/cmux-code-mode-runner"
+      - "tests/test_cmux_code_mode_mcp.py"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -71,6 +73,8 @@ on:
       - "tests/test_tui_package_contract.py"
       - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
+      - "scripts/cmux-next/cmux-code-mode-runner"
+      - "tests/test_cmux_code_mode_mcp.py"
   workflow_dispatch:
 
 concurrency:
@@ -202,7 +206,7 @@ jobs:
     name: ${{ matrix.language }} package
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -237,6 +241,16 @@ jobs:
       - name: Set up pinned Rust toolchain
         if: matrix.language == 'rust'
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Keep cargo's registry and cmux-tui/target for the Rust SDK leg between runs.
+      # Only feat-cmux-next saves, as in rust-msrv.
+      - name: Cache cargo build
+        if: matrix.language == 'rust'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Set up Go
         if: matrix.language == 'go'
@@ -379,7 +393,7 @@ jobs:
     name: ${{ matrix.language }} consumer
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -416,6 +430,18 @@ jobs:
       - name: Set up pinned Rust toolchain
         if: matrix.language == 'rust'
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Keep cargo's registry and the two Rust consumer example target dirs between
+      # runs. Pull requests only restore: a push to main or a dispatch saves.
+      - name: Cache cargo build
+        if: matrix.language == 'rust'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: |
+            cmux-tui/bindings/examples/rust-agent-dashboard -> target
+            cmux-tui/bindings/examples/rust-sidebar-monitor -> target
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Set up Go
         if: matrix.language == 'go'
@@ -538,7 +564,7 @@ jobs:
     name: Rust SDK MSRV (1.88)
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -547,6 +573,24 @@ jobs:
 
       - name: Install Rust 1.88 MSRV toolchain
         run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+
+      # Keep cargo's registry and the four target dirs (the cmux-tui workspace that
+      # holds the SDK crates, and the three example workspaces) between runs. The
+      # job's own key, with the toolchain in it, so 1.88 artifacts never mix with
+      # the pinned toolchain's. Only feat-cmux-next saves: a pull request restores what its
+      # base (and main, the default branch) saved, and a branch's own save never
+      # comes back, so it would only push useful entries out of the cache store.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: |
+            cmux-tui -> target
+            cmux-tui/bindings/examples/rust-agent-screen-detection -> target
+            cmux-tui/bindings/examples/rust-agent-dashboard -> target
+            cmux-tui/bindings/examples/rust-sidebar-monitor -> target
+          key: rust-1.88.0
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Test public Rust SDK crates and examples on MSRV
         run: |
@@ -572,7 +616,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -598,7 +642,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "20.19.5"
+          node-version: "22.23.4"
           cache: npm
           cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
 
@@ -652,6 +696,7 @@ jobs:
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-headless-debug
           cache-workspace-crates: "true"
@@ -705,3 +750,38 @@ jobs:
         run: |
           cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
           cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live --test spaces_live --test session_deltas_live -- --nocapture
+
+  # The code-mode MCP (cmux-tui/bindings/typescript/code-mode/mcp.mjs) and the bwrap sandbox of
+  # scripts/cmux-next/cmux-code-mode-runner: a cancelled cmux_exec returns and leaves no process
+  # behind. No job ran this test (it had no registry entry, tests/test_pr_lane_coverage.py), and
+  # it skips without bun and bwrap, so this job installs both and the test fails on CI without them.
+  code-mode:
+    name: code-mode MCP cancellation
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # Ubuntu 24.04 lets only AppArmor-profiled programs make an unprivileged user
+      # namespace; bwrap needs one, so the runner VM lifts that restriction.
+      - name: Install bwrap
+        run: |
+          set -euo pipefail
+          if ! command -v bwrap >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y bubblewrap
+          fi
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-all --ro-bind / / true
+
+      - name: A cancelled cmux_exec returns and leaves no process behind
+        run: python3 tests/test_cmux_code_mode_mcp.py

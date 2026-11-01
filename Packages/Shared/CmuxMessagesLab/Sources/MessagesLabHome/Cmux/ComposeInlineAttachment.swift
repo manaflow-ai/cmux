@@ -17,6 +17,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
     private weak var shownView: ComposeInlineAttachmentView?
     /// The text container that last drew this attachment itself, redrawn when the thumbnail arrives.
     private weak var drawnIn: NSTextContainer?
+    /// The picture's (or file pill's) size; the attachment's box is its whole line (`attachmentBounds`).
+    let pictureSize: CGSize
 
     init(_ a: Attachment, scale: CGFloat) {
         attachmentID = a.id
@@ -25,9 +27,9 @@ final class ComposeInlineAttachment: NSTextAttachment {
         // view only for a provider class registered for its type (`viewProvider(for:...)` alone was
         // never asked, and the field drew the attachment's image with no remove button).
         _ = Self.registerViewProvider
+        pictureSize = Self.size(of: a, scale: scale)
         super.init(data: nil, ofType: Self.fileType)
-        let size = Self.size(of: a, scale: scale)
-        bounds = CGRect(x: 0, y: Self.baselineOffset, width: size.width, height: size.height)
+        bounds = CGRect(x: 0, y: Self.baselineOffset, width: pictureSize.width, height: pictureSize.height + Self.gapBelow)
         allowsTextAttachmentView = true
         loadThumbnail(scale: scale)
     }
@@ -36,17 +38,26 @@ final class ComposeInlineAttachment: NSTextAttachment {
 
     var isImage: Bool { ComposeAttachmentStrip.isImage(model) }
 
-    /// The attachment's box below the baseline (it sits on the text line, a little low, as in Messages).
+    /// The attachment's box below the baseline.
     static let baselineOffset: CGFloat = -4
+    /// The space between a picture and the text line under it (Messages, Austin's capture 2026-10-20).
+    static let gapBelow: CGFloat = 6
+    /// Messages' picture in the message box: 176 pt wide for a 1412 x 1106 px screenshot at 2x, so
+    /// 176 x 138 pt (Lawrence's capture 2026-10-20, cmux-prompts/refs/composer-images/1.png: 352 px
+    /// of the 2x capture), so aspect-fit in 176 x 176 pt; a smaller picture keeps its size.
+    static let pictureMaxWidth: CGFloat = 176
+    static let pictureMaxHeight: CGFloat = 176
+    /// The picture's corner radius in the box (the same capture: about 24 px at 2x).
+    static let corner: CGFloat = 12
 
-    /// Images: aspect-fit in the strip's 128 x 64 pt box; files: the 200 x 52 pt pill.
+    /// Images: aspect-fit in `pictureMaxWidth` x `pictureMaxHeight`; files: the 200 x 52 pt pill.
     static func size(of a: Attachment, scale: CGFloat) -> CGSize {
         guard ComposeAttachmentStrip.isImage(a) else {
             return CGSize(width: ComposeAttachmentStrip.fileWidth, height: ComposeAttachmentStrip.fileHeight)
         }
         let s = max(1, scale)
         let w = CGFloat(a.width ?? 1) / s, h = CGFloat(a.height ?? 1) / s
-        let k = min(1, ComposeAttachmentStrip.boxWidth / w, ComposeAttachmentStrip.imageMaxHeight / h)
+        let k = min(1, pictureMaxWidth / w, pictureMaxHeight / h)
         return CGSize(width: max(8, (w * k).rounded()), height: max(8, (h * k).rounded()))
     }
 
@@ -68,17 +79,42 @@ final class ComposeInlineAttachment: NSTextAttachment {
                 ComposeAttachmentStrip.thumbnail(asset, maxPixels: px)
             }.value
             guard let self, self.model.asset == asset else { return }
-            self.thumbnail = image
-            self.shownView?.show(image)
-            self.redrawField()
+            self.thumbnailArrived(image)
         }
     }
 
-    /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder).
+    /// The decoded thumbnail is here (main actor): the view or the field shows it.
+    func thumbnailArrived(_ image: CGImage?) {
+        thumbnail = image
+        shownView?.show(image)
+        redrawField()
+    }
+
+    /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder):
+    /// only its rect and no layout, with the other arrivals of this turn (`ComposeInlineRedraw`).
     private func redrawField() {
         guard let tv = drawnIn?.textView else { return }
-        if let tlm = tv.textLayoutManager { tlm.invalidateLayout(for: tlm.documentRange) }
-        tv.needsDisplay = true
+        ComposeInlineRedraw.of(tv).arrived(self)
+    }
+
+    // MARK: Its own line, as in Messages
+
+    // A picture in the message box is a block, as in Messages: it takes its whole line, so text
+    // before it ends the line above and text after it starts the line below. Its box is the line's
+    // width; the picture draws at the box's left (Austin 2026-10-20: the text sat beside the picture).
+
+    override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation, textContainer: NSTextContainer?,
+                                   proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
+        lineBox(proposedLineFragment.width)
+    }
+
+    override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: NSRect, glyphPosition position: NSPoint,
+                                   characterIndex charIndex: Int) -> NSRect {
+        lineBox(lineFrag.width)
+    }
+
+    private func lineBox(_ lineWidth: CGFloat) -> CGRect {
+        CGRect(x: 0, y: bounds.minY, width: max(bounds.width, lineWidth), height: bounds.height)
     }
 
     // MARK: Drawn by the attachment (the field placed no view)
@@ -98,11 +134,15 @@ final class ComposeInlineAttachment: NSTextAttachment {
     /// fill until it decodes), or the file's pill with its icon, name and kind.
     func drawnImage(_ size: CGSize) -> NSImage {
         let fill = Fixture.isLight ? Fixture.chipFill : NSColor(white: 1, alpha: 0.08)
-        let corner = ComposeAttachmentStrip.corner
-        let labels = isImage ? nil : FileLabels(model, width: size.width - 60)
+        let corner = Self.corner
+        let labels = isImage ? nil : FileLabels(model, width: pictureSize.width - 60)
         // The thumbnail is read when the image draws, not when it is made: the field may keep this
         // image from before the thumbnail decoded.
-        let drawn = NSImage(size: size, flipped: false) { [weak self] r in
+        let picture = pictureSize
+        let drawn = NSImage(size: size, flipped: false) { [weak self] box in
+            // The picture at the box's top left; the rest of its line and the gap below stay clear.
+            let r = CGRect(x: 0, y: box.maxY - min(picture.height, box.height),
+                           width: min(picture.width, box.width), height: min(picture.height, box.height))
             let image = self?.isImage == true ? self?.thumbnail : nil
             NSBezierPath(roundedRect: r, xRadius: corner, yRadius: corner).addClip()
             fill.setFill()
@@ -135,7 +175,7 @@ final class ComposeInlineAttachment: NSTextAttachment {
         init(_ a: Attachment, width: CGFloat) {
             icon = NSWorkspace.shared.icon(for: UTType(mimeType: a.mimeType) ?? .data)
             name = NSAttributedString(string: ComposeAttachmentStrip.fit(a.fileName, ComposeAttachmentStrip.nameFont, width),
-                                      attributes: [.font: ComposeAttachmentStrip.nameFont, .foregroundColor: Fixture.incomingText])
+                                      attributes: [.font: ComposeAttachmentStrip.nameFont, .foregroundColor: Fixture.composeText])
             kind = NSAttributedString(string: ComposeAttachmentStrip.fit(ComposeAttachmentStrip.kindText(a), ComposeAttachmentStrip.kindFont, width),
                                       attributes: [.font: ComposeAttachmentStrip.kindFont, .foregroundColor: Fixture.secondaryText])
         }
@@ -149,15 +189,13 @@ final class ComposeInlineAttachment: NSTextAttachment {
 
     /// The thumbnail's long side in pixels at SCALE (no trap on NaN).
     private func thumbnailPixels(_ scale: CGFloat) -> Int {
-        CrashGuard.int((max(bounds.width, bounds.height) * max(1, scale)).rounded(.up))
+        CrashGuard.int((max(pictureSize.width, pictureSize.height) * max(1, scale)).rounded(.up))
     }
 
     /// Decodes the thumbnail now (tests).
     func loadThumbnailNow(scale: CGFloat) {
         guard isImage, let asset = model.asset else { return }
-        thumbnail = ComposeAttachmentStrip.thumbnail(asset, maxPixels: thumbnailPixels(scale))
-        shownView?.show(thumbnail)
-        redrawField()
+        thumbnailArrived(ComposeAttachmentStrip.thumbnail(asset, maxPixels: thumbnailPixels(scale)))
     }
 
     /// The attachments' file type, private to the message box.
@@ -169,7 +207,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
 
     override func viewProvider(for parentView: NSView?, location: any NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? {
         let provider = ComposeInlineAttachmentViewProvider(textAttachment: self, parentView: parentView, textLayoutManager: textContainer?.textLayoutManager, location: location)
-        provider.tracksTextAttachmentViewBounds = true
+        // The box is the attachment's own (its whole line, `attachmentBounds`), not the view's size.
+        provider.tracksTextAttachmentViewBounds = false
         return provider
     }
 

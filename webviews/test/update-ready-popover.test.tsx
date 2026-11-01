@@ -62,9 +62,30 @@ test("the popup names the full build, lists the highlights and has See all chang
     ),
   );
   const text = host.textContent ?? "";
-  // A short, quiet title (Leo 2026-10-19); the raw build stays in its tooltip.
+  // A short, quiet title (Leo 2026-10-19), with no tooltip (2026-10-31, Lawrence on the Updated
+  // card's: "seems excessive"): a click on the version copies the full build instead.
   expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3845050");
-  expect(host.querySelector(".wn-pop-title")?.getAttribute("title")).toBe("1.0.0-nightly.3845050428001");
+  expect(host.querySelector(".wn-pop [title]")).toBeNull();
+  const copied: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (value: string) => void copied.push(value) },
+  });
+  const version = host.querySelector<HTMLElement>(".wn-pop-title .wn-copy-version")!;
+  expect(version.textContent).toBe("nightly 3845050");
+  // A native button (CopyVersion): focus, Return and Space come from the platform.
+  expect(version.tagName).toBe("BUTTON");
+  expect(version.getAttribute("type")).toBe("button");
+  expect(version.hasAttribute("role")).toBe(false);
+  expect(version.getAttribute("aria-label")).toBe("Copy Version 1.0.0-nightly.3845050428001");
+  await act(async () => {
+    version.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  });
+  expect(copied).toEqual(["1.0.0-nightly.3845050428001"]);
+  // "Copied" in the heading's own line, after the version: nothing pops over the list.
+  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3845050 · Copied");
+  expect(host.querySelector(".wn-pop [title]")).toBeNull();
+  delete (window.navigator as { clipboard?: unknown }).clipboard;
   expect(text).toContain("Workspace groups you can see at a glance");
   // The card has these; the popup does not say them again.
   expect(text).not.toContain("is ready");
@@ -74,7 +95,7 @@ test("the popup names the full build, lists the highlights and has See all chang
 
 // The "Updated to" card (Leo 2026-10-13; version and date in words since 2026-10-20): "Nightly · Oct 13",
 // the terse fallback headline when no change is known, and no Share cmux text link (it is the palette's).
-test("the Updated card names the short build, says What's new in this build and has no Share link", async () => {
+test("the Updated card says what it updated to, What's new in this build and has no Share link", async () => {
   const { createRoot } = await import("react-dom/client");
   const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
   const { createStrings } = await import("../src/pages/shared/i18n");
@@ -102,10 +123,148 @@ test("the Updated card names the short build, says What's new in this build and 
       />,
     ),
   );
-  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to Nightly · Oct 13");
-  expect(host.querySelector(".wn-card-headline")?.textContent).toBe("What's new in this build");
+  expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
+  expect(host.querySelector(".wn-card-note")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  expect(buttons).toEqual(["Close", "See What's New"]);
+  // The title's version is the copy button (CopyVersion), then the card's own two.
+  expect(buttons).toEqual(["Nightly", "Close", "What's New"]);
+});
+
+// Notes published before the pipeline's readable rules (#21873) reach the card and popup as they
+// were written: a digest title cut with "…", a work-stream line, and each title repeated as its
+// description (nightly 3917159104301 and earlier). The surfaces read them as the page does.
+test("the popup and the card read notes published before the readable rules as the page does", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights, UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  const data = {
+    version: "1.0.0-nightly.3917159104301",
+    build: "3917159104301",
+    fromVersion: "1.0.0-nightly.3917061587901",
+    fromBuild: "3917061587901",
+    date: "2026-10-19",
+    source: "whatsNew" as const,
+    language: "en",
+    items: [
+      {
+        id: "summary-2",
+        title: "Cmux NEXT perf-fanout: a restored New Tab page reads no tab…",
+        summary: "Cmux NEXT perf-fanout: a restored New Tab page reads no tab list in its pane's snapshot",
+        category: "improved" as const,
+      },
+      {
+        id: "summary-1",
+        title: "Export-backdrop-art reads each entry's subject box and…",
+        summary: "Export-backdrop-art reads each entry's subject box and exports it",
+        category: "improved" as const,
+      },
+      {
+        id: "summary-0",
+        title: "Keep the Mac awake while agents work",
+        summary: "Keep the Mac awake while agents work",
+        category: "fixed" as const,
+      },
+    ],
+    moreCount: 0,
+    changelog: { from: "1.0.0-nightly.3917061587901", to: "1.0.0-nightly.3917159104301" },
+  };
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  const items = [...host.querySelectorAll(".wn-pop-list li")].map((li) => li.textContent);
+  // The perf-fanout line and the export-backdrop-art tool line are internal work.
+  expect(items).toEqual(["1Keep the Mac awake while agents work"]);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  // The card summarizes by area (#22810): one row, made only of the readable change.
+  const rows = [...host.querySelectorAll(".wn-card-note")].map((li) => li.textContent ?? "");
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatch(/keep the mac awake while agents work/i);
+  expect(rows[0]).not.toMatch(/perf-fanout|backdrop/i);
+  expect(host.querySelector(".wn-card-line")).toBeNull();
+});
+
+// Review of #22099: the popover's scrolling list (`rest`, every change after the first three) and the
+// card's summary read through the same rules as the first three. An internal line, a title cut with
+// "…" and a repeat of a change already shown never reach either surface.
+test("every change after the first three reads as the first three do, on the popup and the card", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights, UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  const data = {
+    version: "1.0.0-nightly.3917159104301",
+    build: "3917159104301",
+    fromVersion: "1.0.0-nightly.3917061587901",
+    fromBuild: "3917061587901",
+    date: "2026-10-19",
+    source: "summary" as const,
+    language: "en",
+    items: [
+      {
+        id: "summary-0",
+        title: "Keep the Mac awake while agents work",
+        summary: null,
+        category: "fixed" as const,
+      },
+    ],
+    rest: [
+      {
+        id: "summary-3",
+        title: "Cmux NEXT perf-fanout: a restored New Tab page reads no tab…",
+        summary: "Cmux NEXT perf-fanout: a restored New Tab page reads no tab list in its pane's snapshot",
+        category: "improved" as const,
+      },
+      {
+        id: "summary-4",
+        title: "Terminals show background art through the glass, like the…",
+        summary: "Terminals show background art through the glass, like the other panes",
+        category: "improved" as const,
+      },
+      {
+        id: "summary-5",
+        title: "Keep the Mac awake while agents work",
+        summary: null,
+        category: "fixed" as const,
+      },
+    ],
+    moreCount: 3,
+    changelog: { from: "1.0.0-nightly.3917061587901", to: "1.0.0-nightly.3917159104301" },
+  };
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  const rest = [...host.querySelectorAll(".wn-pop-rest li")].map((li) => li.textContent ?? "");
+  expect(rest).toHaveLength(1);
+  expect(rest[0]).toMatch(/^Terminals show background art through the glass/);
+  expect(rest[0]).not.toContain("…");
+  const text = host.textContent ?? "";
+  expect(text).not.toMatch(/perf-fanout/i);
+  expect(text.split("Keep the Mac awake while agents work").length - 1).toBe(1);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  const card = host.textContent ?? "";
+  expect(card).not.toMatch(/perf-fanout/i);
+  expect(card).not.toContain("…");
 });
 
 // Notes with screenshots (Leo 2026-10-19): a change's picture shows inline at the popover's width,
@@ -228,4 +387,35 @@ test("without a change list the hover card shows the versions and See release no
   expect(host.textContent).not.toContain("See all changes");
   await act(async () => link!.click());
   expect(opened).toBe(1);
+});
+
+// Review of #22099: the footer counts what the popup shows. Only internal work: no list, so it
+// offers the release notes, not "See all changes" of nothing.
+test("an update whose every change is internal offers See release notes, not See all changes", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const data = {
+    ...readyData([]),
+    source: "summary" as const,
+    items: [
+      {
+        id: "summary-0",
+        title: "Export-backdrop-art reads each entry's subject box and…",
+        summary: "Export-backdrop-art reads each entry's subject box and exports it",
+        category: "improved" as const,
+      },
+    ],
+  };
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  expect(host.querySelector(".wn-pop-list")).toBeNull();
+  expect(host.querySelector(".wn-pop-all")?.textContent).toContain("See release notes");
+  expect(host.textContent).not.toContain("See all changes");
 });

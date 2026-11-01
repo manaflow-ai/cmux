@@ -1,9 +1,11 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
@@ -24,7 +26,11 @@ final class AppOnboardingServices: OnboardingServices {
     /// Folder grants (Debug Settings `browserImport.folderGrant`).
     private let folderAccess = BrowserFolderAccess()
 
-    func detectBrowsers() async -> [BrowserSource] { await folderAccess.detect() }
+    /// None while `browser.import.enabled` is off: nothing reads another browser's folders.
+    func detectBrowsers() async -> [BrowserSource] {
+        guard services.browserImportEnabled else { return [] }
+        return await folderAccess.detect()
+    }
     func browsersAwaitingAccess() async -> [ImportBrowser] { await folderAccess.awaiting() }
     func accessFolder(for browser: ImportBrowser) -> URL? { folderAccess.folder(browser) }
     func requestFolderAccess(for browser: ImportBrowser) async -> Bool { await folderAccess.request(browser) }
@@ -32,10 +38,18 @@ final class AppOnboardingServices: OnboardingServices {
     func importPasswordsFromCSV(into profile: String?) { try? PasswordCSVFiles(services: services).chooseImport(profile: profile ?? BrowserProfileRecord.defaultID) }
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
+        // One Keychain prompt per browser for cookies and passwords together; the keys go when the run ends.
+        try await runImport(plan, keys: OneReadSafeStorage(SafeStorageKeys().live()), progress: progress)
+    }
+
+    /// The import run with the caller's Keychain reads, so a job of several plans (the import
+    /// cards' one plan per profile) asks macOS once per browser rather than once per plan.
+    func runImport(_ plan: ImportPlan, keys: any SafeStorageKeyProviding,
+                   progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
+        // `browser.import.enabled` off: a window or card still on screen starts no run.
+        guard services.browserImportEnabled else { throw BrowserImportTurnedOff(BrowserImportOfferStrings.turnedOff) }
         let destination = SavingImportDestination.app(services, bookmarks: services.importedBookmarkSink)
         let cef = services.cache.cef
-        // One Keychain prompt per browser for cookies and passwords together; the keys go when the run ends.
-        let keys = OneReadSafeStorage(SafeStorageKeys().live())
         let cookies = CookieImporter(destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
                                      keys: keys)
         // Passwords only from profiles the user agreed to on the consent screen (the plan carries no others).
@@ -63,6 +77,7 @@ final class AppOnboardingServices: OnboardingServices {
         }
         owner.browserImportOffer.importFinished(summary)
         await owner.historySync.reconcile()
+        ImportedTabsOpener.open(summary, services: services)
         if let engine = summary.searchEngine, let settings = services.settings { await BrowserOmnibarSetting.applyImported(engine.setting(builtIn: BrowserSearchEngine.templates), in: settings) }
         // The app window, not the tool window: closing that with Done would take the offer with it.
         let windows = services.windows
@@ -104,7 +119,9 @@ final class AppOnboardingServices: OnboardingServices {
     private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            return MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
+            // The NIGHTLY's helper path, so the window and panel show its icon and name when it is installed.
+            let helper = CuaHelperIdentity.installedCandidates(isDevBuild: true).first
+            return MockComputerUsePermissionSource(helperAppURL: helper ?? URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
         }
         #endif
         return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)

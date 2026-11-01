@@ -75,5 +75,20 @@ class FamiliarIntentWarningTests(unittest.TestCase):
         self.assertEqual([item["owner"] for item in result["warnings"]], ["lawrence"])
 
 
+class FamiliarIntentWorkflowTests(unittest.TestCase):
+    """The warning's workflow lives only on main. GitHub runs a pull_request_target workflow from the
+    default branch whatever the pull request's base, so a copy here never runs: #25295 and #25670
+    fixed one here, the copy that ran kept failing on the installation's rate limit, and
+    next-autoland read that red as the PR's own (cmux#27923, fixed on main by #28447). Edit main's
+    .github/workflows/intent-familiar-review.yml; its checker is still this branch's
+    scripts/ci/intent_familiar_warning.py, checked out at the pull request's base."""
+
+    def test_no_copy_of_the_workflow_on_this_branch(self) -> None:
+        self.assertFalse(
+            (ROOT / ".github/workflows/intent-familiar-review.yml").exists(),
+            "this copy would never run: edit main's .github/workflows/intent-familiar-review.yml",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,8 +8,11 @@ name: cmux-next CEF shim C++ tests
 # scripts/cmux-next/test-shim-downloads-cpp.sh,
 # scripts/cmux-next/test-password-reveal-relay-cpp.sh and
 # scripts/cmux-next/test-local-file-handoff-cpp.sh compile their cases with
-# one clang++ call each and run them. So do the agent URL rule, the per-profile
-# proxy values, the DevTools message id scanner and the cmux-page:// path rules.
+# one clang++ call each and run them (scripts/cmux-next/lib/cxx.sh picks the
+# compiler: Ubuntu's clang++ here, the selected Xcode's on a Mac). So do the
+# agent URL rule, the per-profile proxy values, the DevTools message id
+# scanner, the cmux-page:// path rules, the Chromium host wire and the file
+# chooser bookkeeping.
 # Every scripts/cmux-next/test-*-cpp.sh runs here. The shim itself is built only
 # by the app build, so this is the one check that runs these cases on every
 # change. Each step runs even when an earlier one failed, so one red case does
@@ -34,6 +37,10 @@ on:
       - scripts/cmux-next/test-context-proxy-cpp.sh
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
+      - scripts/cmux-next/test-chromium-host-wire-cpp.sh
+      - scripts/cmux-next/test-shim-file-dialog-cpp.sh
+      - scripts/cmux-next/lib/cxx.sh
+      - tests/test_cmux_next_shim_cpp_linux.py
       - .github/workflows/cmux-next-shim-cpp.yml
   push:
     branches:
@@ -54,6 +61,10 @@ on:
       - scripts/cmux-next/test-context-proxy-cpp.sh
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
+      - scripts/cmux-next/test-chromium-host-wire-cpp.sh
+      - scripts/cmux-next/test-shim-file-dialog-cpp.sh
+      - scripts/cmux-next/lib/cxx.sh
+      - tests/test_cmux_next_shim_cpp_linux.py
       - .github/workflows/cmux-next-shim-cpp.yml
   workflow_dispatch:
 
@@ -67,14 +78,13 @@ concurrency:
 jobs:
   shim-downloads-cpp:
     name: CEF shim download state (C++)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # Header-only C++ with no CEF and no Apple SDK: Linux, off the Mac pools.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Select pinned Xcode
-        run: ./scripts/select-ci-xcode.sh
       - name: Download tokens, URL schemes and pending popups
         run: ./scripts/cmux-next/test-shim-downloads-cpp.sh
       - name: Password reveal relay zeroes its copy
@@ -104,3 +114,9 @@ jobs:
       - name: cmux-page:// paths, MIME types and ids
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-cmux-page-path-cpp.sh
+      - name: Chromium host wire matches the golden frame
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-chromium-host-wire-cpp.sh
+      - name: File chooser requests are answered once and cancelled with their browser
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-file-dialog-cpp.sh

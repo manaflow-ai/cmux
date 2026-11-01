@@ -2,11 +2,12 @@ import AppKit
 import CmuxNextDesign
 
 /// One button of the Extensions bubble, Chrome's `HoverButton` as the legacy menu configures it
-/// (`bubble_menu_item_factory.cc`): an image, an optional label, and a rounded gray highlight that
-/// shows at once on hover. Hovering takes the keyboard focus and leaving gives it up, so the
-/// pointer and the arrow keys move one highlight (`ExtensionsMenuHoverButton` in
-/// `extensions_menu_item_view.cc`). A release inside, Return, Space or the accessibility press
-/// runs ``onPress``.
+/// (`bubble_menu_item_factory.cc`): an image, an optional label with an optional second line, and
+/// a rounded gray highlight that shows at once on hover. Hovering takes the keyboard focus and
+/// leaving gives it up, so the pointer and the arrow keys move one highlight
+/// (`ExtensionsMenuHoverButton` in `extensions_menu_item_view.cc`). A release inside, Return,
+/// Space or the accessibility press runs ``onPress``. A selected button (a pinned pin) sits on
+/// the theme's accent.
 ///
 /// Laid out by frames, not constraints: the bubble's rows open and hover without an Auto Layout
 /// pass (the old `NSMenu` rows solved constraints for every row on every open).
@@ -15,9 +16,15 @@ final class ExtensionsMenuHoverButton: NSView {
     var onPress: (() -> Void)?
     /// The pointer entered the button.
     var onHover: (() -> Void)?
+    /// The hover, focus or press changed (a row that draws the highlight for its button).
+    var onHighlightChange: (() -> Void)?
+    /// False leaves the highlight to the superview (an extension row highlights as a whole).
+    var drawsHighlight = true
 
     let imageView = ThemedImageView()
     let titleLabel = ThemedLabel(labelWithString: "")
+    /// The second line under the label, when the button has one.
+    let detailLabel = ThemedLabel(labelWithString: "")
     private let style: ExtensionsMenuStyle
     /// The image's box, centered on the image (28 for an extension icon, 20 for a glyph).
     private let imageBox: CGFloat
@@ -33,9 +40,21 @@ final class ExtensionsMenuHoverButton: NSView {
         }
     }
 
-    private(set) var isHovering = false { didSet { if oldValue != isHovering { needsDisplay = true } } }
-    private var isPressed = false { didSet { if oldValue != isPressed { needsDisplay = true } } }
-    private(set) var hasFocus = false { didSet { if oldValue != hasFocus { needsDisplay = true } } }
+    /// Selected: the accent fill and the lit glyph (a pinned extension's pin).
+    var isSelected = false {
+        didSet {
+            guard isSelected != oldValue else { return }
+            if isSelected { imageView.themeTint = { Palette.litGlyph } } else { imageView.themeTint = tint }
+            needsDisplay = true
+        }
+    }
+
+    private(set) var isHovering = false { didSet { if oldValue != isHovering { highlightChanged() } } }
+    private(set) var isPressed = false { didSet { if oldValue != isPressed { highlightChanged() } } }
+    private(set) var hasFocus = false { didSet { if oldValue != hasFocus { highlightChanged() } } }
+    /// Whether the highlight shows: hover, keyboard focus or a press.
+    var isHighlighted: Bool { isEnabled && (isHovering || hasFocus || isPressed) }
+    private let tint: (() -> NSColor)?
     private var tracking: NSTrackingArea?
 
     /// - Parameters:
@@ -43,11 +62,13 @@ final class ExtensionsMenuHoverButton: NSView {
     ///   - imageSize: The icon's drawn size.
     ///   - imageBox: The box the icon is centered in.
     ///   - title: The label, or nil for an icon-only button.
+    ///   - detail: Whether the label has a second line under it (``detailLabel``).
     ///   - insets: The border around the image and label.
-    init(image: NSImage?, imageSize: CGFloat, imageBox: CGFloat, title: String? = nil,
-         insets: NSEdgeInsets, imageLabelSpacing: CGFloat? = nil, style: ExtensionsMenuStyle = .chrome,
+    init(image: NSImage?, imageSize: CGFloat, imageBox: CGFloat, title: String? = nil, detail: Bool = false,
+         insets: NSEdgeInsets, imageLabelSpacing: CGFloat? = nil, style: ExtensionsMenuStyle = .standard,
          tint: (() -> NSColor)? = { Palette.textSecondary }) {
         self.style = style
+        self.tint = tint
         self.imageBox = imageBox
         self.insets = insets
         self.imageLabelSpacing = imageLabelSpacing ?? style.imageLabelSpacing
@@ -63,6 +84,12 @@ final class ExtensionsMenuHoverButton: NSView {
             titleLabel.themeColor = { Palette.textPrimary }
             titleLabel.lineBreakMode = .byTruncatingTail
             addSubview(titleLabel)
+        }
+        if title != nil, detail {
+            detailLabel.font = style.detailFont
+            detailLabel.themeColor = { Palette.textSecondary }
+            detailLabel.lineBreakMode = .byTruncatingTail
+            addSubview(detailLabel)
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -96,22 +123,42 @@ final class ExtensionsMenuHoverButton: NSView {
         let boxX = insets.left
         imageView.frame.origin = NSPoint(x: boxX + (imageBox - size.width) / 2, y: (bounds.height - size.height) / 2)
         guard titleLabel.superview != nil else { return }
+        // The text boxes span from `x` to the right inset; each frame adds its label's padding
+        // around its text box (a frame the size of the text alone truncated the name).
         let x = boxX + imageBox + imageLabelSpacing
+        let width = max(0, bounds.width - x - insets.right)
         let height = ceil(titleLabel.intrinsicContentSize.height)
-        titleLabel.frame = NSRect(x: x, y: (bounds.height - height) / 2,
-                                  width: max(0, bounds.width - x - insets.right), height: height)
+        guard detailLabel.superview != nil, !detailLabel.stringValue.isEmpty else {
+            titleLabel.frame = titleLabel.frame(forAlignmentRect: NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height))
+            return
+        }
+        // Two lines centered together, the name over its access.
+        let detailHeight = ceil(detailLabel.intrinsicContentSize.height)
+        let top = (bounds.height - height - detailHeight) / 2
+        titleLabel.frame = titleLabel.frame(forAlignmentRect: NSRect(x: x, y: top, width: width, height: height))
+        detailLabel.frame = detailLabel.frame(forAlignmentRect: NSRect(x: x, y: top + height, width: width, height: detailHeight))
     }
 
     // MARK: Drawing
 
-    /// The highlight: hover, keyboard focus or a press, in the theme's gray (cmux has no accent).
+    /// The highlight: hover, keyboard focus or a press, in the theme's gray; a selected button
+    /// sits on the accent, a little stronger under the pointer.
     override func draw(_ dirtyRect: NSRect) {
-        guard isEnabled, isHovering || hasFocus || isPressed else { return }
         let path = NSBezierPath(roundedRect: bounds, xRadius: style.highlightRadius, yRadius: style.highlightRadius)
         performWithTheme {
-            (isPressed ? Palette.pressedFill : Palette.hoverFill).setFill()
-            path.fill()
+            if isSelected, isEnabled {
+                Palette.accentFill.withAlphaComponent(isHighlighted ? style.pinnedHoverFillOpacity : style.pinnedFillOpacity).setFill()
+                path.fill()
+            } else if drawsHighlight, isHighlighted {
+                (isPressed ? Palette.pressedFill : Palette.hoverFill).setFill()
+                path.fill()
+            }
         }
+    }
+
+    private func highlightChanged() {
+        needsDisplay = true
+        onHighlightChange?()
     }
 
     override func viewDidChangeEffectiveAppearance() {

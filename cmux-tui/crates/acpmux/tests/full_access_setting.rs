@@ -49,6 +49,7 @@ fn home(name: &str, extra: Value) -> PathBuf {
     let mut config = json!({
         "harnesses": {
             "codex": {"argv": [codex, "app-server"]},
+            "fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -189,6 +190,55 @@ async fn full_access_off_keeps_every_chat_out_of_full_access() {
     let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
     assert!(r.get("error").is_none(), "{r}");
 
+    // The local mode switch is off, but an explicit approve-all policy still answers tools,
+    // including a request that was already waiting before that policy was selected.
+    let created = app.new_chat(&dir, "fake").await;
+    let id = created["result"]["sessionId"].as_str().unwrap().to_owned();
+    app.2 += 1;
+    let prompt_id = app.2;
+    app.0
+        .send(
+            Message::request(
+                prompt_id,
+                "session/prompt",
+                json!({
+                    "sessionId": id, "prompt": [{"type": "text", "text": "ask: npm test"}],
+                }),
+            )
+            .to_line(),
+        )
+        .await
+        .unwrap();
+    loop {
+        let line =
+            tokio::time::timeout(Duration::from_secs(20), app.1.recv()).await.unwrap().unwrap();
+        let event: Value = serde_json::from_str(&line).unwrap();
+        if event["method"] == "_acpmux/permission_pending" {
+            break;
+        }
+    }
+    let mut changer = Client::app(&daemon).await;
+    let changed =
+        changer.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})).await;
+    assert!(changed.get("error").is_none(), "{changed}");
+    loop {
+        let line =
+            tokio::time::timeout(Duration::from_secs(20), app.1.recv()).await.unwrap().unwrap();
+        let event: Value = serde_json::from_str(&line).unwrap();
+        if event["id"] == prompt_id {
+            assert!(event.get("error").is_none(), "{event}");
+            break;
+        }
+    }
+    assert!(daemon.resolve(&id).unwrap().pending_permissions().is_empty());
+    assert!(
+        daemon
+            .events(&id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "permission_auto" && e.msg["policy"] == "approve-all")
+    );
+
     // A settings file that cannot be read fails closed.
     std::fs::write(&settings, r#"{"sessions": {"allowFullAccess": tru"#).unwrap();
     let r = app
@@ -196,15 +246,15 @@ async fn full_access_off_keeps_every_chat_out_of_full_access() {
         .await;
     assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
 
-    // Turned back on (or the key removed): full access switches again, and a pick of it carries to
-    // new chats as before (the latest pick wins).
+    // Turned back on (or the key removed): full access switches again, and new chats start in the
+    // default, full access, again.
     std::fs::write(&settings, r#"{"sessions": {}}"#).unwrap();
     let r = app
         .call("session/set_mode", json!({"sessionId": chat, "modeId": "agent-full-access"}))
         .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
-    // Off again: that saved pick no longer starts new chats in full access.
+    // Off again: the default no longer starts new chats in full access.
     std::fs::write(&settings, r#"{"sessions": {"allowFullAccess": false}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     let _ = std::fs::remove_dir_all(&dir);

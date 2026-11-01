@@ -602,6 +602,57 @@ fn a_daemon_that_was_never_told_its_host_kind_refuses_a_receive() {
     fake.no_connection();
 }
 
+/// A Cloud VM whose own record says `owner` takes a chat only on the
+/// caller's `vm_kind: "owner"` (the Cloud API's answer): the record, which
+/// its agents can write, never lets one in, at the receive or the finish.
+#[test]
+fn a_cloud_vm_takes_a_chat_only_on_the_callers_owner_word() {
+    let fake = FakeAcpmux::start("xvmkind");
+    let home = Home::new("vmkind");
+    let mux = transfer_mux(&fake, "atx-vmkind", &home, true);
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let mut client = Client::connect(&mux, "xvmkind");
+    let cwd = home.text("work/project");
+    // No word (the param left out), then words that are not `owner`.
+    assert_code(&receive(&mut client, &cwd), "agent_session.host_unverified");
+    for kind in ["team", "Owner"] {
+        let frame = json!({"cmd":"agent-transfer-receive","manifest":manifest(),"cwd":cwd,
+                           "vm_kind":kind});
+        assert_code(&client.request(frame), "agent_session.host_unverified");
+    }
+    fake.no_connection();
+    let owner = json!({"cmd":"agent-transfer-receive","manifest":manifest(),"cwd":cwd,
+                       "vm_kind":"owner"});
+    assert_eq!(ok_data(&client.request(owner))["receive_id"], json!("rcv_1"));
+    let _ = fake.frame();
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_session.host_unverified");
+    fake.no_frame();
+}
+
+/// A machine that shows no Cloud sign (its root may have removed them): a
+/// receive or finish whose `vm_kind` is not `owner`, an explicit `null`
+/// included, refuses; one with no word goes on.
+#[test]
+fn a_word_that_is_not_owner_refuses_on_any_host() {
+    let fake = FakeAcpmux::start("xvmnull");
+    let home = Home::new("vmnull");
+    let mux = transfer_mux(&fake, "atx-vmnull", &home, true);
+    let mut client = Client::connect(&mux, "xvmnull");
+    let cwd = home.text("work/project");
+    for kind in [json!(null), json!("team")] {
+        let frame = json!({"cmd":"agent-transfer-receive","manifest":manifest(),"cwd":cwd,
+                           "vm_kind":kind});
+        assert_code(&client.request(frame), "agent_session.host_unverified");
+    }
+    fake.no_connection();
+    ok_data(&receive(&mut client, &cwd));
+    let _ = fake.frame();
+    let finish = json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1","vm_kind":null});
+    assert_code(&client.request(finish), "agent_session.host_unverified");
+    fake.no_frame();
+}
+
 #[test]
 fn finish_reads_the_host_kind_again() {
     let fake = FakeAcpmux::start("xteamfin");
@@ -1058,7 +1109,99 @@ fn a_landed_chat_this_daemon_moved_away_again_opens_no_tab_of_this_machine() {
     let _ = fake.frame();
     // It is another machine's chat again: no new tab of this machine names it.
     assert_code(&machine_tab(&mut client, &mux, "acp_moved"), "conversation_tab.machine_mismatch");
+    assert_eq!(fake.frame()["method"], json!("_acpmux/info"));
     fake.no_frame();
+}
+
+/// Acpmux remains the authority across cmux restarts and watcher actions.
+#[test]
+fn live_root_transfer_revocation_survives_restart_and_both_abort_paths_clear_it() {
+    use crate::state::conversation_tabs::ConversationTabTarget;
+    use crate::state::conversation_tabs_store::ConversationTabRecord;
+
+    // The baseline has no authority query. Ignore it when present so a baseline
+    // run fails on authorization behavior after restart, not RPC implementation.
+    fn transfer_frame(fake: &FakeAcpmux) -> Value {
+        loop {
+            let frame = fake.frame();
+            if frame["method"] != json!("_acpmux/info") {
+                return frame;
+            }
+        }
+    }
+    fn skip_begin(fake: &FakeAcpmux) {
+        for method in ["_acpmux/transfer_begin", "_acpmux/transfer_read", "_acpmux/transfer_read"] {
+            assert_eq!(transfer_frame(fake)["method"], json!(method));
+        }
+    }
+
+    for committed in [false, true] {
+        let fake = FakeAcpmux::start("root-transfer");
+        let home = Home::new("root-transfer");
+        let mux = persistent_mux(&fake, &home);
+        let (_, pane) = terminal_pane(&mux);
+        let surface = mux
+            .new_conversation_tab(
+                ConversationTabTarget::Pane(Some(pane)),
+                ConversationTabRecord::AgentSession {
+                    host: format!("registry:{}", mux.registry_identity().0),
+                    session: Some(SESSION.into()),
+                    harness: Some("claude".into()),
+                    host_name: None,
+                },
+                None,
+                None,
+            )
+            .unwrap()
+            .surface
+            .id;
+        let content = mux.with_state(|state| {
+            state.surfaces[&surface].resource_identity().unwrap().content_id.clone()
+        });
+        let mut client = Client::connect(&mux, "root-transfer");
+        ok_data(&machine_tab(&mut client, &mux, SESSION));
+        ok_data(&client.request(json!({"cmd":"agent-transfer-begin","surface":surface})));
+        skip_begin(&fake);
+        assert_code(&machine_tab(&mut client, &mux, SESSION), "conversation_tab.machine_mismatch");
+        if committed {
+            ok_data(&client.request(json!({"cmd":"agent-transfer-commit","surface":surface,
+                "transfer_id":"xfer_1","to":{"machine":"mac"}})));
+            assert_eq!(transfer_frame(&fake)["method"], json!("_acpmux/transfer_commit"));
+        }
+        drop(client);
+        mux.shutdown();
+        drop(mux);
+
+        let mux = persistent_mux(&fake, &home);
+        let mut client = Client::connect(&mux, "root-transfer-restarted");
+        // The persisted live tab must still exist: absent proof would hide the bug.
+        let surface = mux
+            .with_state(|state| {
+                state.surfaces.values().find_map(|surface| {
+                    (surface.resource_identity()?.content_id == content).then_some(surface.id)
+                })
+            })
+            .expect("the source tab restored after restart");
+        assert_code(&machine_tab(&mut client, &mux, SESSION), "conversation_tab.machine_mismatch");
+        if !committed {
+            ok_data(&client.request(json!({"cmd":"agent-transfer-abort","surface":surface,
+                "transfer_id":"xfer_1"})));
+            assert_eq!(transfer_frame(&fake)["method"], json!("_acpmux/transfer_abort"));
+            ok_data(&machine_tab(&mut client, &mux, SESSION));
+
+            ok_data(&client.request(json!({"cmd":"agent-transfer-begin","surface":surface})));
+            skip_begin(&fake);
+            assert_code(
+                &machine_tab(&mut client, &mux, SESSION),
+                "conversation_tab.machine_mismatch",
+            );
+            // The acpmux watchdog acts without a cmux abort call or notification.
+            fake.set_transfer_blocked(SESSION, false);
+            ok_data(&machine_tab(&mut client, &mux, SESSION));
+        }
+        drop(client);
+        mux.shutdown();
+    }
 }
 
 #[cfg(unix)]

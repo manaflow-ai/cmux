@@ -1,7 +1,7 @@
 // Pure presentation model of the App Store page (plans/cmux-next/react-pages.md 3.3). Catalog
 // semantics (tiers, install states, grants) belong to the app platform lead's owner; this file
 // only filters, orders and labels what the owner returns.
-import { APP_STORE_ID, type AppTier, type CatalogApp, type GrantRow, type ScopeRisk } from "./types";
+import { APP_STORE_ID, HOME_ID, type AppTier, type CatalogApp, type GrantRow, type ScopeRisk } from "./types";
 
 export const RiskLabel: Record<ScopeRisk, string> = {
   standard: "store.risk.standard",
@@ -18,10 +18,29 @@ export function parseLayout(value: string | null | undefined): StoreLayout {
   return value === "list" || value === "split" ? value : "grid";
 }
 
+/**
+ * How Discover draws a listing card (`card=` in the route, like `layout=`): `standard` is the
+ * default; `compact` and `artwork` are DEV variants shown in the gallery (design/app-store.md).
+ */
+export type CardStyle = "standard" | "compact" | "artwork";
+
+export function parseCardStyle(value: string | null | undefined): CardStyle {
+  return value === "compact" || value === "artwork" ? value : "standard";
+}
+
+/** A listing's state on its card: not installed, installed and on, or installed and turned off. */
+export type ItemState = "available" | "installed" | "off";
+
+export function itemState(app: { installed: boolean; enabled?: boolean }): ItemState {
+  if (!app.installed) return "available";
+  return app.enabled === false ? "off" : "installed";
+}
+
 /** The page's route from its URL fragment: `#/discover?layout=list&app=<id>`, `#/installed`. */
 export interface StoreRoute {
   tab: StoreTab;
   layout: StoreLayout;
+  card: CardStyle;
   app?: string;
 }
 
@@ -29,9 +48,12 @@ export function parseRoute(hash: string): StoreRoute {
   const text = hash.replace(/^#/, "");
   const [path, query = ""] = text.split("?", 2);
   const params = new URLSearchParams(query);
+  const name = path.replace(/^\//, "");
+  const tab: StoreTab = name === "installed" ? "installed" : "discover";
   return {
-    tab: path.replace(/^\//, "") === "installed" ? "installed" : "discover",
+    tab,
     layout: parseLayout(params.get("layout")),
+    card: parseCardStyle(params.get("card")),
     app: params.get("app") || undefined,
   };
 }
@@ -49,9 +71,12 @@ export function matches(app: CatalogApp, query: string): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
-/** Whether the page shows `app` at all: the App Store never lists itself (FIRST-PARTY-APPS). */
+/**
+ * Whether the page shows `app` at all: never the App Store itself or Home, which are places in
+ * cmux, not apps to get (FIRST-PARTY-APPS; extensibility-DESIGN.md).
+ */
 export function listedInStore(app: { id: string }): boolean {
-  return app.id !== APP_STORE_ID;
+  return app.id !== APP_STORE_ID && app.id !== HOME_ID;
 }
 
 /**
@@ -118,9 +143,5 @@ export function dimmedWhenSandboxed(row: GrantRow): boolean {
   return row.scope.startsWith("net:") || row.scope.startsWith("integration:");
 }
 
-/** Initials for the generic icon glyph (no SF Symbols on the web; coordinator Q5). */
-export function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? "?").slice(0, 2);
-  return letters.toLocaleUpperCase();
-}
+/** Initials for an app with no image and no host glyph (no SF Symbols on the web; coordinator Q5). */
+export { initials } from "../../ui/initials";

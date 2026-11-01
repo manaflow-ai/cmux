@@ -19,10 +19,11 @@ import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import { EXTENSION_TO_FILE_FORMAT } from "cmux:pierre-filetypes";
 import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
-import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand } from "./keys";
+import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand, type RevealPosition } from "./keys";
 import { keybindingRules } from "./vscodeKeys";
+import { installNativeEditorMenu } from "./nativeEditorMenu";
 import type { CodeView, EditorDocument } from "./store";
-import type { FindRange, FindTarget } from "./editorFind";
+import { MATCH_LIMIT, type FindRange, type FindTarget } from "./editorFind";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
 import { analyzeText, LineEndings, lineEndingLabel } from "./textCodec";
 import {
@@ -344,10 +345,15 @@ export class MonacoView implements CodeView {
         },
       }),
       this.editor.onDidChangeCursorSelection(() => this.reportStatus()),
-      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS).
-      this.editor.onDidScrollChange(() => {
+      // A right-click opens the app's standard macOS menu, not Monaco's (nativeEditorMenu.ts).
+      installNativeEditorMenu(this.editor, container, {
+        [MONACO_QUICK_COMMAND]: () => this.callbacks.openCommandPalette?.(),
+      }),
+      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS). Monaco
+      // reports a new scroll size too (its first layout, a pane or window resize); that is not a scroll.
+      this.editor.onDidScrollChange((event) => {
         const node = this.editor.getDomNode();
-        if (node) markScrolling(node);
+        if (node && (event.scrollTopChanged || event.scrollLeftChanged)) markScrolling(node);
       }),
       {
         dispose: onScrollerStyleChange(() => this.editor.updateOptions(this.editorOptions()), document.documentElement),
@@ -710,8 +716,11 @@ export class MonacoView implements CodeView {
   findTarget(): FindTarget {
     const decorations = this.editor.createDecorationsCollection();
     return {
-      findMatches: (query, matchCase) =>
-        this.model?.findMatches(query, false, false, matchCase, null, false).map((match) => match.range) ?? [],
+      // Monaco's own default stops at 999; the pill takes MATCH_LIMIT, Replace All takes them all.
+      findMatches: (query, matchCase, all) =>
+        this.model
+          ?.findMatches(query, false, false, matchCase, null, false, all ? Number.MAX_SAFE_INTEGER : MATCH_LIMIT)
+          .map((match) => match.range) ?? [],
       // The selection's start, not the cursor: a selected match leaves the cursor at its end, and
       // the next letter typed would skip to the match after it.
       caret: () =>
@@ -752,6 +761,17 @@ export class MonacoView implements CodeView {
         this.editor.pushUndoStop();
       },
     };
+  }
+
+  /** Moves the cursor to `position` (clamped to the document) and centers its line, then focuses. */
+  reveal(position: RevealPosition): void {
+    const model = this.model;
+    if (!model) return;
+    const lineNumber = Math.min(Math.max(1, position.line), model.getLineCount());
+    const column = Math.min(Math.max(1, position.column), model.getLineMaxColumn(lineNumber));
+    this.editor.setPosition({ lineNumber, column });
+    this.editor.revealPositionInCenter({ lineNumber, column });
+    this.editor.focus();
   }
 
   /** A page command from the app's key dispatcher. Returns false for an unknown command. */

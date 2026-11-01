@@ -1,0 +1,144 @@
+// A page menu (History's row menu) in the app is the app's standard macOS menu: it hands the rows
+// and the pointer to the host, draws nothing in the page, and runs the chosen row.
+import { afterEach, expect, test } from "bun:test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { JSDOM } from "jsdom";
+import { PageMenu } from "./PageMenu";
+import { installNativeMenu, type NativeMenuRequest } from "../../ui/nativeMenu";
+
+let dom: JSDOM | undefined;
+let root: Root | undefined;
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
+
+function installDom(): HTMLElement {
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  // The page-drawn fallback is a Base UI menu, which schedules its transitions on animation frames.
+  const requestAnimationFrame = (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(Date.now()), 0) as unknown as number;
+  const cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
+    saved.set(key, scope[key]);
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    requestAnimationFrame,
+    cancelAnimationFrame,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  return dom.window.document.getElementById("root")!;
+}
+
+afterEach(async () => {
+  if (root)
+    await act(async () => {
+      root!.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  root = undefined;
+  installNativeMenu(null);
+  for (const [key, value] of saved) scope[key] = value;
+  saved.clear();
+  dom?.window.close();
+  dom = undefined;
+});
+
+test("a page menu opens the app's native menu and runs the chosen row", async () => {
+  const asked: NativeMenuRequest[] = [];
+  const ran: string[] = [];
+  let closed = 0;
+  installNativeMenu(async (request) => {
+    asked.push(request);
+    return { picked: "remove" };
+  });
+  root = createRoot(installDom());
+  await act(async () => {
+    root!.render(
+      <PageMenu
+        x={12}
+        y={34}
+        items={[
+          { id: "open", label: "Open", run: () => ran.push("open") },
+          { id: "remove", label: "Remove", separatorBefore: true, destructive: true, run: () => ran.push("remove") },
+        ]}
+        onClose={() => closed++}
+      />,
+    );
+    await Promise.resolve();
+  });
+  expect(asked).toEqual([
+    {
+      items: [
+        { id: "open", label: "Open" },
+        { id: "separator:remove", label: "", separator: true },
+        { id: "remove", label: "Remove" },
+      ],
+      point: { x: 12, y: 34 },
+    },
+  ]);
+  expect(document.querySelector(".page-menu")).toBeNull();
+  expect(ran).toEqual(["remove"]);
+  expect(closed).toBe(1);
+});
+
+test.each([null, { ok: true, value: null }])(
+  "an older host's empty native-menu reply falls back to an actionable page menu (%#)",
+  async (reply) => {
+    const ran: string[] = [];
+    let closed = 0;
+    installNativeMenu(async () => reply);
+    root = createRoot(installDom());
+    await act(async () => {
+      root!.render(
+        <PageMenu
+          x={12}
+          y={34}
+          items={[{ id: "open", label: "Open", run: () => ran.push("open") }]}
+          onClose={() => closed++}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(document.querySelector(".page-menu")).not.toBeNull();
+    expect(closed).toBe(0);
+    expect(ran).toEqual([]);
+  },
+);
+
+test("a native host cannot activate a disabled page action", async () => {
+  const ran: string[] = [];
+  let closed = 0;
+  installNativeMenu(async () => ({ picked: "remove" }));
+  root = createRoot(installDom());
+  await act(async () => {
+    root!.render(
+      <PageMenu
+        x={12}
+        y={34}
+        items={[{ id: "remove", label: "Remove", disabled: true, run: () => ran.push("remove") }]}
+        onClose={() => closed++}
+      />,
+    );
+    await Promise.resolve();
+  });
+  expect(document.querySelector(".page-menu")).toBeNull();
+  expect(closed).toBe(1);
+  expect(ran).toEqual([]);
+});

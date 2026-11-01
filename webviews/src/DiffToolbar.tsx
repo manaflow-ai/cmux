@@ -563,7 +563,7 @@ function OverflowMenuRow({
       aria-checked={toggle ? item.checked : undefined}
       aria-disabled={item.available ? undefined : true}
       // tooltip-allow: why the option is unavailable
-      title={item.available ? undefined : label("optionNeedsHostSupport")}
+      title={item.available ? undefined : label(item.unavailableKey ?? "optionNeedsHostSupport")}
       onClick={() => {
         if (item.available) onChoose();
       }}
@@ -635,7 +635,6 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
         type="button"
         className="file-header-menu-button"
         data-file-header-control=""
-        title={label}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}

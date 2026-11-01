@@ -48,7 +48,8 @@ final class PresenceDotsView: NSView {
         guard shown > 0 else { return 0 }
         let d = SidebarStyle.dotSize
         let dotsWidth = CGFloat(shown) * d + CGFloat(shown - 1) * Metrics.space1
-        return overflow.isHidden ? dotsWidth : dotsWidth + Metrics.space1 + ceil(overflow.intrinsicContentSize.width)
+        // The count's frame holds its text and padding (`naturalSize`): the text alone clipped it.
+        return overflow.isHidden ? dotsWidth : dotsWidth + Metrics.space1 + ceil(overflow.naturalSize.width)
     }
 
     override func layout() {
@@ -65,7 +66,7 @@ final class PresenceDotsView: NSView {
             x += d + Metrics.space1
         }
         if !overflow.isHidden {
-            let size = overflow.intrinsicContentSize
+            let size = overflow.naturalSize
             overflow.frame = NSRect(x: x, y: (bounds.height - ceil(size.height)) / 2, width: ceil(size.width), height: ceil(size.height))
         }
     }

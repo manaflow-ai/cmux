@@ -35,18 +35,23 @@ public struct SessionStateMirror: Sendable, Hashable {
         /// Marked unread by hand (Mark Tab Unread, `extra.marked_unread`, tab-mark-unread-v1),
         /// apart from notification markers.
         public var markedUnread: Bool
+        /// An agent needs the person to act in this tab (`extra.attention`, tab-attention-v1), or nil.
+        public var attention: TabAttention?
 
         public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil,
-                    emulation: JSONValue? = nil, markedUnread: Bool = false) {
+                    emulation: JSONValue? = nil, markedUnread: Bool = false, attention: TabAttention? = nil) {
             self.zoom = zoom
             self.back = back
             self.forward = forward
             self.icon = icon
             self.emulation = emulation
             self.markedUnread = markedUnread
+            self.attention = attention
         }
 
-        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil && !markedUnread }
+        var isEmpty: Bool {
+            zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil && !markedUnread && attention == nil
+        }
     }
 
     /// Newest first, at most `closedLimit`.
@@ -67,6 +72,11 @@ public struct SessionStateMirror: Sendable, Hashable {
     public var terminalProgramStatus: [ResourceID: [ProgramStatusRecord]] = [:]
     /// When each terminal's running shell command started; a terminal at a prompt is absent.
     public var terminalBusySinceMs: [ResourceID: UInt64] = [:]
+    /// Since when each terminal's shell sits at its prompt; absent while a command runs and without
+    /// shell integration.
+    public var terminalPromptSinceMs: [ResourceID: UInt64] = [:]
+    /// When each terminal last printed.
+    public var terminalLastOutputMs: [ResourceID: UInt64] = [:]
 
     /// The daemon keeps the newest 50 closed items.
     public static let closedLimit = 50
@@ -82,6 +92,8 @@ public struct SessionStateMirror: Sendable, Hashable {
         case tab(ResourceID)
         case terminal(ResourceID)
         case closed
+        /// A stash (`stash-v1`): the mirror keeps none, so readers list the stashes again.
+        case stash
     }
 
     /// Applies one ordered batch of changes in place.
@@ -123,14 +135,17 @@ public struct SessionStateMirror: Sendable, Hashable {
             guard tabs[id] != record else { return }
             tabs[id] = record
             touched.insert(.tab(id))
-        case .terminal(let id, let progress, let programStatus, let busySinceMs):
+        case .terminal(let id, let progress, let programStatus, let busySinceMs, let promptSinceMs, let lastOutputMs):
             let status = programStatus.isEmpty ? nil : programStatus
-            guard terminalProgress[id] != progress || terminalProgramStatus[id] != status || terminalBusySinceMs[id] != busySinceMs else {
+            guard terminalProgress[id] != progress || terminalProgramStatus[id] != status || terminalBusySinceMs[id] != busySinceMs
+                || terminalPromptSinceMs[id] != promptSinceMs || terminalLastOutputMs[id] != lastOutputMs else {
                 return
             }
             terminalProgress[id] = progress
             terminalProgramStatus[id] = status
             terminalBusySinceMs[id] = busySinceMs
+            terminalPromptSinceMs[id] = promptSinceMs
+            terminalLastOutputMs[id] = lastOutputMs
             touched.insert(.terminal(id))
         case .closed(let item):
             let before = closed
@@ -167,6 +182,8 @@ public struct SessionStateMirror: Sendable, Hashable {
         case .screenGroupRemoved(let id):
             guard let old = screenGroups.removeValue(forKey: id) else { return }
             touched.insert(.workspace(old.workspaceID))
+        case .stash:
+            touched.insert(.stash)
         case .sidebarBatch:
             // The sidebar document has its own mirror (SessionStateStore.onSidebarBatch).
             break

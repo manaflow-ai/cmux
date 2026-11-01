@@ -8,6 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
+    "dry-run",
     // `workspace create --no-focus`: accepted and ignored (creation does not
     // move focus without `--focus`); agents pass it out of habit.
     "no-focus",
@@ -72,6 +74,9 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "clear-default-session",
     "clear-zoom",
     "clear-top-index",
+    "clear-description",
+    "clear-task-status",
+    "report-closed-ids",
     "include-untracked",
     "amend",
     "no-verify",
@@ -85,6 +90,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "include-pinned",
     // `workspace rename`: hand the name back to the automatic namer.
     "release-to-auto",
+    // `run --sandboxed <task>` (cli/sandbox_run.rs): without it a following `--json` would be eaten.
+    "sandboxed",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

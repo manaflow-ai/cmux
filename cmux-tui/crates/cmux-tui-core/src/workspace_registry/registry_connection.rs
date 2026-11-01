@@ -74,6 +74,15 @@ pub(crate) struct RegistryConnection {
     pub(super) intent_sink: std::sync::OnceLock<Arc<dyn super::RegistryIntentSink>>,
     /// Indeterminate registry commits still owed to state (cx-g1fa.3).
     pub(super) unsettled: std::sync::Mutex<Vec<super::registry_intent::UnsettledReceipt>>,
+    /// Flushes the WAL to disk off every request path (`wal_durability`);
+    /// `None` for an in-memory registry.
+    durability: Option<super::wal_durability::WalDurability>,
+    /// A read-only connection to the same file for reads of committed data
+    /// that need neither the workspace registry lock nor this connection's
+    /// lock ([`Self::read_committed`]). In WAL mode a reader sees the last
+    /// committed state and never waits for a writer. `None` for an
+    /// in-memory registry or when it could not open.
+    reader: Option<std::sync::Mutex<Connection>>,
     #[cfg(test)]
     pub(super) journal_hooks: std::sync::Mutex<JournalCommitHooks>,
 }
@@ -81,6 +90,28 @@ pub(crate) struct RegistryConnection {
 thread_local! {
     static IN_JOURNAL_WRITER_COMMIT: Cell<bool> = const { Cell::new(false) };
     static STATE_HOLDS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Debug seam (`CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS=N`, off by default):
+/// every flush of the registry WAL to disk takes N ms longer, as on a busy
+/// disk, so a test can see that no reply and no first output waits for one
+/// (new-terminal-100x, PL-daemon).
+pub(crate) fn slow_durable_commit_delay() -> Option<std::time::Duration> {
+    static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
+    *DELAY.get_or_init(|| {
+        std::env::var("CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|ms| *ms > 0)
+            .map(std::time::Duration::from_millis)
+    })
+}
+
+/// Install the registry connection's commit hook: the debug span mark
+/// (`debug_spans::traced`); [`RegistryConnection::new`] adds the WAL
+/// syncer's commit count to a file registry's hook.
+pub(crate) fn hooked(connection: Connection) -> Connection {
+    crate::debug_spans::traced(connection)
 }
 
 /// Counts the mux state lock holds of the current thread (`StateMutex`).
@@ -130,15 +161,65 @@ pub(crate) fn in_journal_writer_commit() -> bool {
 }
 
 impl RegistryConnection {
-    pub(super) fn new(connection: Connection) -> Arc<Self> {
+    /// The connection of the registry stored at `database_path` (`None`:
+    /// in memory). Its commits run `synchronous=NORMAL`; a file registry's
+    /// WAL is flushed to disk by its syncer thread (`wal_durability`).
+    pub(super) fn new(
+        connection: Connection,
+        database_path: Option<&std::path::Path>,
+    ) -> Arc<Self> {
+        let durability = database_path.map(|path| {
+            super::wal_durability::WalDurability::attach(
+                &connection,
+                path,
+                slow_durable_commit_delay(),
+                false,
+            )
+        });
+        let reader =
+            database_path.and_then(|path| match super::open_registry_database_read_only(path) {
+                Ok(reader) => Some(std::sync::Mutex::new(reader)),
+                Err(error) => {
+                    eprintln!("cmux-tui: registry reader connection unavailable: {error:#}");
+                    None
+                }
+            });
         Arc::new(Self {
             connection: Arc::new(ReentrantMutex::new(connection)),
+            reader,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
+            durability,
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
         })
+    }
+
+    /// Run `read` on the registry's read-only connection: committed data,
+    /// with no workspace registry lock and no wait for a writer (WAL). Its
+    /// own mutex is a leaf held only for `read`. `None` when there is no
+    /// reader (an in-memory registry): the caller reads under the registry.
+    pub(crate) fn read_committed<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+    ) -> Option<anyhow::Result<T>> {
+        let reader = self.reader.as_ref()?;
+        let connection = reader.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Some(read(&connection))
+    }
+
+    /// Flush every registry commit made so far, soon, off this thread
+    /// (`wal_durability`).
+    pub(crate) fn request_flush(&self) {
+        if let Some(durability) = &self.durability {
+            durability.request_flush();
+        }
+    }
+
+    /// (committed, synced) registry commits for `server-stats` `write_path`.
+    pub(crate) fn durability_counts(&self) -> (u64, u64) {
+        self.durability.as_ref().map(|durability| durability.counts()).unwrap_or_default()
     }
 
     /// The connection for a request thread. The caller holds the workspace

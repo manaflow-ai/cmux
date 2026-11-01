@@ -10,7 +10,16 @@ extension TabStripView {
     /// observation's echo of the same change do the work once (I6). A tab switch
     /// updates the two cells whose selection changed; geometry never moves
     /// (`TabLayoutEngine` lays tabs out without reading the selection).
+    ///
+    /// A strip in a window but out of sight (a parked workspace's, a hidden screen bar) lays
+    /// nothing out and animates nothing: a script that reorders, renames or moves tabs in
+    /// background workspaces costs it no work until it shows, then one sync to the final state
+    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted").
     public func syncFromModel() {
+        if window != nil, !isShownInWindow {
+            modelChangedWhileHidden = true
+            return
+        }
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
             if input == last { return }
@@ -27,8 +36,17 @@ extension TabStripView {
 
     private func syncSelection(_ input: ModelSnapshot) {
         let selected = input.selectedID
-        if let lastSelectedID { cells[lastSelectedID]?.isSelected = false }
-        if let selected { cells[selected]?.isSelected = true }
+        // Only a cell that lost the selection drops the indicator: flipping the still-selected
+        // one off and on would rebuild its layers and lose a hover or press on it.
+        if let lastSelectedID, lastSelectedID != selected, let cell = cells[lastSelectedID] {
+            cell.isSelected = false
+            cell.showsZoom = false
+        }
+        if let selected, let cell = cells[selected] {
+            cell.isSelected = true
+            cell.showsZoom = input.zoomsSelected // the zoom indicator follows the selection
+        }
+        dropStaleZoomHover()
         let multiChanged = input.multiSelection != lastSyncedInput?.multiSelection
         if multiChanged { applyMultiSelection() }
         lastSyncedInput = input
@@ -153,13 +171,16 @@ extension TabStripView {
         for item in displayed {
             let cell = cells[item.id]
             cell?.isSelected = item.id == model.selectedID
+            cell?.showsZoom = model.zoomsSelected && item.id == model.selectedID
             cell?.style = model.style
         }
+        dropStaleZoomHover()
         applyMultiSelection()
         if newTabButton.isHidden == model.showsNewTabButton {
             newTabButton.isHidden = !model.showsNewTabButton
             needsLayout = true
         }
+        newTabMenuButton.isHidden = !model.showsNewTabButton || !showsNewTabMenuButton
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
                  token: cellsAnimate && removing && !adding ? .tabClose : nil)
@@ -173,21 +194,30 @@ extension TabStripView {
         hasSynced = true
     }
 
+    /// The zoom indicator under a still pointer went (an unzoom, a selection): its tooltip and hover
+    /// go too, so the next one under the pointer starts unhovered.
+    private func dropStaleZoomHover() {
+        guard let zoomHoveredID, cells[zoomHoveredID]?.showsZoom != true else { return }
+        setAudioHovered(audioHoveredID, zoom: nil)
+    }
+
     /// Creates the layers for a new tab and returns its id.
     func makeCell(_ item: TabItem, animated: Bool) -> TabID {
         let cell = TabCell(item: item)
         cell.style = model.style
         cell.metrics = metrics
-        cell.titleFont = Typography.body
+        cell.titleFont = Typography.tabTitle
         cell.themeScope = themeScope
         cell.scale = window?.backingScaleFactor ?? 2
         cell.isWindowMain = windowMain.isMain
         cell.isWindowVisible = windowVisibility.isVisible
+        cell.isStripShown = isShownInWindow
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
         cell.accessibilityToggleAudio = { [weak self] in self?.model.send(.toggleAudioMute(id)) }
+        cell.accessibilityToggleZoom = { [weak self] in self?.model.send(.toggleZoom(id)) }
         let element = ObjectIdentifier(cell.accessibility)
         cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
         tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
@@ -233,6 +263,8 @@ extension TabStripView {
         if closeHoveredID == id { closeHoveredID = nil }
         if audioHoveredID == id { setAudioHovered(nil) }
         if pressedAudioID == id { pressedAudioID = nil }
+        if zoomHoveredID == id { zoomHoveredID = nil }
+        if pressedZoomID == id { pressedZoomID = nil }
     }
 
     /// Drops `id`'s place and the moves that tracked it.

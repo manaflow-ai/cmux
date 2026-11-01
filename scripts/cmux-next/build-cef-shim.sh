@@ -3,12 +3,17 @@
 #   libcef_dll_wrapper.a      CEF's C++ wrapper (from the artifact's libcef_dll/)
 #   libcmux_cef_shim.dylib    Packages/macOS/CmuxNext/CEFShim (C ABI for Swift)
 #   cmux-cef-helper           the subprocess binary for the helper apps
+#   cmux-chromium-host        Chromium's browser process as an app of its own
+#                             (prototype, plans/cmux-next/cef-helper-app-DESIGN.md;
+#                             embed-cef.sh bundles it in Debug builds only)
 #
 # Usage: build-cef-shim.sh <cef_dir> <cache_dir>
 # Prints the output directory on stdout (progress goes to stderr); exits
 # non-zero on compile errors. The output is content-addressed,
 # <cache_dir>/<artifact>-<key>, where the key hashes the artifact, the shim
-# header (the ABI identity) and sources, this script, clang and the target.
+# header (the ABI identity) and sources, this script, clang and the target:
+# bytes and repository-relative names only, never a checkout path, so a later
+# checkout (each fleet step has its own directory) reuses the entry.
 # A finished directory is never changed or deleted, so worktrees and
 # concurrent builds that share the cache cannot disturb each other: a build
 # writes to a private temporary directory and renames it into place; when
@@ -33,15 +38,18 @@ SDK="$(xcrun --sdk macosx --show-sdk-path)"
 key="$(
   {
     cat "$CEF_DIR/CMUX-ARTIFACT.json" 2>/dev/null || cat "$CEF_DIR/archive.json"
-    find "$SHIM_DIR" -type f \( -name '*.h' -o -name '*.mm' \) -print0 | sort -z | xargs -0 shasum -a 256
+    (cd "$SHIM_DIR" && find . -type f \( -name '*.h' -o -name '*.mm' \) -print0 | sort -z | xargs -0 shasum -a 256)
     echo "abi $ABI_ID"
-    shasum -a 256 "${BASH_SOURCE[0]}"
+    shasum -a 256 < "${BASH_SOURCE[0]}"
     "$CXX" --version | head -n 1
     echo "$ARCH $MIN_OS"
   } | shasum -a 256 | awk '{print $1}'
 )"
 FINAL_DIR="$CACHE_DIR/$(basename "$CEF_DIR")-${key:0:16}"
-complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" ]]; }
+complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" && -x "$1/cmux-chromium-host" ]]; }
+# A use refreshes the entry's mtime, so the week-old pruning below (here and
+# in other builds) removes only entries no build used for a week.
+touch -c "$FINAL_DIR" 2>/dev/null || true
 if complete "$FINAL_DIR"; then
   echo "$FINAL_DIR"
   exit 0
@@ -92,13 +100,19 @@ done
   "$OUT_DIR/obj/shim/shim_devtools_protocol.mm.o" "$OUT_DIR/obj/shim/shim_prefs.mm.o" \
   "$OUT_DIR/obj/shim/shim_page_scheme.mm.o" "$OUT_DIR/obj/shim/shim_downloads.mm.o" \
   "$OUT_DIR/obj/shim/shim_background.mm.o" "$OUT_DIR/obj/shim/shim_bookmarks.mm.o" \
-  "$OUT_DIR/obj/shim/shim_permissions.mm.o" \
+  "$OUT_DIR/obj/shim/shim_permissions.mm.o" "$OUT_DIR/obj/shim/shim_helper_host.mm.o" \
+  "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
   -o "$OUT_DIR/cmux-cef-helper" \
   "$OUT_DIR/obj/shim/helper_main.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
+
+"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
+  -o "$OUT_DIR/cmux-chromium-host" \
+  "$OUT_DIR/obj/shim/browser_host_main.mm.o" \
+  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore
 
 rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$OUT_DIR/.build-key"

@@ -11,11 +11,18 @@ public struct MarkdownView: View {
     /// Horizontal margin of the column; tables bleed past it to the screen edge.
     var margin: CGFloat
     var isStreaming: Bool
+    /// false: blocks appear in place (a transcript's replayed history), with no fade in.
+    var animatesBlocks: Bool
+    /// Find in Chat's marks on the blocks (nil: none).
+    var marks: (any MarkdownBlockMarks)?
 
-    public init(_ document: MarkdownDocument, margin: CGFloat = 20, isStreaming: Bool = false) {
+    public init(_ document: MarkdownDocument, margin: CGFloat = 20, isStreaming: Bool = false, animatesBlocks: Bool = true,
+                marks: (any MarkdownBlockMarks)? = nil) {
         self.document = document
         self.margin = margin
         self.isStreaming = isStreaming
+        self.animatesBlocks = animatesBlocks
+        self.marks = marks
     }
 
     public init(markdown: String, margin: CGFloat = 20) {
@@ -26,10 +33,53 @@ public struct MarkdownView: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(document.blocks) { block in
                 MarkdownBlockView(block: block, margin: margin)
-                    .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                    .modifier(MarkdownBlockMarker(block: block.id, marks: marks))
+                    .transition(animatesBlocks ? .opacity.animation(.easeOut(duration: 0.15)) : .identity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Locates and marks a `MarkdownView`'s blocks from outside: Find in Chat scrolls to the block
+/// (paragraph, list, code card, table) that holds a match and marks it. Read while each block
+/// draws, so an observable source redraws only the marks, never the block, when it changes.
+@MainActor
+public protocol MarkdownBlockMarks: Sendable {
+    /// The named coordinate space the blocks' frames are reported in.
+    var frameSpace: String { get }
+    /// Whether the block (`MarkdownBlock.id`) is drawn marked.
+    func isMarked(_ block: Int) -> Bool
+    /// The block's frame in `frameSpace`, each time it lays out.
+    func laidOut(_ block: Int, frame: CGRect)
+}
+
+struct MarkdownBlockMarker: ViewModifier {
+    let block: Int
+    let marks: (any MarkdownBlockMarks)?
+
+    func body(content: Content) -> some View {
+        if let marks {
+            let marked = marks.isMarked(block)
+            let space = marks.frameSpace
+            content
+                .background {
+                    if marked {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.yellow.opacity(0.28))
+                            .padding(-6)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named(space))
+                } action: { [block] frame in
+                    marks.laidOut(block, frame: frame)
+                }
+                .accessibilityAddTraits(marked ? .isSelected : [])
+        } else {
+            content
+        }
     }
 }
 

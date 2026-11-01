@@ -32,8 +32,8 @@ enum TypingFrameProbe {
         -> @convention(block) (AnyObject, AnyObject?) -> Void {
         { layer, contents in
             original(layer, selector, contents)
-            TypingLatencyProbe.shared.mark(.contents)
-            #if DEBUG
+            TypingLatencyProbe.shared.mark(.contents, source: .object(ObjectIdentifier(layer)))
+            #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(layer)) }
             #endif
         }

@@ -1,6 +1,7 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The Codex-like status icon set (Leo's team, 2026-10-14: "they like Codex's sidebar"): work spins
 /// in a neutral grey on the shared spinner, a still ring when nothing may move; done is Codex's blue
@@ -22,7 +23,7 @@ import Testing
 
     @Test func workSpinsInAGreyAndStandsStillAsARing() {
         let spinning = Self.plan(.working)
-        #expect(spinning.glyph == .arc && spinning.animation == .spin && spinning.tint == .spinner)
+        #expect(spinning.glyph == .native && spinning.animation == .step && spinning.tint == .spinner)
         let still = Self.plan(.working, animates: false)
         #expect(still.glyph == .mark(.vector(.idle)) && still.animation == nil && still.tint == .spinner)
         // The grey is the theme's foreground at Codex's 66%, not a hue.

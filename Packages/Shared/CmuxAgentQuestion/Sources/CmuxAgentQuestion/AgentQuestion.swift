@@ -108,9 +108,11 @@ extension AgentQuestion {
     }
 
     /// Content shown beside the options while one is highlighted (a code
-    /// sample, a layout sketch, a diff).
+    /// sample, a layout sketch, a diff). `html` is a fragment with inline
+    /// styles (Claude Code launched with `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=html`,
+    /// acpmux `hub/questions.rs`); a card that cannot frame it shows its text.
     public struct Preview: Hashable, Sendable, Codable {
-        public enum Format: String, Hashable, Sendable, Codable { case markdown, monospace }
+        public enum Format: String, Hashable, Sendable, Codable { case markdown, monospace, html }
         public var text: String
         public var format: Format
 

@@ -454,9 +454,21 @@ install_zig_with_sudo() {
   sudo rm -rf "${lib_dir}/zig" "$install_root"
   sudo cp -R "$ZIG_DIR" "$install_root"
   sudo ln -s "${install_root}/lib" "${lib_dir}/zig"
+  # Zig 0.16 on Linux can derive lib_dir from the invoked /usr/local/bin/zig
+  # symlink instead of the target executable. A wrapper pins the library root
+  # explicitly while keeping the content-addressed install under /usr/local/lib.
+  local wrapper="${ZIG_WORK_ROOT}/zig-wrapper"
+  printf '%s\n' '#!/bin/bash' \
+    "export ZIG_LIB_DIR=$(printf '%q' "${install_root}/lib")" \
+    "exec $(printf '%q' "${install_root}/zig") \"\$@\"" > "$wrapper"
   sudo rm -f "${bin_dir}/zig"
-  sudo ln -s "${install_root}/zig" "${bin_dir}/zig"
-  if ! zig_has_required_version "${bin_dir}/zig"; then
+  sudo cp "$wrapper" "${bin_dir}/zig"
+  sudo chmod 0755 "${bin_dir}/zig"
+  # Zig 0.16's `zig env` may report a stale lib_dir when installed behind a
+  # system wrapper. Verify the version and extracted root directly; the
+  # wrapper still exports ZIG_LIB_DIR for compiler invocations.
+  if [ "$("${bin_dir}/zig" version 2>/dev/null || true)" != "$ZIG_REQUIRED" ] ||
+     [ ! -f "${install_root}/lib/compiler/build_runner.zig" ]; then
     echo "Installed zig ${ZIG_REQUIRED} at ${bin_dir}/zig, but its lib_dir is incomplete" >&2
     exit 1
   fi

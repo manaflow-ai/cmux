@@ -1,0 +1,62 @@
+//! `billing` strings of the CLI catalog (English and Japanese).
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BillingMessages {
+    pub usage: &'static str,
+    pub unknown_verb: &'static str,
+    pub unknown_plan: &'static str,
+    pub unknown_open: &'static str,
+    pub plan_required_team: &'static str,
+    pub unexpected_argument: &'static str,
+    pub opened_cmux_link: &'static str,
+    pub opened_cmux: &'static str,
+    pub opened_default: &'static str,
+    pub opened_switch: &'static str,
+    pub opened_portal: &'static str,
+    pub already_active: &'static str,
+    pub test_mode: &'static str,
+    pub status_signed_out: &'static str,
+    pub status_plan: &'static str,
+    pub status_source: &'static str,
+    pub status_team: &'static str,
+}
+
+pub(super) const ENGLISH: BillingMessages = BillingMessages {
+    usage: "usage: cmux billing <checkout|status|portal> [OPTIONS] [--json]\n\nStart, read and manage a cmux plan. The cmux app asks cmux.com for a Stripe\nCheckout page bound to your signed-in account. No card data passes through\ncmux, and nothing is charged until you pay on the Stripe page.\n\n  cmux billing checkout [--plan plus|pro|max|team] [--team ID] [--open auto|cmux|default|none]\n      Open a checkout for the plan (default pro). auto: a cmux browser tab when\n      the cmux browser is signed in to Stripe Link, else your default browser.\n      Team needs --team (a team you administer). --no-open prints the URL only.\n  cmux billing status [--team ID]\n      Your plan, where it is billed, and your team's plan.\n  cmux billing portal [--team ID] [--open auto|cmux|default|none]\n      Open billing management (change plan, cards, invoices, cancel).\n\nPlans: Plus $15/mo, Pro $50/mo, Max $200/mo, Team $60/seat/mo. Each includes Cloud VMs,\nCodeRouter model usage and Chief credits; see https://cmux.com/pricing.\n",
+    unknown_verb: "unknown billing verb \"{verb}\"; use checkout, status or portal",
+    unknown_plan: "unknown plan \"{plan}\"; use plus, pro, max or team",
+    unknown_open: "--open takes auto, cmux, default or none, not \"{value}\"",
+    plan_required_team: "--plan team needs --team ID (a team you administer)",
+    unexpected_argument: "{command}: unexpected argument \"{value}\"",
+    opened_cmux_link: "Opened the {plan} checkout in a cmux browser tab: you are signed in to Stripe Link there. Nothing is charged until you pay.",
+    opened_cmux: "Opened the {plan} checkout in a cmux browser tab. Nothing is charged until you pay.",
+    opened_default: "Opened the {plan} checkout in your default browser (the cmux browser is not signed in to Stripe Link). Nothing is charged until you pay.",
+    opened_switch: "You already pay for a plan: opened billing to switch to {plan}.",
+    opened_portal: "Opened billing management.",
+    already_active: "{plan} is already active on this account.",
+    test_mode: "(Stripe test mode)",
+    status_signed_out: "not signed in to cmux; sign in from the cmux app",
+    status_plan: "plan: {plan}",
+    status_source: " (billed through {source})",
+    status_team: "team plan: {plan}",
+};
+
+pub(super) const JAPANESE: BillingMessages = BillingMessages {
+    usage: "使い方: cmux billing <checkout|status|portal> [オプション] [--json]\n\ncmux のプランを開始・確認・管理します。cmux アプリがサインイン中のアカウントに\n結び付いた Stripe Checkout ページを cmux.com に依頼します。カード情報は cmux を\n通らず、Stripe のページで支払うまで請求は発生しません。\n\n  cmux billing checkout [--plan plus|pro|max|team] [--team ID] [--open auto|cmux|default|none]\n      プランの購入ページを開きます (既定は pro)。auto: cmux ブラウザが Stripe Link に\n      サインイン済みなら cmux のブラウザタブ、そうでなければ既定のブラウザ。\n      Team には --team (管理者であるチーム) が必要です。--no-open は URL のみ表示します。\n  cmux billing status [--team ID]\n      あなたのプラン、請求元、チームのプラン。\n  cmux billing portal [--team ID] [--open auto|cmux|default|none]\n      請求の管理 (プラン変更、カード、請求書、解約) を開きます。\n\nプラン: Plus 月 $15、Pro 月 $50、Max 月 $200、Team 1 席あたり月 $60。いずれも Cloud VM、\nCodeRouter のモデル利用、Chief クレジットを含みます。https://cmux.com/pricing を参照。\n",
+    unknown_verb: "billing の動詞「{verb}」は不明です。checkout、status、portal のいずれかを使ってください",
+    unknown_plan: "プラン「{plan}」は不明です。plus、pro、max、team のいずれかを使ってください",
+    unknown_open: "--open には auto、cmux、default、none のいずれかを指定してください (「{value}」は不正)",
+    plan_required_team: "--plan team には --team ID (管理者であるチーム) が必要です",
+    unexpected_argument: "{command}: 予期しない引数「{value}」",
+    opened_cmux_link: "{plan} の購入ページを cmux のブラウザタブで開きました。そこで Stripe Link にサインイン済みです。支払うまで請求は発生しません。",
+    opened_cmux: "{plan} の購入ページを cmux のブラウザタブで開きました。支払うまで請求は発生しません。",
+    opened_default: "{plan} の購入ページを既定のブラウザで開きました (cmux ブラウザは Stripe Link にサインインしていません)。支払うまで請求は発生しません。",
+    opened_switch: "すでにプランをお支払い中です。{plan} に変更するための請求ページを開きました。",
+    opened_portal: "請求の管理ページを開きました。",
+    already_active: "{plan} はこのアカウントですでに有効です。",
+    test_mode: "(Stripe テストモード)",
+    status_signed_out: "cmux にサインインしていません。cmux アプリからサインインしてください",
+    status_plan: "プラン: {plan}",
+    status_source: " ({source} で請求)",
+    status_team: "チームのプラン: {plan}",
+};

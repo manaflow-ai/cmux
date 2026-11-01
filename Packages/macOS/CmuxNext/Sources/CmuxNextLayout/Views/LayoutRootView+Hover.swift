@@ -15,8 +15,9 @@ extension LayoutRootView {
 
     /// Recomputes divider hover now, after something outside the layout
     /// moved what lies under the pointer (the catcher panels moved, a panel
-    /// above closed).
+    /// above closed): the window server is asked again what is on top there.
     public func refreshDividerHover() {
+        context.invalidateHoverTopmost()
         for view in screenViews.values where !view.isHidden { view.refreshDividerHover() }
     }
 
@@ -36,7 +37,7 @@ extension LayoutRootView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG (`debug.mouse`): the synthesized pointer of `window` (window
     /// coordinates; nil: outside the window), shared with every chrome hover
     /// (`PointerHover`, which recomputes them), then every layout in the

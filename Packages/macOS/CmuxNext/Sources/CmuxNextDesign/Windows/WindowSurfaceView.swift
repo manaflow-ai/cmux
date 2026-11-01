@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The content view every window kit window gets (plans/cmux-next/windows.md,
 /// one backdrop rule): the window's one backdrop, the same material and
@@ -10,13 +11,16 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The owner's content (`NSWindow.installedContent`).
     public let content: NSView
     /// The window's one material and tint.
-    public let backdropView = WindowMaterialView(frame: .zero)
+    public let backdropView: WindowMaterialView
     private let reduceTransparency: @MainActor () -> Bool
-    private var displayOptionsObserver: (any NSObjectProtocol)?
+    private var displayOptionsObserver: MainActorObservation?
 
-    public init(content: NSView,
+    /// - Parameter activeLook: The app's ``ActiveLookScope`` (made once by `AppServices`): the
+    ///   backdrop's glass keeps its key look while the window is not key; nil follows the key state.
+    public init(content: NSView, activeLook: ActiveLookScope?,
                 reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
         self.content = content
+        backdropView = WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook)
         self.reduceTransparency = reduceTransparency
         super.init(frame: content.frame.size == .zero ? NSRect(x: 0, y: 0, width: 480, height: 320) : NSRect(origin: .zero, size: content.frame.size))
         wantsLayer = true
@@ -28,18 +32,8 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         addSubview(content)
         // queue: .main: the workspace center may post off main; a selector
         // into this main-actor view trapped there.
-        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.repaint() } // main-proof: observer on queue: .main
-        }
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
+        displayOptionsObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.repaint()
         }
     }
 
@@ -76,7 +70,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
 }
 
 extension NSWindow {
-    /// The content its owner installed (`install(kind:content:scope:)`),
+    /// The content its owner installed (`install(kind:content:scope:activeLook:)`),
     /// inside the window kit's ``WindowSurfaceView``.
     public var installedContent: NSView? { (contentView as? WindowSurfaceView)?.content ?? contentView }
 }

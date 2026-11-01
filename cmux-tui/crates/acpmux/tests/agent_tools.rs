@@ -185,7 +185,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         upstreams.as_array().unwrap().iter().filter_map(|s| s["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions"],
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"],
         "{upstreams}"
     );
     assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
@@ -201,6 +201,21 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         assert!(sub_env.contains(key), "{key}: {upstreams}");
     }
     assert!(sub_env.contains(&id), "{upstreams}");
+    // The forum tools (`forum_mcp.rs`) act as this session the same way.
+    assert_eq!(upstreams[4]["args"], json!(["forum-mcp"]), "{upstreams}");
+    let forum_env = upstreams[4]["env"].to_string();
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+        assert!(forum_env.contains(key), "{key}: {upstreams}");
+    }
+    assert!(forum_env.contains(&id), "{upstreams}");
+    // Messaging other sessions (`acpmux_mcp.rs`): acpmux_send and the reads act as this session
+    // the same way, so a message it sends is this session's, never the person's.
+    assert_eq!(upstreams[5]["args"], json!(["acpmux-mcp"]), "{upstreams}");
+    let lanes_env = upstreams[5]["env"].to_string();
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+        assert!(lanes_env.contains(key), "{key}: {upstreams}");
+    }
+    assert!(lanes_env.contains(&id), "{upstreams}");
     // No allowlist: the cmux server speaks code mode.
     assert_eq!(value("CMUX_MCP_TOOLS"), None, "{servers}");
 
@@ -211,15 +226,15 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let (refused, _) = local.call_text("session/new", params).await;
     assert_eq!(refused["error"]["data"]["reason"], "env.key_refused", "{refused}");
 
-    // A harness with its own tool search (Codex; Claude Code below) gets
-    // every cmux tool and loads what a turn needs; the rest get code mode.
+    // Every agent gets code mode, Codex and Claude Code included (Lawrence
+    // 2026-10-23: an agent sees only cmux_exec, no other cmux tool name).
     let cmux_args = |list: &Value| {
         list.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap()["args"].clone()
     };
     assert_eq!(cmux_args(&servers), json!(["mcp", "serve"]), "code mode: {servers}");
     let codex = local.new_session("fakecodex").await;
     let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
-    assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
     // CMUX_MCP_CODE_MODE=1 opts a profile in to code mode (tests/agent-evals RESULTS: every
     // tool passed more Claude tasks for less, so it stays the default).
     let coded = local.new_session("fakecodex-codemode").await;
@@ -254,7 +269,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(config["mcpServers"].as_object().unwrap().len(), 1, "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
-    assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve", "--all-tools"]));
+    assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
     // Fail safe: a Claude Code whose profile turns tool search off keeps it
     // off and gets code mode, never every schema in every turn.
     let off = local.new_session("fakeclaude-nosearch").await;
@@ -281,7 +296,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     // The parent's process got the session/fork, so it reports its servers.
     local.fork(&codex).await;
     let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
-    assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
     local.fork(&codex_routed).await;
     let listed: Value = serde_json::from_str(&local.ask(&codex_routed, "mcp").await).unwrap();
     assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
@@ -312,7 +327,27 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert!(browser.contains("name: cmux-browser"), "{browser}");
     assert!(plugin.join("skills/cmux-browser/references/repl-guide.md").is_file());
     let cua_skill = std::fs::read_to_string(plugin.join("skills/cmux-cua/SKILL.md")).unwrap();
-    assert!(cua_skill.contains("disable-model-invocation: true"), "the consent rule stays");
+    // The model may pick computer use for a task in a desktop app: the skill
+    // is model-invocable and claims those tasks over another app's skill and
+    // osascript. Consent is cmux's setup card, once per Mac; no per-app card
+    // exists yet (#13742), so the skill must not claim one (2026-10-27).
+    assert!(!cua_skill.contains("disable-model-invocation"), "{cua_skill}");
+    let front = cua_skill.split("\n---\n").next().unwrap();
+    for phrase in ["cmux chat", "app on the person's Mac", "cua_*", "never osascript"] {
+        assert!(front.contains(phrase), "description lacks {phrase}: {front}");
+    }
+    for phrase in [
+        "Allow computer use?",
+        "no other cmux prompt",
+        "target_not_allowed",
+        "Whole-screen captures are not filtered",
+        "copies app data out",
+    ] {
+        assert!(cua_skill.contains(phrase), "consent section lacks {phrase}");
+    }
+    for phrase in ["Allow in this chat", "Always allow", "per-app approval", "always attached"] {
+        assert!(!cua_skill.contains(phrase), "the skill claims {phrase}");
+    }
     // The acpmux CLI guide, pointing at the sub-session tools first.
     let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
     assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");
@@ -322,6 +357,15 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     )
     .unwrap();
     assert_eq!(manifest["name"], "cmux");
+    // The background-shell hook (`bg_hook.rs`) runs before every Bash call.
+    let hooks: Value =
+        serde_json::from_str(&std::fs::read_to_string(plugin.join("hooks/hooks.json")).unwrap())
+            .unwrap();
+    let bash = &hooks["hooks"]["PreToolUse"][0];
+    assert_eq!(bash["matcher"], "Bash", "{hooks}");
+    // With the daemon's home, which the harness's env does not carry.
+    let with_home = format!("'__bg-hook' '{}'", acpmux::config::home().display());
+    assert!(bash["hooks"][0]["command"].as_str().unwrap().ends_with(&with_home), "{hooks}");
 
     // `agents.memory.enabled` adds the memory server for the next session,
     // with the session as its provenance.
@@ -354,4 +398,62 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert_eq!(local.ask(&id, "mcp").await, "[]");
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The hook process itself (`bg_hook.rs`), as Claude Code runs it: a background Bash call in a
+/// chat whose MCP config has the `acpmux` server is denied with the exact `bg_start` call, and
+/// the same call again runs (the server may be unusable); with no such server, with no config,
+/// or for a foreground call it prints nothing and the shell runs.
+#[test]
+fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
+    let home = std::env::temp_dir().join(format!("acpmux-bg-hook-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let run_command = |session: &str, background: bool, command: &str| -> String {
+        use std::io::Write;
+        let mut child = daemon_env::acpmux(&home.join("scratch"))
+            .arg("__bg-hook")
+            .arg(&home)
+            // As a harness runs it: no ACPMUX_HOME (`agent::harness_command`), so the argument
+            // alone says where the config is.
+            .env_remove("ACPMUX_HOME")
+            .env("ACPMUX_SESSION_ID", session)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let input = json!({"tool_name": "Bash", "cwd": "/srv/app", "tool_input":
+            {"command": command, "run_in_background": background}});
+        child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "the hook failed: {out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let run = |session: &str, background: bool| run_command(session, background, "npm run dev");
+    let config = |session: &str, servers: Value| {
+        let path = acpmux::agent_tools::mcp_config_path(&home, session);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, json!({"mcpServers": servers}).to_string()).unwrap();
+    };
+    config("with", json!({"acpmux": {"command": "acpmux", "args": ["acpmux-mcp"]}}));
+    config("without", json!({"other": {"command": "x"}}));
+    let deny: Value = serde_json::from_str(&run("with", true)).unwrap();
+    let out = &deny["hookSpecificOutput"];
+    assert_eq!(out["permissionDecision"], "deny", "{deny}");
+    let reason = out["permissionDecisionReason"].as_str().unwrap();
+    assert!(
+        reason.contains(r#"mcp__acpmux__bg_start {"command":"npm run dev","cwd":"/srv/app"}"#),
+        "{reason}"
+    );
+    assert!(reason.ends_with("send this same Bash call again and it runs as asked."), "{reason}");
+    assert_eq!(run("with", true), "", "the same call again: the native background shell runs");
+    assert!(run("with", true).contains("deny"), "after it ran, a new call is turned away again");
+    assert!(run("with", true).is_empty());
+    // Two calls retried in turn (A, B, A, B): each repeat still gets through.
+    let (a, b) = (|| run_command("with", true, "a"), || run_command("with", true, "b"));
+    assert!(a().contains("deny") && b().contains("deny"));
+    assert_eq!((a(), b()), (String::new(), String::new()), "interleaved retries were stranded");
+    assert_eq!(run("with", false), "", "a foreground call runs");
+    assert_eq!(run("without", true), "", "no acpmux server: the native background shell runs");
+    assert_eq!(run("no-config", true), "", "no config: the native background shell runs");
+    let _ = std::fs::remove_dir_all(&home);
 }

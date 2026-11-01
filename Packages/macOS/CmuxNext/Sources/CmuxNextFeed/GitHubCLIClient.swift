@@ -1,8 +1,12 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// A GitHub API implementation that uses the user's existing `gh` login.
 /// No token is read, copied, or persisted by cmux.
-public struct GitHubCLIClient: GitHubFeedAPI {
+///
+/// `nonisolated`, and each request `@concurrent`: the feed source that calls it is main-actor, and the
+/// `gh` spawn, the HTTP parse and the JSON decode of up to 100 items must never run on the main thread.
+public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
     public var executable: String
 
     public init(executable: String = "/usr/bin/env") {
@@ -34,13 +38,10 @@ public struct GitHubCLIClient: GitHubFeedAPI {
         )
     }
 
-    private func request<Value: Decodable & Sendable>(
+    @concurrent private func request<Value: Decodable & Sendable>(
         path: String, fields: [String: String], etag: String?, listKey: String? = nil
     ) async throws -> GitHubAPIResponse<[Value]> {
-        let executable = executable
-        let result = try await Task.detached(priority: .utility) {
-            try Self.run(executable: executable, path: path, fields: fields, etag: etag)
-        }.value
+        let result = try await Self.run(executable: executable, path: path, fields: fields, etag: etag)
         guard result.status != 304 else {
             return GitHubAPIResponse(value: nil, etag: result.etag, notModified: true)
         }
@@ -62,29 +63,25 @@ public struct GitHubCLIClient: GitHubFeedAPI {
         var body: Data
     }
 
-    private static func run(
+    @concurrent private static func run(
         executable: String, path: String, fields: [String: String], etag: String?
-    ) throws -> CommandResult {
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
+    ) async throws -> CommandResult {
         let command = ["gh", "api", "--include", "-X", "GET", path]
             + fields.sorted(by: { $0.key < $1.key }).flatMap { ["-f", "\($0.key)=\($0.value)"] }
-        process.arguments = executable == "/usr/bin/env" ? command : Array(command.dropFirst())
-        if let etag { process.arguments?.append(contentsOf: ["-H", "If-None-Match: \(etag)"]) }
-        process.standardOutput = output
-        // Merge stderr into stdout so a noisy `gh` failure cannot deadlock
-        // while the parent drains one pipe before the other.
-        process.standardError = output
-        try process.run()
-        // concurrency-allow: this helper runs inside the detached utility task; the pipe is bounded by one gh response.
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        // concurrency-allow: detached utility task owns the process and waits only after its output reaches EOF.
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw GitHubFeedError.cliUnavailable(String(data: data, encoding: .utf8) ?? "gh failed")
+        var arguments = executable == "/usr/bin/env" ? command : Array(command.dropFirst())
+        if let etag { arguments.append(contentsOf: ["-H", "If-None-Match: \(etag)"]) }
+        // stderr merged into stdout (one pipe, no deadlock on a noisy failure); awaited without a thread.
+        let outcome: ProcessOutcome
+        do {
+            outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments,
+                                                                  errorOutput: .merge))
+        } catch ProcessFailure.launch(let message) {
+            throw GitHubFeedError.cliUnavailable(message)
         }
-        let parsed = Self.parseHTTP(data)
+        guard outcome.status == 0 else {
+            throw GitHubFeedError.cliUnavailable(String(data: outcome.output, encoding: .utf8) ?? "gh failed")
+        }
+        let parsed = Self.parseHTTP(outcome.output)
         return CommandResult(status: parsed.status, etag: parsed.etag, body: parsed.body)
     }
 

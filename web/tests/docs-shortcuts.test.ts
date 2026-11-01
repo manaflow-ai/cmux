@@ -62,8 +62,11 @@ describe("keyboard shortcuts docs", () => {
   test("table aliases are extra keys on their action's row", () => {
     const rows = new Map(shortcutCategories.flatMap((category) => category.shortcuts).map((row) => [row.id, row]));
     expect(rows.get("resizePaneLeft")!.combos).toContainEqual(["⌃", "⌘", "←"]);
-    // Chrome's tab keys select sidebar items (#19788); Ctrl-Tab left navigate.next then.
-    expect(rows.get("nextSidebarTab")!.combos).toContainEqual(["⌥", "⌘", "→"]);
+    // Cmd-Shift-] is Next Tab in Pane's alias. Next Sidebar Item has neither Ctrl-Page Down (it reaches the
+    // terminal or page again, #22418) nor Cmd-Opt-Right (back to Ghostty's pane focus, ddd7c7b9a9a).
+    expect(rows.get("nextSurface")!.combos).toContainEqual(["⇧", "⌘", "]"]);
+    expect(rows.get("nextSidebarTab")!.combos).not.toContainEqual(["⌃", "PgDn"]);
+    expect(rows.get("nextSidebarTab")!.combos).not.toContainEqual(["⌥", "⌘", "→"]);
   });
 
   test("titles are the app's own translations", () => {

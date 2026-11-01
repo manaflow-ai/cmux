@@ -12,6 +12,9 @@
 //! (`hosts.rs`); a harness that exited or was replaced took its processes
 //! with it, so those still running then are `lost`.
 //!
+//! `_acpmux/process/background` is Ctrl-B: Claude Code moves the chat's
+//! foreground work to the background, which then arrives here as above.
+//!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
 //! on this machine, so the daemon reads the file itself.
@@ -22,8 +25,9 @@ use serde::{Deserialize, Serialize};
 /// The reason of a process that ended with its harness.
 pub(super) const HARNESS_EXIT: &str = "harness_exit";
 
-/// How long a kill waits for Claude Code's `stop_task` or Codex's terminate.
-const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long a kill waits for Claude Code's `stop_task` or Codex's terminate,
+/// and Ctrl-B for Claude Code's `background_tasks` (`Hub::set_background_timeout`).
+pub(super) const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a tail without `maxBytes` reads: the last 64 KiB.
 const TAIL_DEFAULT: u64 = 64 << 10;
@@ -71,7 +75,8 @@ pub(super) struct Process {
     reason: Option<String>,
     /// The harness's own words on its end (Claude's reason or summary).
     detail: Option<String>,
-    /// `background` (started there) or `auto_backgrounded` (moved there).
+    /// `background` (started there), `auto_backgrounded` (Claude Code moved
+    /// it there) or `user_backgrounded` (the person did, Ctrl-B).
     origin: String,
     /// The length of its output file when it was listed; null while
     /// Claude Code has named no file.
@@ -220,15 +225,10 @@ impl ProcessTable {
         p.clone()
     }
 
-    /// The processes as the wire carries them, each with its output's
-    /// length now.
-    fn values(&self) -> Vec<Value> {
-        let listed = |p: &Process| {
-            let mut p = p.clone();
-            p.output_bytes = p.output_file.as_deref().map(output_len);
-            serde_json::to_value(p).ok()
-        };
-        self.processes.iter().filter_map(listed).collect()
+    /// Snapshot the rows while the process table is locked. Output-file metadata may hit
+    /// a slow filesystem, so it is read only after the caller releases that lock.
+    fn snapshot(&self) -> Vec<Process> {
+        self.processes.clone()
     }
 
     /// Every running process ends `lost` for `reason`; returns them.
@@ -245,6 +245,18 @@ impl ProcessTable {
         }
         lost
     }
+}
+
+/// Serialize a process-list snapshot after releasing the session's process-table mutex.
+/// Keep outputBytes live, even for completed tasks whose output file changes after exit.
+fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<Value> {
+    processes
+        .into_iter()
+        .filter_map(|mut process| {
+            process.output_bytes = process.output_file.as_deref().map(&length);
+            serde_json::to_value(process).ok()
+        })
+        .collect()
 }
 
 /// Takes the output file a shell's session update names
@@ -319,7 +331,24 @@ impl Hub {
     /// power loss logs no end).
     fn read_processes(&self, session: &Session) -> ProcessTable {
         let mut table = ProcessTable { loaded: true, ..ProcessTable::default() };
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // The log's last whole record, read from its end: a head alone could be a line a crash
+        // cut short, which a whole-record read skips. Read first, so a record logged meanwhile
+        // that the scan below does not fold is never counted as folded.
+        let _ = self.store.scan_back(&session.id, 0, u64::MAX, &|_, _| false, &mut |e| {
+            table.through = e.seq;
+            false
+        });
+        // Only the kinds folded here are parsed (`Store::scan_heads`): an adoption after a
+        // restart reads this from the whole log.
+        let _ = self.store.scan_heads(&session.id, &mut |head| {
+            if !matches!(
+                (head.dir, head.kind),
+                ("in", "background_task_update")
+                    | ("mux", "process_update" | "stopped" | "exited" | "host_started")
+            ) {
+                return true;
+            }
+            let Some(e) = head.record() else { return true };
             table.through = table.through.max(e.seq);
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("in", "background_task_update") => {
@@ -396,22 +425,32 @@ impl Hub {
         table.processes.iter().any(|p| p.state == ProcessState::Running)
     }
 
+    /// How many of the session's background processes run, from a table this
+    /// daemon has read already: never a log scan (`host_load.rs` asks for every chat).
+    pub(super) fn running_processes_read(&self, session: &Session) -> usize {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        table.processes.iter().filter(|p| p.state == ProcessState::Running).count()
+    }
+
     /// `_acpmux/process/list`: the session's processes; without one, those of
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
     pub fn list_processes(&self, session: Option<&Session>) -> Value {
-        let processes = match session {
-            Some(session) => self.process_table(session).values(),
+        // Taking the snapshot is the only operation that needs the process-table lock.
+        // File metadata reads and JSON conversion must not hold it: process updates
+        // from a running harness need to acquire the same mutex.
+        let processes: Vec<Process> = match session {
+            Some(session) => self.process_table(session).snapshot(),
             None => self
                 .sessions()
                 .iter()
                 .flat_map(|s| {
                     let table = s.processes.lock().unwrap_or_else(|e| e.into_inner());
-                    if table.loaded { table.values() } else { Vec::new() }
+                    if table.loaded { table.snapshot() } else { Vec::new() }
                 })
                 .collect(),
         };
-        json!({"processes": processes})
+        json!({"processes": process_values(processes, output_len)})
     }
 
     /// The session of the process `id` (`<sessionId>/<taskId>`).
@@ -524,9 +563,104 @@ impl Hub {
         }
         Err(refused)
     }
+
+    /// How long Ctrl-B waits for Claude Code's `background_tasks` answer
+    /// (`STOP_TIMEOUT` until set; tests shorten it).
+    pub fn set_background_timeout(&self, timeout: std::time::Duration) {
+        *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner()) = timeout;
+    }
+
+    /// `_acpmux/process/background` (Ctrl-B): asks Claude Code to move the
+    /// chat's running work to the background (`background_tasks`): the task
+    /// tool call `tool` started, or every foreground task. What moved
+    /// arrives as `process_update`s with origin `user_backgrounded`. Codex
+    /// moves long commands there itself, and other agents have no such
+    /// request: refused. With no turn running, nothing runs in the
+    /// foreground: `backgrounded: false`, and Claude Code is not asked.
+    pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
+        let session = self.resolve(key)?;
+        if !session.backgrounds_work.load(Ordering::SeqCst) {
+            return Err(RpcError::invalid_params(
+                "only Claude Code can move running work to the background",
+            ));
+        }
+        let nothing = json!({"backgrounded": false});
+        if session.turn().is_none() {
+            return Ok(nothing);
+        }
+        let child = session.child.lock().await.clone();
+        let alive = match &child {
+            Some(child) => child.is_alive().await,
+            None => false,
+        };
+        let Some(child) = child.filter(|_| alive) else { return Ok(nothing) };
+        let timeout = *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner());
+        // The translator drops the request's marks when this wait ends (`timeoutMs`).
+        let params = json!({
+            "sessionId": session.meta().agent_session_id,
+            "toolCallId": tool,
+            "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+        });
+        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
+        match tokio::time::timeout(timeout, ask).await {
+            Ok(Ok(answer)) => {
+                let moved = answer.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
+                Ok(json!({"backgrounded": moved}))
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                Err(RpcError::internal("Claude Code did not answer background_tasks in time"))
+            }
+        }
+    }
+}
+
+/// Whether `_acpmux/process/background` moves the foreground work of a
+/// chat whose harness started as `kind`: Claude Code (claude-stdio), whatever
+/// its profile's name (the `cmux` model router's too). Decided at each start
+/// (`Session::backgrounds_work`), so a config write or reload never flips it;
+/// every session summary says it (`backgroundsWork`), so a client offers
+/// Ctrl-B exactly where this takes it.
+pub(super) fn backgrounds_work(kind: crate::config::HarnessKind) -> bool {
+    kind == crate::config::HarnessKind::ClaudeStdio
 }
 
 /// No process has the id.
 fn unknown_process(id: &str) -> RpcError {
     RpcError::not_found(format!("no background process {id:?}"))
+}
+
+#[cfg(test)]
+mod process_list_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn a_process_list_reads_output_metadata_after_releasing_its_table() {
+        let process: Process = serde_json::from_value(json!({
+            "id": "chat/task", "sessionId": "chat", "toolCallId": "call",
+            "taskId": "task", "harness": "claude", "command": "cargo test",
+            "cwd": "/tmp", "startedAt": 100, "endedAt": 200,
+            "state": "exited", "origin": "background", "outputFile": "/tmp/task-output"
+        }))
+        .unwrap();
+        let table = std::sync::Mutex::new(ProcessTable {
+            loaded: true,
+            processes: vec![process],
+            ..ProcessTable::default()
+        });
+        // Every caller first takes its snapshot, then drops the guard before
+        // collecting live file sizes and serializing the reply.
+        let snapshot = table.lock().unwrap().snapshot();
+        let rows = process_values(snapshot, |path| {
+            assert_eq!(path, "/tmp/task-output");
+            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
+            42
+        });
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "chat/task");
+        assert_eq!(rows[0]["state"], "exited");
+        assert_eq!(rows[0]["outputBytes"], 42);
+        // The saved table remains unchanged: a later list re-reads the file size.
+        assert_eq!(table.lock().unwrap().processes[0].output_bytes, None);
+    }
 }

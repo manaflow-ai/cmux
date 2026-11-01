@@ -83,20 +83,26 @@
       "status": "denied",
       "reason": "Switches a real power outlet on operator hardware; never exposed to tenants."
     },
+    "upsert_customer": {
+      "status": "denied",
+      "reason": "Customer profiles are account-wide provider abuse-protection records keyed by our own ids; cmux VM sets each VM's customer inline on create from the caller's tenant id and never lets a tenant read or write a profile."
+    },
+    "get_customer": {
+      "status": "denied",
+      "reason": "Customer profiles are account-wide provider abuse-protection records keyed by our own ids; cmux VM sets each VM's customer inline on create from the caller's tenant id and never lets a tenant read or write a profile."
+    },
     "list_identities": {
       "status": "planned",
       "bead": "cx-b4h.6",
       "reason": "planned in cx-b4h.6"
     },
     "create_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "delete_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession", "agents.revokeClientSession", "agents.revokeAgentKey", "vms.deleteVm"]
     },
     "describe_identity": {
       "status": "planned",
@@ -109,9 +115,8 @@
       "reason": "planned in cx-b4h.6"
     },
     "grant_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "revoke_vm_permission": {
       "status": "planned",
@@ -134,9 +139,8 @@
       "reason": "planned in cx-b4h.6"
     },
     "create_access_token": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "revoke_access_token": {
       "status": "planned",
@@ -487,6 +491,16 @@
     }
   },
   "sdk": {
+    "CustomersNamespace.upsert": {
+      "operations": ["upsert_customer"]
+    },
+    "CustomersNamespace.get": {
+      "operations": ["get_customer"]
+    },
+    "FreestyleTransportError.toJSON": {
+      "status": "local",
+      "reason": "Local handle or helper: makes no request of its own."
+    },
     "FreestyleClient.authHeaders": {
       "status": "denied",
       "reason": "Returns the provider credential headers; the provider key never leaves the Worker."
@@ -931,6 +945,12 @@
       ]
     },
     "PtySession.detach": {
+      "operations": [
+        "open_pty",
+        "attach_pty"
+      ]
+    },
+    "PtySession.reconnect": {
       "operations": [
         "open_pty",
         "attach_pty"

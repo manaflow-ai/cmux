@@ -1,4 +1,6 @@
+import JavaScriptCore
 @testable import CmuxNextPages
+import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 
@@ -69,19 +71,59 @@ struct ChromiumPageHostBridgeTests {
         #expect(!bridge.receive(devToolsMessage: #"{"method":"Page.loadEventFired","params":{}}"#))
     }
 
-    @Test func scriptsRunInOrderOneAtATime() async {
+    /// Perf budgets 2026-10-21: each chat push is one script; a streaming reply queued hundreds and
+    /// the bridge sent one DevTools round trip per script, so the queue grew while the reply streamed.
+    /// The scripts queued when a send starts go in one `Runtime.evaluate`, in order.
+    @Test func queuedScriptsRunInOrderInOneRoundTrip() async {
         let page = FakeChromiumPage()
         let bridge = ChromiumPageHostBridge(page: page)
         let ran: [String]? = await PageTestWait.value("scripts") { done in
             page.onCall = {
                 let scripts = page.calls.compactMap { $0.params["expression"] as? String }
-                if scripts.count == 3 { done(scripts) }
+                if scripts.joined().contains("c()") { done(scripts) }
             }
+            for index in 0..<50 { bridge.evaluate("push(\(index))") }
             bridge.evaluate("a()")
             bridge.evaluate("b()")
             bridge.evaluate("c()")
         }
-        #expect(ran == ["a()", "b()", "c()"])
+        let sent = ran ?? []
+        #expect(sent.count <= 2, "53 queued scripts took \(sent.count) round trips")
+        let order = sent.joined()
+        let positions = ["push(0)", "push(49)", "a()", "b()", "c()"].compactMap { order.range(of: $0)?.lowerBound }
+        #expect(positions.count == 5 && positions == positions.sorted(), "in order")
+    }
+
+    /// A script that throws does not stop the scripts batched after it.
+    @Test func aThrowingScriptDoesNotStopTheBatch() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("var ran = [];")
+        context.evaluateScript(ChromiumPageHostBridge.batch(["ran.push(1)", "throw new Error('x')", "ran.push(3)", "const k = 4; ran.push(k)"]))
+        #expect(context.evaluateScript("ran.join(',')").toString() == "1,3,4")
+    }
+
+    /// A call past ``ChromiumPageHostBridge/maximumPayloadBytes`` is answered with an error in the
+    /// page and never sent: the host drops an oversized payload unanswered, which left the caller's
+    /// promise pending for good (a pasted screenshot's chip that never became the picture).
+    @Test func anOversizedCallSettlesWithAnErrorInsteadOfWaitingForever() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("var sent = []; globalThis.\(ChromiumPageHostBridge.bindingName) = (text) => sent.push(text.length);")
+        context.evaluateScript(ChromiumPageHostBridge.pageScript(handlers: []))
+        let post = "globalThis.webkit.messageHandlers.\(PageHostTrust.handlerName).postMessage"
+        context.evaluateScript("""
+        var replies = {};
+        \(post)({ t: "call", id: 7, op: "big", params: { data: "x".repeat(\(ChromiumPageHostBridge.maximumPayloadBytes)) } })
+          .then((reply) => { replies.big = reply; });
+        \(post)({ t: "call", id: 8, op: "wide", params: { data: "é".repeat(\(ChromiumPageHostBridge.maximumPayloadBytes / 2)) } })
+          .then((reply) => { replies.wide = reply; });
+        \(post)({ t: "call", id: 9, op: "small", params: {} });
+        """)
+        #expect(context.evaluateScript("sent.length").toInt32() == 1, "only the small call goes to the host")
+        for (key, id) in [("big", 7), ("wide", 8)] {
+            #expect(context.evaluateScript("replies.\(key) && replies.\(key).t").toString() == "err")
+            #expect(context.evaluateScript("replies.\(key) && replies.\(key).id").toInt32() == Int32(id))
+            #expect(context.evaluateScript("replies.\(key) && replies.\(key).code").toString() == "cmux.protocol.too_large")
+        }
     }
 
     @Test func setupTurnsOnTheDomainsBeforeTheBindingAndScripts() {

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import ImageIO
 
 /// How a suggestion row under New Message's To: field draws one recipient
 /// beyond its name: its avatar, and a tag after what it is on the line under
@@ -11,10 +12,18 @@ public nonisolated struct HomeRecipientLook: Hashable, Sendable {
     public var avatar: HomeChiefAvatar?
     /// Where a Chief runs, after "Chief" under the name; nil shows the source alone.
     public var tag: String?
+    /// When the recipient was last active ("Active 2 hours ago"); the list shows it only on rows that
+    /// would otherwise read the same as another (two Chiefs named "Chief" on this Mac).
+    public var activity: String?
 
-    public init(avatar: HomeChiefAvatar? = nil, tag: String? = nil) {
+    /// - Parameters:
+    ///   - avatar: The Chief's avatar; nil draws initials.
+    ///   - tag: Where a Chief runs; nil shows the source alone.
+    ///   - activity: When it was last active, shown only to tell alike rows apart.
+    public init(avatar: HomeChiefAvatar? = nil, tag: String? = nil, activity: String? = nil) {
         self.avatar = avatar
         self.tag = tag
+        self.activity = activity
     }
 }
 
@@ -57,8 +66,13 @@ final class HomeRecipientAvatarView: NSView {
         loading = url
         // task-owner: one read of a small avatar file; a later show() drops its result
         Task { [weak self] in
-            let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: url) }.value
-            guard let data, let image = NSImage(data: data), image.isValid else { return }
+            // Read and decoded off the main thread (an uploaded avatar is a 512 px PNG).
+            let decoded = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+                return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+            }.value
+            guard let decoded else { return }
+            let image = NSImage(cgImage: decoded, size: .zero)
             Self.pictures[url] = image
             guard let self, loading == url else { return }
             picture = image

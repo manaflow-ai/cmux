@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The app's ``PageChromiumHosting``: cmux's own React pages in CEF tabs, so `browser.defaultEngine`
@@ -23,6 +24,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let cef: CEFEngine
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
+    private let paneFocus: @MainActor (PageWebView) -> Bool
     private var pageProfile: BrowserProfileID?
 
     /// - Parameters:
@@ -30,12 +32,15 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///   - preference: Reads `browser.defaultEngine` now (the settings snapshot, so pages made while
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
-    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?) {
+    ///   - paneFocus: ``focusViewChanged(_:)``: applies the focus model of the pane showing the page again.
+    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?, paneFocus: @escaping @MainActor (PageWebView) -> Bool) {
         self.cef = cef
         enginePreference = preference
         self.keyRouter = keyRouter
+        self.paneFocus = paneFocus
     }
 
+    func focusViewChanged(_ page: PageWebView) -> Bool { paneFocus(page) }
     var preference: BrowserDefaultEngine { enginePreference() }
 
     var isAvailable: Bool { cef.unavailableReason == nil }
@@ -43,10 +48,17 @@ final class ChromiumPageHost: PageChromiumHosting {
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
-        let profile = pageProfile ?? OffTheRecordProfiles.shared.begin()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
+        let traced = ChatOpenTrace.shared.takeMakingTracedPage()
+        #endif
+        let profile = pageProfile ?? cef.stores.offTheRecord.begin()
         pageProfile = profile
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
         let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
+        #endif
         let made = try await cef.makeTab(configuration)
         guard let tab = made as? CEFTab else {
             made.close()

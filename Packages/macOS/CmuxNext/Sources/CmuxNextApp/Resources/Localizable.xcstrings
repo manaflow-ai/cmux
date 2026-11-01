@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "notifications.action.open": {
+      "comment": "A notification banner's button: brings cmux forward on the tab the banner is about.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開"
+          }
+        }
+      }
+    },
+    "notifications.action.markRead": {
+      "comment": "A notification banner's button: marks the tab's notification read without opening cmux.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعليم كمقروء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Označi kao pročitano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markér som læst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als gelesen markieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Read"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar como leído"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marquer comme lu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segna come letto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既読にする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្គាល់ថាបានអាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽음으로 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merk som lest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznacz jako przeczytane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar como lido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отметить как прочитанное"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำเครื่องหมายว่าอ่านแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okundu olarak işaretle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позначити як прочитане"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đánh dấu đã đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记为已读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標示為已讀"
+          }
+        }
+      }
+    },
     "classicImport.toast.sshScrollbackStays": {
       "comment": "Added to the Import Workspaces from Classic cmux toast when SSH terminals of classic cmux (the older app) had saved scrollback: they open on their host without it.",
       "extractionState": "manual",
@@ -393,6 +657,402 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "允許 %@？"
+          }
+        }
+      }
+    },
+    "feed.bridge.question.title": {
+      "comment": "A phone feed title for a question an agent asks the person (never a permission). %1$@ is the agent's name, %2$@ its question (not translated).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ asks: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ يسأل: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pita: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ spørger: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ fragt: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pregunta: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ demande : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ chiede: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ からの質問: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ សួរ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 질문: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ spør: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pyta: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pergunta: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ спрашивает: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ถาม: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ soruyor: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ питає: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hỏi: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 提问：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 提問：%2$@"
+          }
+        }
+      }
+    },
+    "feed.bridge.question.untitled": {
+      "comment": "A phone feed title for a question an agent asks the person when the question has no text (never a permission). %@ is the agent's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ asks a question"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ يطرح سؤالًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ postavlja pitanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ stiller et spørgsmål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ stellt eine Frage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hace una pregunta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ pose une question"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ fa una domanda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ からの質問があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មានសំណួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 질문이 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ stiller et spørsmål"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ zadaje pytanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ faz uma pergunta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ задаёт вопрос"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ มีคำถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bir soru soruyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ставить запитання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đặt một câu hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 提了一个问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 提了一個問題"
+          }
+        }
+      }
+    },
+    "feed.bridge.question.agent": {
+      "comment": "Stands in for the agent's name in a phone feed question title when the agent has no name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個智慧代理"
           }
         }
       }
@@ -4465,6 +5125,138 @@
         }
       }
     },
+    "browser.engine.unavailable.restoredTab": {
+      "comment": "A browser tab's notice when Chromium could not start in this process: the page is not loaded in WebKit (no Chromium cookies there); a restart of cmux is needed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium unavailable: this tab isn’t loaded, because WebKit would open it signed out. Quit and reopen cmux to load it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium غير متاح: لم تُحمَّل علامة التبويب هذه لأن WebKit سيفتحها بدون تسجيل الدخول. أغلق cmux وأعد فتحه لتحميلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium nije dostupan: ova kartica nije učitana jer bi je WebKit otvorio odjavljenu. Zatvorite i ponovo otvorite cmux da je učitate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium er ikke tilgængelig: fanen er ikke indlæst, fordi WebKit ville åbne den logget ud. Afslut og åbn cmux igen for at indlæse den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium nicht verfügbar: Dieser Tab wird nicht geladen, weil WebKit ihn abgemeldet öffnen würde. Beende cmux und öffne es erneut, um ihn zu laden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium no está disponible: esta pestaña no se carga porque WebKit la abriría sin sesión. Sal de cmux y vuelve a abrirlo para cargarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium indisponible : cet onglet n’est pas chargé, car WebKit l’ouvrirait déconnecté. Quittez puis rouvrez cmux pour le charger."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium non disponibile: questa scheda non viene caricata perché WebKit la aprirebbe senza accesso. Esci e riapri cmux per caricarla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium を使用できません。WebKit ではサインアウトした状態で開くため、このタブは読み込んでいません。読み込むには cmux を終了して開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium មិនអាចប្រើបាន៖ ផ្ទាំងនេះមិនត្រូវបានផ្ទុកទេ ព្រោះ WebKit នឹងបើកវាដោយមិនបានចូល។ ចាកចេញ ហើយបើក cmux ម្តងទៀត ដើម្បីផ្ទុកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium을 사용할 수 없음: WebKit에서는 로그아웃된 상태로 열리므로 이 탭을 불러오지 않았습니다. 불러오려면 cmux를 종료한 후 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium er ikke tilgjengelig: fanen er ikke lastet inn, fordi WebKit ville åpnet den utlogget. Avslutt og åpne cmux igjen for å laste den inn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium jest niedostępny: ta karta nie została załadowana, bo WebKit otworzyłby ją bez logowania. Zamknij i ponownie otwórz cmux, aby ją załadować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium indisponível: esta aba não foi carregada porque o WebKit a abriria sem login. Saia e abra o cmux de novo para carregá-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium недоступен: вкладка не загружена, потому что WebKit открыл бы её без входа. Закройте и снова откройте cmux, чтобы загрузить её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้ Chromium ไม่ได้: ไม่ได้โหลดแท็บนี้ เพราะ WebKit จะเปิดโดยไม่ได้ลงชื่อเข้าใช้ ออกจาก cmux แล้วเปิดใหม่เพื่อโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kullanılamıyor: WebKit oturum kapalı açacağı için bu sekme yüklenmedi. Yüklemek için cmux'tan çıkıp yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium недоступний: вкладку не завантажено, бо WebKit відкрив би її без входу. Закрийте й знову відкрийте cmux, щоб завантажити її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium không khả dụng: tab này chưa được tải vì WebKit sẽ mở nó khi chưa đăng nhập. Thoát và mở lại cmux để tải."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 不可用：此标签页未加载，因为 WebKit 会以未登录状态打开它。退出并重新打开 cmux 以加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 無法使用：此分頁未載入，因為 WebKit 會以未登入狀態開啟它。結束並重新開啟 cmux 以載入。"
+          }
+        }
+      }
+    },
     "app.restart.notice": {
       "extractionState": "manual",
       "localizations": {
@@ -4592,137 +5384,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 在發生問題後已重新啟動。你的視窗和終端機已恢復。"
-          }
-        }
-      }
-    },
-    "app.restart.noticeSafe": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux restarted after a problem again. Browser pages were not reopened. Reload a tab to open it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "問題が再び発生したため cmux を再起動しました。ブラウザのページは開き直していません。タブを再読み込みすると開きます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أُعيد تشغيل cmux مرة أخرى بعد حدوث مشكلة. لم تُفتح صفحات المتصفح. أعد تحميل علامة تبويب لفتحها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux je ponovo pokrenut nakon još jednog problema. Stranice preglednika nisu ponovo otvorene. Ponovo učitajte karticu da biste je otvorili."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blev genstartet efter endnu et problem. Browsersider blev ikke genåbnet. Genindlæs en fane for at åbne den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux wurde erneut nach einem Problem neu gestartet. Browserseiten wurden nicht wieder geöffnet. Laden Sie einen Tab neu, um ihn zu öffnen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux se ha vuelto a reiniciar tras un problema. Las páginas del navegador no se han vuelto a abrir. Vuelve a cargar una pestaña para abrirla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux a de nouveau redémarré après un problème. Les pages du navigateur n’ont pas été rouvertes. Actualisez un onglet pour l’ouvrir."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux è stato riavviato di nuovo dopo un problema. Le pagine del browser non sono state riaperte. Ricarica una scheda per aprirla."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux បានចាប់ផ្ដើមឡើងវិញម្ដងទៀតបន្ទាប់ពីមានបញ្ហា។ ទំព័រកម្មវិធីរុករកមិនត្រូវបានបើកឡើងវិញទេ។ ផ្ទុកផ្ទាំងឡើងវិញដើម្បីបើកវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "문제가 다시 발생하여 cmux가 다시 시작되었습니다. 브라우저 페이지는 다시 열지 않았습니다. 탭을 새로고침하면 열립니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux ble startet på nytt etter enda et problem. Nettlesersider ble ikke åpnet igjen. Last inn en fane på nytt for å åpne den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux ponownie uruchomił się po problemie. Strony przeglądarki nie zostały otwarte ponownie. Załaduj kartę ponownie, aby ją otworzyć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux foi reiniciado de novo após um problema. As páginas do navegador não foram reabertas. Recarregue uma aba para abri-la."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux снова перезапущен после сбоя. Страницы браузера не открыты повторно. Перезагрузите вкладку, чтобы открыть её."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux เริ่มใหม่อีกครั้งหลังจากเกิดปัญหา ไม่ได้เปิดหน้าเบราว์เซอร์ใหม่ โหลดแท็บซ้ำเพื่อเปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bir sorundan sonra yeniden başlatıldı. Tarayıcı sayfaları yeniden açılmadı. Açmak için bir sekmeyi yeniden yükleyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux знову перезапущено після збою. Сторінки браузера не відкрито повторно. Перезавантажте вкладку, щоб відкрити її."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux lại khởi động lại sau khi gặp sự cố. Các trang trình duyệt chưa được mở lại. Tải lại một thẻ để mở trang đó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 再次在出现问题后重新启动。浏览器页面未重新打开。重新加载标签页即可打开。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 再次在發生問題後重新啟動。瀏覽器頁面未重新開啟。重新載入分頁即可開啟。"
           }
         }
       }
@@ -4989,133 +5650,134 @@
         }
       }
     },
-    "app.restart.deferredPage": {
+    "app.restart.crashedPage": {
+      "comment": "On a restored browser tab after cmux quit unexpectedly twice in a row while that tab's page was loading: the page waits until the person reloads it.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not reopened after cmux restarted. Reload to open this page."
+            "value": "cmux quit unexpectedly twice while this page was loading, so it was not loaded again. Reload to open it."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux の再起動後は開き直していません。再読み込みするとこのページを開きます。"
+            "state": "translated",
+            "value": "このページの読み込み中に cmux が 2 回続けて予期せず終了したため、再度読み込んでいません。再読み込みすると開きます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم تُفتح بعد إعادة تشغيل cmux. أعد التحميل لفتح هذه الصفحة."
+            "value": "توقف cmux بشكل غير متوقع مرتين أثناء تحميل هذه الصفحة، لذا لم يُعَد تحميلها. أعد التحميل لفتحها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije ponovo otvoreno nakon ponovnog pokretanja cmux-a. Ponovo učitajte da otvorite ovu stranicu."
+            "value": "cmux se dvaput neočekivano zatvorio dok se ova stranica učitavala, pa nije ponovo učitana. Ponovo učitajte da je otvorite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke genåbnet efter genstart af cmux. Genindlæs for at åbne siden."
+            "value": "cmux lukkede uventet to gange, mens siden indlæste, så den blev ikke indlæst igen. Genindlæs for at åbne den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nach dem Neustart von cmux nicht wieder geöffnet. Neu laden, um diese Seite zu öffnen."
+            "value": "cmux wurde zweimal unerwartet beendet, während diese Seite lud, daher wurde sie nicht erneut geladen. Neu laden, um sie zu öffnen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se ha vuelto a abrir tras reiniciar cmux. Vuelve a cargar para abrir esta página."
+            "value": "cmux se cerró inesperadamente dos veces mientras se cargaba esta página, así que no se volvió a cargar. Vuelve a cargar para abrirla."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non rouverte après le redémarrage de cmux. Actualisez pour ouvrir cette page."
+            "value": "cmux a quitté de manière inattendue deux fois pendant le chargement de cette page ; elle n'a donc pas été rechargée. Actualisez pour l'ouvrir."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non riaperta dopo il riavvio di cmux. Ricarica per aprire questa pagina."
+            "value": "cmux si è chiuso inaspettatamente due volte mentre questa pagina si caricava, quindi non è stata ricaricata. Ricarica per aprirla."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានបើកឡើងវិញបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។ ផ្ទុកឡើងវិញដើម្បីបើកទំព័រនេះ។"
+            "value": "cmux បានបិទដោយមិននឹកស្មានដល់ពីរដង ខណៈទំព័រនេះកំពុងផ្ទុក ដូច្នេះវាមិនត្រូវបានផ្ទុកម្ដងទៀតទេ។ ផ្ទុកឡើងវិញដើម្បីបើកវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux를 다시 시작한 후 다시 열지 않았습니다. 새로고침하면 이 페이지가 열립니다."
+            "value": "이 페이지를 불러오는 동안 cmux가 두 번 예기치 않게 종료되어 다시 불러오지 않았습니다. 새로고침하면 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke åpnet igjen etter omstart av cmux. Last inn på nytt for å åpne siden."
+            "value": "cmux avsluttet uventet to ganger mens denne siden lastet, så den ble ikke lastet inn igjen. Last inn på nytt for å åpne den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie otwarto ponownie po restarcie cmux. Załaduj ponownie, aby otworzyć tę stronę."
+            "value": "cmux dwukrotnie nieoczekiwanie się zamknął podczas ładowania tej strony, więc nie załadowano jej ponownie. Załaduj ponownie, aby ją otworzyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não reaberta após o reinício do cmux. Recarregue para abrir esta página."
+            "value": "O cmux fechou inesperadamente duas vezes enquanto esta página carregava, então ela não foi carregada de novo. Recarregue para abri-la."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не открыта повторно после перезапуска cmux. Перезагрузите, чтобы открыть страницу."
+            "value": "cmux дважды неожиданно завершился во время загрузки этой страницы, поэтому она не загружена снова. Перезагрузите, чтобы открыть её."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้เปิดใหม่หลัง cmux เริ่มใหม่ โหลดซ้ำเพื่อเปิดหน้านี้"
+            "value": "cmux ปิดโดยไม่คาดคิดสองครั้งขณะโหลดหน้านี้ จึงไม่ได้โหลดอีก โหลดซ้ำเพื่อเปิดหน้านี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux yeniden başlatıldıktan sonra yeniden açılmadı. Bu sayfayı açmak için yeniden yükleyin."
+            "value": "Bu sayfa yüklenirken cmux iki kez beklenmedik şekilde kapandı, bu yüzden yeniden yüklenmedi. Açmak için yeniden yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не відкрито повторно після перезапуску cmux. Перезавантажте, щоб відкрити сторінку."
+            "value": "cmux двічі неочікувано завершився під час завантаження цієї сторінки, тому її не завантажено знову. Перезавантажте, щоб відкрити її."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa mở lại sau khi cmux khởi động lại. Tải lại để mở trang này."
+            "value": "cmux đã thoát bất ngờ hai lần khi trang này đang tải, nên trang không được tải lại. Tải lại để mở trang."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 重新启动后未重新打开。重新加载即可打开此页面。"
+            "value": "此页面加载时 cmux 两次意外退出，因此未再次加载。重新加载即可打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 重新啟動後未重新開啟。重新載入即可開啟此頁面。"
+            "value": "此頁面載入時 cmux 兩次意外結束，因此未再次載入。重新載入即可開啟。"
           }
         }
       }
@@ -7760,7 +8422,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The selected agent has no resumable session id."
+            "value": "The selected agent has no resumable session ID."
           }
         },
         "ar": {
@@ -11965,6 +12627,1536 @@
           "stringUnit": {
             "state": "translated",
             "value": "來源：%1$@\n工作區：%2$@\n瀏覽器分頁：%3$@\n本機檔案頁面：%4$@\nSSH 工作區：%5$@\n代理程式聊天：%6$@\n略過的雲端 VM 工作區：%7$@\n匯入會載入已儲存的瀏覽器頁面、連線至已儲存的 SSH 主機，並繼續已儲存的代理程式聊天。"
+          }
+        }
+      }
+    },
+    "home.stop.toolTip": {
+      "comment": "Tooltip of Home's stop button while the Chief works: a click stops the Chief's turn, Option-click stops every agent.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف الـ Chief (النقر مع Option: إيقاف كل الوكلاء)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavi Chiefa (Option-klik: zaustavi sve agente)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Chief (Option-klik: Stop alle agenter)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief stoppen (Wahltaste-Klick: Alle Agenten stoppen)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop the Chief (Option-click: Stop All Agents)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener el Chief (Opción-clic: detener todos los agentes)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter le Chief (Option-clic : arrêter tous les agents)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi il Chief (Opzione-clic: interrompi tutti gli agenti)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief を停止（Option-クリック：すべてのエージェントを停止）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ឈប់ Chief (Option-ចុច៖ បញ្ឈប់ភ្នាក់ងារទាំងអស់)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 중지(Option-클릭: 모든 에이전트 중지)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp Chief (Tilvalg-klikk: Stopp alle agenter)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymaj Chiefa (Option-kliknięcie: zatrzymaj wszystkich agentów)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar o Chief (Option-clique: parar todos os agentes)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить Chief (Option-щелчок: остановить всех агентов)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด Chief (Option-คลิก: หยุดเอเจนต์ทั้งหมด)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief’i durdur (Option-tıklama: tüm ajanları durdur)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинити Chief (Option-клацання: зупинити всіх агентів)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dừng Chief (Option-bấm: dừng tất cả agent)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止 Chief（按住 Option 点按：停止所有智能体）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止 Chief（按住 Option 點按：停止所有代理）"
+          }
+        }
+      }
+    },
+    "home.stopAll.restart": {
+      "comment": "Action of the Stop All Agents toast: brings back the agents it stopped.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo pokreni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genstart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riavvia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchom ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапустить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапустити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khởi động lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動"
+          }
+        }
+      }
+    },
+    "home.stopAll.none": {
+      "comment": "Toast after Stop All Agents when nothing was running.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكن أي وكيل قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan agent nije radio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen agenter kørte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es liefen keine Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agents were running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No había agentes en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun agent n’était en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun agente era in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のエージェントはありませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានភ្នាក់ងារកំពុងដំណើរការទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 에이전트가 없었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen agenter kjørte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żaden agent nie działał"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum agente estava em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни один агент не работал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเอเจนต์ที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan ajan yoktu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоден агент не працював"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có agent nào đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有正在运行的智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有正在執行的代理"
+          }
+        }
+      }
+    },
+    "home.stopAll.chiefOnly": {
+      "comment": "Toast after Stop All Agents when the Chief's turn stopped and no subagent was running.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف الـ Chief؛ لم يكن أي وكيل فرعي قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief je zaustavljen; nijedan podagent nije radio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief er stoppet; ingen underagenter kørte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief gestoppt; es liefen keine Subagenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped the Chief; no subagents were running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se detuvo al Chief; no había subagentes en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief arrêté ; aucun sous-agent n'était en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief fermato; nessun subagente era in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief を停止しました。実行中のサブエージェントはありませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ឈប់ Chief; គ្មានភ្នាក់ងាររងកំពុងដំណើរការទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief를 중지했습니다. 실행 중인 하위 에이전트는 없었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief er stoppet; ingen underagenter kjørte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymano Chiefa; żaden podagent nie działał"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief parado; nenhum subagente estava em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief остановлен; субагенты не работали"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด Chief แล้ว ไม่มีเอเจนต์ย่อยที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief durduruldu; çalışan alt ajan yoktu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief зупинено; субагенти не працювали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã dừng Chief; không có tác tử phụ nào đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止 Chief；没有正在运行的子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止 Chief；沒有正在執行的子代理"
+          }
+        }
+      }
+    },
+    "home.stopAll.unavailable": {
+      "comment": "Why Stop All Agents is unavailable: the front window shows no Chief's Home.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل «إيقاف كل الوكلاء» في صفحة Home الخاصة بالـ Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavi sve agente radi u Chiefovom Home prozoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop alle agenter virker i en Chiefs Home"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Agenten stoppen funktioniert im Home eines Chiefs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop All Agents works in a Chief's Home"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener todos los agentes funciona en el Home de un Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter tous les agents fonctionne dans le Home d'un Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferma tutti gli agenti funziona nella Home di un Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「すべてのエージェントを停止」は Chief の Home で使えます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ឈប់ភ្នាក់ងារទាំងអស់ ដំណើរការនៅក្នុង Home របស់ Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 에이전트 중지는 Chief의 Home에서 사용할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp alle agenter virker i en Chiefs Home"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymaj wszystkich agentów działa w Home Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar todos os agentes funciona no Home de um Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Остановить всех агентов» работает в Home Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดเอเจนต์ทั้งหมดใช้ได้ใน Home ของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm ajanları durdur, bir Chief'in Home'unda çalışır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Зупинити всіх агентів» працює в Home Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dừng tất cả tác tử hoạt động trong Home của Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“停止所有代理”需在 Chief 的 Home 中使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「停止所有代理」需在 Chief 的 Home 中使用"
+          }
+        }
+      }
+    },
+    "home.stopAll.stopped": {
+      "comment": "Toast after Stop All Agents. %@ is the list of subagent ids that stopped, e.g. \"a1, a2 and a3\".",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف كل الوكلاء: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavljeni svi agenti: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle agenter er stoppet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Agenten gestoppt: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped all agents: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se detuvieron todos los agentes: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous les agents sont arrêtés : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutti gli agenti interrotti: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのエージェントを停止しました：%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ឈប់ភ្នាក់ងារទាំងអស់៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 에이전트를 중지했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle agenter er stoppet: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymano wszystkich agentów: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os agentes foram parados: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все агенты остановлены: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดเอเจนต์ทั้งหมดแล้ว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm ajanlar durduruldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усіх агентів зупинено: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã dừng tất cả agent: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止所有智能体：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止所有代理：%@"
+          }
+        }
+      }
+    },
+    "home.stopAll.chiefStopped": {
+      "comment": "First line of the toast after Stop All Agents when the Chief's turn stopped, no subagent stopped, and some subagents could not be stopped.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف الـ Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief je zaustavljen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief er stoppet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief gestoppt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped the Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se detuvo al Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief arrêté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief fermato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief を停止しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ឈប់ Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief를 중지했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief er stoppet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymano Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief parado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief остановлен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด Chief แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief durduruldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief зупинено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã dừng Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止 Chief"
+          }
+        }
+      }
+    },
+    "home.stopAll.couldNotStop": {
+      "comment": "Line of the toast after Stop All Agents: how many subagents could not be stopped (the agent host refused). Which ones and why show in its tooltip.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تعذّر إيقاف %lld وكيل"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تعذّر إيقاف وكيل واحد (%lld)"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تعذّر إيقاف وكيلين (%lld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تعذّر إيقاف %lld وكلاء"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تعذّر إيقاف %lld وكيلًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تعذّر إيقاف %lld وكيل"
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld nije moguće zaustaviti"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld nije moguće zaustaviti"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld nije moguće zaustaviti"
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld kunne ikke stoppes"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld kunne ikke stoppes"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld konnte nicht gestoppt werden"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld konnten nicht gestoppt werden"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld could not be stopped"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld could not be stopped"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld no se pudo detener"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld no se pudieron detener"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld no se pudieron detener"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld n’a pas pu être arrêté"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld n’ont pas pu être arrêtés"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld n’ont pas pu être arrêtés"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Impossibile fermarne %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Impossibile fermarne %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Impossibile fermarne %lld"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 件を停止できませんでした"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 件を停止できませんでした"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "មិនអាចបញ្ឈប់ %lld បានទេ"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "មិនអាចបញ្ឈប់ %lld បានទេ"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld개를 중지하지 못했습니다"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld개를 중지하지 못했습니다"
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld kunne ikke stoppes"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld kunne ikke stoppes"
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Nie udało się zatrzymać %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Nie udało się zatrzymać %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Nie udało się zatrzymać %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Nie udało się zatrzymać %lld"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Não foi possível parar %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Não foi possível parar %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Não foi possível parar %lld"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Не удалось остановить %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Не удалось остановить %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Не удалось остановить %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Не удалось остановить %lld"
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "หยุด %lld รายการไม่ได้"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "หยุด %lld รายการไม่ได้"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld durdurulamadı"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld durdurulamadı"
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Не вдалося зупинити %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Не вдалося зупинити %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Не вдалося зупинити %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Не вдалося зупинити %lld"
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Không thể dừng %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Không thể dừng %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个无法停止"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个无法停止"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個無法停止"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個無法停止"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "notifications.permission.unavailable": {
+      "comment": "The error cmux setup notifications gets when this app process never uses macOS notifications (an automation or test host, or not the cmux app bundle), so it cannot read or ask for the permission.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تستخدم عملية cmux هذه إشعارات macOS (مضيف أتمتة أو اختبار، أو ليست حزمة تطبيق cmux)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj cmux proces ne koristi macOS obavještenja (host za automatizaciju ili testove, ili nije paket aplikacije cmux)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-proces bruger ikke macOS-notifikationer (en automatiserings- eller testvært, eller ikke cmux-appens bundt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser cmux-Prozess verwendet keine macOS-Mitteilungen (ein Automatisierungs- oder Testhost oder nicht das cmux-App-Bundle)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux process does not use macOS notifications (an automation or test host, or not the cmux app bundle)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este proceso de cmux no usa las notificaciones de macOS (un host de automatización o de pruebas, o no es el paquete de la app cmux)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce processus cmux n’utilise pas les notifications macOS (un hôte d’automatisation ou de test, ou pas le paquet de l’app cmux)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo processo di cmux non usa le notifiche di macOS (un host di automazione o di test, o non il pacchetto dell’app cmux)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux プロセスは macOS の通知を使いません（自動化やテストのホスト、または cmux アプリのバンドルではありません）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំណើរការ cmux នេះមិនប្រើការជូនដំណឹង macOS ទេ (ម៉ាស៊ីនស្វ័យប្រវត្តិ ឬម៉ាស៊ីនតេស្ត ឬមិនមែនកញ្ចប់កម្មវិធី cmux)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 프로세스는 macOS 알림을 사용하지 않습니다(자동화 또는 테스트 호스트이거나 cmux 앱 번들이 아님)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-prosessen bruker ikke macOS-varsler (en automatiserings- eller testvert, eller ikke cmux-appens pakke)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten proces cmux nie używa powiadomień macOS (host automatyzacji lub testów albo nie pakiet aplikacji cmux)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este processo do cmux não usa as notificações do macOS (um host de automação ou de teste, ou não é o pacote do app cmux)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот процесс cmux не использует уведомления macOS (хост автоматизации или тестов либо не пакет приложения cmux)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรเซส cmux นี้ไม่ใช้การแจ้งเตือนของ macOS (โฮสต์อัตโนมัติหรือโฮสต์ทดสอบ หรือไม่ใช่บันเดิลแอป cmux)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu cmux işlemi macOS bildirimlerini kullanmıyor (bir otomasyon veya test ana makinesi ya da cmux uygulama paketi değil)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей процес cmux не використовує сповіщення macOS (хост автоматизації чи тестів або не пакет застосунку cmux)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiến trình cmux này không dùng thông báo macOS (một máy chủ tự động hóa hoặc kiểm thử, hoặc không phải gói ứng dụng cmux)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 进程不使用 macOS 通知（自动化或测试宿主，或不是 cmux 应用包）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 程序不使用 macOS 通知（自動化或測試主機，或不是 cmux App 套件）"
           }
         }
       }

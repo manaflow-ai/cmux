@@ -19,7 +19,7 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalIncarnation: TerminalIncarnation?
     /// Public terminal id (`term_…`) used by `attach-identity-v1`.
     public internal(set) var terminalResourceID: ResourceID?
-    public internal(set) var kind: TabKind
+    public internal(set) var kind: TabKind { didSet { refreshUnread() } }
     public internal(set) var name: String?
     /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
     /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
@@ -38,7 +38,7 @@ public final class TabModel: Identifiable {
     /// A kept tab's keep-layout record (`end-terminals-keep-layout-v1`): its terminal ended at
     /// Quit's End Sessions, Keep Layout and this launch restarts it.
     public internal(set) var relaunch: TabRelaunch?
-    public internal(set) var notification: TabNotification?
+    public internal(set) var notification: TabNotification? { didSet { refreshUnread() } }
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
     /// The page a pinned browser tab was pinned on (Back to Pinned Page).
@@ -79,7 +79,7 @@ public final class TabModel: Identifiable {
 
     /// Shows `marked` now, before the daemon's `tab.update` answers: the
     /// round trip (hundreds of ms on a busy daemon) is never on the visible
-    /// path of Toggle Tab Unread. The record's echo of `marked` settles it.
+    /// path of Mark Tab Read/Unread. The record's echo of `marked` settles it.
     public func expectMarkedUnread(_ marked: Bool) {
         pendingMarkedUnread = marked
         publishMarkedUnread()
@@ -93,9 +93,44 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// An agent needs the person to act in this tab (log in, confirm, approve, pick):
+    /// `tab.update {attention}`, tab-attention-v1. It shows as the tab's unread dot and the
+    /// workspace row's dot like ``markedUnread``, but viewing the tab keeps it: the agent's clear,
+    /// a browser tab's navigation to another page, or the tab's close drops it in the daemon.
+    public private(set) var attention: TabAttention?
+    @ObservationIgnored private var recordAttention: TabAttention?
+    @ObservationIgnored private var pendingAttentionClear: TabAttention?
+
+    /// Hide the request in the action's own turn. The returned token identifies this clear.
+    public func expectAttentionClear() -> TabAttention? {
+        guard let attention, let requestID = attention.requestID, TabAttention.validRequestID(requestID) else { return nil }
+        pendingAttentionClear = attention
+        self.attention = nil
+        return attention
+    }
+
+    /// A failed old clear never restores over a newer request or a newer clear.
+    public func dropExpectedAttentionClear(_ request: TabAttention) {
+        guard pendingAttentionClear == request else { return }
+        pendingAttentionClear = nil
+        attention = recordAttention
+    }
+    /// Client-local generation of the request whose ring the person hid. This never stores time.
+    public var attentionRingHiddenThrough: UInt64?
+    /// A local render identity changes when the owner request changes; TabAttention equality
+    /// includes requestID, so identical reason/time replacements are still distinct.
+    public private(set) var attentionGeneration: UInt64 = 0
+
+    /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring
+    /// dismissed for an earlier mark shows again. Changes only with ``markedUnread``, which
+    /// observers already follow.
+    @ObservationIgnored public private(set) var markedUnreadGeneration: UInt64 = 0
+
     private func publishMarkedUnread() {
         let shown = pendingMarkedUnread ?? recordMarkedUnread
-        if markedUnread != shown { markedUnread = shown }
+        guard markedUnread != shown else { return }
+        if shown { markedUnreadGeneration &+= 1 }
+        markedUnread = shown
     }
     /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
     public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }
@@ -116,11 +151,20 @@ public final class TabModel: Identifiable {
     /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
     public private(set) var commandRecheck = 0
     @ObservationIgnored private var commandTimer: DemandTimer?
+    /// Since when the shell sits at its prompt (`extra.prompt.since_ms`: OSC 133 A until C), nil while
+    /// a command runs and for a shell without integration.
+    public internal(set) var promptSinceMs: UInt64?
+    /// This clock's time when `promptSinceMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var promptSeenAt: Date?
+    /// When the terminal last printed (`extra.last_output.at_ms`).
+    public internal(set) var lastOutputMs: UInt64?
+    /// This clock's time when `lastOutputMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var lastOutputSeenAt: Date?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
     /// chat picked in an open tab changes only this, and the control snapshot must hear it (cx-sy3w1).
-    public internal(set) var conversation: ConversationTabRef?
+    public internal(set) var conversation: ConversationTabRef? { didSet { refreshUnread() } }
     /// The app an app tab shows (`TabSnapshot.app`), observed like ``conversation``.
     public internal(set) var app: AppTabRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -142,7 +186,7 @@ public final class TabModel: Identifiable {
 
     /// The notification this client acknowledged that the tree still shows
     /// unread (the ack's round trip). A newer notification is not covered.
-    public private(set) var readingNotification: NotificationID?
+    public private(set) var readingNotification: NotificationID? { didSet { refreshUnread() } }
 
     /// Shows the tab's unread notification read now, before the daemon's
     /// `ack-tab-notifications` answers. The tree's echo settles it.
@@ -163,9 +207,27 @@ public final class TabModel: Identifiable {
         if notification?.notification != reading || notification?.unread != true { readingNotification = nil }
     }
 
+    /// What this tab adds to its pane's unread count (``UnreadTally``), as last counted.
+    @ObservationIgnored private(set) var unreadMark: UnreadTally.Mark = .none
+    /// The pane that counts this tab (the last one whose tabs held it).
+    @ObservationIgnored weak var unreadPane: PaneModel?
+
+    private func currentUnreadMark() -> UnreadTally.Mark {
+        guard hasUnread else { return .none }
+        return .unread(conversation: kind == .conversation ? conversation?.conversation : nil)
+    }
+
+    /// A field the unread count reads changed: recounts the pane when what the tab adds changed.
+    private func refreshUnread() {
+        let mark = currentUnreadMark()
+        guard mark != unreadMark else { return }
+        unreadMark = mark
+        unreadPane?.recountUnread()
+    }
+
     /// Whether the tab shows as unread: an unread notification or the manual mark.
     /// Acknowledging reads only ``hasUnread``; this is for dots and badges.
-    public var showsUnread: Bool { hasUnread || markedUnread }
+    public var showsUnread: Bool { hasUnread || markedUnread || attention != nil }
 
     /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
     /// tab can get its id in a later snapshot of the same surface, and an
@@ -228,7 +290,8 @@ public final class TabModel: Identifiable {
         remote = s.remote
         conversation = s.conversation
         app = s.app
-        #if DEBUG
+        unreadMark = currentUnreadMark()
+        #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
         if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
             NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
@@ -276,11 +339,16 @@ public final class TabModel: Identifiable {
 
     /// Lays the daemon's tab record and terminal progress over the record.
     func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [],
-                    commandSinceMs: UInt64? = nil) {
+                    commandSinceMs: UInt64? = nil, promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
+        if recordAttention != record.attention { attentionGeneration &+= 1 }
+        recordAttention = record.attention
+        if pendingAttentionClear != record.attention { pendingAttentionClear = nil }
+        let shownAttention = pendingAttentionClear == nil ? record.attention : nil
+        if attention != shownAttention { attention = shownAttention }
         recordMarkedUnread = record.markedUnread
         if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
         publishMarkedUnread()
@@ -292,6 +360,14 @@ public final class TabModel: Identifiable {
             commandSeenAt = commandSinceMs.map { _ in Date() }
             self.commandSinceMs = commandSinceMs
             commandTimer?.cancel()
+        }
+        if self.promptSinceMs != promptSinceMs {
+            promptSeenAt = promptSinceMs.map { _ in Date() }
+            self.promptSinceMs = promptSinceMs
+        }
+        if self.lastOutputMs != lastOutputMs {
+            lastOutputSeenAt = lastOutputMs.map { _ in Date() }
+            self.lastOutputMs = lastOutputMs
         }
     }
 

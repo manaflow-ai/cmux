@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import CmuxNextDesign
 import Foundation
 
@@ -16,7 +17,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// The last text a page reported, and the file hash it was edited from.
     private(set) var latestText: String?
     private(set) var baseHash: String?
-    /// `FileDocument.hash` of `latestText`, taken once per edit so a save does not hash it again;
+    /// `FileDocument().hash` of `latestText`, taken once per edit so a save does not hash it again;
     /// nil when no edit compared it (an edit with no base hash).
     private var latestHash: String?
     private var flushers: [UUID: () async -> Bool] = [:]
@@ -49,7 +50,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
         self.baseHash = baseHash
         let contents = Data(text.utf8)
         // Without a base hash the text never equals the file's: no hash needed.
-        latestHash = baseHash == nil ? nil : FileDocument.hash(contents)
+        latestHash = baseHash == nil ? nil : FileDocument().hash(contents)
         guard baseHash == nil || latestHash != baseHash else {
             markClean()
             return .kept
@@ -64,7 +65,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// A normal save wrote `hash`: clean when it is the last reported text.
     func saved(hash: String) {
         baseHash = hash
-        if let latestText, (latestHash ?? FileDocument.hash(Data(latestText.utf8))) != hash { return }
+        if let latestText, (latestHash ?? FileDocument().hash(Data(latestText.utf8))) != hash { return }
         markClean()
     }
 
@@ -144,7 +145,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
 
     @concurrent private static func write(_ text: String, to url: URL, baseHash: String?,
                                           inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
-        try FileDocument.save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
+        try FileDocument().save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
     }
 }
 
@@ -174,15 +175,14 @@ private final class FlushAnswer {
 /// tab that edited the file still shows it. Each such tab is a holder; the document leaves with
 /// the last one.
 final class FileQuitDocuments {
-    /// The app's: both file pages share it, so a markdown tab and an editor tab on one file are one
-    /// document.
-    static let shared = FileQuitDocuments()
     private let drafts: RecoveryDraftStore
     private let registry: QuitUnsavedRegistry
     private let participantID: (URL) -> String
     private var documents: [String: (document: FileQuitDocument, registration: QuitUnsavedRegistration, holders: Set<String>)] = [:]
 
-    init(drafts: RecoveryDraftStore = .shared, registry: QuitUnsavedRegistry = .shared,
+    /// The app's (`AppServices.fileQuitDocuments`) is shared by both file pages, so a markdown tab
+    /// and an editor tab on one file are one document.
+    init(drafts: RecoveryDraftStore, registry: QuitUnsavedRegistry,
          participantID: @escaping (URL) -> String = { QuitParticipantID.file(path: $0.path) }) {
         self.drafts = drafts
         self.registry = registry

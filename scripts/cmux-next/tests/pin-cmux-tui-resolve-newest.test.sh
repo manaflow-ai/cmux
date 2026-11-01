@@ -61,7 +61,16 @@ while [[ \$# -gt 0 ]]; do
   esac
 done
 echo "\$url" >> "$TMP/curl.log"
-path="\${url#https://files.cmux.com/cmux-tui/}"
+# GitHub's Actions API: runs by head_sha, jobs by run id (logged; the resolver must not call it).
+case "\$url" in
+  https://api.github.com/*/actions/workflows/cmux-next.yml/runs\?*)
+    sha="\${url##*head_sha=}"; sha="\${sha%%&*}"
+    cat "$TMP/api/runs-\$sha.json" 2>/dev/null || echo '{"workflow_runs": []}'; exit 0 ;;
+  https://api.github.com/*/actions/runs/*/jobs\?*)
+    id="\${url%%/jobs\?*}"; id="\${id##*/}"
+    cat "$TMP/api/jobs-\$id.json" 2>/dev/null || exit 22; exit 0 ;;
+esac
+path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 [[ "\$path" != "\$url" && -f "$cdn/\$path" ]] || exit 22
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB
@@ -169,5 +178,46 @@ publish "$repaired" ""
 resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_paths"
 [[ "$status" == 0 ]] && grep -qx "source_commit=$repaired" <<<"$out" \
   || fail "nightly must resolve the published revision with the repaired Chief lockfile (exit $status):" "$out" "$err"
+
+# No Mac Release compile is required (#25786): nightly-next run 40427307041
+# failed here because fb384d011b85, the only commit in its window with a
+# published tree, had no green "cmux-next Release compile (Xcode 26)". With
+# the nightly's CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 still set, a published
+# commit whose push has a red Release compile (or none at all) resolves, and
+# the resolver asks GitHub nothing.
+mkdir -p "$TMP/api"
+printf '{"workflow_runs": [{"id": 11, "head_sha": "%s", "head_branch": "feat-cmux-next", "event": "push", "path": ".github/workflows/cmux-next.yml"}]}\n' "$repaired" > "$TMP/api/runs-$repaired.json"
+printf '{"jobs": [{"name": "cmux-next Release compile (Xcode 26)", "status": "completed", "conclusion": "failure"}]}\n' > "$TMP/api/jobs-11.json"
+echo app3 > "$src/App.swift"; git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "app only, no Release compile"
+app_only=$(git -C "$src" rev-parse HEAD)
+echo six > "$src/cmux-tui/a"; git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "tui six, unpublished tip"
+: > "$TMP/curl.log"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 GH_TOKEN=test "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_paths"
+[[ "$status" == 0 ]] && grep -qx "source_commit=$app_only" <<<"$out" \
+  || fail "the newest published commit must resolve without a Mac Release compile (exit $status):" "$out" "$err"
+grep -q "CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN is ignored" <<<"$err" \
+  || fail "the ignored Release-compile flag needs a notice:" "$err"
+if grep -q "api.github.com" "$TMP/curl.log"; then
+  fail "the resolver must not read the Release compile from GitHub:" "$(cat "$TMP/curl.log")"
+fi
+# A tree published before docs-only filtering exists only under its
+# v2-legacy key (#28214 review): the resolver falls back to that key and
+# reports it, instead of missing every older publication.
+legacy_key() { (cd "$src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2-legacy "$1" 2>/dev/null); }
+mkdir -p "$src/cmux-tui/docs"; echo guide > "$src/cmux-tui/docs/guide.md"
+echo seven > "$src/cmux-tui/a"; git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "tui seven with docs, published under v2-legacy"
+legacy_commit=$(git -C "$src" rev-parse HEAD)
+lk=$(legacy_key "$legacy_commit")
+[[ -n "$lk" && "$lk" != "$(key "$legacy_commit")" ]] || fail "the fixture's v2-legacy key must differ from its v2 key"
+mkdir -p "$cdn/tree/$lk" "$cdn/$legacy_commit"
+echo "build of $legacy_commit" > "$cdn/tree/$lk/$bin"
+sha "$cdn/tree/$lk/$bin" > "$cdn/tree/$lk/$bin.sha256"
+printf '{"key": "%s", "commit": "%s"}\n' "$lk" "$legacy_commit" > "$cdn/tree/$lk/source.json"
+printf '{"commit": "%s", "binaries": {"%s": "%s"}}\n' "$legacy_commit" "$bin" "$(sha "$cdn/tree/$lk/$bin")" > "$cdn/$legacy_commit/manifest.json"
+echo app4 > "$src/App.swift"; git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "app only after the legacy publication"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48
+[[ "$status" == 0 ]] && grep -qx "key=$lk" <<<"$out" \
+  && grep -qx "commit=$legacy_commit" <<<"$out" \
+  || fail "a tree published only under its v2-legacy key must resolve with that key (exit $status):" "$out" "$err"
 : "$old"
 echo "PASS: resolve-newest-published picks the newest verified published tree without waiting"

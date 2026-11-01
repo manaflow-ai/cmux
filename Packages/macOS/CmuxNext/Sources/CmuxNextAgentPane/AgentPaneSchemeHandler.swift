@@ -31,7 +31,7 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true,
            let url = task.request.url, AgentPaneRenderFrame.isFrame(url) {
             let data = AgentPaneRenderFrame.document
-            let headers = AgentPaneRenderFrame.headers(length: data.count)
+            let headers = AgentPaneRenderFrame.headers(length: data.count, artifact: AgentPaneRenderFrame.isArtifact(url))
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)
             task.didReceive(response ?? URLResponse(url: url, mimeType: "text/html", expectedContentLength: data.count, textEncodingName: "utf-8"))
             task.didReceive(data)
@@ -57,8 +57,14 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let id = ObjectIdentifier(task)
         active.insert(id)
+        WebBundleServedViews.shared.add(webView)
+        let root = root, live = servedRoot != root
         // task-owner: one file read per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
+            // An active web update (WebBundleOverlay) serves its copy of the same file, unless
+            // the web-dev.json overlay already serves this one.
+            let served = live ? root : await WebBundleOverlay.shared.root(for: root)
+            let file = served == root ? file : Self.fileURL(for: url, root: served) ?? file
             let data = await Self.read(file)
             guard let self, self.active.remove(id) != nil else { return }
             guard let data else {

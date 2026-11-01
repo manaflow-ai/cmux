@@ -93,16 +93,41 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     attachHeld = new Promise((resolve) => (releaseAttach = resolve));
   };
   /// A daemon that misbehaves: a cursor that never moves, later pages that fail, and whole-list
-  /// reads (watch without `limit`) that fail this many more times.
-  const faults = { repeatCursor: false, failPages: false, failWhole: 0 };
+  /// reads (watch without `limit`) that fail this many more times. `boundedWhole`: a whole-list read
+  /// answers this many rows and a cursor, as acpmux does past its largest reply.
+  const faults = { repeatCursor: false, failPages: false, failWhole: 0, boundedWhole: 0 };
   /// The socket of the page this test opened: an earlier test's page still closing never meets the faults.
   let faultSocket: unknown;
   beforeEach(() => {
-    Object.assign(faults, { repeatCursor: false, failPages: false, failWhole: 0 });
+    Object.assign(faults, { repeatCursor: false, failPages: false, failWhole: 0, boundedWhole: 0 });
     faultSocket = undefined;
     attachHeld = Promise.resolve();
   });
-  const requests: { method: string; params: Record<string, any> }[] = [];
+  /// What the pane asked, in order; `answered` once the daemon sent the reply (an error too), and `ended` when
+  /// that reply was the list's last page (a page with no cursor, or the whole list).
+  const requests: { method: string; params: Record<string, any>; answered?: boolean; ended?: boolean }[] = [];
+  /// Checks run as each request comes in and each answer goes out.
+  const checks = new Set<() => void>();
+  const recheck = () => {
+    for (const check of checks) check();
+  };
+  /// Resolves once `done` holds, as the daemon sees requests and answers them.
+  function until(what: string, done: () => boolean, timeout = 15_000): Promise<void> {
+    if (done()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        if (!done()) return;
+        checks.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        checks.delete(check);
+        reject(new Error(`${what} within ${timeout / 1000}s`));
+      }, timeout);
+      checks.add(check);
+    });
+  }
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
@@ -140,12 +165,16 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
           const params = message.params ?? {};
-          requests.push({ method: message.method, params });
+          const request: (typeof requests)[number] = { method: message.method, params };
+          requests.push(request);
+          recheck();
           const refusedAs = refusal(message.method, params);
           if (refusedAs) {
             refused.push(refusedAs);
             const error = { code: -32601, message: "Refused by the cmux host" };
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error }));
+            request.answered = true;
+            recheck();
             return;
           }
           const failed =
@@ -154,18 +183,33 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
               (message.method === "_acpmux/watch" && params.limit === undefined && faults.failWhole-- > 0));
           if (failed) {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "page lost" } }));
+            request.answered = true;
+            recheck();
             return;
           }
           // The page is read now; a later page waits until the test lets it go, as a slow link would.
           let result = answer(message.method, params);
           if (ws === faultSocket && message.method === "_acpmux/sessions" && faults.repeatCursor)
             result = { ...(result as object), nextCursor: params.cursor };
+          if (ws === faultSocket && params.limit === undefined && faults.boundedWhole > 0) {
+            const start = typeof params.cursor === "string" ? Number(params.cursor.slice(1)) : 0;
+            const end = Math.min(start + faults.boundedWhole, COUNT);
+            if (message.method === "_acpmux/watch" || message.method === "_acpmux/sessions")
+              result = { sessions: sessions.slice(start, end), ...(end < COUNT ? { nextCursor: `o${end}` } : {}) };
+          }
           if (message.method === "_acpmux/sessions") await held;
           if (message.method === "_acpmux/attach") await attachHeld;
           const text = JSON.stringify({ jsonrpc: "2.0", id: message.id, result });
           if (!attached) bytesBeforeAttach += text.length;
           if (message.method === "_acpmux/attach") attached = true;
           ws.send(text);
+          request.answered = true;
+          request.ended =
+            (message.method === "_acpmux/sessions" && !(result as { nextCursor?: string | null }).nextCursor) ||
+            (message.method === "_acpmux/watch" &&
+              params.limit === undefined &&
+              !(result as { nextCursor?: string | null }).nextCursor);
+          recheck();
         },
       },
     });
@@ -186,12 +230,32 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
 
   const notify = (method: string, params: Record<string, unknown>) =>
     socket!.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
-  const laterPagesAsked = async (count: number) => {
-    for (let waited = 0; requests.filter((r) => r.method === "_acpmux/sessions").length < count; waited += 50) {
-      if (waited > 10_000) throw new Error(`the pane asked for ${count} later pages within 10s`);
-      await Bun.sleep(50);
-    }
-  };
+  const laterPagesAsked = (count: number) =>
+    until(
+      `the pane asked for ${count} later pages`,
+      () => requests.filter((r) => r.method === "_acpmux/sessions").length >= count,
+    );
+  /// The daemon sent a list's last page.
+  const listEnded = () => until("the daemon sent the list's last page", () => requests.some((r) => r.ended));
+  let probes = 0;
+  /// Resolves once the page has handled every list the daemon answered: a rename sent after them
+  /// lands behind them on the socket, so the page shows it only once it has read the rest. Any
+  /// request those answers lead to has left the page by then.
+  async function caughtUp(page: Page) {
+    await until("the daemon answered every list request", () =>
+      requests.every((r) => r.answered || r.method === "_acpmux/attach"),
+    );
+    const title = `Probe ${++probes}`;
+    notify("_acpmux/session_changed", { kind: "updated", session: { ...sessions[COUNT - 1], title } });
+    await page.waitForFunction(
+      (title) =>
+        (window as any).cmuxAcpmuxDebug
+          .chatState()
+          .sessions.some((session: { title: string }) => session.title === title),
+      title,
+      { timeout: 15_000 },
+    );
+  }
 
   async function open(chat: string): Promise<Page> {
     attached = false;
@@ -243,7 +307,8 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
         timeout: 60_000,
       },
     );
-    await page.waitForTimeout(300);
+    await listEnded();
+    await caughtUp(page);
     const final = await state(page);
     const ids: string[] = final.sessions.map((session: { sessionId: string }) => session.sessionId);
     expect(errors).toEqual([]);
@@ -299,7 +364,8 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
       { timeout: 60_000 },
     );
     await laterPagesAsked(Math.ceil(COUNT / 200) - 1);
-    await page.waitForTimeout(300);
+    await listEnded();
+    await caughtUp(page);
     const final = await state(page);
     const byId = new Map<string, { title: string }>(
       final.sessions.map((session: { sessionId: string; title: string }) => [session.sessionId, session]),
@@ -326,7 +392,8 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     await page.waitForFunction((count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length >= count, COUNT, {
       timeout: 60_000,
     });
-    await page.waitForTimeout(500);
+    await listEnded();
+    await caughtUp(page);
     const after = await state(page);
     expect(after.sessionId).toBe(LATE);
     expect(after.missingSession).toBeNull();
@@ -344,7 +411,9 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     const page = await open(NEWEST);
     await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
     await listed(page, COUNT);
-    await page.waitForTimeout(1000);
+    // The pages stop at the cursor that came back, and the whole list is read instead.
+    await listEnded();
+    await caughtUp(page);
     expect(laterPages()).toBeLessThanOrEqual(3);
     const ids: string[] = (await state(page)).sessions.map((session: { sessionId: string }) => session.sessionId);
     expect(new Set(ids).size).toBe(COUNT);
@@ -364,18 +433,16 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
   test("a lagged watch while the chat attaches ends the older list's pages", async () => {
     holdAttach();
     const page = await open(NEWEST);
-    for (let waited = 0; !requests.some((request) => request.method === "_acpmux/attach"); waited += 50) {
-      if (waited > 30_000) throw new Error("the pane never attached");
-      await Bun.sleep(50);
-    }
+    await until("the pane attached", () => requests.some((request) => request.method === "_acpmux/attach"), 30_000);
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
     // The reread's own later pages: the list after its first page.
     await laterPagesAsked(COUNT / 200 - 1);
-    await page.waitForTimeout(300);
+    await listEnded();
+    await caughtUp(page);
     releaseAttach();
     await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
     await listed(page, COUNT);
-    await page.waitForTimeout(1000);
+    await caughtUp(page);
     expect(laterPages()).toBe(COUNT / 200 - 1);
     await page.close();
   });
@@ -394,10 +461,25 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     });
     release();
     await laterPagesAsked(COUNT / 200 - 1);
-    await page.waitForTimeout(800);
+    await listEnded();
+    await caughtUp(page);
     const ids: string[] = (await state(page)).sessions.map((session: { sessionId: string }) => session.sessionId);
     expect(ids[0]).toBe(MOVED);
     expect(ids.length).toBe(COUNT);
+    await page.close();
+  });
+
+  test("a whole list too large for one reply is read on from its cursor before a linked chat is judged", async () => {
+    faults.boundedWhole = 500;
+    const page = await open(LATE);
+    await page.getByText(`Open ${LATE}`, { exact: true }).waitFor({ timeout: 60_000 });
+    const opened = await state(page);
+    expect(opened.sessionId).toBe(LATE);
+    expect(opened.missingSession).toBeNull();
+    await listed(page, COUNT);
+    // The rest of the whole list came by `_acpmux/sessions` from its cursor, with no `limit`.
+    const rest = requests.filter((r) => r.method === "_acpmux/sessions" && r.params.limit === undefined);
+    expect(rest.map((r) => r.params.cursor)).toEqual(["o500", "o1000"]);
     await page.close();
   });
 

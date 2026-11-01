@@ -177,6 +177,11 @@ pub struct Pairing {
     /// This Mac's long-lived identity key (the app keeps it in the Keychain and
     /// sends it over stdin): proves the Mac to a phone that pinned it.
     pub identity: watch::Receiver<Option<MacIdentity>>,
+    /// Paired phones' push keys (`push_keys.rs`), sent with `auth`.
+    pub push_keys: Arc<crate::push_keys::PushKeys>,
+    /// Notification replies already applied, over a link or from the mailbox
+    /// (`mailbox.rs`): a reply that came both ways is applied once.
+    pub spent_replies: Arc<crate::mailbox::SpentReplies>,
 }
 
 impl Pairing {
@@ -193,7 +198,21 @@ impl Pairing {
             registration: None,
             spent_answers: Arc::default(),
             identity: watch::channel(None).1,
+            push_keys: Arc::new(crate::push_keys::PushKeys::memory()),
+            spent_replies: Arc::new(crate::mailbox::SpentReplies::memory()),
         }
+    }
+
+    /// With the store of applied notification replies.
+    pub fn with_spent_replies(mut self, spent: Arc<crate::mailbox::SpentReplies>) -> Self {
+        self.spent_replies = spent;
+        self
+    }
+
+    /// With a store for the phones' push keys.
+    pub fn with_push_keys(mut self, push_keys: Arc<crate::push_keys::PushKeys>) -> Self {
+        self.push_keys = push_keys;
+        self
     }
 }
 
@@ -449,6 +468,10 @@ pub fn mac_proof_message(mac: &str, phone: &str, phone_nonce: &str, challenge: &
 pub struct MacIdentity {
     pair: Arc<ring::signature::EcdsaKeyPair>,
     public: String,
+    /// The box key derived from the identity scalar (`seal::box_key`):
+    /// mailbox replies are sealed to it.
+    boxed: Arc<p256::SecretKey>,
+    box_public: String,
 }
 
 impl std::fmt::Debug for MacIdentity {
@@ -471,22 +494,30 @@ impl MacIdentity {
             &ring::rand::SystemRandom::new(),
         )
         .ok()?;
-        Some(Self { pair: Arc::new(pair), public: public_hex.to_owned() })
+        let boxed = crate::seal::box_key(&private)?;
+        let box_public = crate::seal::point_hex(&boxed.public_key());
+        Some(Self { pair: Arc::new(pair), public: public_hex.to_owned(), boxed: Arc::new(boxed), box_public })
     }
 
     /// A fresh key (tests, and a hostd that runs without the app).
     pub fn generate() -> Option<Self> {
-        use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
-        let rng = ring::rand::SystemRandom::new();
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).ok()?;
-        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).ok()?;
-        let public = pair.public_key().as_ref().iter().map(|b| format!("{b:02x}")).collect();
-        Some(Self { pair: Arc::new(pair), public })
+        let secret = crate::seal::random_secret().ok()?;
+        Self::from_raw(&crate::seal::hex(&secret.to_bytes()), &crate::seal::point_hex(&secret.public_key()))
     }
 
     /// The X9.63 public point as lowercase hex.
     pub fn public_key(&self) -> &str {
         &self.public
+    }
+
+    /// The box key's X9.63 point as lowercase hex.
+    pub fn box_public_key(&self) -> &str {
+        &self.box_public
+    }
+
+    /// The box key (opens mailbox replies).
+    pub fn box_secret(&self) -> &p256::SecretKey {
+        &self.boxed
     }
 
     /// Raw `r || s` over `message`, as hex.
@@ -515,6 +546,12 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
         return None;
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
+}
+
+/// A pairing code's pre-approval as the Mac mints it: 16 to 64 base64url characters.
+fn is_pair_token(token: &str) -> bool {
+    (16..=64).contains(&token.len())
+        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 fn new_nonce() -> Result<String, Refused> {
@@ -581,6 +618,13 @@ async fn authenticate(
         send(sender, json!({"ok": true})).await;
         return Ok(());
     };
+    // A push key that does not check out costs only the sealed pushes, never
+    // the pairing (PR B review 7): that phone gets the plain content as before.
+    let push_key =
+        push_key_arg(args, &pairing.mac_device_id, phone, identity_key).unwrap_or_else(|(_, why)| {
+            tracing::warn!(phone, why, "ignoring a push key");
+            None
+        });
     let nonce = new_nonce()?;
     let mut challenge = json!({"challenge": nonce, "mac": pairing.mac_device_id});
     // A phone that pins Macs sends its own nonce: the Mac signs it with its
@@ -596,14 +640,32 @@ async fn authenticate(
             let proof = mac_proof_message(&pairing.mac_device_id, phone, phone_nonce, &nonce);
             challenge["macKey"] = json!(identity.public_key());
             challenge["macSignature"] = json!(identity.sign(&proof));
+            // The box key replies are sealed to, vouched for by the identity key
+            // the phone pins (PROTOCOL.md "Keys at pairing").
+            let statement = crate::seal::box_key_message(&pairing.mac_device_id, identity.box_public_key());
+            challenge["macBoxKey"] = json!(identity.box_public_key());
+            challenge["macBoxSignature"] = json!(identity.sign(&statement));
         }
     }
     send(sender, challenge).await;
-    let signature = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
-        Ok(Some(ChannelEvent::Data(bytes))) => serde_json::from_slice::<Value>(&bytes)
-            .ok()
-            .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
-            .ok_or(("bad_request", "expected {signature}".to_owned()))?,
+    // With the signature, a phone that scanned the Mac's pairing code sends its pre-approval
+    // (`pairToken`), only after this challenge proved the Mac's key. hostd checks nothing but its
+    // shape and forwards it with the request: the app decides, and only for a phone this host
+    // already admitted as the owner's.
+    let (signature, pair_token) = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
+        Ok(Some(ChannelEvent::Data(bytes))) => {
+            let reply = serde_json::from_slice::<Value>(&bytes).ok();
+            let signature = reply
+                .as_ref()
+                .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
+                .ok_or(("bad_request", "expected {signature}".to_owned()))?;
+            let pair_token =
+                reply.as_ref().and_then(|v| v.get("pairToken")).and_then(Value::as_str).map(str::to_owned);
+            if pair_token.as_deref().is_some_and(|token| !is_pair_token(token)) {
+                return Err(("bad_request", "pairToken is 16 to 64 base64url characters".into()));
+            }
+            (signature, pair_token)
+        }
         _ => return Err(("timeout", "no signature".into())),
     };
     let message =
@@ -617,6 +679,7 @@ async fn authenticate(
         if !known {
             return Err(("unpaired", "this device is not paired".into()));
         }
+        pairing.push_keys.remove(phone);
         (pairing.emit)(Event::Unpaired { phone_device_id: phone.to_owned() });
         send(sender, json!({"ok": true})).await;
         return Ok(());
@@ -670,6 +733,7 @@ async fn authenticate(
                     identity_key: identity_key.to_owned(),
                     approval_key: approval_key.to_owned(),
                     registered_at_ms,
+                    pair_token: pair_token.clone(),
                 });
                 send(sender, json!({"pending": true})).await;
             }
@@ -681,12 +745,38 @@ async fn authenticate(
     .await;
     match result {
         Ok(Ok(())) => {
+            if let Some(push_key) = push_key {
+                pairing.push_keys.set(phone, identity_key, &push_key);
+            }
             send(sender, json!({"ok": true})).await;
             Ok(())
         }
         Ok(Err(refused)) => Err(refused),
         Err(_) => Err(("timeout", "nobody answered the Mac's prompt".into())),
     }
+}
+
+/// `pushKey` with `pushKeySignature` from `auth` args: `None` when the phone
+/// sent none; refused when either is malformed or the identity key did not
+/// sign `cmux-mobile-push-key-v1 \0 mac \0 phone \0 pushKey`.
+pub fn push_key_arg(
+    args: &Value,
+    mac: &str,
+    phone: &str,
+    identity_key: &str,
+) -> Result<Option<String>, Refused> {
+    let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+    let (push_key, signature) = (text("pushKey"), text("pushKeySignature"));
+    if push_key.is_empty() && signature.is_empty() {
+        return Ok(None);
+    }
+    if !is_point(push_key) || crate::seal::public_key_hex(push_key).is_err() {
+        return Err(("bad_request", "pushKey must be a 65-byte uncompressed P-256 point as hex".into()));
+    }
+    if !verify(identity_key, &crate::seal::push_key_message(mac, phone, push_key), signature) {
+        return Err(("bad_request", "pushKeySignature does not match the identity key".into()));
+    }
+    Ok(Some(push_key.to_owned()))
 }
 
 async fn send(sender: &ChannelSender, value: Value) {
@@ -741,6 +831,53 @@ mod tests {
             devices: vec![],
             denied: vec![DeniedDevice { id: id.into(), identity_key: key.into() }],
         }
+    }
+
+    #[test]
+    fn a_push_key_counts_only_with_the_identity_keys_signature() {
+        let v: Value = serde_json::from_str(include_str!("../tests/fixtures/seal-vectors.json")).unwrap();
+        let t = |k: &str| v[k].as_str().unwrap().to_owned();
+        let (mac, phone, identity) = (t("mac"), t("phone"), t("phoneIdentityKey"));
+        let args = json!({"pushKey": t("phonePushKey"), "pushKeySignature": t("pushKeySignature")});
+        assert_eq!(push_key_arg(&args, &mac, &phone, &identity).unwrap(), Some(t("phonePushKey")));
+        // None sent: none kept.
+        assert_eq!(push_key_arg(&json!({}), &mac, &phone, &identity).unwrap(), None);
+        // Signed for another Mac or phone, or by another key: refused.
+        assert!(push_key_arg(&args, "other-mac", &phone, &identity).is_err());
+        assert!(push_key_arg(&args, &mac, "other-phone", &identity).is_err());
+        assert!(push_key_arg(&args, &mac, &phone, &t("macIdentityKey")).is_err());
+        // A key without its signature, or not a point: refused.
+        assert!(push_key_arg(&json!({"pushKey": t("phonePushKey")}), &mac, &phone, &identity).is_err());
+        assert!(
+            push_key_arg(
+                &json!({"pushKey": "04", "pushKeySignature": t("pushKeySignature")}),
+                &mac,
+                &phone,
+                &identity
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_bad_push_key_is_refused_by_itself() {
+        // `auth` ignores it (`unwrap_or_else`): the pairing goes on without sealed pushes.
+        let v: Value = serde_json::from_str(include_str!("../tests/fixtures/seal-vectors.json")).unwrap();
+        let t = |k: &str| v[k].as_str().unwrap().to_owned();
+        let bad = json!({"pushKey": "04", "pushKeySignature": t("pushKeySignature")});
+        let kept = push_key_arg(&bad, &t("mac"), &t("phone"), &t("phoneIdentityKey")).unwrap_or(None);
+        assert_eq!(kept, None);
+    }
+
+    #[test]
+    fn the_mac_identity_carries_its_box_key() {
+        let v: Value = serde_json::from_str(include_str!("../tests/fixtures/seal-vectors.json")).unwrap();
+        let t = |k: &str| v[k].as_str().unwrap().to_owned();
+        let identity = MacIdentity::from_raw(&t("macIdentityScalar"), &t("macIdentityKey")).unwrap();
+        assert_eq!(identity.box_public_key(), t("macBoxKey"));
+        let fresh = MacIdentity::generate().unwrap();
+        assert_ne!(fresh.box_public_key(), identity.box_public_key());
+        assert!(verify(fresh.public_key(), b"m", &fresh.sign(b"m").unwrap()));
     }
 
     #[test]

@@ -83,7 +83,19 @@ Builds with different bundle ids (for example DEV and nightly-next, or a tagged 
 separate state. To move live terminals from one to the other, an agent runs this on the
 destination's socket: `session.transfer.peers`, then `session.transfer.pull {source}`. The
 playbook in [classic-to-next.md](classic-to-next.md) has examples. Terminals are recreated at
-the destination. A cmux-next agent chat moves into the destination's acpmux with its history,
+the destination as a new shell in the same folder, and the source terminal (its program and
+scrollback) ends. A cmux-next source reports each terminal's `idle` (true when only its shell
+runs) and `foreground_program`; both are null when it can't tell, and older builds and classic
+leave them out. Move Sessions from Another cmux Build… in the command palette starts terminals
+unchecked, offers only idle ones, and asks again, with no Return default, before it ends any.
+A cmux-next agent chat moves into the destination's acpmux with its history,
 queued prompts and unsent draft (`acpmux transfer`), then opens there; a chat in the middle of a
 reply moves only with `{interrupt: true}`. Builds that share one acpmux (Release and NIGHTLY)
 move only the tab. Classic agent chats resume by session id.
+
+## Hot reload for the web UI
+
+A Debug or NIGHTLY app picks up web UI edits from your own checkout live, with no build or
+relaunch: `scripts/cmux-next/web-overlay.sh server --local`. A NIGHTLY can also follow each merge's
+web UI (Settings > Updates > Web UI Updates > Every Merge). Details and troubleshooting are in
+[hot-reload.md](hot-reload.md).

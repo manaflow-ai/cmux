@@ -134,10 +134,97 @@ fn derive_matches_the_spec_reference_themes() {
     );
 }
 
+/// Every bundled theme's inks and popup surface as Swift derives them
+/// (schemas/theme/theme-ink-vectors.json, which Swift's
+/// `ThemeInkVectorsTests` keeps equal to its output): this port gives the same.
+const INK_VECTORS: &str = include_str!("../../../../../schemas/theme/theme-ink-vectors.json");
+
+#[test]
+fn derive_matches_the_swift_ink_vectors() {
+    let doc = json::parse(INK_VECTORS).expect("theme-ink-vectors.json parses");
+    let lift = doc.get("lift").and_then(Value::as_f64).expect("theme-ink-vectors.json lift");
+    let cases = doc.get("cases").and_then(Value::as_array).expect("theme-ink-vectors.json cases");
+    assert!(cases.len() > 500, "only {} themes", cases.len());
+    let mut errors = Vec::new();
+    for case in cases {
+        let name = case.get("theme").and_then(Value::as_str).unwrap_or("?");
+        let input_of = |key: &str| case.get("input").and_then(|i| i.get(key));
+        let color = |key: &str| input_of(key).and_then(Value::as_str).map(hex);
+        // Only a theme with its own accent lists its palette (the inks read it through AppTheme).
+        let palette = input_of("palette").and_then(Value::as_array).map_or(
+            ThemeInput::GHOSTTY_DEFAULT.palette,
+            |p| {
+                let p: Vec<Rgb> = p.iter().map(|c| hex(c.as_str().unwrap_or_default())).collect();
+                p.try_into().unwrap_or_else(|_| panic!("{name}: 16 palette entries"))
+            },
+        );
+        let input = ThemeInput {
+            background: color("background").unwrap_or_else(|| panic!("{name}: background")),
+            foreground: color("foreground").unwrap_or_else(|| panic!("{name}: foreground")),
+            palette,
+            accent_color: color("accentColor"),
+            ..ThemeInput::GHOSTTY_DEFAULT
+        };
+        let t = ThemeTokens::derive(&input);
+        if case.get("isDark").and_then(Value::as_bool) != Some(t.is_dark) {
+            errors.push(format!("{name}.isDark: derive {}", t.is_dark));
+        }
+        for (key, got) in [
+            ("textPrimary", t.text_primary),
+            ("textSecondary", t.text_secondary),
+            ("textTertiary", t.text_tertiary),
+            ("opaqueOverlayFill", t.opaque_overlay_fill(lift)),
+        ] {
+            let want = case.get(key).and_then(Value::as_str);
+            if want != Some(css(got).as_str()) {
+                errors.push(format!("{name}.{key}: Swift {want:?}, derive {}", css(got)));
+            }
+        }
+    }
+    assert!(
+        errors.is_empty(),
+        "derive differs from schemas/theme/theme-ink-vectors.json in {} values:\n  {}",
+        errors.len(),
+        errors.join("\n  ")
+    );
+}
+
 #[test]
 fn constants_match_the_spec() {
     assert!(Spec::parse(DESIGN_TOKENS).is_ok(), "design-tokens.json theme section parses");
     let spec = spec();
     assert_eq!(spec.minimum_text_contrast, crate::MINIMUM_TEXT_CONTRAST);
     assert_eq!(spec.minimum_mark_contrast, crate::MINIMUM_MARK_CONTRAST);
+}
+
+/// In a see-through window the quieter inks hold their minimums over the tint
+/// on the worst desktop for the theme (Swift `SeeThroughInkTests`), as far as
+/// the primary ink reaches there; an opaque window keeps the spec's inks.
+#[test]
+fn see_through_inks_hold_over_the_worst_desktop() {
+    for (background, foreground) in [(0xFEFFFF, 0x000000), (0x1E1E1E, 0xFFFFFF)] {
+        for opacity in [0.3, 0.6, 0.85] {
+            let input = ThemeInput {
+                background: Rgb::hex(background),
+                foreground: Rgb::hex(foreground),
+                background_opacity: opacity,
+                background_blur: -1,
+                ..ThemeInput::GHOSTTY_DEFAULT
+            };
+            let t = ThemeTokens::derive(&input);
+            let surfaces = crate::tokens::see_through_surfaces(
+                input.background,
+                opacity,
+                t.is_dark,
+                &[t.pressed_fill, t.selection_fill],
+            );
+            for surface in surfaces {
+                let reach = t.text_primary.contrast(surface);
+                let secondary = t.text_secondary.contrast(surface);
+                let tertiary = t.text_tertiary.contrast(surface);
+                assert!(secondary >= crate::MINIMUM_TEXT_CONTRAST.min(reach) - 1e-9, "{opacity}");
+                assert!(tertiary >= crate::MINIMUM_MARK_CONTRAST.min(reach) - 1e-9, "{opacity}");
+            }
+        }
+    }
 }

@@ -60,16 +60,28 @@ public struct DiscoveredMac: Hashable, Sendable {
     public var lastSeenAt: Date?
     /// The team (or `personal-<userId>`) the Mac is registered in.
     public var teamID: String
+    /// Who registered it (the caller: `/v1/me/macs` lists only the caller's own Macs).
+    public var ownerUserID: String?
+    /// The computer it runs on (``MacDevice/machineID``).
+    public var machineID: String?
 
-    public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, teamID: String) {
+    public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, teamID: String,
+                ownerUserID: String? = nil, machineID: String? = nil) {
         self.id = id
         self.name = name
         self.isOnline = isOnline
         self.lastSeenAt = lastSeenAt
         self.teamID = teamID
+        self.ownerUserID = ownerUserID
+        self.machineID = machineID
     }
 
-    var device: MacDevice { MacDevice(id: id, name: name, isOnline: isOnline, lastSeenAt: lastSeenAt) }
+    /// The Mac as the team lists it; what this look does not say (an older Worker's
+    /// missing machine id) is kept from `known`.
+    func device(keeping known: MacDevice?) -> MacDevice {
+        MacDevice(id: id, name: name, isOnline: isOnline, lastSeenAt: lastSeenAt,
+                  ownerUserID: ownerUserID ?? known?.ownerUserID, machineID: machineID ?? known?.machineID)
+    }
 
     /// The Mac in its team: a Mac that moves to another team is a new arrival there.
     public var placement: String { "\(id)\u{0}\(teamID)" }
@@ -89,7 +101,11 @@ extension AppStore {
             let teamID = teams[index].id
             var next = teams[index].macs.filter { mac in byID[mac.id].map { $0.teamID == teamID } ?? true }
             for mac in macs where mac.teamID == teamID {
-                if let at = next.firstIndex(where: { $0.id == mac.id }) { next[at] = mac.device } else { next.append(mac.device) }
+                if let at = next.firstIndex(where: { $0.id == mac.id }) {
+                    next[at] = mac.device(keeping: next[at])
+                } else {
+                    next.append(mac.device(keeping: nil))
+                }
             }
             if next != teams[index].macs { teams[index].macs = next }
         }
@@ -145,6 +161,7 @@ extension AppStore {
         activeTeamID = ""
         workspaces = []
         macLinkStatus = [:]
+        macLinkDiagnostics = [:]
         macData = [:]
         macConnection = [:]
         accountMacCount = nil

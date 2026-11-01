@@ -52,10 +52,41 @@ public actor MacInstallIdentity {
     /// version, so the owner can refuse a too-old app).
     public nonisolated var requestHeaders: [String: String] { InstallAuthClient.headers(clientVersion: clientVersion) }
 
+    /// The `team` claim of an install token (the owner's own token over
+    /// TLS; read for consistency, never trusted as a credential). Nil when
+    /// the token is not a JWT with a team.
+    public nonisolated static func team(ofToken token: String) -> String? {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let team = claims["team"] as? String, !team.isEmpty else { return nil }
+        return team
+    }
+
     /// A valid install token for the signed-in user.
     public func installToken() async throws -> String {
         guard let client else { throw Failure.signedOut }
         return try await client.installToken()
+    }
+
+    /// A fresh token for one backend team, using this install's existing signer and grant.
+    /// The personal client stays bound to its own scope; team refusals never rotate its key.
+    public func installToken(team: String) async throws -> String {
+        guard let client, let stackUser = user else { throw Failure.signedOut }
+        let bound = generation
+        _ = try await client.installToken()
+        guard bound == generation, user == stackUser,
+              let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
+        let scoped = InstallAuthClient(
+            transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
+            deviceName: deviceName, clientVersion: clientVersion, record: record,
+            profile: .mac, team: team, expectedEnvironment: environment)
+        let token = try await scoped.installToken()
+        guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
+        return token
     }
 
     /// The owner refused the current token (401): the next call mints again.

@@ -77,4 +77,17 @@ import Testing
             #expect(field.relativeLuminance >= page.relativeLuminance - 0.02, "light \(style): field darker than the page")
         }
     }
+
+    /// WCAG 1.4.11: on a light theme the field is as pale as the page, so its
+    /// edge is its boundary and meets 3:1 on the page (user 2026-10-25: "chief
+    /// textbox contrast looks bad on light mode").
+    @Test(arguments: cases.filter { $0.name == "light" || $0.name == "solarized-light" })
+    func lightFieldEdgeMeetsNonTextContrast(_ c: Case) {
+        for (style, p) in Self.palettes(c.theme) {
+            let page = Self.over(p.background, c.theme.background)
+            let edge = Self.over(p.composeStroke, page)
+            let r = Self.ratio(edge, page)
+            #expect(r >= HomePalette.minimumEdgeContrast, "\(c.name) \(style): field edge \(r):1 on the page")
+        }
+    }
 }

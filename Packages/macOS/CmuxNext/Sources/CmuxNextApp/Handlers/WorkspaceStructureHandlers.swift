@@ -68,7 +68,7 @@ enum WorkspaceStructureHandlers {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
         var blueprint = WorkspaceBlueprint(workspace)
-        if !browsers || !daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) {
+        if !browsers || !daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue) {
             blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context))
         }
         let windows = context.services.windows
@@ -87,7 +87,7 @@ enum WorkspaceStructureHandlers {
     static func build(_ blueprint: WorkspaceBlueprint, name: String?, slot: WorkspaceSlot?, on daemon: DaemonService, into target: String,
                       label: String, services: AppServices, tracks: Bool = true,
                       done: (@MainActor @Sendable (String?) -> Void)? = nil) -> ActionWork {
-        let withBrowsers = daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
+        let withBrowsers = daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue)
         let blueprint = withBrowsers ? blueprint : blueprint.withoutBrowserTabs(fallbackDirectory: blueprint.firstDirectory)
         let windows = services.windows
         var spawn = WorkspaceSpawn(cwd: firstLeafDirectory(blueprint), name: name)
@@ -97,7 +97,7 @@ enum WorkspaceStructureHandlers {
         } else {
             .webkit
         }
-        let metadata = daemon.supports(DaemonCapabilities.shared.workspaceMetadata)
+        let metadata = daemon.supports(DaemonCapability.workspaceMetadata.rawValue)
         let work = ActionWork { @MainActor in
             do {
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
@@ -145,8 +145,8 @@ enum WorkspaceStructureHandlers {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        guard daemon.supports(DaemonCapabilities.shared.workspaceMetadata) else {
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.workspaceMetadata))
+        guard daemon.supports(DaemonCapability.workspaceMetadata.rawValue) else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.workspaceMetadata.rawValue))
         }
         let resource = daemon.store.stateResourceID(workspace: key)
         daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, icon: update) }
@@ -185,7 +185,7 @@ enum WorkspaceStructureHandlers {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
         let services = context.services, windows = services.windows
-        if newWindow, let reason = TabPromotion.refusal(tab: first.id, services: services) { throw ActionFailure.invalidTarget(reason) }
+        if newWindow, let reason = TabPromotion.refusal(tab: first, services: services) { throw ActionFailure.invalidTarget(reason) }
         let workspace = services.machines.allWorkspaces.map(\.0).first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
         // Read before the await: whether this run may change the view, and where the pane came from.
         let allowed = ActionRunScope.viewChangeAllowed(), origin = windows.moveOrigin(of: workspace?.id)
