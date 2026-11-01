@@ -661,8 +661,8 @@ completionCount += 2;
 await waitForCompletionHookCount(completionCount);
 await handlers.get("agent_settled")({}, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
-await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
-if (await completionHookCount() !== completionCount) throw new Error("shutdown after settlement emitted a duplicate stop");
+await handlers.get("session_shutdown")({ reason: "reload" }, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("reload after settlement emitted a duplicate stop");
 const abortedCtx = {
   cwd: "/tmp/pi-project",
   isIdle() { return true; },
@@ -734,6 +734,21 @@ completionCount += 1;
 if (await completionHookCount() !== completionCount) throw new Error("interrupted shutdown did not emit one stop");
 await handlers.get("agent_settled")({}, interruptedCtx);
 if (await completionHookCount() !== completionCount) throw new Error("late settlement emitted completion after shutdown");
+for (const reason of ["reload", "quit"]) {
+  const shutdownCtx = {
+    ...ctx,
+    sessionManager: { getSessionId() { return `pi-session-idle-${reason}`; } }
+  };
+  await handlers.get("session_start")({}, shutdownCtx);
+  completionCount = await completionHookCount();
+  await handlers.get("session_shutdown")({ reason }, shutdownCtx);
+  if (await completionHookCount() !== completionCount + 1) {
+    throw new Error(`idle ${reason} did not emit exactly one Stop`);
+  }
+  if (await Bun.file(process.env.CMUX_TEST_PI_BINDING_FILE).exists()) {
+    throw new Error(`idle ${reason} did not clear resume binding`);
+  }
+}
 process.env.CMUX_PI_HOOKS_DISABLED = "1";
 const disabledCompletionCount = await completionHookCount();
 const disabledCtx = {
@@ -896,11 +911,30 @@ await waitForCompletionHookCount(completionCount);
             "clear",
             "clear",
             "clear",
+            "clear",
+            "clear",
         ]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension emitted unexpected resume binding operations, got {resume_ops!r}")
             return 1
         payloads = payloads_from_log(stdin_log)
+        for reason in ["reload", "quit"]:
+            shutdown_payloads = [
+                payload
+                for payload in payloads
+                if payload.get("session_id") == f"pi-session-idle-{reason}"
+                and payload.get("hook_event_name") in {"Notification", "Stop"}
+            ]
+            if [payload.get("hook_event_name") for payload in shutdown_payloads] != ["Stop"]:
+                print(f"FAIL: idle {reason} did not emit only one Stop: {shutdown_payloads!r}")
+                return 1
+            stop = shutdown_payloads[0]
+            if stop.get("terminationReason") != reason:
+                print(f"FAIL: idle {reason} lost its termination reason: {stop!r}")
+                return 1
+            if (stop.get("cmux_notification_routed") is True) != (reason == "reload"):
+                print(f"FAIL: idle {reason} has incorrect notification suppression: {stop!r}")
+                return 1
         for session_id in [
             "pi-session-test",
             "pi-session-notification-fails",
