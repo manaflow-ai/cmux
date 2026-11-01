@@ -559,7 +559,10 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     // the last control off its right.
     const floor = m.bar ? m.bar.bottom : m.box.bottom;
     const oneLine = !m.bar && !m.rows.chips && !m.inline;
-    const last = [m.send, m.mic].find((control) => control !== null);
+    // The last control is the rightmost one shown (the mic stands after Send in some layouts).
+    const last = [m.send, m.mic]
+      .filter((control): control is Control => control !== null)
+      .sort((a, b) => b.button.right - a.button.right)[0];
     if (m.plus) {
       const b = m.plus.button;
       const left = b.left - m.box.left;
