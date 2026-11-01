@@ -84,12 +84,14 @@ impl RelaySource {
         let value: serde_json::Value = serde_json::from_str(answer.trim()).map_err(|_| {
             ConnectInfoError::Unavailable("the link credential relay sent invalid JSON".into())
         })?;
-        if value["ok"] == serde_json::Value::Bool(true) {
-            return Ok(value["value"].clone());
+        if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+            return Ok(value.get("value").cloned().unwrap_or(serde_json::Value::Null));
         }
-        let error = &value["error"];
-        let code = error["code"].as_str().unwrap_or("owner.unreachable");
-        let message = error["message"].as_str().unwrap_or("the link credential relay refused");
+        let error = value.get("error");
+        let field =
+            |name: &str| error.and_then(|e| e.get(name)).and_then(serde_json::Value::as_str);
+        let code = field("code").unwrap_or("owner.unreachable");
+        let message = field("message").unwrap_or("the link credential relay refused");
         Err(ConnectInfoError::from_code(code, message))
     }
 }
