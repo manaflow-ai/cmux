@@ -78,7 +78,7 @@ export function RunSheet({ entry, people, strings, place, asked, onClose, onLoad
           </p>
         </header>
         <div className="lg-run-body">
-          {blocks.length === 0 && <p className="lg-run-empty">{running ? t("run.starting") : t("run.empty")}</p>}
+          {steps.length === 0 && <p className="lg-run-empty">{running ? t("run.starting") : t("run.empty")}</p>}
           <RunSteps run={run} steps={steps} agentNames={agentNames} />
           {run.status === "failed" && run.error && (
             <p className="lg-run-error" role="alert">
