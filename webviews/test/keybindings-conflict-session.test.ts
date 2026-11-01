@@ -14,15 +14,19 @@ test("a failed Overwrite removal does not put its refusal on another row's recor
     for (let i = 0; i < 6; i++) await Promise.resolve();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   };
-  await store.reload();
+  await store.start();
   const binding = (title: string) => store.getSnapshot().bindings.find((entry) => entry.title === title)!;
+  const rowRecording = () => {
+    const recording = store.getSnapshot().recording;
+    return recording?.target === "row" ? recording : undefined;
+  };
 
   // Keys Close Tab has: New Tab's recorder asks whether to overwrite.
   await store.changeKeybinding(binding("New Tab"));
   provider.press("cmd+w");
   provider.release();
   await settle();
-  expect(store.getSnapshot().recording?.target === "row" && store.getSnapshot().recording?.prompt).toBeTruthy();
+  expect(rowRecording()?.prompt).toBeDefined();
 
   // Its removal of Close Tab's keys waits, then fails.
   let fail: () => void = () => undefined;
@@ -40,14 +44,12 @@ test("a failed Overwrite removal does not put its refusal on another row's recor
 
   // Meanwhile another row's recorder opens.
   await store.changeKeybinding(binding("Show History"));
-  const other = store.getSnapshot().recording;
-  expect(other?.target === "row" && other.binding.title).toBe("Show History");
+  expect(rowRecording()?.binding.title).toBe("Show History");
 
   fail();
   await overwriting;
   await settle();
-  const after = store.getSnapshot().recording;
-  expect(after?.target === "row" && after.binding.title).toBe("Show History");
-  expect(after?.target === "row" && after.refusal).toBeUndefined();
-  expect(after?.target === "row" && after.warned).toBe(0);
+  expect(rowRecording()?.binding.title).toBe("Show History");
+  expect(rowRecording()?.refusal).toBeUndefined();
+  expect(rowRecording()?.warned).toBe(0);
 });
