@@ -17,19 +17,25 @@ runs, not paid compute jobs. PR #30697 removes the trigger from
 The new `.github/workflows/indexnow-hourly.yml` has a separate GitHub
 workflow identity. It preserves the hourly trigger, production sitemap
 read, `indexnow-notify` concurrency group, and
-`indexnow-state-` cache prefix. A repository admin can disable the old
-workflow identity **after** confirming the replacement works.
+`indexnow-state-` cache prefix. The original `indexnow.yml` stays as an
+**inert manual-only placeholder** until cutover: GitHub may reject
+disable requests after a workflow path is deleted and its registration
+becomes `state: deleted`. An authorized operator disables the original
+workflow ID **after** verifying the replacement.
 
 ## One-time transition (operator)
 
-1. Merge the PR adding `indexnow-hourly.yml` and deleting
-   `indexnow.yml` on `main`. Check the PR's IndexNow unit tests and
-   workflow lint first. The NEXT branch backport (#30697) is
-   independent, and may land before or after this PR.
-2. Confirm the new workflow is present and enabled:
+1. Merge the PR adding `indexnow-hourly.yml` and replacing the
+   original `indexnow.yml` with a manual-only, skipped-job placeholder
+   on `main`. Check the PR's IndexNow unit tests and workflow lint
+   first. The NEXT branch backport (#30697) is independent.
+2. Confirm the new workflow is present and enabled, and the old ID is
+   still registered as `active` (if it is already `deleted`, stop and
+   escalate the registration issue rather than attempting a blind disable):
 
    ```sh
    gh workflow list --all -R manaflow-ai/cmux
+   gh api repos/manaflow-ai/cmux/actions/workflows/315117949 --jq '{id,path,state}'
    ```
 
 3. Manually run the **new** workflow on `main` once:
@@ -59,14 +65,18 @@ workflow identity **after** confirming the replacement works.
 
 ## Failure / rollback
 
-If the replacement fails **before** step 4, leave the old workflow
-enabled and repair the new one. The source from `main` can be restored
-under `indexnow.yml`; its existing schedule is the fallback.
+If the replacement fails **before** step 4, repair the new hourly
+workflow or revert the PR to restore `indexnow.yml`'s hourly schedule.
+The original ID is still enabled, so its old ref event noise remains
+until a safe replacement is live.
 
-If a problem is discovered **after** step 4, first try to repair or
-manually rerun `indexnow-hourly.yml`. A last-resort rollback can
-reenable old workflow 315117949, but that also reopens the
-`deployment_status` flood on historical branches; announce the tradeoff.
+If a problem is discovered **after** step 4, repair or manually rerun
+`indexnow-hourly.yml`. An emergency rollback requires reenabling ID
+315117949 **and restoring its old hourly implementation on `main`**;
+that reopens the `deployment_status` flood on historical branches.
+If old ID remains registered as `deleted` or old-ref event noise
+continues despite `disabled_manually`, collect run IDs and its API
+state and escalate to GitHub Support.
 Preserve the original cache key prefix across a rollback so
 `(URL,lastmod)` pairs are not repeatedly submitted.
 
