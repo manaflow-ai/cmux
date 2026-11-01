@@ -8,9 +8,10 @@
 // and each runs in linear time: a prompt can be a 64k paste of `|` or `[`, tested while drawing.
 
 /// Block syntax at a line start, as Markdown.tsx parses it: after any indent, a quote (`> `), a list
-/// item (`- `, `* `, `+ `, `1. `, `1) `) or a ```` ``` ```` fence; at the line's very start, a
-/// heading (`#` to `######` and a space). `#123` and `#tag` have no space, so they are text.
-const BLOCK = /(?:^|\n)(?:[ \t]*(?:>(?:[ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|```)|#{1,6}[ \t]+\S)/;
+/// item (`- `, `* `, `+ `, `1. `, `1) `, with a number of any length as LIST_RE takes it) or a
+/// ```` ``` ```` fence; at the line's very start, a heading (`#` to `######` and a space). `#123`
+/// and `#tag` have no space, so they are text.
+const BLOCK = /(?:^|\n)(?:[ \t]*(?:>(?:[ \t]|$)|[-*+][ \t]+\S|\d+[.)][ \t]+\S|```)|#{1,6}[ \t]+\S)/;
 
 /// Paired inline syntax, as Markdown.tsx's INLINE_RE reads it: a code span (`` `x` ``), strong
 /// text (`**x**`, no `*` inside and no space just inside its markers) or a link (`[t](url)`, an
@@ -32,6 +33,9 @@ function hasTable(text: string): boolean {
 }
 
 /// True when `text` holds Markdown the bubble should render rather than draw literally.
+/// Line endings are read as Markdown.tsx reads them (`src.replace(/\r\n?/g, "\n")`), so a `\r\n` or
+/// lone `\r` paste gates the same as its `\n` form.
 export function isPromptMarkdown(text: string): boolean {
-  return BLOCK.test(text) || INLINE.test(text) || hasTable(text);
+  const src = text.includes("\r") ? text.replace(/\r\n?/g, "\n") : text;
+  return BLOCK.test(src) || INLINE.test(src) || hasTable(src);
 }
