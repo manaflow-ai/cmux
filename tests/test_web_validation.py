@@ -214,9 +214,33 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("4vcpu", runs_on)
-        # 16 vCPU (memory for the suite at half the 32 vCPU price), failing over to 32.
+        # The GCP fleet has 16 vCPU; one retry may use measured 16/32-vCPU overflow.
+        self.assertIn("github.run_attempt != 2 && 'cmux-fleet-linux-x64'", runs_on)
         self.assertTrue(runs_on.endswith("'blacksmith-16vcpu-ubuntu-2404' }}"), runs_on)
         self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+
+    def test_webview_shards_start_on_fleet_and_bound_paid_retry(self):
+        """Both head and base verdict shards must leave the Blacksmith-only queue."""
+        from test_seed_derived_data import evaluate, github_context
+
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        for name in ("react-apps-check-shard", "react-apps-base-check"):
+            start = workflow.index("  " + name + ":")
+            match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3:])
+            block = workflow[start:] if match is None else workflow[start:start + 3 + match.start()]
+            route = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
+            parallel = re.search(r"^      max-parallel: (.+)$", block, re.MULTILINE).group(1)
+            for overflow in ("", "set"):
+                for attempt in (1, 2, 3, 4):
+                    context = github_context("pull_request", CI_CLOUD_OVERFLOW_SAVED=overflow)
+                    context["github"]["run_attempt"] = str(attempt)
+                    with self.subTest(job=name, attempt=attempt, overflow=overflow):
+                        expected = ("blacksmith-32vcpu-ubuntu-2404" if overflow else
+                                    "blacksmith-16vcpu-ubuntu-2404") if attempt == 2 else "cmux-fleet-linux-x64"
+                        self.assertEqual(evaluate(route, context), expected)
+                        self.assertEqual(evaluate(parallel, context), 4 if attempt == 2 else 8)
+                    context["github"]["repository_owner"] = "outside"
+                    self.assertEqual(evaluate(route, context), "ubuntu-24.04")
 
     def test_webviews_tests_shard_on_wide_runners(self):
         """Two 8 vCPU shards each ran about 65 dev-server files two at a time for 12 of
