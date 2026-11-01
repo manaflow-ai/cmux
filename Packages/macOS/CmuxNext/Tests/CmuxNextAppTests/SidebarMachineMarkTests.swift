@@ -148,6 +148,23 @@ import Testing
         }
     }
 
+    /// Leo 2026-10-31: "yeah idk if we even want the cloud icon". A Cloud workspace's row draws like this Mac's, in
+    /// one list and grouped by computer, while VoiceOver still names the machine; an SSH machine keeps its mark.
+    @Test func cloudRowsDrawNoMarkButStillNameTheirMachine() throws {
+        let cloud = SidebarMachine(id: MachineID("cloud-vm"), name: "build-vm", kind: .cloud)
+        let marks = marks([mac, cloud, vm])
+        #expect(marks[cloud.id] == nil, "a Cloud row drew the cloud mark")
+        #expect(marks[vm.id] != nil, "an SSH row lost its mark")
+        let model = SidebarModel(sections: [mac, cloud].map(section))
+        model.groupsByComputer = true
+        #expect(model.listOptions().machines[cloud.id] == nil, "grouped by computer, a Cloud row drew the cloud mark")
+        let o = SidebarModel(sections: [mac, cloud].map(section)).listOptions()
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: cloud.id, title: "w")
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(cloud), options: o))
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        #expect(text.contains("build-vm"), "VoiceOver lost the Cloud machine: \(text)")
+    }
+
     @Test func oneMachineDrawsNoMark() {
         #expect(marks(showsLocalMachine: true, [mac]).isEmpty)
     }

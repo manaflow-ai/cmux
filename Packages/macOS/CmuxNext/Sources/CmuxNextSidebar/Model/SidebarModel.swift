@@ -597,7 +597,9 @@ public final class SidebarModel {
         }
         let listed = sections.compactMap(\.machine)
         if Set(listed.map(\.id)).count > 1 {
-            o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
+            // A Cloud workspace's row looks like this Mac's: no cloud mark before its name (Leo 2026-10-31: "yeah idk
+            // if we even want the cloud icon"). Where it runs stays in its label, hover card and the composer's chip.
+            o.machines = Dictionary(listed.filter { $0.kind != .cloud && ($0.kind != .local || showsLocalMachine) }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
         }
         o.now = Calendar.current.startOfDay(for: Date())
