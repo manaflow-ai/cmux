@@ -56,6 +56,7 @@ await requireBrowserLane("transcript-live-line-continuous-browser.test.ts", asyn
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showLiveRows" in window);
+    await page.evaluate(() => (window as unknown as { __loadStrings(): Promise<void> }).__loadStrings());
 
     const trace = await page.evaluate(
       () =>

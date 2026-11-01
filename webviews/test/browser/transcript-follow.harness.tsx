@@ -178,6 +178,12 @@ const draw = () =>
   shown = rows;
   draw();
 };
+// The pane's English strings, for a test that reads the words a row draws (the rest read keys).
+(window as unknown as { __loadStrings: () => Promise<void> }).__loadStrings = async () => {
+  globalThis.__cmuxPaneStrings ??= (await import("../../src/agent-session/acpmux/generated/strings.json")).default;
+  const { setPaneLanguage } = await import("../../src/agent-session/acpmux/i18n");
+  setPaneLanguage("en");
+};
 (window as unknown as { __showLiveRows: (rows: AcpmuxRow[]) => void }).__showLiveRows = (rows) => {
   rawRows = false;
   live = true;
