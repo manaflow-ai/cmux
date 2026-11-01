@@ -7,9 +7,9 @@
 // oddities where the gap between recent text and composer is bigger than the desired gap ... so
 // there's no shift on load and it's just a load".
 //
-// The gap is REST_GAP (model.ts) in every state the reader sees the chat's end in: at rest, while a
+// The gap is REST_GAP (model.ts, 56px) in every state the reader sees the chat's end in: at rest, while a
 // reply streams, after the composer grows two lines, with the running tray shown, and on every
-// painted frame of a chat's load. Before: 16px (the last row's turn gap alone), and a load painted
+// painted frame of a chat's load. Before: 20px (the last row's turn gap alone), and a load painted
 // frames with another gap before it settled.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
@@ -88,15 +88,48 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
   }
   const opened = events.length;
 
-  function answer(method: string): unknown {
+  // A second chat, still running, as Leo's was when he saw the load shift: a rich write-up (headings,
+  // code, tables: each laid out at its own height as it mounts, over its estimate) and a subagent
+  // running, so the tray is in the bottom stack as the chat opens.
+  const BUSY = "0190a000-0000-7000-8000-0000000000d5";
+  const BUSY_LAST = "Busy ending marker.";
+  type Step = [dir: string, kind: string, msg: Record<string, unknown>];
+  const busySteps: Step[] = [
+    ["mux", "user_message", { text: "Write up the retry policy", promptId: "b-0" }],
+    ["mux", "turn_started", {}],
+    ...Array.from({ length: 8 }, (_, index): Step => [
+      "in",
+      "agent_message_chunk",
+      chunk(
+        `## Part ${index + 1}\n\nEach retry waits longer than the last and adds jitter.\n\n` +
+          `\`\`\`ts\nconst delay${index} = base * 2 ** attempt + jitter();\nawait sleep(delay${index});\n\`\`\`\n\n` +
+          "| attempt | delay |\n| --- | --- |\n| 1 | 200 ms |\n| 2 | 400 ms |\n\n- waits longer\n- adds jitter\n\n",
+      ),
+    ]),
+    ["in", "agent_message_chunk", chunk(BUSY_LAST)],
+    [
+      "in",
+      "subagent_spawned",
+      update(
+        { sessionUpdate: "subagent_spawned" },
+        { subagents: [{ id: "busy-a1", parent: null, name: "Reviewer", state: "running" }] },
+      ),
+    ],
+  ];
+  const busy = busySteps.map(([dir, kind, msg], index) => ({ sessionId: BUSY, seq: index + 1, at: Date.now(), dir, kind, msg }));
+  const busySummary = () => ({ ...summary(), sessionId: BUSY, title: "Retry write-up", status: "running", turnCount: 1 });
+
+  function answer(method: string, params: { sessionId?: string }): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [summary()] };
+        return { sessions: [summary(), busySummary()] };
       case "_acpmux/attach":
+        if (params.sessionId === BUSY) return { session: busySummary(), lastSeq: busy.length, events: busy };
         return { session: summary(), lastSeq: opened, events: events.slice(0, opened) };
       case "_acpmux/events":
+        if (params.sessionId === BUSY) return { events: [], hasMore: false, lastSeq: busy.length };
         return { events: [], hasMore: false, lastSeq: events.length };
       default:
         return null;
@@ -130,10 +163,12 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
-          if (message.method === "_acpmux/attach") socket = ws;
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: { sessionId?: string } };
+          if (message.method === "_acpmux/attach" && message.params?.sessionId !== BUSY) socket = ws;
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+            );
         },
       },
     });
@@ -167,10 +202,10 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  const url = () => {
+  const url = (session = SESSION) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`;
+    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
 
   /// Installed before the page's own scripts. `__restGap()` reads the gap as laid out now: the stack's
@@ -254,15 +289,15 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
     mutations.observe(document, { childList: true, subtree: true });
   };
 
-  async function open(name: string) {
+  async function open(name: string, session = SESSION, marker = LAST) {
     // Each page attaches to the same history: what an earlier page streamed is not part of it.
     events.length = opened;
     status = "idle";
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(sampler);
-    await page.goto(url());
-    await page.getByText(LAST).waitFor();
+    await page.goto(url(session));
+    await page.getByText(marker).waitFor();
     await page.mouse.move(0, 0);
     await rest(page);
     return page;
@@ -304,35 +339,40 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
     const page = await open(name);
     const settled = await gap(page);
     const taken = await frames(page);
-    console.log(
-      `${name} last row: ` +
-        (await page.evaluate(() => {
-          const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row")];
-          const last = rows.reduce((a, b) =>
-            Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
-          );
-          const dock = document.querySelector(".acpmux-dock")!.getBoundingClientRect();
-          const describe = (node: Element, depth: number): string =>
-            depth > 3
-              ? ""
-              : `${"  ".repeat(depth)}${node.localName}.${[...node.classList].join(".")} ${node.getBoundingClientRect().top.toFixed(1)}-${node.getBoundingClientRect().bottom.toFixed(1)}\n` +
-                [...node.children].map((child) => describe(child, depth + 1)).join("");
-          return `dock ${dock.top.toFixed(1)}\n${describe(last, 0)}`;
-        })),
-    );
-    console.log(`${name} load: settled ${settled}px over ${taken.length} frames; first ${taken.slice(0, 6).map((f) => f.gap).join(", ")}`);
+    const shifted = off(taken, settled!);
+    console.log(`${name} load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`);
     expect(taken.length).toBeGreaterThan(0);
     expect(settled).toBeCloseTo(REST_GAP, 0);
-    expect(off(taken, settled!)).toEqual([]);
+    expect(shifted).toEqual([]);
     await page.close();
   });
+
+  test.each(engines.map(([name]) => name))(
+    "%s: a running chat with rich history and the tray loads with the rest gap on every painted frame",
+    async (name) => {
+      const page = await open(name, BUSY, BUSY_LAST);
+      await page.locator(".acpmux-running-tray").waitFor({ timeout: 20_000 });
+      await rest(page);
+      const settled = await gap(page);
+      const taken = await frames(page);
+      const shifted = off(taken, settled!);
+      console.log(`${name} busy load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`);
+      expect(taken.length).toBeGreaterThan(0);
+      expect(settled).toBeCloseTo(REST_GAP, 0);
+      expect(shifted).toEqual([]);
+      await page.close();
+    },
+  );
 
   test.each(engines.map(([name]) => name))(
     "%s: the rest gap holds while a reply streams, with the tray shown, and after the composer grows",
     async (name) => {
       const page = await open(name);
+      // Every state is read before any is asserted, so one run shows them all.
+      const seen: Record<string, number | undefined> = {};
+      const shifts: Record<string, string[]> = {};
       // (a) At rest.
-      expect(await gap(page)).toBeCloseTo(REST_GAP, 0);
+      seen.rest = await gap(page);
       await frames(page);
 
       // (b) A reply streams, followed: every frame from its first row keeps the gap.
@@ -352,8 +392,8 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       await rest(page);
       const streamed = await frames(page);
       console.log(`${name} streaming: ${streamed.length} frames, gaps ${[...new Set(streamed.map((f) => f.gap))].join(", ")}`);
-      expect(await gap(page)).toBeCloseTo(REST_GAP, 0);
-      expect(off(streamed, REST_GAP)).toEqual([]);
+      seen.streaming = await gap(page);
+      shifts.streaming = off(streamed, REST_GAP);
 
       // (d) The running tray comes into the stack over the composer: the rows keep the gap above it.
       emit(
@@ -371,9 +411,9 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const card = await page.evaluate(() => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().top);
       expect(trayTop).toBeLessThan(card);
       console.log(`${name} tray: ${trayed.length} frames, gaps ${[...new Set(trayed.map((f) => f.gap))].join(", ")}`);
-      expect(await gap(page)).toBeCloseTo(REST_GAP, 0);
+      seen.tray = await gap(page);
       // The frame the tray first draws in places the rows above it in that same frame.
-      expect(off(trayed, REST_GAP)).toEqual([]);
+      shifts.tray = off(trayed, REST_GAP);
 
       // (c) The composer grows two lines: the rows keep the gap above the taller stack.
       await page.locator(".acpmux-md").click();
@@ -385,13 +425,17 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       await rest(page);
       const grown = await frames(page);
       console.log(`${name} grown: ${grown.length} frames, gaps ${[...new Set(grown.map((f) => f.gap))].join(", ")}`);
-      expect(await gap(page)).toBeCloseTo(REST_GAP, 0);
-      expect(off(grown, REST_GAP)).toEqual([]);
+      seen.grown = await gap(page);
+      shifts.grown = off(grown, REST_GAP);
 
       emit("mux", "turn_result", { status: "completed" });
       status = "idle";
       changed();
       await page.close();
+      console.log(`${name} states: ${JSON.stringify(seen)} shifts: ${JSON.stringify(shifts)}`);
+      // (a) at rest, (b) streaming, (d) with the tray, (c) after the composer grew two lines.
+      for (const state of ["rest", "streaming", "tray", "grown"]) expect([state, Math.round(seen[state] ?? NaN)]).toEqual([state, REST_GAP]);
+      for (const state of ["streaming", "tray", "grown"]) expect([state, shifts[state]]).toEqual([state, []]);
     },
   );
 });

@@ -230,9 +230,10 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // footer's line to the next prompt.
     expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(12);
     expect(measured.footerToNextPrompt).toBeLessThanOrEqual(20);
-    // The last footer rests the rest gap over the floating composer (model.ts REST_GAP, about two
-    // body lines, as Codex leaves; agent-pane-composer-rest-gap.test.ts holds it in every state).
-    expect(Math.abs(measured.lastFooterToComposer - REST_GAP)).toBeLessThanOrEqual(1);
+    // The last footer's ink rests the rest gap over the floating composer (model.ts REST_GAP, as
+    // Codex leaves; agent-pane-composer-rest-gap.test.ts holds it in every state). Its 24px line
+    // keeps 4px of that under its icons.
+    expect(Math.abs(measured.lastFooterToComposer - (REST_GAP - 4))).toBeLessThanOrEqual(1);
     await page.close();
   });
 });

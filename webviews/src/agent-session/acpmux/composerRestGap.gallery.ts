@@ -2,9 +2,9 @@
 // The rest gap between the chat's newest row and the bottom stack (Leo, 2026-11-01: "in the next
 // build, will we have more space between composer and latest messages? i'd like it... tho maybe not
 // as much as claude code"). Three values side by side, the chat opened at its latest message: the
-// last answer's footer, then the gap, then the composer. 48px (REST_GAP, model.ts) is the one that
-// shipped: about two body lines under the footer, as Codex leaves under its action row; Claude Code
-// leaves about four and a half.
+// last answer's footer, then the gap, then the composer. 56px (REST_GAP, model.ts) is the one that
+// shipped: about two and a half body lines under the footer, as Codex leaves under its action row;
+// Claude Code leaves about four and a half (about 98px at our line height).
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../gallery/play";
@@ -59,8 +59,8 @@ export default agentPaneEntry({
   widths: { narrow: 420, normal: 760, wide: 1100 },
   covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
   variants: {
-    "gap-32": variant(32, "32px: about a line and a half under the footer. Tighter than Codex."),
-    "gap-48": variant(48, "48px, shipped: about two lines under the footer, as Codex leaves under its action row."),
-    "gap-64": variant(64, "64px: nearly three lines. Closer to Claude Code, which Leo found too big."),
+    "gap-40": variant(40, "40px: under two body lines. Tighter than Codex."),
+    "gap-56": variant(56, "56px, shipped: about two and a half body lines, as Codex leaves under its action row."),
+    "gap-72": variant(72, "72px: over three lines. Toward Claude Code, which Leo found too big."),
   },
 });
