@@ -229,7 +229,9 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   return {
     text: text.trim(),
     steps: Math.max(0, steps - 1),
-    usage: { input: usage.inputTokens ?? 0, output: usage.outputTokens ?? 0, cacheRead: usage.cachedInputTokens ?? 0, cost: 0 },
+    // Codex's inputTokens includes the cached ones (codex-rs TokenUsage::non_cached_input);
+    // `input` here is the uncached part, as the Claude SDK reports it.
+    usage: { input: Math.max(0, (usage.inputTokens ?? 0) - (usage.cachedInputTokens ?? 0)), output: usage.outputTokens ?? 0, cacheRead: usage.cachedInputTokens ?? 0, cost: 0 },
     shell,
     error,
   };

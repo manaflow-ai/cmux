@@ -1,10 +1,16 @@
 public import Foundation
 
-/// The pane host of a tab whose record names this Mac: a session the Chief host started in its
-/// home's acpmux (`mux.parent` = `optchat-chief:<home id>` in that one daemon's listing) attaches
-/// there; any other session, and a new chat, attaches to this Mac's acpmux. Subagent tabs made
-/// before the `chief:<home id>` host existed record this Mac's host; this keeps them working
-/// with no record rewrite and no search of other daemons.
+/// The pane host of a tab whose record names this Mac or this app's Chief home: a session the
+/// Chief home's acpmux runs attaches there; any other session, and a new chat, attaches to this
+/// Mac's acpmux. Subagent tabs made before the `chief:<home id>` host existed record this Mac's
+/// host; this keeps them working with no record rewrite.
+///
+/// The Chief home's daemon is asked for the session itself (an exact `_acpmux/resolve`), never for
+/// a tag: it runs more than the home's own Chief's subagents (#27934). A named Chief of the home
+/// (`<home>/c/<id>`, `OPTCHAT_ACPMUX_SHARED`) runs its subagents there tagged with its own
+/// `optchat-chief:<named id>`, a subagent's `acpmux new` chat there has no `mux.parent`, and the
+/// Chief's spawn tool opens their workspaces with no host, so the tab records this Mac's. A tag
+/// check sent each of those to this Mac's acpmux, which lacks the chat ("Can't find this chat").
 public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     private let local: any AgentPaneHostProviding
     private let chief: any AgentPaneHostProviding
@@ -17,24 +23,34 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         self.chiefOwns = chiefOwns
     }
 
-    /// Asks the Chief home's acpmux (`environment`) whether it runs `session` for `parentTag`.
-    /// When that daemon does not answer (stopped, starting, or slower than the deadline), a
-    /// session it keeps on disk under `sessionsHome` (`<ACPMUX_HOME>/sessions/<id>`) is still
-    /// its own: the tab attaches there, never to a daemon that lacks the chat (which says
-    /// "This chat isn't available").
+    /// Asks the Chief home's acpmux (`environment`) whether it runs `session` itself (not a peer's
+    /// row it mirrors). When that daemon does not answer (stopped, starting, or slower than the
+    /// deadline) or does not have it loaded, a session it keeps on disk under `sessionsHome`
+    /// (`<ACPMUX_HOME>/sessions/<id>`) is still its own: the tab attaches there, never to a daemon
+    /// that lacks the chat (which says "This chat isn't available").
     ///
     /// - Parameter sessionsHome: the Chief home's `ACPMUX_HOME`; defaults to `environment`'s.
     public init(local: any AgentPaneHostProviding, chief: any AgentPaneHostProviding,
-                chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTag: String) {
+                chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil) {
         let socket = environment?.socketPath
         let kept = sessionsHome ?? environment?.home
         self.init(local: local, chief: chief) { session in
             if let socket, FileManager.default.fileExists(atPath: socket),
-               let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
-                return Self.owns(listing.value, session: session, parentTag: parentTag)
+               await Self.runs(session, socketPath: socket) {
+                return true
             }
             return Self.keeps(session: session, home: kept)
         }
+    }
+
+    /// Whether the daemon on `socketPath` runs `session` itself: its exact resolve names it, and not
+    /// as a peer's row (resolve also reads the rows it mirrors from its peers). False when it has no
+    /// such session or does not answer.
+    static func runs(_ session: String, socketPath: String) async -> Bool {
+        guard !session.isEmpty,
+              let found = try? await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: session, deadline: .seconds(2))
+        else { return false }
+        return (found["peer"] as? String)?.isEmpty != false
     }
 
     /// Whether acpmux home `home` keeps session `session` on disk (`sessions/<id>`).
@@ -43,14 +59,6 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         var directory: ObjCBool = false
         let path = home.appendingPathComponent("sessions", isDirectory: true).appendingPathComponent(session).path
         return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-    }
-
-    /// Whether `_acpmux/sessions` result `listing` has `session` tagged `mux.parent` = `parentTag`.
-    public static func owns(_ listing: [String: Any], session: String, parentTag: String) -> Bool {
-        let rows = listing["sessions"] as? [[String: Any]] ?? []
-        return rows.contains { row in
-            row["sessionId"] as? String == session && (row["tags"] as? [String: Any])?["mux.parent"] as? String == parentTag
-        }
     }
 
     /// Whichever of the two hosts listens on `socket`: the pane's socket names its daemon.

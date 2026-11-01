@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// one collapsed and loading, one pinned and one nested group beside loose rows, in Soft Blue dark;
 /// written under `group-header-gallery/` with `all.png` side by side, bundled to
 /// `group-header-gallery.tar` for `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AAGroupHeaderDensityGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAGroupHeaderDensityGalleryTests {
     static func sections() -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         func ws(_ id: String, _ title: String, busy: Bool = false) -> SidebarWorkspace {

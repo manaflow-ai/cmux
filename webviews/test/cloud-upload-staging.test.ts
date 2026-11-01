@@ -44,6 +44,20 @@ test("uploads bounded chunks with offsets and finishes the original file", async
   expect(native.calls.some(([method]) => method === "chat.upload")).toBe(false);
 });
 
+test("reports each file's progress after every chunk, for its tile", async () => {
+  const native = host();
+  const reports: [number, number][] = [];
+  const files = [new File(["0123456789"], "a.mov"), new File(["01234567"], "b.mov")];
+  await uploadToMachine(files, native.call, undefined, (index, done) => reports.push([index, done]));
+  expect(reports).toEqual([
+    [0, 0.4],
+    [0, 0.8],
+    [0, 1],
+    [1, 0.5],
+    [1, 1],
+  ]);
+});
+
 test("does not impose a 64 MiB file or request limit and never reads the whole file", async () => {
   const size = 80 * 1024 * 1024;
   const file = new File([], "large.bin");

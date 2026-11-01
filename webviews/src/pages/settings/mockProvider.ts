@@ -317,12 +317,21 @@ export class MockSettingsProvider {
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
-        if (menus) this.setHost({ ...this.host, context_menus: setMockMenuLayout(menus, params.menu as string, (params.layout as MenuLayout | null) ?? null) });
+        if (menus)
+          this.setHost({
+            ...this.host,
+            context_menus: setMockMenuLayout(
+              menus,
+              params.menu as string,
+              (params.layout as MenuLayout | null) ?? null,
+            ),
+          });
         return {};
       },
       "cmux.settings.context_menus.show_item": (params) => {
         const menus = this.host.context_menus;
-        if (menus) this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
+        if (menus)
+          this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
         return {};
       },
       "cmux.settings.voice_input.set": (params) => {

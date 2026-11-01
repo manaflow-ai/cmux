@@ -12,14 +12,14 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "../attachments";
-import type { UploadCancelled, UploadResult } from "../cloudUploads";
+import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 
 export type IntakeOptions = {
   allowImages: boolean;
   /// The host knows a local drop's paths, matched by position. Never used for another machine.
   localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
-  upload?(files: File[], cancelled?: UploadCancelled): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport): Promise<UploadResult>;
   /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
   cancelled?: UploadCancelled;
 };
@@ -35,8 +35,13 @@ export type IntakeEvents = {
   failed?(index: number, error: IntakeError): void;
   /// File `index` is streaming to the session's machine: its tile no longer holds a send.
   uploading?(index: number): void;
+  /// How much of file `index` reached the session's machine, 0 to 1.
+  progress?(index: number, done: number): void;
   /// Image `index`, already a chip, has its original saved at `path` (the agent reads it there).
   original?(index: number, path: string, name: string): void;
+  /// Image `index`, already a chip, could not have its original saved, and why: the chip still
+  /// sends its preview. Never for an original whose chip was sent or removed (`cancelled`).
+  originalFailed?(index: number, error: IntakeError): void;
 };
 
 /// How long the host may take to say where a drop's or paste's files are (`chat.attach.dropped`
@@ -160,9 +165,14 @@ export async function intakeFiles(
         options.cancelled?.subscribe?.(waiting[at]!.index, changed) ?? (() => {}),
     });
     const uploads = waiting.map(({ file }) => file);
-    const sent = await options.upload?.(uploads, cancelled).catch((failure: unknown): UploadResult => ({
-      error: failure instanceof Error ? failure.message : String(failure),
-    }));
+    const sent = await options
+      .upload?.(uploads, cancelled, (at, done) => {
+        const entry = waiting[at];
+        if (entry && sending) events.progress?.(entry.index, done);
+      })
+      .catch((failure: unknown): UploadResult => ({
+        error: failure instanceof Error ? failure.message : String(failure),
+      }));
     sending = false;
     // Each file is its chip (or its image's original) on its own, never after a sibling's preview.
     await Promise.all(
@@ -179,8 +189,12 @@ export async function intakeFiles(
             mimeType: file.type || "application/octet-stream",
             size: file.size,
           });
-        else if (!image && !options.cancelled?.(index))
-          fail(index, sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" });
+        else if (!options.cancelled?.(index)) {
+          const reason: IntakeError =
+            sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" };
+          if (image) events.originalFailed?.(index, reason);
+          else fail(index, reason);
+        }
       }),
     );
   }
