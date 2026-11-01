@@ -450,7 +450,7 @@ export function linkKind(href: string): "github" | "citation" | "file" | "web" {
 
 export const linkIcon = (href: string) => {
   const kind = linkKind(href);
-  if (kind === "github") return <GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />;
+  if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileDoc size={16} className="cv-link__icon" />;
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
@@ -508,7 +508,7 @@ function linkedGithubText(
         <UrlChip
           key={`${key}-${index}`}
           href={reference.href}
-          icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+          icon={<GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />}
         >
           {reference.text}
         </UrlChip>
