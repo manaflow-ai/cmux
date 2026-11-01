@@ -10,6 +10,7 @@ import type { AgentQuestion } from "./question/model";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
+import type { SessionUsageStats } from "./usageStats";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
@@ -458,6 +459,7 @@ export type AcpmuxRow = {
     count: number;
     promptIds: readonly string[];
     fromSession?: string;
+    fromHarness?: string;
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
@@ -717,6 +719,14 @@ export type AcpmuxSnapshot = {
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
+  /// Agent ids whose usage/progress changed in this snapshot. This lets rows subscribe without
+  /// rescanning every agent on a token update.
+  subagentProgress?: Record<
+    string,
+    { agents?: { done: number; started: number; failed?: number; queued?: number }; tokens?: number; toolUses?: number }
+  >;
+  /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
+  subagentStructureVersion?: number;
   sessions: AcpmuxSessionEntry[];
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
@@ -746,6 +756,9 @@ export type AcpmuxSnapshot = {
     /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
     /// the largest.
     contextBreakdown?: AcpmuxContextBreakdown;
+    /// What the session spends (acpmux `usageStats`, usageStats.ts): 24h tokens and cost, its
+    /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
+    usageStats?: SessionUsageStats;
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
@@ -1130,7 +1143,7 @@ const chromeHeight = (row: AcpmuxRow, actions: boolean) =>
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
       (row.author ? AUTHOR_HEIGHT : 0)
-    : // A reply's own action row (MessageActions.tsx ReplyActions): the meta gap, then its line.
+    : // The room a reply keeps under its text (`keepsReplyRoom`): the meta gap, then a meta row's line.
       actions
       ? META_GAP + META_ROW
       : 0;
@@ -1249,6 +1262,22 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// opposite. so let's invert our behaviour"). This replaces the per-reply row of 2026-10-29. The
 /// callers' height plumbing stays until ReplyActions goes in a follow-up.
 export const hasReplyActions = (_row: AcpmuxRow, _next: AcpmuxRow | undefined) => false;
+/// Whether a reply keeps the room its own action row took on 2026-10-30 (its meta gap and 24px line,
+/// then the message gap: 36px under its text) though it draws no row there now. Leo, 2026-11-01, on a
+/// capture of that build: "i like this spacing kinda i prefer it to what we have now tho it's just
+/// minor differences". Every finished reply with text that something follows (a prompt, a steer,
+/// another agent's message, a tool run), as `hasReplyActions` read it then; never the reply over its
+/// turn's footer (the footer is its row), nor one still streaming. Inside an opened "Worked for"
+/// (`settled`) only a reply to the person (`foldedReply`, which kept its action row) keeps it; a short
+/// note there stays quiet. So a turn's end, which marks its earlier replies settled, moves nothing. App.tsx marks the rows `acpmux-row--reply-room` (conversation.css
+/// `--cv-reply-room`); the estimate counts it as the action row's chrome.
+export const keepsReplyRoom = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "assistant" &&
+  next !== undefined &&
+  !isBeforeFooter(row, next) &&
+  row.streaming !== true &&
+  (row.settled !== true || row.foldedReply === true) &&
+  (row.text ?? "").trim().length > 0;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
@@ -1300,7 +1329,8 @@ export const statusEdge = (
   prev: AcpmuxRow | undefined,
 ): StatusEdge | undefined =>
   row.kind === "assistant"
-    ? isStatusRow(next) && !isBeforeFooter(row, next)
+    ? // A reply that keeps its room (`keepsReplyRoom`) ends at that room, whatever follows it.
+      isStatusRow(next) && !isBeforeFooter(row, next) && !keepsReplyRoom(row, next)
       ? hasReplyActions(row, next)
         ? "before-status"
         : "before-status-plain"
@@ -1380,12 +1410,12 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
     next.kind === WORKING ||
     next.kind === THINKING ||
     next.kind === ACTIVITY_LINE);
-/// What the row after a row changes about its height (`beforeFooter`, and a reply's own action row,
-/// `hasReplyActions`), as one key.
+/// What the row after a row changes about its height (`beforeFooter`, and the room a reply keeps,
+/// `keepsReplyRoom`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
   const status = statusEdge(row, next, prev);
   const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);
-  return hasReplyActions(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
+  return keepsReplyRoom(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
 };
 const STATUS_EDGE = "+";
 const ACTIONS_EDGE = "+actions";
@@ -1709,7 +1739,7 @@ function measuredRowHeight(
   lastTurn = false,
   sessionId?: string,
   continuation = false,
-  /// Whether a reply draws its own action row (`hasReplyActions`).
+  /// Whether a reply keeps its action row's room (`keepsReplyRoom`).
   actions = false,
 ): number {
   const finish = (height: number) =>
@@ -1785,11 +1815,13 @@ function measuredRowHeight(
     // an opened message does, its text read from the notice (else its preview).
     const { threads } = row.incoming.notice;
     const line = TOOL_ROW_HEIGHT;
-    const grouped = threads.length > 1 && inboxNoticeLook() === "group";
-    if (grouped && !messageOpened(sessionId, row.id)) return finish(line + LINE_FRAME);
+    // The group's head is a tool row (MessageGroupHead.tsx) on the one-line rows' line.
+    const head = TOOL_ROW_HEIGHT;
+    const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
+    if (grouped && !messageOpened(sessionId, row.id)) return finish(head + LINE_FRAME);
     const { lineHeight } = metrics();
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    let height = (grouped ? line : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
+    let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
       height += line;
       if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) continue;
@@ -2092,7 +2124,7 @@ import { chatColumn, type ChatColumn } from "./chatWidth";
 import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
-import { inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is

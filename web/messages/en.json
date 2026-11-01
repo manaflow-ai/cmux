@@ -3403,6 +3403,7 @@
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
+      "shortcutsBindingsKeymapLink": "Base keymap presets and their switching behavior are documented in the <keymapLink>Base keymap presets</keymapLink> section.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
         "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
@@ -3713,6 +3714,7 @@
       "presetTmux": "Uses Ctrl-B prefix chords for tabs, workspaces, panes, navigation, zoom, and terminal copy mode.",
       "presetsApply": "Selecting a preset in the app applies its shortcuts immediately and shows a toast with an Undo action when bindings change. A CLI run applies the preset without an Undo toast.",
       "presetsPreserve": "Presets change only the shortcuts.bindings entries that some preset sets. Choosing a preset writes its overrides and removes overrides another preset wrote, so switching presets or back to cmux leaves nothing stale. Bindings no preset touches stay as they are, as does a hand-authored value that no preset uses.",
+      "presetsDetection": "Detection is stateless: cmux compares the values in shortcuts.bindings to the preset values. A hand-edited binding that happens to equal a preset value is treated as preset-owned and can be replaced or removed when you switch presets. Each preset supplies one replacement value per action (a single shortcut or a two-step chord); it does not append another shortcut to the action.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
       "noResults": "No shortcuts found",

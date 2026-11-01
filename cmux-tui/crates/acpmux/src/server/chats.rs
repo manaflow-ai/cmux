@@ -58,6 +58,7 @@
 mod offers;
 mod search;
 mod stats;
+mod workspace_purge;
 
 use crate::no_panic::JsonExt;
 use std::path::PathBuf;
@@ -129,6 +130,10 @@ pub(super) async fn route(
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
         return hub.transfer_request(m, &params).await;
+    }
+    // An incognito workspace's chats, ended and deleted (`workspace_purge.rs`): local only.
+    if m == workspace_purge::METHOD {
+        return workspace_purge::handle(hub, conn.origin, &params).await;
     }
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
