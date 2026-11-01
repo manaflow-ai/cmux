@@ -593,6 +593,67 @@ def test_cli_contract_doc_is_docs_only() -> None:
     assert_areas(["docs/cli-contract.md"], macos=False, web=False)
 
 
+def _web_bundle_key():
+    key_spec = importlib.util.spec_from_file_location(
+        "web_bundle_key_for_routing_test", ROOT / "scripts" / "cmux-next" / "web-bundle-key.py"
+    )
+    assert key_spec and key_spec.loader
+    key = importlib.util.module_from_spec(key_spec)
+    key_spec.loader.exec_module(key)
+    return key
+
+
+def test_settings_schema_only_diff_runs_the_web_checks() -> None:
+    # #31238 changed only the settings schema (with Swift and a catalog); the
+    # settings page imports it and gen-strings.mjs reads it, yet every web check
+    # skipped and the webview suite went red on base.
+    path = "schemas/settings/settings-schema.json"
+    assert module.classify_files([path]).web is True
+    assert web_subareas.classify_paths([path], ROOT).react_apps is True
+
+
+def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
+    # Derived, not listed: whatever web-bundle-key.py finds a webviews source
+    # importing (or gen-strings.mjs reading) routes the web area and its
+    # react-apps-check, so a new import is covered without editing the router.
+    key = _web_bundle_key()
+    outside = [
+        path for path in key.git_files(str(ROOT), key.routed_inputs(str(ROOT)))
+        if not path.startswith("webviews/")
+    ]
+    for want in (
+        "schemas/settings/settings-schema.json",
+        "web/data/model-catalog/snapshot.json",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
+    ):
+        assert want in outside, want
+    assert any(path.startswith("release-notes/next/highlights/") for path in outside)
+    unrouted = [
+        path for path in outside
+        if not module.is_web_change(path) or not web_subareas.classify_paths([path], ROOT).react_apps
+    ]
+    assert not unrouted, unrouted
+
+
+def test_swift_and_unread_catalog_edits_do_not_run_the_web_checks() -> None:
+    # The derivation narrows the key's catalog glob to the catalogs a web page
+    # reads, so Swift work and its own strings stay off the web lane.
+    key = _web_bundle_key()
+    read = set(key.gen_strings_catalogs(str(ROOT)) or ())
+    assert "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings" in read
+    unread = [
+        path for path in key.git_files(str(ROOT), [key.CATALOG_GLOB]) if path not in read
+    ]
+    assert unread, "every CmuxNext catalog is read by a web page; pick another unread path"
+    for path in (
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
+        unread[0],
+    ):
+        assert module.classify_files([path]).web is False, path
+        assert web_subareas.classify_paths([path], ROOT).react_apps is False, path
+
+
 def test_changelog_runs_web_validation() -> None:
     assert_areas(["CHANGELOG.md"], macos=True, web=True)
 
