@@ -392,6 +392,20 @@ class MovedState(unittest.TestCase):
         self.assertFalse(rf.restore_moved_state(os.path.join(root, "tui"), os.path.join(root, "tui.fz-orig")))
 
 
+class NotRunFails(unittest.TestCase):
+    """Review FIX at 1d2a5e2b741 R1: a hang or an earlier loss in a not-run iteration is a failure."""
+
+    def test_stall_or_loss_in_not_run_fails(self):
+        reason = "no fz workspace in the daemon topology at the start (None)"
+        self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": [reason]},
+                                            [{"typed": True, "stall": True}]), "fail")
+        self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": ["silent loss: x",
+                                             "the daemon topology could not be read after split"]}, []), "fail")
+        self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": [reason]},
+                                            [{"typed": True, "stall": False}]), "degraded")
+        self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": [reason]}, []), "not run")
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).

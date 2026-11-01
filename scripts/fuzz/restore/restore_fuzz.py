@@ -399,6 +399,22 @@ def may_degrade(rec, errors):
     return rec.get("verdict") == "not run" and only_reason and bool(errors) and not any(e.get("stall") for e in errors)
 
 
+def not_run_outcome(rec, errors):
+    """The final verdict of a not-run iteration: "fail" when it saw a hang (a stalled answer) or any problem besides
+    the not-run reason (a silent loss, a duplicate, an action with no answer); "degraded" for a pure answered
+    refusal (may_degrade); otherwise "not run"."""
+    if rec.get("verdict") != "not run":
+        return rec.get("verdict")
+    if any(e.get("stall") for e in errors):
+        return "fail"
+    reasons = ("no fz workspace in the daemon topology at the start", "the daemon topology could not be read after",
+               "no app process of this build to kill", "no daemon process of this build to kill",
+               "no acpmux process of this build to kill", "no recovery check: no time left in the lease")
+    if any(not p.startswith(reasons) for p in rec.get("problems", [])):
+        return "fail"
+    return "degraded" if may_degrade(rec, errors) else "not run"
+
+
 def kill_counts(records):
     kills = {}
     for r in records:
@@ -1042,6 +1058,10 @@ def iteration(seed, targets, keep=None, label="i"):
             rec_rec = recover_after_space(target, old_daemons)
             state = rec_rec.pop("state")
             rec["recovery"] = rec_rec
+            if str(rec_rec.get("problem", "")).startswith("not checked"):
+                rec["problems"].append("no recovery check: no time left in the lease")
+                rec["verdict"] = "not run"
+                return rec
             if not rec_rec["recovered"]:
                 rec["problems"].append(
                     f"no recovery by itself after the space came back ({rec_rec['problem']}); Restart offered: "
@@ -1255,6 +1275,23 @@ def tree_bytes(path):
     return total
 
 
+def stale_images_present():
+    """Is an fzdisk image mounted in the slot HOME, or a moved .fz-orig state dir left there (read only)?"""
+    if not APP.env.get("HOME"):
+        return False
+    home = APP.env["HOME"].rstrip("/") + "/"
+    out = subprocess.run(["/sbin/mount"], capture_output=True, text=True).stdout
+    if any(re.match(r"^/dev/disk\S+ on (.+) \(hfs", line) and line.split(" on ", 1)[1].startswith(home)
+           and "fz" in line for line in out.splitlines()):
+        return True
+    for root, dirs, _ in os.walk(home):
+        if any(d.endswith(".fz-orig") for d in dirs):
+            return True
+        if root.count(os.sep) - home.count(os.sep) > 8:
+            dirs[:] = []
+    return False
+
+
 def detach_stale_images():
     """Detaches fzdisk images an earlier run of this harness left mounted under this slot's HOME (a run whose
     driver ended before its teardown). Only volumes named fzdisk mounted inside the slot HOME."""
@@ -1363,9 +1400,12 @@ def recover_after_space(target, old_daemons):
     DISK["phase"] = "free"
     say(f"  diskfull: restore failed on a full disk; space freed ({free >> 10} KB), waiting for the build to recover")
     if target == "app":
-        # The relaunch that failed may still run (it never answered): stop every process of the bundle first, so the
-        # recovery relaunch is the only instance on this state dir.
-        stop_build_processes()
+        # The relaunch that failed may still run (it never answered): stop the app's processes first (not the daemon
+        # or acpmux: the person's case is an app restart), so the recovery relaunch is the only app instance.
+        stop_build_processes(exclude=set(APP.daemon_pids()) | set(APP.acpmux_pids()))
+    if time.time() > T0 + opts.max_seconds - SETTLE_BOUND:
+        return {"recovered": False, "state": None, "problem": "not checked: no time left in the lease",
+                "visible_problems": [], "visible_states": {}, "samples": 0, "offers_restart": None}
     sampler = VisibleSampler()
     state, timings, problem = restore(target, freed_at, old_daemons)
     seen, n = sampler.finish(target)
@@ -1374,7 +1414,9 @@ def recover_after_space(target, old_daemons):
     out = {"recovered": problem is None, "state": state, "debug_daemon_last": last if isinstance(last, dict) else None,
            "offers_restart": offered, "after_free_s": timings.get("settled_s"), "problem": problem,
            "visible_problems": seen[:4], "visible_states": getattr(sampler, "seen", {}), "samples": n}
-    if problem is not None:
+    if problem is not None and time.time() > T0 + opts.max_seconds - SETTLE_BOUND - 60:
+        out["restart"] = "not tried: no time left in the lease"
+    elif problem is not None:
         # The person's way out: press Restart cmux-tui (the button's path, as restore-journey's daemon-stop does).
         pressed = rpc("debug.daemon", {"action": "restart"}, timeout=10)
         pressed_at = time.time()
@@ -1505,9 +1547,10 @@ def main():
     signal.signal(signal.SIGTERM, _end_on_signal)
     signal.signal(signal.SIGHUP, _end_on_signal)
     APP = App()
-    if detach_stale_images():
-        # The app's daemon ran on the stale image: stop this build and start it again on the real state dir.
+    if stale_images_present():
+        # The build runs on a stale image: stop it first, then detach and put the state dir back, then start again.
         stop_build_processes()
+        detach_stale_images()
         if not APP.relaunch():
             say("RESTORE-FUZZ SUMMARY seed=none chaos=none iterations=0 judged=0 not_run=0 violations=0 chaos_lost=0 "
                 "harness_invalid=1 (the app did not come back after a stale image was detached)")
@@ -1533,7 +1576,7 @@ def main():
         i = 0
         # An iteration may need: actions, a settle (SETTLE_BOUND), and under diskfull a recovery wait and a Restart
         # wait (2 more SETTLE_BOUNDs) plus the evidence re-read (30 s). Start one only if it can end inside the lease.
-        need = 60 + (3 * SETTLE_BOUND + 3 * 60 + 40 if opts.chaos == "diskfull" else 0)
+        need = 60 + (SETTLE_BOUND + 60 + 40 if opts.chaos == "diskfull" else 0)
         while time.time() < deadline - need and (not opts.iterations or i < opts.iterations):
             dead = [proc.pid for proc in CHAOS_PROCS if proc.poll() is not None]
             if dead:
@@ -1559,12 +1602,14 @@ def main():
                 rec["errors"] = list(ERRORS[:20])
                 rec["errors_untyped"] = sum(1 for e in ERRORS if not e["typed"])
                 # A full disk may refuse work: that is degraded, not "not run", when it refused with an answer.
-                if phase["phase"] == "full" and may_degrade(rec, ERRORS):
-                    rec["verdict"] = "degraded"
+                if phase["phase"] == "full":
+                    rec["verdict"] = not_run_outcome(rec, ERRORS)
                 # Recovery: with the filler removed, the iteration must run (its creates must work again).
                 if phase["phase"] == "free" and rec["verdict"] == "not run":
                     rec["problems"].append("no recovery: with free space again, the iteration could not run")
                     rec["verdict"] = "fail"
+            if rec["verdict"] == "not run" and not phase:
+                rec["verdict"] = "fail" if not_run_outcome(rec, ERRORS) == "fail" else "not run"
             rec["iteration"] = i
             records.append(rec)
             with open(os.path.join(opts.out, "iterations.jsonl"), "a") as f:
