@@ -36,9 +36,11 @@ impl Mux {
                     "cmux-tui: re-attach terminal {} from the holder: {error:#}",
                     terminal.terminal_id
                 );
-                // The holder still runs this shell: keep the row and the shell
-                // for the next start, never end it here.
-                if held {
+                // The holder still runs this shell and its row has not ended
+                // (read again: a re-attach that got as far as a dead surface
+                // records the exit): keep the row and the shell for the next
+                // start, never end it here.
+                if held && self.row_still_live(&terminal.terminal_id) {
                     eprintln!(
                         "cmux-tui: keep holder terminal {} for the next start",
                         terminal.terminal_id
@@ -66,6 +68,19 @@ impl Mux {
     #[cfg(not(unix))]
     fn holder_lists(&self, _: &RegistryTerminal, _: &SurfaceOptions) -> bool {
         false
+    }
+
+    /// Whether `terminal_id`'s row is still running or adopting (a row that
+    /// cannot be read counts as live: the shell is kept, the safe side).
+    fn row_still_live(&self, terminal_id: &str) -> bool {
+        let Ok(registry) = self.workspace_registry.lock() else { return true };
+        match registry.terminal_record(terminal_id) {
+            Ok(Some(row)) => {
+                matches!(row.lifecycle, TerminalLifecycle::Running | TerminalLifecycle::Adopting)
+            }
+            Ok(None) => false,
+            Err(_) => true,
+        }
     }
 
     /// Whether the holder still runs `terminal` (it listed it when this owner
@@ -97,8 +112,8 @@ impl Mux {
         let ended = |id: &[u8; 16]| -> bool {
             let terminal_id = TerminalId::from_bytes(*id).to_hex();
             // No row, or an unreadable one, keeps the shell (the safe side).
-            let row = self.workspace_registry.lock().unwrap().terminal_record(&terminal_id);
-            row.ok().flatten().is_some_and(|row| {
+            let Ok(registry) = self.workspace_registry.lock() else { return false };
+            registry.terminal_record(&terminal_id).ok().flatten().is_some_and(|row| {
                 matches!(row.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
             })
         };

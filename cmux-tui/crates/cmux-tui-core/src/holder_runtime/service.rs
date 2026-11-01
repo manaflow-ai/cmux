@@ -311,7 +311,8 @@ impl HolderService {
         for (id, entry) in unclaimed {
             if !ended(&id) {
                 eprintln!(
-                    "cmux-tui: keep unclaimed holder terminal {} (its row has not ended)",
+                    "cmux-tui: keep unclaimed holder terminal {} (channel {}): its row has not ended",
+                    crate::terminal_host::TerminalId::from_bytes(id).to_hex(),
                     entry.chan
                 );
                 continue;
@@ -363,7 +364,7 @@ impl HolderService {
 
     /// The daemon leaves `chan` running on the holder for its shutdown.
     /// Never connects.
-    pub(super) fn detach(&self, chan: u32) {
+    pub(crate) fn detach(&self, chan: u32) {
         if let Some(link) = self.open_link() {
             let _ = link.detach(chan);
         }
