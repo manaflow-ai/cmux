@@ -35,7 +35,7 @@ nonisolated enum VideoControl {
         guard stat(path, &info) == 0, String(UInt64(bitPattern: Int64(info.st_dev))) == dev, String(info.st_ino) == ino else {
             throw ControlError(code: "not_found", message: "\(path) is not a file on the Mac the cmux app runs on; a chat on another machine reads its videos with that machine's own tools")
         }
-        let times = try (params["times"]?.arrayValue ?? []).map { value in
+        let times: [Double] = try (params["times"]?.arrayValue ?? []).map { value in
             guard let seconds = value.doubleValue, seconds.isFinite, seconds >= 0 else {
                 throw ControlError.invalidParams("video.frames times are seconds, 0 or more")
             }
@@ -44,9 +44,9 @@ nonisolated enum VideoControl {
         guard times.count <= AgentVideoFrames.maximumTimes else {
             throw ControlError.invalidParams("video.frames takes at most \(AgentVideoFrames.maximumTimes) times")
         }
-        let format = try params["format"]?.stringValue.map { raw in
-            guard let format = AgentVideoFrames.Format(rawValue: raw) else { throw ControlError.invalidParams("video.frames format is jpeg or luma") }
-            return format
+        let format: AgentVideoFrames.Format = try params["format"]?.stringValue.map { raw in
+            guard let parsed = AgentVideoFrames.Format(rawValue: raw) else { throw ControlError.invalidParams("video.frames format is jpeg or luma") }
+            return parsed
         } ?? .jpeg
         let side = params["side"]?.intValue ?? 1280
         guard AgentVideoFrames.sides.contains(side) else {
@@ -60,7 +60,7 @@ nonisolated enum VideoControl {
         return .object([
             "durationMs": JSONValue(report.durationMs), "width": JSONValue(report.width), "height": JSONValue(report.height),
             "fps": .number(report.fps), "hasAudio": .bool(report.hasAudio), "dropped": JSONValue(report.dropped),
-            "frames": .array(report.frames.map { .object(["atMs": JSONValue($0.atMs), "data": .string($0.data)]) }),
+            "frames": .array(report.frames.map { frame in JSONValue.object(["atMs": JSONValue(frame.atMs), "data": .string(frame.data)]) }),
         ])
     }
 }

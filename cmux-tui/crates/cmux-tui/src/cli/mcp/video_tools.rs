@@ -266,21 +266,23 @@ struct Sample {
 fn scene_times(samples: &[Sample], count: usize) -> Vec<(u64, f64)> {
     let Some(first) = samples.first() else { return Vec::new() };
     let mut changes = samples
-        .windows(2)
-        .filter(|pair| pair[0].pixels.len() == pair[1].pixels.len() && !pair[1].pixels.is_empty())
-        .map(|pair| {
-            let total: u64 = pair[0]
+        .iter()
+        .zip(samples.iter().skip(1))
+        .filter(|(before, after)| {
+            before.pixels.len() == after.pixels.len() && !after.pixels.is_empty()
+        })
+        .map(|(before, after)| {
+            let total: u64 = before
                 .pixels
                 .iter()
-                .zip(&pair[1].pixels)
+                .zip(&after.pixels)
                 .map(|(a, b)| u64::from(a.abs_diff(*b)))
                 .sum();
-            (pair[1].at_ms, total as f64 / pair[1].pixels.len() as f64)
+            (after.at_ms, total as f64 / after.pixels.len() as f64)
         })
         .filter(|(at, change)| *change >= SCENE_MIN_CHANGE && *at != first.at_ms)
         .collect::<Vec<_>>();
     changes.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
-    changes.dedup_by_key(|(at, _)| *at);
     changes.truncate(count.saturating_sub(1));
     let mut picked = vec![(first.at_ms, 0.0)];
     picked.extend(changes);
