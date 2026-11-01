@@ -104,6 +104,16 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("FAIL:", result.stdout)
 
+    def test_main_hosted_guard_rejects_privileged_or_macos_admission(self) -> None:
+        for before, after in (
+            ("    runs-on: ubuntu-24.04 #", "    runs-on: macos-26 #"),
+            ("    permissions:\n      contents: read", "    permissions:\n      contents: write"),
+        ):
+            with self.subTest(change=after):
+                result = self.run_hosted_guard(admission_change=(before, after))
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL:", result.stdout)
+
     def test_the_label_comes_from_the_linux_pool(self) -> None:
         line = checks_runs_on().rstrip()
         self.assertIn("needs.admit.outputs.runner", line, line.strip())

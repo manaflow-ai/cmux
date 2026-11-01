@@ -47,7 +47,7 @@ jobs:
   # this job, and the App token is not passed to the checks job.
   admit:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission
     permissions:
       contents: read
     outputs:
