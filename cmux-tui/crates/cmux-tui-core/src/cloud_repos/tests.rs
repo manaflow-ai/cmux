@@ -196,3 +196,30 @@ fn cloud_repo_recovery_strips_wire_fields_and_access_denial_names_org() {
     assert_eq!(error["org"], "org");
     assert_eq!(error["install_url"], "https://github.com/install");
 }
+
+#[test]
+fn cloud_repo_remote_gate_never_exports_mac_projects_or_accepts_lookalike_commands() {
+    use crate::server::RemoteGate;
+    let peer =
+        crate::server::RemotePeer { install: "i".into(), user: "u".into(), team: "t".into() };
+    for cmd in [
+        "cloud.repo.add",
+        "cloud.repo.list",
+        "cloud.repo.attached",
+        "cloud.repo.sync",
+        "cloud.repo.wait_github",
+    ] {
+        assert!(
+            crate::server::FsGate.admit(&peer, &json!({"cmd":cmd,"session":"chat"}).to_string())
+        );
+    }
+    for value in [
+        json!({"cmd":"cloud.repo.local"}),
+        json!({"cmd":"cloud.repo.remember"}),
+        json!({"cmd":"cloud.repo.addx"}),
+        json!({"cmd":"cloud.repo.add","protocol":"cmux.protocol/2"}),
+        json!({"cmd":"ping","note":"cloud.repo.add"}),
+    ] {
+        assert!(!crate::server::FsGate.admit(&peer, &value.to_string()));
+    }
+}
