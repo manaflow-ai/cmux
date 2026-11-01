@@ -51,6 +51,15 @@ struct IncognitoSpaceTests {
         #expect(!services.mobile.access.hidesWorkspace(UUID().uuidString.lowercased()))
     }
 
+    /// A new incognito window's workspace is hidden from phones as it is claimed, before the daemon creates it,
+    /// not at the next membership sync: the phone's own daemon connection could list it in between.
+    @Test func phonesHideANewIncognitoWorkspaceFromItsClaim() throws {
+        let services = Self.services()
+        let window = services.windows.newIncognitoWindow()
+        let key = try #require(services.windows.pendingClaims.first { $0.value == window }?.key)
+        #expect(services.mobile.access.hidesWorkspace(key), "a phone could list the incognito workspace while it was created")
+    }
+
     /// The ledger keeps the incognito spaces, so a crashed run's are deleted at the next launch.
     @Test func theLedgerKeepsTheIncognitoSpaces() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "incognito-space-\(UUID().uuidString)")
