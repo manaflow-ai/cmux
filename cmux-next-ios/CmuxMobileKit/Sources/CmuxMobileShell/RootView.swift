@@ -501,6 +501,9 @@ struct ShellView: View {
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
+        .sheet(item: $shell.cloudChats) { item in
+            CloudChatsScreen(shell: shell, attention: item.attention)
+        }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
         }

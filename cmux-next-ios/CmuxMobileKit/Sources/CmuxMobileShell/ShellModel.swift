@@ -8,6 +8,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileTerminal
@@ -97,6 +98,15 @@ final class ShellModel {
     var shareURL: ShareItem?
     /// Connected Devices for the terminal on screen (its title menu).
     var connectedDevices: ConnectedDevicesItem?
+    var cloudChats: CloudChatsPresentation? {
+        didSet { if cloudChats == nil { cloudMacID = nil } }
+    }
+    var cloudMacID: String? { didSet { updateShownMacs() } }
+
+    struct CloudChatsPresentation: Identifiable {
+        let id = UUID()
+        let attention: CloudChatAttention?
+    }
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
@@ -276,6 +286,10 @@ final class ShellModel {
     /// Mac inside it, every Mac on the Workspaces list and the Feed, none on
     /// Home and Settings (their links close after `MacLinkPolicy.idleAfter`).
     func updateShownMacs() {
+        if cloudChats != nil, let cloudMacID {
+            live?.showing(macIDs: [cloudMacID])
+            return
+        }
         guard let live else { return }
         switch tab {
         case .workspaces:
