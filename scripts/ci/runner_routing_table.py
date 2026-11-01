@@ -82,7 +82,11 @@ PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$"
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
 # nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
 # Blacksmith. They have no fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
-NIGHTLY_MINI = re.compile(r"needs\.build-nightly-app\.outputs\.light_mini_runner$")
+NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner)$")
+# nightly.yml's first job (decide) has no job before it to place it: attempt 1 of a nightly-next push asks for
+# glaeda's nightly slot, which only nightly jobs take, and the owned-pool rescue moves it to Blacksmith when no
+# slot takes it (its picker_followup says so).
+NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
 
 
@@ -98,10 +102,13 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
         return "its runs-on is not one expression"
     terms = [term.strip() for term in value_terms(expressions[0])]
     if nightly:
-        mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term)), None)
+        mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term) or NIGHTLY_SLOT.search(term)), None)
         if mini is None:
-            return "it does not read needs.build-nightly-app.outputs.light_mini_runner"
+            return "it does not read needs.build-nightly-app.outputs.light_mini_runner (or the nightly slot)"
         linux = -1
+        if "needs.decide.outputs.early_mini_runner" in runs_on:
+            linux = next((i for i, term in enumerate(terms)
+                          if term.endswith("needs.decide.outputs.early_linux_runner")), None)
     else:
         linux = next((i for i, term in enumerate(terms) if PORTABLE_LINUX.search(term)), None)
         mini = next((i for i, term in enumerate(terms) if PORTABLE_MINI.search(term)), None)

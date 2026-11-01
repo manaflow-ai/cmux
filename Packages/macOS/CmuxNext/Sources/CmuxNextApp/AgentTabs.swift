@@ -159,6 +159,9 @@ final class AgentTabStore {
     /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
     /// then the folders under it), for the same project list; none from an older daemon.
     var remoteMachineFolders: (@MainActor (String) async -> [String])?
+    /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
+    /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
+    var shareMachineWithMe: (@MainActor (String) async -> AgentPaneMachineShare)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
@@ -255,9 +258,10 @@ final class AgentTabStore {
     var moveAgentToMachine: @MainActor (_ tab: String, _ machine: String) -> Bool = { _, _ in false }
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
+    /// `daemons` and `updates` are the app's (`AppServices`); a test's store has its own and updates no other machine.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard, peerApprover: AgentPanePeerApprover? = nil) {
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard,
+         daemons: AcpmuxLocalDaemons = AcpmuxLocalDaemons(), updates: DaemonUpdates? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         (self.defaults, self.peerApprover) = (defaults, peerApprover)
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
@@ -266,16 +270,16 @@ final class AgentTabStore {
         self.openPanel = openPanel
         actionRegistry = registry
         self.linkScheme = linkScheme
-        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, peerApprover: peerApprover)
+        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, daemons: daemons, peerApprover: peerApprover)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection. Then
-        // other machines' daemons get this build, in the background (DaemonUpdatePolicy).
+        // other machines' daemons get this build, in the background (DaemonUpdates).
         Task {
             try? await resolvedHost.prewarm()
-            guard resolvedHost is AcpmuxHost else { return }
+            guard resolvedHost is AcpmuxHost, let updates else { return }
             let installer = RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier))
-            DaemonUpdatePolicy.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
+            updates.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
         }
         #if DEBUG
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
@@ -430,6 +434,10 @@ final class AgentTabStore {
                 let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
+            }
+            model.onShareMachineWithMe = { [weak self] in
+                guard let self, let shareMachineWithMe else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
+                return await shareMachineWithMe(resolveRemote(key))
             }
         }
         guard let view = makeView(model) else {

@@ -503,6 +503,31 @@ fn terminal_cleanup_purges_pending_hook_receipts() {
 }
 
 #[test]
+fn terminal_cleanup_purges_held_child_agents() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let apply = |event: &str, native: Value, sequence: u64| {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            native,
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    };
+    let session = serde_json::json!({"session_id": "native-1"});
+    apply("SessionStart", session.clone(), 1);
+    apply("UserPromptSubmit", session.clone(), 2);
+    apply("SubagentStart", serde_json::json!({"session_id": "native-1", "agent_id": "a"}), 3);
+    apply("Stop", session, 4);
+    assert!(mux.agent_hook_children.lock().unwrap().contains_key(&terminal_id));
+    mux.purge_terminal_side_tables(&terminal_id);
+    assert!(!mux.agent_hook_children.lock().unwrap().contains_key(&terminal_id));
+}
+
+#[test]
 fn raw_socket_report_reaches_the_roster_through_its_journal_echo() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
