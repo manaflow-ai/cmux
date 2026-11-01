@@ -124,4 +124,98 @@ struct CmdNThenNewTerminalTabTests {
             #expect(services.refusalHUD.shownCount == shown, "a refusal showed: \(services.refusalHUD.message ?? "")")
         }
     }
+
+    /// The keys the person types while the Ctrl-` waits for Cmd-N's create belong to the new terminal (coordinator
+    /// 17:2xZ): the window's creation hold opens at the Ctrl-` press, not when the create is sent after the wait, and ends
+    /// because the focus landed on the new terminal. The pass condition is what the person sees: every typed key reaches
+    /// the NEW terminal, in order (its screen shows `echo held` and the shell's answer `held`), and no other terminal gets
+    /// them. Each key goes through the app's own dispatch (`KeyRouter.interceptKeyDown`, then the window, as
+    /// `CmuxApplication.sendEvent` does). On this dogfood line a key typed while the Ctrl-` stand-in terminal had the
+    /// keyboard went to that view (107f5da1ac6, 050651b6e16), which sent it by a terminal id the daemon did not know yet
+    /// (the create waits for Cmd-N's pane): lost. Now they wait in the creation hold, as on feat. How each key went is in the
+    /// failure text, not the pass rule.
+    @Test func keysTypedWhileCtrlBacktickWaitsForCmdNAreHeldForTheNewTerminal() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-ctrlbt-keys")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let pid = try #require(services.daemon.identity?.pid)
+            let store = services.daemon.store
+            let before = Set(store.workspaces.map(\.id))
+            let coordinator = services.keyRouter.creationInputCoordinator
+            // A held key runs again through the same key path as a typed one (the test window is never key).
+            coordinator.replay = { event, window, router in if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) } }
+            // Cmd-N's page hold keeps its keys while the page opens, as a person's does (this page never reports ready).
+            services.keyRouter.newTabInputCoordinator.incomingHoldLimit = .seconds(120)
+
+            #expect(kill(pid, SIGSTOP) == 0)
+            var resumed = false
+            defer { if !resumed { kill(pid, SIGCONT) } }
+            var work = services.registry.capturingWork {
+                _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
+            }
+            let key = try #require(store.workspaces.first { !before.contains($0.id) }?.id, "Cmd-N showed no workspace in its turn")
+            try await PasswordManagerRouteTests.until({
+                services.windows.active?.workspaceContent?.workspace.id == key
+                    && services.windows.active?.workspaceContent?.focusedPane != nil
+            }, within: .seconds(2), report: { "the window does not show Cmd-N's workspace" })
+            let content = try #require(services.windows.active?.workspaceContent)
+            let window = try #require(content.layoutView.window)
+            #expect(try #require(content.focusedPane).pane.handle.rawValue >= ProvisionalPane.firstHandle, "Cmd-N's pane already confirmed")
+            work += services.registry.capturingWork {
+                _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user))
+            }
+            // In the press's turn, with the daemon still stopped: the hold is open; the keys typed now are the new terminal's.
+            #expect(coordinator.isHolding(in: window), "no creation hold right after the Ctrl-`: the keys would go to the New Tab page")
+            let router = services.keyRouter
+            var paths: [String] = []
+            for character in "echo held\r" {
+                let text = String(character)
+                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                          context: nil, characters: text, charactersIgnoringModifiers: text,
+                                                          isARepeat: false, keyCode: text == "\r" ? 36 : 0))
+                // The app's dispatch: the key router first; a key it does not consume goes to the window's first responder.
+                if router.interceptKeyDown(event, in: window) {
+                    paths.append("\(text.debugDescription): consumed (dropped \(coordinator.droppedLastKey), held \(coordinator.heldCount(in: window)))")
+                } else {
+                    paths.append("\(text.debugDescription): to \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "none")")
+                    window.sendEvent(event)
+                }
+            }
+            #expect(kill(pid, SIGCONT) == 0)
+            resumed = true
+
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            #expect(failures.isEmpty, "the person's Cmd-N or Ctrl-` failed: \(failures)")
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, within: .seconds(10),
+                                                      report: { "the creation hold never ended" })
+            #expect(coordinator.lastHoldEnd(in: window) == .focusLanded,
+                    "the hold ended by \(String(describing: coordinator.lastHoldEnd(in: window))), not because the new terminal got the focus")
+            let selected = content.focusedPane?.selectedTab
+            #expect(selected?.kind == .pty && selected.map { !ProvisionalTab.isProvisional(surface: $0.surface) } == true,
+                    "the focused tab after the hold is not the new terminal: \(String(describing: selected?.kind))")
+
+            // What the person sees: the new terminal shows the typed line and the shell ran it (every key, in order).
+            let terminal = try #require(selected.flatMap { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) ? $0.surface : nil },
+                                        "no new terminal to read; key paths: \(paths)")
+            var screen = ""
+            func ran(_ text: String) -> Bool {
+                text.contains("echo held") && text.components(separatedBy: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "held" }
+            }
+            let deadline = ContinuousClock.now + .seconds(30)
+            while !ran(screen), ContinuousClock.now < deadline {
+                screen = (try? await connection.request(ReadScreenRequest(surface: terminal), timeout: .seconds(2)).text) ?? screen
+                if !ran(screen) { try await Task.sleep(for: .milliseconds(100)) }
+            }
+            #expect(ran(screen), "the new terminal did not get the typed line in order; its screen: \(screen.debugDescription); key paths: \(paths)")
+            // No other terminal got the keys (the old workspace's terminal; a key can be in one place only, so the
+            // New Tab page's composer had none of them either once the new terminal shows all ten).
+            for other in store.panesByHandle.values.flatMap(\.tabs) where other.kind == .pty && other.surface != terminal
+                && !ProvisionalTab.isProvisional(surface: other.surface) {
+                let text = (try? await connection.request(ReadScreenRequest(surface: other.surface), timeout: .seconds(2)).text) ?? ""
+                #expect(!text.contains("echo held"), "terminal \(other.surface) also got the typed line: \(text.debugDescription)")
+            }
+        }
+    }
 }

@@ -37,6 +37,7 @@ final class CreationInputCoordinator {
     private var replaying = false
     /// Held keys run again since launch (tests: a key must never be run into a view it was not typed for).
     private(set) var replayedCount = 0
+    var replay: @MainActor (NSEvent, NSWindow, KeyRouter) -> Void = { event, _, _ in NSApp.sendEvent(event) } // held key runs again: the key window; a test (never key) sets its window's (#28436)
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
 
@@ -131,6 +132,7 @@ final class CreationInputCoordinator {
     /// script or agent run without `focus`), which leaves the keys where they are.
     func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
+        defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order
         return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
     }
 
@@ -361,9 +363,8 @@ final class CreationInputCoordinator {
     /// key equivalents and the menu included), which opens its one latency slot. `replaying` keeps it from being captured
     /// again by this hold.
     private func runAgain(_ event: NSEvent, in window: NSWindow, router: KeyRouter) {
-        replaying = true
-        replayedCount += 1
-        router.heldKeys.replay(event, heldBy: .creation, keyWindow: window, throughApplication: true) { $0.application(event) }
+        (replaying, replayedCount) = (true, replayedCount + 1)
+        router.heldKeys.replay(event, heldBy: .creation, keyWindow: window, throughApplication: true) { [replay] _ in replay(event, window, router) }
         replaying = false
     }
 
