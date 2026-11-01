@@ -818,14 +818,17 @@ class PathRoutingStructure(unittest.TestCase):
                     routed_role = "needs.macos-placement.outputs.gui_runner" in expression
                     # A complete PR cascade can precede the unchanged push/display route.
                     # Count owned allocation only in alternatives active for this event.
-                    from test_ci_runs_on_fallback import EXPRESSION, flat_alternatives, conjuncts
+                    from test_ci_runs_on_fallback import EXPRESSION, flat_alternatives, conjuncts, separate_pr_cascade
                     alternatives = flat_alternatives(EXPRESSION.findall(expression)[0])
                     allocated_side = any(
                         "outputs.owned_jobs" in part
                         and (event == "pull_request" or "github.event_name == 'pull_request'" not in conjuncts(part))
                         for part in alternatives
                     )
-                    wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
+                    if event == "pull_request" and any(separate_pr_cascade(part) for part in alternatives):
+                        wanted = "glaeda-side-std-xcode-26.6"
+                    else:
+                        wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
                         self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.

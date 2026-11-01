@@ -1108,14 +1108,14 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(evaluate(jobs[name]["runs-on"], context), STD)
                 self.assertEqual(evaluate(jobs[name]["env"]["CMUX_NEXT_RUNNER"], context), STD)
-        # A placement with no generic route still uses non-display overflow, never the GUI fallback.
+        # Without a current allocation, wait on the owned side pool, never an unbounded paid label.
         overflow = self.context(runner="")
         overflow["needs"][self.PLACEMENT]["outputs"].update(
             runner="", deferred_runner="", owned_jobs="", gui_runner=GUI, session_runner=GUI,
             gui_overflow=FALLBACK, placed_attempt="1")
         overflow["vars"].update(CI_SIDE_LANE_RUNNER="", MACOS_RUNNER_26="")
         for name in GUI_JOBS:
-            self.assertEqual(evaluate(jobs[name]["runs-on"], overflow), FALLBACK, name)
+            self.assertEqual(evaluate(jobs[name]["runs-on"], overflow), SIDE, name)
 
     def test_pr_routes_ignore_missing_stale_or_gui_only_placement(self):
         jobs = self.workflow()["jobs"]
@@ -1137,6 +1137,25 @@ class CmuxNextWiring(unittest.TestCase):
             outside = self.context(runner=STD)
             outside["github"]["repository_owner"] = "outside"
             self.assertEqual(evaluate(jobs[name]["runs-on"], outside), "macos-26")
+
+    def test_pr_stale_reruns_never_use_unallocated_blacksmith_variables(self):
+        jobs = self.workflow()["jobs"]
+        for name in GUI_JOBS:
+            for attempt, actor in (("1", "teamleaderleo"), ("2", "cmux-bot[bot]"),
+                                   ("3", "cmux-bot[bot]"), ("3", "teamleaderleo")):
+                for side in (SIDE, "", "blacksmith-12vcpu-macos-26", GUI):
+                    for placed in ("", "0"):
+                        context = self.context(attempt, triggering_actor=actor)
+                        context["vars"].update(CI_SIDE_LANE_RUNNER=side,
+                                               MACOS_RUNNER_26="blacksmith-12vcpu-macos-26")
+                        context["needs"][self.PLACEMENT]["outputs"].update(
+                            placed_attempt=placed, blacksmith_12_jobs=f" {name} ",
+                            owned_jobs=f" {name} ", runner=GUI,
+                            retry_runner="blacksmith-12vcpu-macos-26",
+                            deferred_runner="blacksmith-12vcpu-macos-26")
+                        for expression in (jobs[name]["runs-on"], jobs[name]["env"]["CMUX_NEXT_RUNNER"]):
+                            with self.subTest(job=name, attempt=attempt, actor=actor, side=side, placed=placed):
+                                self.assertEqual(evaluate(expression, context), SIDE)
 
     def test_pr_tests_take_only_their_allocated_overflow_or_retry_route(self):
         jobs = self.workflow()["jobs"]
