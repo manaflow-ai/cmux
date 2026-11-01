@@ -7,12 +7,10 @@ import CmuxNextFocus
 import Foundation
 import Testing
 
-/// Keys typed into a terminal the person just opened go to it as soon as it has the keyboard, not at the creation's
-/// reply, at the next key or at the hold's 2 s bound (Lawrence's optimized v2.2.3: 30 of 226 terminal keys waited
-/// 250-1600 ms in `CreationInputCoordinator` and were sent again late; on the optimized bench build, keys typed in the
-/// first 500 ms after Ctrl-` waited 1.76 s p50, up to the bound). The new terminal's view sends them to the daemon by
-/// the terminal id its create chose (cx-wb5.78), so nothing waits for the daemon. Chrome routes input to the focused
-/// frame at once and never replays it late.
+/// Keys typed into a new terminal (a split's provisional pane, whose view sends them to the daemon by the terminal id its
+/// create chose, cx-wb5.78) go to it as soon as it has the keyboard: at the focus settle or the next key, not at the
+/// creation's reply and not at the hold's 2 s bound when no settle comes. They never go to another view, and a close of
+/// the new terminal drops them. Chrome routes input to the focused frame at once and never replays it late.
 @MainActor @Suite(.serialized)
 struct EarlyTerminalKeysTests {
     /// One workspace with one pane and one terminal tab.

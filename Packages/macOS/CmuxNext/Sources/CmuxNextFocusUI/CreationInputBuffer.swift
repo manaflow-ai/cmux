@@ -69,12 +69,6 @@ public final class CreationInputBuffer {
     /// creation resolves.
     public var newestEarlyTab: String? { pending.keys.max().flatMap { earlyTabs[$0] } }
 
-    /// Pending creation tab `key` is the daemon's tab `real` now (a Ctrl-` stand-in its daemon tab adopted).
-    public func rekey(tab key: String, to real: String) {
-        for (id, tab) in earlyTabs where tab == key { earlyTabs[id] = real }
-        for (id, tab) in tabs where tab == key { tabs[id] = real }
-    }
-
     /// `awaitsFocus`: the creation asked for focus under its generation; the keys wait until that
     /// expectation landed or was replaced. A failed creation asked for nothing.
     public func resolve(_ ticket: Ticket, awaitsFocus: Bool) {

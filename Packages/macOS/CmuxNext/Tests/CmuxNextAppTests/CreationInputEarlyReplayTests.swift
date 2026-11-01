@@ -34,21 +34,21 @@ struct CreationInputEarlyReplayTests {
         return NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
     }
 
-    /// Ctrl-` then Ctrl-2 onto a tab with no surface yet, then a letter, all held before the stand-in had the keyboard.
-    /// When the stand-in takes the keyboard, Ctrl-2 runs first and moves the keyboard to tab 2 (its surface hold reuses
+    /// Cmd-D then Ctrl-2 onto a tab with no surface yet, then a letter, all held before the split's new terminal had the
+    /// keyboard. When it takes the keyboard, Ctrl-2 runs first and moves the keyboard to tab 2 (its surface hold reuses
     /// this buffer and opens no creation): the letter and the key being judged keep waiting for tab 2, never run into
-    /// the parked stand-in or the window.
+    /// the split's terminal or the window.
     @Test func earlyDeliveryStopsWhenAReplayedKeyMovesTheKeyboard() {
         let window = Self.window()
-        let host = Host(focus: CreationInputFocus(shell: window, inContent: true, terminalTab: "standin", takesKeys: false))
+        let host = Host(focus: CreationInputFocus(shell: window, inContent: true, terminalTab: "split", takesKeys: false))
         let coordinator = CreationInputCoordinator()
         coordinator.host = host
-        _ = coordinator.begin(in: window, generation: 1, earlyTab: "standin", tab: "standin")
+        _ = coordinator.begin(in: window, generation: 1, earlyTab: "split", tab: "split")
         #expect(coordinator.capture(Self.key("2", .control, code: 19, in: window), in: window), "Ctrl-2 was not held")
         #expect(coordinator.capture(Self.key("l", code: 37, in: window), in: window), "the letter was not held")
 
-        // The stand-in has the keyboard; the replayed Ctrl-2 shows tab 2, whose surface is still to come.
-        host.focus = CreationInputFocus(shell: window, inContent: true, terminalTab: "standin", takesKeys: true,
+        // The split's terminal has the keyboard; the replayed Ctrl-2 shows tab 2, whose surface is still to come.
+        host.focus = CreationInputFocus(shell: window, inContent: true, terminalTab: "split", takesKeys: true,
                                         terminalHasKeyboard: true, terminalShown: true)
         host.onReplay = { event in
             guard event.modifierFlags.contains(.control) else { return }

@@ -78,26 +78,4 @@ import Testing
         #expect(!buffer.cancel(tab: "new"))
         #expect(buffer.take().count == 1, "a resolved creation's keys wait for its focus")
     }
-
-    /// A Ctrl-` stand-in its daemon tab adopted: the hold follows the new tab id, so the keys go early to that view and a
-    /// close of it still drops them (every key after the swap waited for the reply).
-    @Test func aHoldFollowsTheStandInToItsDaemonTab() {
-        let buffer = CreationInputBuffer(began: .now)
-        _ = buffer.open(generation: 1, earlyTab: "standin", tab: "standin")
-        buffer.rekey(tab: "standin", to: "daemon")
-        #expect(buffer.newestEarlyTab == "daemon")
-        #expect(buffer.isCreating(tab: "daemon"))
-        #expect(!buffer.isCreating(tab: "standin"))
-    }
-
-    /// A close of a stand-in its daemon tab adopted (by mouse or menu: by the daemon tab's id) drops the keys typed
-    /// for it.
-    @Test func closingAnAdoptedStandInDropsItsKeys() {
-        let buffer = CreationInputBuffer(began: .now)
-        _ = buffer.open(generation: 1, earlyTab: "standin", tab: "standin")
-        buffer.capture(Self.key("a", code: 0))
-        buffer.rekey(tab: "standin", to: "daemon")
-        #expect(buffer.cancel(tab: "daemon"))
-        #expect(buffer.take().isEmpty, "a key typed for the closed terminal waited to run into another view")
-    }
 }

@@ -156,20 +156,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     var answersTerminalQueries: Bool { true }
 
     func write(_ data: Data) async {
-        if let creatingInput, await creatingInput.write(data) {
-            journalSentByID(data.count)
-            return
-        }
+        if let creatingInput, await creatingInput.write(data) { return }
         driver.input(data)
-    }
-
-    /// Bytes sent by terminal id reach the PTY without passing the attachment: the input journal counts them as this
-    /// terminal's input too, under the surface its attachment's observer names (their byte counts judge where keys went).
-    private func journalSentByID(_ count: Int) {
-        guard InputJournal.shared.isEnabled else { return }
-        var record = InputJournalEntry.Attach(surface: String(probeSurface), event: "input", phase: "creating", droppedBytes: 0)
-        record.bytes = count
-        InputJournal.shared.append(window: nil, .attach(record))
     }
 
     /// Focus takes geometry back after another client sized the terminal,

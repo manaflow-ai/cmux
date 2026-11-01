@@ -217,12 +217,6 @@ public final class CreationInputCoordinator {
         return nil
     }
 
-    /// A Ctrl-` stand-in tab `key` became the daemon's tab `real` (its terminal view moved to it): the holds that wait
-    /// for it follow it, so its view still takes the keys early and a close of it still drops them.
-    public func standInAdopted(_ key: String, as real: String) {
-        for buffer in buffers.values { buffer.rekey(tab: key, to: real) }
-    }
-
     /// Whether a pending creation's early view (its terminal, which sends keys to the daemon by the terminal id the
     /// create chose, cx-wb5.78) is the focused terminal and has the keyboard: keys go to it now, not after the reply.
     /// Only that view: the focus names the newest pending creation's early tab, and that terminal has the keyboard.
