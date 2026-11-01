@@ -439,7 +439,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(steps["place"]["env"]["RETRY_RUNNER"], "${{ inputs.pr_retry_runner }}")
         self.assertEqual(steps["place"]["env"]["POOL_QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
         for mint in ("route-token", "route-token-repo"):
-            self.assertEqual(steps[mint]["with"]["permission-actions"], "read", mint)
+            self.assertNotIn("permission-actions", steps[mint]["with"], mint)
         self.assertEqual(spec["permissions"], {"contents": "read", "actions": "read"})
         self.assertEqual(steps["place"]["env"]["GITHUB_TOKEN"], "${{ github.token }}")
 
