@@ -300,6 +300,55 @@ class Main(unittest.TestCase):
         self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"},
                                                     record=None), [])
 
+    def test_unreadable_evidence_keeps_the_dead_marks(self) -> None:
+        # Watch run 41279880300 (2026-11-01 06:12-06:23Z): every App-token read returned 403 (the job
+        # listing, the janitor snapshot, CI_CLOUD_LABEL_HEALTH), the 32 vCPU mark passed DEAD_TTL with no
+        # evidence about it, and RUNNER_POOLS.linux went from 16 back to the stalled 32 vCPU size.
+        # Unknown stays unknown: the mark is kept and the pool stays where it was.
+        marked = runner_pools.iso(NOW - runner_pools.DEAD_TTL - dt.timedelta(minutes=10))
+        pools = runner_pools.load_pools()
+        held = {name: runner_pools.members(spec)[0] for name, spec in pools.items()}
+        held["linux"] = "blacksmith-16vcpu-ubuntu-2404"
+        held["_dead"] = {"blacksmith-32vcpu-ubuntu-2404": marked}
+        held["_updated"] = marked
+
+        class Forbidden(self.Switch):
+            def get_variable(self, name):
+                raise RuntimeError(f"GET /actions/variables/{name} failed (403)")
+
+        class NoSnapshot:
+            def snapshot(self, *, now):
+                raise RuntimeError("GET artifacts failed (403)")
+
+        switch = Forbidden()
+        env = {"RUNNER_POOLS": runner_pools.render(held)}
+        self.assertEqual(runner_pools.main([], env, api=NoSnapshot(), switch=switch, now=NOW), 0)
+        self.assertEqual(switch.writes, [])
+        # The same with health that is only stale (the job's start value from 05:30Z) and no snapshot.
+        stale = health({"blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=NOW - dt.timedelta(minutes=55))
+        switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(stale),
+                              "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"})
+        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(switch.writes, [])
+        # A fresh snapshot is no evidence about a Linux size (it lists only macOS labels): still held.
+        current, _ = runner_pools.parse_value(env["RUNNER_POOLS"], pools)
+        covered = runner_pools.evidence_covers(None, RECORDED, pools, now=NOW)
+        self.assertNotIn("blacksmith-32vcpu-ubuntu-2404", covered)
+        self.assertIn("blacksmith-6vcpu-macos-26", covered)
+        value, lines = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW, covered=covered)
+        self.assertEqual((value["linux"], value["_dead"]), ("blacksmith-16vcpu-ubuntu-2404", held["_dead"]))
+        self.assertTrue(any("kept; no fresh evidence" in line for line in lines))
+        # Fresh probe health that sees 32 vCPU start clears the mark, as before.
+        fresh = health({"blacksmith-16vcpu-ubuntu-2404": "started", "blacksmith-32vcpu-ubuntu-2404": "started"})
+        covered = runner_pools.evidence_covers(fresh, None, pools, now=NOW)
+        value, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW, covered=covered)
+        self.assertEqual((value["linux"], value["_dead"]), ("blacksmith-32vcpu-ubuntu-2404", {}))
+        # Health that lists only other sizes says nothing about 32 vCPU: kept.
+        other = health({"blacksmith-16vcpu-ubuntu-2404": "started"})
+        covered = runner_pools.evidence_covers(other, None, pools, now=NOW)
+        value, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW, covered=covered)
+        self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
+
     def test_an_unreadable_linux_runner_is_not_overwritten(self) -> None:
         class Broken(self.Switch):
             def get_variable(self, name):
