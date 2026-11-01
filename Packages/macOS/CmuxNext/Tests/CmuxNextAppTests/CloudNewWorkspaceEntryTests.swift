@@ -81,6 +81,21 @@ struct CloudNewWorkspaceEntryTests {
         #expect(services.cloud.creations.all.isEmpty)
     }
 
+    @Test(arguments: ["socket", "app", "agent", "terminal"])
+    func attributedUserOriginsKeepTheirRequestedWorkspaceRoute(caller: String) async throws {
+        let services = try await Self.services(settings: #"{"cloud":{"newWorkspacesInCloud":true}}"#)
+        var invocation = ActionInvocation(origin: .user)
+        switch caller {
+        case "socket": invocation.viaControlSocket = true
+        case "app": invocation.callerApp = "app-test"
+        case "agent": invocation.callerAgentSession = "agent-test"
+        default: invocation.callerTerminal = "terminal-test"
+        }
+        let route = CloudHandlers.startNewWorkspaceInCloud(invocation, cwd: nil, window: nil, services)
+        #expect(route == .thisMac(notice: nil), "attribution must not enter the person's Cloud toggle flow")
+        #expect(services.cloud.creations.all.isEmpty)
+    }
+
     /// Cmd-N again while this window's toggle machine is still on its way shows that one again
     /// instead of asking for a second paid machine; once it opened its workspace, a new press makes a new one.
     @Test func aSecondPressWhileTheMachineIsOnItsWayReusesIt() {
