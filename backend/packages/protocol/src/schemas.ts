@@ -1,16 +1,13 @@
 import { Schema } from "effect"
 import { ServerNetworkState } from "./server-network.ts"
 import { isMinLength, isPattern } from "./json-checks.ts"
-
-/** Public prefixed ids (cli.md C7). 20 lowercase hex characters after the prefix. */
-const prefixedId = (prefix: string, identifier: string, description: string) =>
-  Schema.String.check(isPattern(new RegExp(`^${prefix}_[a-z0-9]{20}$`))).annotate({ identifier, description })
+import { GrantId, prefixedId } from "./ids.ts"
+export { GrantId } from "./ids.ts"
 
 export const UserId = prefixedId("user", "UserId", "A cmux user (Stack user id kept as an external id).")
 export const TeamId = prefixedId("team", "TeamId", "A team; a personal account is a team of one.")
 export const DeviceId = prefixedId("dev", "DeviceId", "A device (hardware) that groups installs.")
 export const InstallId = prefixedId("inst", "InstallId", "One app, CLI or daemon install with its own keypair.")
-export const GrantId = prefixedId("grant", "GrantId", "A server-side grant; tokens carry only its id.")
 export const HostId = prefixedId("host", "HostId", "A machine's session host, enrolled by its link.")
 
 export const DisplayName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))
