@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
@@ -488,6 +489,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
     private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
+    /// This Mac's acpmux session lanes: the turn-state watch writes them, readers look a session up by id.
+    let agentLanes = AgentLaneStore.shared
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.
