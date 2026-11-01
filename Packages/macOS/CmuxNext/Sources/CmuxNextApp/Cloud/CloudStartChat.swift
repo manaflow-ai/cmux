@@ -114,8 +114,7 @@ struct CloudStartChat {
                                                        link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
                                                        notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in
                 try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
-                                            local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots,
-                                            acpmuxHome: QuitAgents.environment(services)?.home.path)
+                                            local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots, acpmuxHome: QuitAgents.environment(services)?.home.path)
             } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
             // Timed out or didn't launch: Retry copies again on this machine, into a new folder.

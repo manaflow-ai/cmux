@@ -9,10 +9,11 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
+use super::trust::trusted_at;
 use super::{
     Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
-    origin_url, percent_segment, pin, plan, plan_with, remote_name, too_broad, trusted_at,
-    valid_environment, valid_key, valid_repo, valid_workspace,
+    origin_url, percent_segment, pin, plan, plan_with, remote_name, too_broad, valid_environment,
+    valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";

@@ -29,11 +29,7 @@
 //!   changed since. Answers the chat's folder there, and how it got there:
 //!   `mode` (`seed` or `copy`), `fallback_code`, `fallback_why` and
 //!   `install_url` when a seed copied instead, and `skipped_files`. The push's
-//!   progress lines go to stderr. With `--acpmux-home H` (this Mac's acpmux
-//!   home, the one the App's chats use) it also answers `source_trusted`:
-//!   whether that acpmux answers the chat's folder here trusted
-//!   ([`StartCopy::source_trusted`]), so the App records the same answer for
-//!   the copy on the machine and the person is not asked again there.
+//!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
 //! - `ensure --workspace W --key K --repo OWNER/NAME [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
@@ -56,6 +52,7 @@ mod ledger;
 mod pick;
 #[cfg(test)]
 mod tests;
+mod trust;
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -723,8 +720,7 @@ pub(super) struct StartCopy {
     pub(super) subpath: String,
     /// The machine's folders for copies, in the order they are tried.
     pub(super) work_roots: Vec<String>,
-    /// This Mac's acpmux home (`--acpmux-home`), whose trust record answers
-    /// `source_trusted`; none: never trusted.
+    /// This Mac's acpmux home (`--acpmux-home`) for `source_trusted`; none: never trusted.
     pub(super) acpmux_home: Option<PathBuf>,
 }
 
@@ -742,11 +738,6 @@ impl StartCopy {
         {
             return None;
         }
-        let acpmux_home = match flags.all("--acpmux-home").as_slice() {
-            [] => None,
-            [home] if home.starts_with('/') => Some(PathBuf::from(home)),
-            _ => return None,
-        };
         Some(Self {
             key: flags.key()?,
             account: flags.account()?.to_string(),
@@ -755,27 +746,8 @@ impl StartCopy {
             local: local.to_string(),
             subpath,
             work_roots,
-            acpmux_home,
+            acpmux_home: trust::acpmux_home(flags),
         })
-    }
-
-    /// The chat's folder on this Mac: `local`, or `subpath` in it.
-    pub(super) fn local_chat(&self) -> String {
-        if self.subpath.is_empty() { self.local.clone() } else { join(&self.local, &self.subpath) }
-    }
-
-    /// Whether this Mac's acpmux answers the chat's folder here trusted, as its
-    /// own pane reads it (`acp.trust.get`'s `level`: the person's decision, a
-    /// rule of theirs, or each agent's own level). Only then does the App
-    /// record trust for the copy on the machine (`agent-session-trust`), so a
-    /// send from a folder the person trusts never asks again for its own copy;
-    /// an unknown or untrusted folder, or no acpmux home given, is still asked
-    /// there. Unreadable trust is not trusted.
-    pub(super) fn source_trusted(&self) -> bool {
-        let Some(home) = &self.acpmux_home else { return false };
-        let Some(mut paths) = acpmux::trust::Paths::current() else { return false };
-        paths.record = home.join("trust.json");
-        trusted_at(&paths, &self.local_chat())
     }
 
     /// A new folder for one copy of the send, under its [`Keys::place`].
@@ -809,10 +781,8 @@ impl StartCopy {
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
         let started_at = now_millis();
         let mut answer = self.run_copy(ledger, push);
-        if answer.get("ok").and_then(Value::as_bool) == Some(true)
-            && let Some(object) = answer.as_object_mut()
-        {
-            object.insert("source_trusted".into(), json!(self.source_trusted()));
+        if answer["ok"] == json!(true) {
+            answer["source_trusted"] = json!(self.source_trusted());
         }
         let (state, phase) = if answer.get("ok").and_then(Value::as_bool) == Some(true) {
             (
@@ -917,12 +887,6 @@ impl StartCopy {
         }
         refused(&last.0, last.1)
     }
-}
-
-/// `acp.trust.get`'s `level` for `folder` is `trusted` ([`StartCopy::source_trusted`]).
-pub(super) fn trusted_at(paths: &acpmux::trust::Paths, folder: &str) -> bool {
-    acpmux::trust::get(paths, folder)
-        .is_ok_and(|answer| answer.get("level").and_then(Value::as_str) == Some("trusted"))
 }
 
 /// A copy's hold on its folder while its push runs: an exclusive lock on a
