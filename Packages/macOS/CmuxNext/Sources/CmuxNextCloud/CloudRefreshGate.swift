@@ -3,11 +3,13 @@ import Foundation
 /// Shares overlapping Cloud refresh triggers and keeps one latest follow-up.
 /// CloudService is main-actor isolated, so the gate needs no additional lock.
 @MainActor
-final class CloudRefreshGate {
+public final class CloudRefreshGate {
     private var active: Task<Void, Never>?
     private var followUpRequested = false
 
-    func run(_ operation: @escaping @MainActor () async -> Void) async {
+    public init() {}
+
+    public func run(_ operation: @escaping @MainActor () async -> Void) async {
         if let active {
             followUpRequested = true
             await active.value
