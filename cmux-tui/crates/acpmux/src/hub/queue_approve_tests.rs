@@ -11,7 +11,8 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 /// The owner at this machine: approves under no rule stricter than the prompt's own.
-const OWNER: Approver<'static> = Approver { control: Control::Local, trust_gate: false, device: None };
+const OWNER: Approver<'static> =
+    Approver { control: Control::Local, trust_gate: false, device: None };
 
 /// The first message on `out` that `pred` matches.
 async fn until(out: &mut mpsc::Receiver<String>, pred: impl Fn(&Value) -> bool) -> Value {
@@ -193,7 +194,8 @@ fn a_held_prompt_in_a_later_log_segment_refuses_the_move() {
     let events = dir.join("events");
     std::fs::create_dir_all(&events).unwrap();
     let line = |seq: u64, kind: &str, msg: Value| {
-        let e = EventRecord { seq, at: 1, dir: "mux".into(), kind: kind.into(), msg, host_seq: None };
+        let e =
+            EventRecord { seq, at: 1, dir: "mux".into(), kind: kind.into(), msg, host_seq: None };
         serde_json::to_string(&e).unwrap() + "\n"
     };
     let first = line(1, "created", json!({}));
@@ -204,12 +206,24 @@ fn a_held_prompt_in_a_later_log_segment_refuses_the_move() {
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
-    let refused = hub.held_prompts(&dir).expect_err("a held prompt in segment 2 was let through");
+    let refused =
+        hub.held_prompts(&dir, true).expect_err("a held prompt in segment 2 was let through");
     assert_eq!(refused.data.unwrap()["promptIds"], json!(["g-1"]));
     // Approved at its revision in a third segment, it no longer holds the move.
     let approved = json!({"promptId": "g-1", "turnId": "t-1", "revision": 0, "approvedAt": 2});
     std::fs::write(events.join("000003.ndjson"), line(3, "queue_approved", approved)).unwrap();
-    hub.held_prompts(&dir).expect("an approved prompt holds nothing");
+    // Still waiting for its place, it moves only to a target that lists queue approval: an
+    // older one ignores `queue_approved` (review of #28859).
+    hub.held_prompts(&dir, true)
+        .expect("an approved prompt holds nothing from an approving target");
+    let refused =
+        hub.held_prompts(&dir, false).expect_err("an approved prompt went to an older target");
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "transfer.approved_prompts");
+    assert_eq!(refused.data.unwrap()["promptIds"], json!(["g-1"]));
+    // Once it ran, nothing waits: it moves anywhere.
+    let ran = json!({"promptId": "g-1", "turnId": "t-1"});
+    std::fs::write(events.join("000004.ndjson"), line(4, "turn_started", ran)).unwrap();
+    hub.held_prompts(&dir, false).expect("a prompt that ran holds nothing");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -315,11 +329,15 @@ async fn an_approval_keeps_the_approvers_rules_across_a_restart() {
     let turn = session.queue()[0].turn_id.clone();
     let web = Approver { control: Control::Web, trust_gate: true, device: Some("phone-1") };
     hub.approve_queued(&session, "g-1", &turn, 0, &web).unwrap();
-    let rules = |q: &QueuedPrompt| (q.run.control, q.run.trust_gate, q.run.full_access_device.clone());
+    let rules =
+        |q: &QueuedPrompt| (q.run.control, q.run.trust_gate, q.run.full_access_device.clone());
     assert_eq!(rules(&session.queue()[0]), (Control::Web, true, None));
     let logged = hub.events(&id, 0, 10_000).unwrap();
     let approved = logged.iter().find(|e| e.kind == "queue_approved").expect("logged");
-    assert_eq!((&approved.msg["control"], &approved.msg["trustGate"]), (&json!("web"), &json!(true)));
+    assert_eq!(
+        (&approved.msg["control"], &approved.msg["trustGate"]),
+        (&json!("web"), &json!(true))
+    );
     hub.shutdown_all().await;
     drop((tx, out, session, hub));
 

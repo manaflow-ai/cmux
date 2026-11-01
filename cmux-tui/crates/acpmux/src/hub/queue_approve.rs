@@ -157,9 +157,17 @@ impl Hub {
     /// Validate the immutable exported log, not the live queue: a removal that passed its
     /// moving check before the freeze can finish after export and is absent from the bundle.
     /// An older target must never receive a snapshot with a prompt still awaiting approval.
-    pub(in crate::hub) fn held_prompts(&self, bundle: &Path) -> Result<(), RpcError> {
+    /// One the owner approved that still waits for its place keeps `awaitingOwner` on its
+    /// `queued` record, and only a target that understands `queue_approved` runs it under the
+    /// approved rules: it moves only when `target_approves` (the target is a peer that listed
+    /// [`crate::author::QUEUE_APPROVAL_FEATURE`], `transfer_out.rs`; review of #28859).
+    pub(in crate::hub) fn held_prompts(
+        &self,
+        bundle: &Path,
+        target_approves: bool,
+    ) -> Result<(), RpcError> {
         use std::io::BufRead;
-        let check = || -> anyhow::Result<Vec<String>> {
+        let check = || -> anyhow::Result<(Vec<String>, Vec<String>)> {
             // Every segment, in name order, as import restores them (`copy_bundle_events`).
             let mut segments = Vec::new();
             for entry in std::fs::read_dir(bundle.join("events"))? {
@@ -211,31 +219,41 @@ impl Hub {
                     }
                 }
             }
-            let mut held: Vec<String> = waiting
-                .into_records()
-                .into_iter()
-                .filter(|q| {
-                    q.msg.get("awaitingOwner").and_then(Value::as_bool) == Some(true)
-                        && q.msg.get("turnId").and_then(Value::as_str).is_none_or(|turn| {
-                            q.msg
-                                .get("revision")
-                                .and_then(Value::as_u64)
-                                .is_none_or(|revision| approved.get(turn) != Some(&revision))
-                        })
-                })
-                .filter_map(|q| q.msg.get("promptId").and_then(Value::as_str).map(str::to_owned))
-                .collect();
-            held.sort();
-            held.dedup();
-            Ok(held)
+            // Waiting for the owner, and approved at the revision it waits with.
+            let (mut held, mut approved_waiting) = (Vec::new(), Vec::new());
+            for q in waiting.into_records() {
+                if q.msg.get("awaitingOwner").and_then(Value::as_bool) != Some(true) {
+                    continue;
+                }
+                let Some(id) = q.msg.get("promptId").and_then(Value::as_str) else { continue };
+                let is_approved = q.msg.get("turnId").and_then(Value::as_str).is_some_and(|turn| {
+                    q.msg
+                        .get("revision")
+                        .and_then(Value::as_u64)
+                        .is_some_and(|revision| approved.get(turn) == Some(&revision))
+                });
+                if is_approved { &mut approved_waiting } else { &mut held }.push(id.to_owned());
+            }
+            for ids in [&mut held, &mut approved_waiting] {
+                ids.sort();
+                ids.dedup();
+            }
+            Ok((held, approved_waiting))
         };
-        let held = check()
+        let (held, approved_waiting) = check()
             .map_err(|e| RpcError::internal(format!("transfer: read approval snapshot: {e}")))?;
-        if held.is_empty() {
-            return Ok(());
+        if !held.is_empty() {
+            let msg =
+                "a prompt waits for the chat's owner: approve or decline it, then move the chat";
+            return Err(refused(-32000, "transfer.held_prompts", msg, json!({"promptIds": held})));
         }
-        let msg = "a prompt waits for the chat's owner: approve or decline it, then move the chat";
-        Err(refused(-32000, "transfer.held_prompts", msg, json!({"promptIds": held})))
+        if !approved_waiting.is_empty() && !target_approves {
+            let msg = "an approved prompt still waits for its turn, and the target does not list \
+                       queue approval: let it run (or remove it), then move the chat";
+            let data = json!({"promptIds": approved_waiting});
+            return Err(refused(-32000, "transfer.approved_prompts", msg, data));
+        }
+        Ok(())
     }
 
     /// `queue.not_found` for an answer to a prompt that does not wait for the owner, with how its

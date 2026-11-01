@@ -248,13 +248,19 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("store", "could not durably record transfer_out")));
         }
+        // A prompt the owner approved that still waits moves only to a peer that listed queue
+        // approval at its last handshake (`queue_approve.rs` `held_prompts`): an unnamed target,
+        // or one this daemon does not know lists it, may be an older build.
+        let target_approves = to_host
+            .and_then(|host| self.peer_by_name(host))
+            .is_some_and(|peer| peer.lists(crate::author::QUEUE_APPROVAL_FEATURE));
         let dir = transfers_dir().join(&transfer_id);
         let made = self
             .export(session, &dir)
             .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             .and_then(|bundle| {
                 // Check exactly what the target will restore, even if the live queue changed.
-                self.held_prompts(&bundle)?;
+                self.held_prompts(&bundle, target_approves)?;
                 bundle_files(&bundle)
                     .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             });
