@@ -501,10 +501,14 @@ class TriggerRunnerTests(unittest.TestCase):
                        if line.strip().startswith("runs-on:"))
         self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", runs_on)
         self.assertIn("'ubuntu-24.04'", runs_on)
-        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        # A non-Blacksmith LINUX_RUNNER (a fleet pool, a hand failover) still wins;
+        # a Blacksmith one (the 32-vCPU compile size) never picks this job's size.
+        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||", runs_on)
+        self.assertNotIn("|| vars.LINUX_RUNNER ||", runs_on)
         # Retain the manual run's fallback choice and the existing decision,
         # even when the iOS builder is held or its shared packages drift.
-        self.assertIn("CI_CLOUD_OVERFLOW_SAVED", runs_on)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
+                      "'blacksmith-2vcpu-ubuntu-2404'", runs_on)
 
 
 if __name__ == "__main__":
