@@ -41,7 +41,6 @@ export function AgentLine({
   detail,
   progress,
   progressAgent,
-  progressUsage,
   status,
   state,
   time,
@@ -72,8 +71,6 @@ export function AgentLine({
   /// Reported agent counts, warnings and usage; separate from the current action.
   progress?: string;
   progressAgent?: Subagent;
-  /// Whether the live progress says tokens and tool uses (the tray's rows do not).
-  progressUsage?: boolean;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -123,7 +120,7 @@ export function AgentLine({
   /// line under the title (`below`, every other consumer's place).
   progressAt?: "meta" | "below";
 }) {
-  const liveProgress = useAgentProgress(progressAgent, { usage: progressUsage });
+  const liveProgress = useAgentProgress(progressAgent);
   progress = liveProgress ?? progress;
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;

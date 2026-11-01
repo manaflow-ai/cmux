@@ -9,8 +9,9 @@ export { AgentProgressStore } from "./agentProgressSource";
 const EMPTY = {};
 
 export const AgentProgressContext = createContext<AgentProgressStore | undefined>(undefined);
-/// `usage: false` leaves out tokens and tool uses, as the tray's rows do (subagentProgress.ts).
-export function useAgentProgress(agent?: Subagent, { usage = true }: { usage?: boolean } = {}): string | undefined {
+/// An agent's live progress line, without tokens or tool uses: no subagent list says them, only
+/// the Inspector's Context does (subagentProgress.ts).
+export function useAgentProgress(agent?: Subagent): string | undefined {
   const store = useContext(AgentProgressContext);
   const id = agent?.id;
   const subscribe = useCallback(
@@ -24,5 +25,5 @@ export function useAgentProgress(agent?: Subagent, { usage = true }: { usage?: b
   const progress = useSyncExternalStore(subscribe, snapshot, snapshot);
   const t = useT();
   const language = usePaneLanguage();
-  return agent ? subagentProgress(t, language, progress, { usage }).join(" · ") : undefined;
+  return agent ? subagentProgress(t, language, progress, { usage: false }).join(" · ") : undefined;
 }

@@ -139,7 +139,7 @@ export function ThreadMinimap({
   rows: readonly AcpmuxRow[];
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
   earlier?: readonly AcpmuxRow[];
-  loadThrough?: (seq: number) => Promise<void>;
+  loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
@@ -453,12 +453,14 @@ export function ThreadMinimap({
       if (!Number.isFinite(seq) || !load) return undefined;
       const pending = { id: turn.id, how, sessionId: live.current.sessionId };
       waiting.current = pending;
-      void load(seq).then(
-        () => undefined,
-        () => {
-          if (waiting.current === pending) waiting.current = undefined;
-        },
-      );
+      // A read that stopped short of the prompt (no history left, a failed page) drops the jump, so
+      // it never fires later on a page the reader asked for nothing.
+      const drop = () => {
+        if (waiting.current === pending) waiting.current = undefined;
+      };
+      void load(seq).then((held) => {
+        if (!held) drop();
+      }, drop);
       return undefined;
     }
     const target = () =>

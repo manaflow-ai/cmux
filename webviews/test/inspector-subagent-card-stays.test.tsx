@@ -130,12 +130,14 @@ test("a running subagent's hover card with a long command stays in the page", as
   });
   const card = container.querySelector<HTMLElement>(".acpmux-agent-card__popup");
   expect(card?.textContent).toContain("needs_you_prior_art");
-  expect(card?.textContent).toContain("0/3 agents · 1K tokens");
+  // No subagent list says tokens (the Inspector's Context does); the counts are what updates.
+  expect(card?.textContent).toContain("0/3 agents");
+  expect(card?.textContent).not.toContain("tokens");
   // The parent keeps its structural agent object: both mounted surfaces subscribe to usage.
   await act(async () => progress.updateProgress(agent.id, { tokens: 42000, agents: { started: 3, done: 1 } }));
-  expect(line.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents · 42K tokens");
-  expect(card?.textContent).toContain("1/3 agents · 42K tokens");
-  expect(card?.textContent).not.toContain("0/3 agents · 1K tokens");
+  expect(line.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+  expect(card?.textContent).toContain("1/3 agents");
+  expect(card?.textContent).not.toContain("0/3 agents");
   // The escape measures a frame after the card is placed.
   await act(async () => {
     await frame();

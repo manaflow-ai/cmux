@@ -183,7 +183,8 @@ describe("the transcript keeps no running card", () => {
     );
     try {
       const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
-      expect(lines.map((line) => [line.dataset.state, line.textContent])).toEqual([
+      // The duration is the row's trailing column; the line's button still reads it whole.
+      expect(lines.map((line) => [line.dataset.state, line.getAttribute("aria-label")])).toEqual([
         ["failed", "Subagent failed: Tester · 30s"],
         ["completed", "Subagent finished: Reviewer · 1m 20s"],
       ]);
@@ -220,7 +221,7 @@ describe("a stopped subagent's line says why, and offers Restart", () => {
     );
     try {
       const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
-      expect(lines.map((line) => line.textContent)).toEqual([
+      expect(lines.map((line) => line.getAttribute("aria-label"))).toEqual([
         "Subagent stopped: Linter · 30s",
         "Subagent stopped: Reviewer · stopped by you · 30s",
         "Subagent stopped: Tester · interrupted by Send now · 30s",
@@ -1257,7 +1258,7 @@ describe("a failed sub-session's line", () => {
       ),
     );
     try {
-      expect(root.querySelector(".cv-subagent-done")?.textContent).toBe(
+      expect(root.querySelector(".cv-subagent-done")?.getAttribute("aria-label")).toBe(
         "Subagent failed: Overview · 30s · model overloaded",
       );
     } finally {
@@ -1292,17 +1293,14 @@ describe("workflow progress in the default tray and Inspector", () => {
           draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
         );
         expect(view.root.querySelectorAll(".acpmux-agent-line__progress")).toHaveLength(1);
-        // The tray's row says no tokens (Leo, 2026-10-31: "we can remove the symbols and the tokens");
-        // the Inspector's list still does.
+        // Every subagent list omits usage; the dedicated Context section retains it.
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
-          surface === "tray"
-            ? "37/101 agents · 2 failed · 4 queued"
-            : "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+          "37/101 agents · 2 failed · 4 queued",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
         await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
-          surface === "tray" ? "40/101 agents" : "40/101 agents · 1.3M tokens",
+          "40/101 agents",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
       } finally {

@@ -365,7 +365,6 @@ export const SubagentTray = memo(function SubagentTray({
           name={item.agent.name}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
-          progressUsage={false}
           mark={item.agent.harness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
