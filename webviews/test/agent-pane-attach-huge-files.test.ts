@@ -1263,9 +1263,15 @@ os.replace(path + ".part", path)
         else problem(`a message with nothing loading waited: nothing went within ${SEND_MS / 1000} s of Enter`);
         if ((await sentPrompts(page)) > before) row.sentBlocks = await promptBlocks(page, before);
       } else if (early !== undefined) {
+        // It went within the hold: right only when its file was in by then (a fast upload), never without it.
         row.sentBlocks = await promptBlocks(page, before);
-        row.send = "went while its file still uploaded";
-        problem(`the message went without waiting for its file: ${blocksText(row.sentBlocks)}`);
+        const second = (await probes(page)).begun.slice(beginsBefore);
+        if (second.length && uploadedLink(row.sentBlocks, second[0]!.name))
+          row.send = `held ${((Date.now() - pressed) / 1000).toFixed(1)} s; went with the file`;
+        else {
+          row.send = "went while its file still uploaded";
+          problem(`the message went without waiting for its file: ${blocksText(row.sentBlocks)}`);
+        }
       } else {
         // Held: the upload finishes (the host answers at once from here), then the message goes with it.
         await page.evaluate(() => ((window as unknown as BigWindow).__big.chunkMs = 0));
