@@ -8,6 +8,9 @@
 mod ancestor_answer;
 #[path = "durable_agents/bg_caller_restart.rs"]
 mod bg_caller_restart;
+#[cfg(target_os = "linux")]
+#[path = "durable_agents/bg_replaced_binary.rs"]
+mod bg_replaced_binary;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[path = "support/daemon_env.rs"]
@@ -62,6 +65,8 @@ const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claud
 
 struct Daemon {
     child: Option<Child>,
+    /// The binary each start runs (a test's copy it then replaces).
+    exe: PathBuf,
     home: PathBuf,
     socket: PathBuf,
     /// Extra daemon environment (the idle harness period).
@@ -87,7 +92,8 @@ impl Daemon {
         .unwrap();
         let socket = home.join("s.sock");
         let env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        let mut daemon = Self { child: None, home, socket, env, key: None };
+        let exe = daemon_env::bin().to_path_buf();
+        let mut daemon = Self { child: None, exe, home, socket, env, key: None };
         daemon.start();
         daemon
     }
@@ -138,7 +144,8 @@ impl Daemon {
 
     fn start(&mut self) {
         assert!(self.child.is_none());
-        let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
+        let mut command = std::process::Command::new(&self.exe);
+        daemon_env::apply(&mut command, &self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)

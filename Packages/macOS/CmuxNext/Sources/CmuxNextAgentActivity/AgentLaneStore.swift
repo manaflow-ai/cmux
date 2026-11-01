@@ -27,6 +27,7 @@ public final class AgentLaneStore {
             withMutation(keyPath: \.lanes) { storage = newValue }
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
             syncCells()
+            syncChiefParticipants()
         }
     }
 
@@ -40,9 +41,25 @@ public final class AgentLaneStore {
     /// in place and keeping ``waiting`` by that session alone: the watch's per-session changes,
     /// many a second while an agent works, never copy or rescan the map.
     public func set(_ session: String, _ lane: AgentActivityLane?) {
+        let ownedBefore = Self.chiefOwnership(storage[session])
         withMutation(keyPath: \.lanes) { storage[session] = lane }
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
         syncCells()
+        // Rescan only when this session's Chief tags change, not on every step of its output.
+        if Self.chiefOwnership(lane) != ownedBefore { syncChiefParticipants() }
+    }
+
+    /// A lane's Chief ownership pair (its `mux.children` key and participant), on this Mac only.
+    private static func chiefOwnership(_ lane: AgentActivityLane?) -> [String]? {
+        guard let lane, lane.peer == nil, let key = lane.chiefChildren, let chief = lane.chiefParticipant else { return nil }
+        return [key, chief]
+    }
+
+    private func syncChiefParticipants() {
+        let identities = Dictionary(storage.values.compactMap { lane -> (String, String)? in
+            Self.chiefOwnership(lane).map { ($0[0], $0[1]) }
+        }, uniquingKeysWith: { first, _ in first })
+        if chiefParticipants != identities { chiefParticipants = identities }
     }
     @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
     /// One observable cell per session a reader asked for (``lane(_:)``, ``links(_:)``).
@@ -52,6 +69,9 @@ public final class AgentLaneStore {
     @ObservationIgnored public var socketPath: String?
     /// The watch is up and has delivered its page: `lanes` is every session, not a gap.
     public var live = false
+
+    /// Changes only when ownership changes; ordinary lane output does not remap every row.
+    public private(set) var chiefParticipants: [String: String] = [:]
 
     public init() {}
 

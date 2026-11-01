@@ -33,8 +33,10 @@
 // part), so in a short pane, or with the list's ended cards, the header scrolled up and out with the
 // lines; and it only drew with two running lines, so once one of two ended it unmounted while its
 // ended cards stayed. Now the tray is a column that never scrolls: the header on top, then the list
-// (running first, then the ones that ended last), the only part that scrolls, then View all,
-// pinned at its foot. The header shows whenever the tray has more than one line, running or ended.
+// (running first, then the ones that ended last), the only part that scrolls. Every line is in
+// it: no View all under it, the list scrolls past its five lines (Leo, 2026-11-01: "why is there even
+// a view all 5 button it's useless just let it be scroll-downable"). The header shows whenever the
+// tray has more than one line, running or ended.
 // A line says what the agent does now in words (trayDetail.ts), never a raw shell line.
 //
 // A line is quiet at rest: no fill of its own inside the tray's glass, so the tray is one box, not
@@ -74,14 +76,12 @@ import { toolDetail } from "./trayDetail";
 import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
+import { traySurfaceLook } from "./traySurface.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
-
-/// Ended lines the tray shows before View all.
-export const TRAY_OPEN_MAX = 3;
 
 const ROW_ICON = rowIconSize(12);
 
@@ -160,7 +160,6 @@ export const SubagentTray = memo(function SubagentTray({
   const [narrow, setNarrow] = useState(false);
   // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
   const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
-  const [showFinished, setShowFinished] = useState(false);
   const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
   // Each line's Stop, as its menu item: off while the request is out (and after it is taken, until
   // that run ends); when acpmux or the harness refuses, the item says so and can be tried again.
@@ -170,6 +169,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [motion] = useState(() => experimentArm(trayMotionLook));
   const [row] = useState(() => experimentArm(trayRowLook));
   const [head] = useState(() => experimentArm(trayHeadLook));
+  const [surface] = useState(() => experimentArm(traySurfaceLook));
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
   const setTrayRef = useCallback(
@@ -220,7 +220,7 @@ export const SubagentTray = memo(function SubagentTray({
     if ((fell || tray?.contains(focused)) && focused !== headButton.current) headButton.current?.focus();
   }, [open]);
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
-  // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
+  // drawn with, and lines a fold brings back, are simply there. With no motion (Reduce
   // Motion, the host's switch, a page away: hidden, or in its first frames back, shared/pageReveal.ts)
   // nothing arrives. A burst (more than ARRIVALS_PER_UPDATE new lines at once, a reconnect's
   // catch-up) is simply there too, as the transcript's live rows are, so the arrived set stays a
@@ -249,10 +249,7 @@ export const SubagentTray = memo(function SubagentTray({
       !foldMotion.reducedMotion() &&
       entranceMayRun()
     ) {
-      const drawn = new Set([
-        ...items.map(itemKey),
-        ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map(itemKey),
-      ]);
+      const drawn = new Set([...items.map(itemKey), ...finished.map(itemKey)]);
       const rising = fresh.filter((key) => drawn.has(key));
       if (rising.length > 0) setArrived((current) => new Set([...current, ...rising]));
     }
@@ -290,7 +287,7 @@ export const SubagentTray = memo(function SubagentTray({
       .join(" · ") || t("summary.subagents");
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
-  // Ended, cancelled (motion turned off midway) or unmounted first (a fold, View all), a line's
+  // Ended, cancelled (motion turned off midway) or unmounted first (a fold), a line's
   // entrance is played: it never replays. React has no animationcancel prop, so both listen on the
   // line's node through a ref kept per key (a new ref each render would detach mid-entrance).
   const arriving = (key: string) => {
@@ -324,7 +321,7 @@ export const SubagentTray = memo(function SubagentTray({
             {line(item)}
           </li>
         )),
-        ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item, index) => (
+        ...finished.map((item, index) => (
           <li
             key={itemKey(item)}
             data-finished=""
@@ -338,21 +335,6 @@ export const SubagentTray = memo(function SubagentTray({
     : [];
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0;
-  // View all sits under the list, outside its scroller, so it never scrolls away either.
-  const more = finished.length > TRAY_OPEN_MAX && (
-    <button
-      type="button"
-      className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__finished"
-      aria-expanded={showFinished}
-      onClick={() => setShowFinished(!showFinished)}
-    >
-      <Tick
-        className="acpmux-summary-text"
-        text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
-      />
-      <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
-    </button>
-  );
   return (
     <section
       ref={setTrayRef}
@@ -365,6 +347,14 @@ export const SubagentTray = memo(function SubagentTray({
       // Nothing runs: the ended lines sit quietly over the composer, no card around them (Leo,
       // 2026-10-31, on a finished one-line row in a bordered card: "why is this still so ass").
       data-settled={items.length === 0 || undefined}
+      // A headed tray keeps its own surface, settled too: a slightly lighter or darker glass than the
+      // chat behind it and a hairline rim (Leo, 2026-11-01: "you can't just have it be the exact same
+      // glass as the background"). traySurface.experiment.ts holds the arms.
+      data-headed={headed || undefined}
+      data-surface={surface}
+      // It draws a card (and joins the composer as one glass, bottomStack.css): always while something
+      // runs; settled, only headed and in an arm with a surface.
+      data-card={items.length > 0 || (headed && surface !== "none") || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
       data-head={head}
@@ -381,17 +371,22 @@ export const SubagentTray = memo(function SubagentTray({
             rememberTrayOpen(chat, !open);
           }}
         >
-          {head !== "bare" && (
-            <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
-              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
-            </span>
-          )}
+          {/* No mark by default (trayHead.experiment.ts): the slot stays, blank, so the counts keep the
+              lines' text column (desktop.css --grid-tray-text) instead of jumping to the inset. */}
+          <span
+            className="acpmux-lineage__icon"
+            data-state={runs ? "running" : "done"}
+            data-blank={head === "bare" || undefined}
+            aria-hidden="true"
+          >
+            <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
+          </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
-          {/* The one trailing column every line's chevron and View all's end in. */}
+          {/* The one trailing column every line's chevron ends in. */}
           <span className="acpmux-running-tray__status">
             <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
@@ -418,7 +413,6 @@ export const SubagentTray = memo(function SubagentTray({
           <ul id={listId} className="acpmux-running-tray__list">
             {cards}
           </ul>
-          {more}
         </div>
       )}
     </section>

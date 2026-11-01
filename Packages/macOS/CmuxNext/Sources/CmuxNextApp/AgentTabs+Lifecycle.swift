@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -234,6 +235,36 @@ extension AgentTabStore {
         (views[key], spare.model.allowsTabConversion) = (spare, true)
         wire(spare.model, key: key)
         spare.adoptNewTab(page)
+    }
+
+    /// Local tab `key`, which shows this Mac's chat `session`, adopts the prewarmed, connected `spare`:
+    /// the page switches to the chat in place (``AgentPaneView/adoptSession(_:revealTurn:moved:)``).
+    /// A spare that refuses (no longer an untouched New Tab page) goes back to the pool or is retired,
+    /// and the tab gets nothing from it.
+    @discardableResult
+    func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool {
+        let moved: @MainActor () -> Void = { [weak spare] in
+            // A Chromium page's window follows its view only when told (CEFHostView.pagesNeedUpdate).
+            guard let window = spare?.window else { return }
+            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        }
+        guard spare.adoptSession(session, revealTurn: revealTurn, moved: moved) else {
+            NewTabSparePool.traceSpare(.refused, note: Self.spareRefusal(spare.model))
+            if let revealTurn { pendingTurns[key] = revealTurn }
+            if recycle?(spare) != true { retirer.retire(spare) }
+            return false
+        }
+        NewTabSparePool.traceSpare(.adopted)
+        standaloneViews.remove(spare)
+        (views[key], spare.model.allowsTabConversion) = (spare, true)
+        wire(spare.model, key: key)
+        return true
+    }
+
+    /// Why `model` refused to become an existing chat (``AgentPaneModel/adoptSpareSession(_:)``), for the open's trace.
+    static func spareRefusal(_ model: AgentPaneModel) -> String {
+        model.sessionId != nil ? "has a session" : model.newTab == nil ? "no new tab page" : !model.hasHandshake ? "no handshake"
+            : model.userTouched ? "touched by \(model.touchedBy ?? "?")" : model.remoteChat ? "remote chat" : model.neverPooled ? "never pooled" : "?"
     }
 
     /// The page of tab `key` reported `session` (a new chat started, or the user changed the chat

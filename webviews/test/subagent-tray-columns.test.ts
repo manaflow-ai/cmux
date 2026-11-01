@@ -116,7 +116,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         }
       });
 
-      test(`narrow short dock keeps header and View all reachable at scale ${interfaceScale} (${theme})`, async () => {
+      test(`narrow short dock keeps the header reachable at scale ${interfaceScale} (${theme})`, async () => {
         const port = (server.httpServer!.address() as { port: number }).port;
         const page = await browser.newPage({
           viewport: { width: 300, height: 400 },
@@ -129,7 +129,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
-          // A headed tray starts folded; View all is under its open list.
+          // A headed tray starts folded; open it.
           await openRunningTray(page);
           // Keep the longest format present while measuring: the gallery clock otherwise
           // advances from 12h 59m 59s to the much shorter 13h during a slow capture.
@@ -142,7 +142,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           const pinned = await page.evaluate(() => {
             const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
             const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-            const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!;
             const box = tray.getBoundingClientRect();
             const bounds = (node: HTMLElement) => {
               const rect = node.getBoundingClientRect();
@@ -153,16 +152,20 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 hit: node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
               };
             };
-            return { trayTop: box.top, trayBottom: box.bottom, head: bounds(head), more: bounds(more) };
+            return {
+              trayTop: box.top,
+              trayBottom: box.bottom,
+              head: bounds(head),
+              // No View all under the list: every line is in it, and it scrolls (Leo, 2026-11-01).
+              more: tray.querySelector(".acpmux-running-tray__finished") !== null,
+            };
           });
           // One row at every width: the header's time follows its counts, never a second line.
           expect(pinned.head.height).toBeCloseTo(28 * interfaceScale, 1);
-          expect(pinned.more.height).toBeCloseTo(28 * interfaceScale, 1);
-          for (const row of [pinned.head, pinned.more]) {
-            expect(row.top).toBeGreaterThanOrEqual(pinned.trayTop - 0.5);
-            expect(row.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
-            expect(row.hit).toBe(true);
-          }
+          expect(pinned.more).toBe(false);
+          expect(pinned.head.top).toBeGreaterThanOrEqual(pinned.trayTop - 0.5);
+          expect(pinned.head.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
+          expect(pinned.head.hit).toBe(true);
           const duration = await page
             .locator(".acpmux-running-tray__head .acpmux-running-tray__time")
             .evaluate((node) => {
@@ -196,10 +199,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               clip,
             });
           }
-          const more = page.locator(".acpmux-running-tray__finished");
-          await more.click();
-          expect(await more.getAttribute("aria-expanded")).toBe("true");
-
           // Give the list a row of room again, then exercise the live Stop control inside its
           // scroller. A clipped tray or a footer overlay must not cover the control's hit target.
           await page.evaluate(() => {
