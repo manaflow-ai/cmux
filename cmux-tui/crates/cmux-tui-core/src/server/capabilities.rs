@@ -233,6 +233,7 @@ pub(super) fn advertised_capabilities(
         DOCK_COLUMN_SPLIT_DOWN_CAPABILITY,
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
+        rows::ROW_CLIENT_REPLAY_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
         split_kind::COLUMN_LEFT_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,

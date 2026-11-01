@@ -117,7 +117,7 @@ extension DaemonConnection {
 
     /// A pane creation (`split`, `new-pane`, `new-pane-right`) with its client-minted ids: waited for through a
     /// late start where the daemon replays a creation sent again with them (`split-client-keys-v1`), sent once on
-    /// an older daemon, which would make a second pane. (`new-row` is not replayed: ``RowCommands`` sends it once.)
+    /// an older daemon, which would make a second pane. (`new-row` is sent once and awaits its start: ``RowCommands``.)
     func requestPaneCreation<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
         guard identity?.supports(DaemonCapability.splitClientKeys.rawValue) == true else { return try await self.request(request) }
         return try await requestWaitingForStart(request)

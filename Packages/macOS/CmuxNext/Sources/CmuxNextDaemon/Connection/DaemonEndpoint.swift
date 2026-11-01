@@ -122,6 +122,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// Client-minted `pane_id` / `tab_id` on `new-row` (New Row in the key's turn), as
     /// ``splitClientKeys`` on `split`.
     case rowClientKeys = "row-client-keys-v1"
+    /// Keyed `new-row` retries return the original row without creating it again.
+    case rowClientReplay = "row-client-replay-v1"
     /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
     /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
     case conversationTabSplit = "conversation-tab-split-v1"
@@ -515,7 +517,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit,
+             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .rowClientReplay, .conversationTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
