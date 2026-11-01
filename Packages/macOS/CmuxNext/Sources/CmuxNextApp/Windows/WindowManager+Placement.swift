@@ -94,7 +94,7 @@ extension WindowManager {
                 byDefault?.currentMachine = nil
             }
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
-            // slot. Another machine's create writes no row in this Mac's order, so the app places it; a lost slot's anchor falls back here.
+            // slot. Another machine's create writes no row in this Mac's order, so the app places it. A slot whose anchor is gone takes this fallback.
             let fallback = daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
                 : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
             if let position = pending.slot?.position(moving: [id], section: section, in: sections) ?? fallback?.position(moving: [id], section: section, in: sections) {
