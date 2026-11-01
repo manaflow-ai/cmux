@@ -865,7 +865,7 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
     match reply {
         Reply::Ok(v) => {
             let mut m = model.lock().unwrap();
-            after(&mut *m, &v);
+            after(&mut m, &v);
             drop(m);
             // A new waiting chat starts its waiting turn.
             if let Op::NewChat { role, label } = &op
@@ -1077,7 +1077,7 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
                 let key = format!("\"promptId\":\"{p}\"");
                 queue.contains(&key) || ran.contains(&key)
             };
-            missing = c.accepted.iter().filter(|p| !found(*p)).cloned().collect();
+            missing = c.accepted.iter().filter(|p| !found(p)).cloned().collect();
             back = c
                 .removed
                 .iter()
