@@ -162,6 +162,10 @@ impl Mux {
         }
         let public_terminal_id =
             self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id).ok()??;
+        // Nor does an incognito terminal's.
+        if !self.output_store.keeps_screen(self, &public_terminal_id) {
+            return None;
+        }
         let surface = self.terminal_resource_surface(&public_terminal_id)?;
         if surface.kind() != SurfaceKind::Pty {
             return None;

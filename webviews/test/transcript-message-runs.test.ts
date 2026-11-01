@@ -146,6 +146,8 @@ test("the closed line is estimated as one line, so its mount moves nothing below
   const view = turnView(turn(), new Set(), claude);
   const at = view.findIndex((row) => row.kind === MESSAGE_RUN);
   const heights = [...layoutConversation(view as never, 720).heights];
-  // 2px over its 22px line and the 4px run gap under it (model.ts LINE_ROW), as a folded run's line.
-  expect(heights[at]).toBe(28);
+  // The frame of a one-call tool run's line (model.ts lineRow), in the same place.
+  const oneCall = [...view.slice(0, at), activity([read("/tmp/one")]), ...view.slice(at + 1)];
+  const line = [...layoutConversation(oneCall as never, 720).heights][at];
+  expect(heights[at]).toBe(line!);
 });

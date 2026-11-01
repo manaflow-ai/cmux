@@ -12,11 +12,12 @@ namespace cmux_shim {
 
 namespace {
 
-// Off until the host answers choosers (cmux_shim_set_file_dialogs): an app
-// that does not handle CMUX_SHIM_FILE_DIALOG keeps Chromium's own panel.
-bool& enabled() {
-  static bool on = false;
-  return on;
+// Off until the host answers choosers, for every browser
+// (cmux_shim_set_file_dialogs) or for one (cmux_shim_browser_set_file_dialogs):
+// an app that does not handle CMUX_SHIM_FILE_DIALOG keeps Chromium's own panel.
+FileDialogRoutes& routes() {
+  static FileDialogRoutes routes;
+  return routes;
 }
 
 FileDialogs<CefRefPtr<CefFileDialogCallback>>& pending() {
@@ -43,7 +44,7 @@ class FileDialogHandler : public CefDialogHandler {
                     const std::vector<CefString>& accept_extensions,
                     const std::vector<CefString>& accept_descriptions,
                     CefRefPtr<CefFileDialogCallback> callback) override {
-    if (!enabled()) return false;
+    if (!routes().ToHost(browser->GetIdentifier())) return false;
     std::vector<std::string> filters;
     for (const auto& filter : accept_filters) filters.push_back(filter.ToString());
     const int browser_id = browser->GetIdentifier();
@@ -68,6 +69,8 @@ void CancelFileDialogs(int browser_id) {
   for (auto& callback : pending().TakeAll(browser_id)) callback->Cancel();
 }
 
+void ForgetFileDialogRoute(int browser_id) { routes().Forget(browser_id); }
+
 }  // namespace cmux_shim
 
 using namespace cmux_shim;
@@ -75,7 +78,11 @@ using namespace cmux_shim;
 extern "C" {
 
 void cmux_shim_set_file_dialogs(int enabled_by_host) {
-  enabled() = enabled_by_host != 0;
+  routes().SetAll(enabled_by_host != 0);
+}
+
+void cmux_shim_browser_set_file_dialogs(int browser_id, int enabled_by_host) {
+  routes().Set(browser_id, enabled_by_host != 0);
 }
 
 int cmux_shim_file_dialog_answer(int dialog_id, int multiple, const char* paths) {

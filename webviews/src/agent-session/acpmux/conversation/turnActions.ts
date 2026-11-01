@@ -86,7 +86,7 @@ export type TurnActions = {
   /// or an API key saved there, never this Mac's login. Absent where acpmux lacks `agent_login`.
   cloudSignIn?: import("../cloudAgentLogin").CloudSignIn;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.
-  route?: { name?: string; harness?: string; hostKind?: "local" | "cloud"; host?: string };
+  route?: import("../failureCopy").FailureRoute;
   /// Opens the model and harness picker (a failure's "Switch model" action).
   switchModel?: () => void;
   /// cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx): what the chat's

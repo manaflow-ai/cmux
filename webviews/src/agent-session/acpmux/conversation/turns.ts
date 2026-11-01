@@ -164,8 +164,9 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
+  firstVisible?: number;
   /// Each boundary keeps its count and last row before the next prompt extends a fold.
-  ends: { count: number; row: AcpmuxRow | undefined }[];
+  ends: { count: number; row: AcpmuxRow | undefined; visible?: number }[];
   rows: AcpmuxRow[];
 };
 
@@ -174,6 +175,10 @@ export type TurnView = {
 /// shapes only its last turns.
 const NO_MESSAGE_BREAKS: readonly number[] = [];
 const NO_PENDING: readonly AcpmuxRow[] = [];
+
+const firstDateUnchanged = (view: TurnView, now: number) =>
+  view.firstVisible === undefined ||
+  showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
 
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
@@ -215,8 +220,7 @@ export function turnViewFrom(
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
     previous.waitingSteers === waitingSteers &&
-    (!previous.starts.length ||
-      showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
+    firstDateUnchanged(previous, now)
   )
     return previous;
   // The turn to shape from: the one holding the first changed row. The turn before it may
@@ -241,9 +245,8 @@ export function turnViewFrom(
     }
     reuse = Math.max(0, reuse - 1);
   }
-  // The first turn's line depends on `now`.
-  if (reuse > 0 && showsTimestamp(previous!.times[0]!, undefined, now, previous!.lead === 0) !== previous!.dated[0])
-    reuse = 0;
+  // The first visible turn's line depends on `now`.
+  if (reuse > 0 && !firstDateUnchanged(previous!, now)) reuse = 0;
   let reusedRows = 0;
   let index: number;
   let lead: number;
@@ -280,6 +283,9 @@ export function turnViewFrom(
     ends = [];
   }
   const first = starts.length;
+  let firstVisible =
+    previous?.firstVisible !== undefined && previous.firstVisible < first ? previous.firstVisible : undefined;
+  let visible = ends.at(-1)?.visible;
   const fromStart = lead === 0;
   const pending: AcpmuxRow[] = [];
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
@@ -299,7 +305,6 @@ export function turnViewFrom(
     }
     starts.push(start);
     const turn = { promptAt: rows[start]!.at, answerAt };
-    dated.push(showsTimestamp(turn, times.at(-1), now, fromStart));
     times.push(turn);
   }
   for (let at = first; at < starts.length; at += 1) {
@@ -308,6 +313,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
+    dated[at] = showsTimestamp(times[at]!, visible === undefined ? undefined : times[visible], now, fromStart);
     const shaped = shapedTurn(
       rows,
       start,
@@ -332,8 +338,14 @@ export function turnViewFrom(
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
+    // Invisible turns cannot consume a gap or the first visible turn's age threshold. Store
+    // the preceding visible turn at each reusable boundary, avoiding a history scan per token.
+    if (drawn.some((row) => row.kind !== DATE && !isVisiblyEmptyMessage(row))) {
+      firstVisible ??= at;
+      visible = at;
+    } else dated[at] = false;
     for (const row of drawn) out.push(row);
-    ends.push({ count: out.length, row: out.at(-1) });
+    ends.push({ count: out.length, row: out.at(-1), visible });
   }
   return {
     source: rows,
@@ -352,6 +364,7 @@ export function turnViewFrom(
     starts,
     times,
     dated,
+    firstVisible,
     ends,
     rows: out,
   };
