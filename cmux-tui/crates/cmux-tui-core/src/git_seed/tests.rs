@@ -67,6 +67,28 @@ fn git_env(dir: &Path, args: &[&str], env: &[(&str, &Path)]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
+/// A commit as the Mac's seed plan makes its INDEX and WORK commits: the
+/// fixed identity and date, so the machine's export of the same state is
+/// the same commit.
+fn seed_commit(dir: &Path, tree: &str, parent: &str, message: &str) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["commit-tree", "--no-gpg-sign", "-p", parent, "-m", message, tree])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "cmux seed")
+        .env("GIT_AUTHOR_EMAIL", "seed@cmux.invalid")
+        .env("GIT_AUTHOR_DATE", "946684800 +0000")
+        .env("GIT_COMMITTER_NAME", "cmux seed")
+        .env("GIT_COMMITTER_EMAIL", "seed@cmux.invalid")
+        .env("GIT_COMMITTER_DATE", "946684800 +0000")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
 fn write(path: &Path, text: &str) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
@@ -129,14 +151,14 @@ impl World {
         let mac = &self.mac;
         let head = git(mac, &["rev-parse", "HEAD"]);
         let index_tree = git(mac, &["write-tree"]);
-        let index = git(mac, &["commit-tree", &index_tree, "-p", &head, "-m", "index"]);
+        let index = seed_commit(mac, &index_tree, &head, "cmux seed index");
         let temp = self.home.path.join(format!("{name}.index"));
         let git_dir = PathBuf::from(git(mac, &["rev-parse", "--absolute-git-dir"]));
         std::fs::copy(git_dir.join("index"), &temp).unwrap();
         git_env(mac, &["add", "-A", "--sparse"], &[("GIT_INDEX_FILE", &temp)]);
         let work_tree = git_env(mac, &["write-tree"], &[("GIT_INDEX_FILE", &temp)]);
         std::fs::remove_file(&temp).unwrap();
-        let work = git(mac, &["commit-tree", &work_tree, "-p", &index, "-m", "work"]);
+        let work = seed_commit(mac, &work_tree, &index, "cmux seed work");
         let stash = Command::new("git")
             .arg("-C")
             .arg(mac)
@@ -548,7 +570,8 @@ fn the_wire_answers_in_the_daemon_envelope() {
     assert!(frame_command(r#"{"id":1,"cmd":"git.seed.start"}"#).is_some());
     assert!(frame_command(r#"{"id":1,"cmd":"git.seed.start","protocol":"p"}"#).is_none());
     assert!(frame_command(r#"{"id":1,"cmd":"git.seed.cancel"}"#).is_none());
-    assert!(advertised().is_none(), "tests never install the fs owner");
+    assert!(frame_command(r#"{"id":1,"cmd":"git.seed.export"}"#).is_some());
+    assert!(advertised().is_empty(), "tests never install the fs owner");
 }
 
 fn clone_params(folder: &Path, git_ref: Option<&str>) -> Value {
@@ -703,3 +726,5 @@ fn the_bundle_copy_is_private_and_removed() {
     assert!(!dir.exists(), "the copy's folder is removed");
     assert!(!snapshot.bundle.exists(), "the upload is removed");
 }
+
+mod export;
