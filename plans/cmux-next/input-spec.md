@@ -257,7 +257,7 @@ exact condition, so a reducer that brought the bug back would fail the replay; t
 
 | Bug | Covered now by |
 | --- | --- |
-| B1 | The corpus replay: 59 `selectTab` steps name a pane of the shown workspace that does not hold the tab, each recorded with no `select` effect; 159 name another workspace, 92 of which change `remembered`. |
+| B1 | The corpus replay: 91 `selectTab` steps name a pane of the shown workspace that does not hold the tab, each recorded with no `select` effect; 90 name another workspace, 84 of which change `remembered`. |
 | B2 | Only `WindowManager.owner(of:)` for a child window, which `active` uses (`MultiWindowInputRoutingTests.aKeyTypedInOneWindowNeverReachesAnother`, through `CrossWindowInputGuard`). No test checks `active` with a sheet, page window or panel as the key window, or the republish. |
 | B3 | No test. |
 | B4 | No test. |
@@ -268,7 +268,7 @@ exact condition, so a reducer that brought the bug back would fail the replay; t
 | B9 | No test. |
 | B10 | No test. |
 | B11 | The decision only: `focus_rules.rs` `a_child_window_that_becomes_key_is_decided_as_the_swift_rule_did` checks the child-window rule for all 192 cases (3 parent kinds, 64 combinations of the other facts). A Chromium page window that becomes key without a click is `unchosenPage`, placed or not. `ChildPageFocusKeyChangeTests` checks the key change of `ChildPageFocus.reclaim`, which the give-back calls. No test checks that the applier gives the keys back. |
-| B12 | No test. No topology step in the corpus puts the expected tab in the `awayFrom` pane, so the replay does not reach the bug. `HomeDockOpensTests.aHomePlacementKeepsCreationInputPendingAfterTheCreateReply` checks an `awayFrom` expectation for a Home placement, not for Split Browser. |
+| B12 | The corpus replay: 4 `expect` steps name a tab that is already in their `awayFrom` pane, and each is recorded with the expectation still pending and no effects. No step replays Split Browser's move. `HomeDockOpensTests.aHomePlacementKeepsCreationInputPendingAfterTheCreateReply` checks an `awayFrom` expectation for a Home placement, not for Split Browser. |
 | B13 | No test. |
 | B13b | The rule only: the same `focus_rules.rs` test covers a parentless Chromium page window (`parent: none`): only the active cmux window takes it back. No test covers the give-back after `didBecomeActive`. |
 | B14 | `ChromiumPageFocusInvariantTests` (the monitor counts a Chromium cmux page as a child-window page for W1, W5 and the chromium check). No test covers the `focusPage` path. |
