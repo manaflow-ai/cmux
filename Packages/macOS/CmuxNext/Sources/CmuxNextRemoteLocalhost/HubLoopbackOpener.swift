@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Network
 
@@ -25,6 +26,9 @@ public struct HubLoopbackOpener: LoopbackTunnelOpening {
 
     /// The hub's endpoint, starting the hub when it is not running.
     public typealias Hub = @Sendable () async throws -> Endpoint
+
+    /// The refusal when the hub names a socket path that does not fit a Unix socket address (`sun_path`).
+    static let socketPathTooLong = "Cloud tunnel unavailable: the hub's socket path is too long"
 
     private let hub: Hub
     private let address: IPv4Address
@@ -85,7 +89,11 @@ public struct HubLoopbackOpener: LoopbackTunnelOpening {
         let endpoint: Endpoint
         do { endpoint = try await hub() } catch { throw LoopbackTunnelFailure.unavailable("Cloud tunnel unavailable") }
         try Task.checkCancellation()
-        let connection = NWConnection(to: .unix(path: endpoint.socket), using: .tcp)
+        // A socket path past sun_path traps in NWEndpoint.unix (#28492): no tunnel there.
+        guard let socket = try? NWEndpoint.unixSocket(path: endpoint.socket) else {
+            throw LoopbackTunnelFailure.unavailable(Self.socketPathTooLong)
+        }
+        let connection = NWConnection(to: socket, using: .tcp)
         do {
             return try await withTaskCancellationHandler {
                 guard await connection.ready(on: queue) else { throw LoopbackTunnelFailure.unavailable("Cloud tunnel unavailable") }

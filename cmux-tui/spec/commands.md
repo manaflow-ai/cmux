@@ -582,11 +582,12 @@ Reports where the daemon spends its time so an operator or agent can locate a
 bottleneck without sampling the process: registry mutex contention with the
 source site that holds it, journal writer batch shape and commit latency, and
 control-socket admission. Counters accumulate since daemon start. The command
-reads atomics and never touches SQLite or the journal, so it is safe to poll.
+reads atomics (and, for `hook_queue`, the small hook queue files) and never
+touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path` and `locks`; unknown names are
-ignored.
+sections: `resource_projection`, `write_path`, `locks` and `hook_queue`;
+unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -625,7 +626,8 @@ object{
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
   },
-  locks?:object{registry:lock_detail, state:lock_detail}
+  locks?:object{registry:lock_detail, state:lock_detail},
+  hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 lock_detail = object{
@@ -688,6 +690,21 @@ distinct site seen. A site's `hold_p99_us` and `wait_p99_us` are power-of-two
 bucket bounds: at most twice the true value and never above its maximum.
 `wait_*` is how long that site waited to acquire the lock. Recording costs
 no allocation after a site's first acquisition.
+
+`hook_queue` shows the agent hook queue. The hook helper keeps each
+agent's hook events in a queue on disk (`hook-spool/` beside the session
+socket) until a daemon answers them; a stopped, restarting or crashed owner
+leaves them queued for the next owner. `queued_events` counts the lines in
+this session's queues (events not answered yet, and answered ones a sender
+has not removed yet). `reset_dropped_events` counts the events that
+`cmux session NAME reset-state` dropped with a session's saved state, for
+the sessions whose sockets share this directory. `undeliverable_events`
+counts events a live daemon took several times in a row and never answered
+(it closed on them, or did not reply within its own longest journal wait),
+so their senders gave them up and the agent's later events went on. Unlike
+the other sections,
+it reads these small files. It is present only when the session serves a
+socket.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
@@ -2042,6 +2059,16 @@ absent) for an agent session source, and `{page}` for a page source. A connectio
 {capabilities}`) reads `browser` in both places, in responses and in
 `session.events` and `session.journal.subscribe` stream items alike. Every
 browser command and browser operation refuses the tab.
+
+Closed agent chat tabs use the same canonical `conversation` kind in
+`closed.list` and closed snapshot/event records, with only safe
+`agent_session:{session,harness}` metadata. This requires the separate
+`closed-conversation-tabs-v1` declaration: older connections, including
+clients that understand live conversation tabs, retain `browser` and the
+safe metadata. Merged history similarly uses `closed_kind:"conversation_tab"`
+only for declared connections, otherwise `browser_tab`. Private host/install
+identity stays in the daemon's restore record; reopening still restores the
+original conversation source.
 
 Params: `conversation` and `owner`, `agent_session`, or `page` (one source required);
 `pane` or `workspace`, `split` (with `pane`), `origin`, `mutation_id`, `cols`, `rows`, `transaction` (optional).
@@ -7697,6 +7724,15 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+`cloud-inbox-list {limit?, include_archived?, cursor?}` returns one page of
+UserDO `inbox.list` as `object{entries, revision, next_cursor}`: `limit` (1-200,
+default 200) entries from `cursor` (the `next_cursor` of the page before; absent
+for the first page). `next_cursor` is null on the last page. One page per call,
+so every reply is one bounded read; a client reads the whole inbox by following
+`next_cursor`. `home-inbox`'s Cloud rows do: every page, at most 50, asking for
+no page after 8 s from the start of the read, an entry a later page lists again kept once where it was
+first listed; any page's failure, a refusal included, leaves the Cloud rows
+`unavailable` (`signed_out` only without a usable lease).
 
 ### cloud-requests-list
 
@@ -8573,6 +8609,8 @@ Example:
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
+A wait with a nonzero `timeout_ms` does not hold the connection: it starts after the requests sent before it, and later requests on the same connection are answered while it waits (they may run during its first check), so its reply can arrive after theirs (match replies by `id`). Each such pending `wait-for` takes one terminal-wait worker, from the budget `terminal.wait` uses (8 per connection, 64 per daemon); a `wait-for` over that budget fails at once and is not run. A one-shot check (`timeout_ms` 0) runs in request order and takes no worker. When the connection closes, its pending waits end at once; when the client only half-closes (shuts down its write side), they still run to their end and reply.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
@@ -8595,6 +8633,8 @@ Errors:
 | `browser surface does not support PTY/VT socket commands` | Surface is a browser |
 | `bad regex: <message>` | Pattern cannot compile |
 | `timeout waiting for pattern` | Timeout expires before match |
+| `timeout_ms is too large` | The deadline is past what the platform clock can represent |
+| `too many wait-for requests are already waiting on this connection (limit 8); request was not executed` | The connection already has 8 pending waits (`daemon` and its limit when the daemon-wide budget is full) |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -9301,7 +9341,11 @@ an agent or an MCP server, and every unknown param is
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
 flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
-(acpmux refused), `agent_session.unknown_permission`,
+(acpmux refused), `agent_session.bad_list` (acpmux's session list could not be
+read whole: a bad or repeated cursor, a page with no `sessions`, or a page after
+the first that failed; an attach whose watch list does so is refused, and
+attaches again),
+`agent_session.unknown_permission`,
 `agent_session.read_only` (a mutation sent to an observation attachment),
 `agent_session.mode_conflict` (an `agent-session-attach` or
 `agent-session-observe` for a surface this connection already has attached in
@@ -9507,9 +9551,11 @@ peer, preset or MCP server param; `model` is only accepted with the additive
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,
-root:`cmux-ssh`) answers `agent_session.team_vm_blocked`; Macs and SSH hosts
-go on; any other Cloud VM goes on only with `vm_kind: "owner"` and otherwise
-answers `agent_session.host_unverified`. `vm_kind`
+root:`cmux-ssh`) goes on only with `vm_kind: "owner"` (the Cloud API gives
+that answer to the machine's creator alone) and otherwise answers
+`agent_session.team_vm_blocked`; Macs and SSH hosts go on; any other Cloud VM
+goes on only with `vm_kind: "owner"` and otherwise answers
+`agent_session.host_unverified`. `vm_kind`
 (`agent-session-start-vm-kind-v1`) is the Cloud API's `vmKind` for the
 caller, as the caller read it on its link to this machine (attach-endpoint);
 only the exact string `owner` counts. Any other value says the caller knows
@@ -9892,7 +9938,8 @@ knows the method is used as it is, so an apply never moves acpmux to an
 older build. The update call waits 15 minutes per named id plus a margin,
 at most two hours. One apply runs at a time per daemon
 (`agent_update.busy`); `agent_update.timeout` and `agent_update.refused`
-report an acpmux that did not answer or refused.
+report an acpmux that did not answer or refused, and `agent_update.bad_list`
+one whose session list could not be read whole.
 
 ## Agent chat transfer
 
@@ -9943,8 +9990,9 @@ receives are kept, checked before acpmux makes one.
 Machine kind: receive and finish read this machine's kind at each call, as
 `agent-session-start` does, each with its own `vm_kind`
 (`agent-transfer-vm-kind-v1`, only `owner` counts), and answer
-`agent_session.team_vm_blocked` on a team VM and
-`agent_session.host_unverified` on a Cloud VM without the caller's
+`agent_session.team_vm_blocked` on a team VM without the caller's
+`vm_kind: "owner"` and
+`agent_session.host_unverified` on any other Cloud VM without the caller's
 `vm_kind: "owner"` (its own `owner` record never counts) or on a daemon never
 told its kind. `cmux link agent move --vm-kind KIND` (the caller says the
 target is a Cloud machine) sends it to a daemon that serves it; to an older

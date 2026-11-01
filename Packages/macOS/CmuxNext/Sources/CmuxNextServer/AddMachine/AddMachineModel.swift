@@ -33,6 +33,8 @@ public nonisolated enum AddMachineAction: Equatable, Sendable {
     case add
     /// Run the same add again after a failure.
     case tryAgain
+    /// Back to the fields after a failed add, with the host and name kept, to correct them.
+    case changeHost
     /// `doctor --fix` for the checked machine.
     case fix
     /// Open a workspace on the added machine and close.
@@ -131,7 +133,7 @@ public struct AddMachineServices {
 /// (or doctor for Check Machine) with its checklist filling in live from the CLI's lines, then
 /// ready or failed. The card, the palette, the CLI and a reopen read the same model; the click and
 /// the key run ``perform(_:)``.
-@Observable
+@MainActor @Observable
 public final class AddMachineModel {
     public nonisolated enum Mode: Equatable, Sendable {
         /// Add Machine: the field and the Tailscale list, then enroll.
@@ -266,7 +268,8 @@ public final class AddMachineModel {
         case (.ready, .check):
             [AddMachineButton(action: .done, key: .return)]
         case (.failed, .add):
-            [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .tryAgain, key: .return)]
+            [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .changeHost, key: nil),
+             AddMachineButton(action: .tryAgain, key: .return)]
         case (.failed, .check):
             [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .fix, key: .return)]
         case (.running, .checkJoined):
@@ -284,6 +287,9 @@ public final class AddMachineModel {
         switch action {
         case .add, .tryAgain:
             add()
+            return false
+        case .changeHost:
+            changeHost()
             return false
         case .fix:
             doctor(fix: true)
@@ -335,6 +341,16 @@ public final class AddMachineModel {
         return lines.joined(separator: "\n")
     }
 
+    /// A failed add goes back to the fields as they were typed. Nothing runs until Add is pressed.
+    private func changeHost() {
+        guard mode == .add, case .failed = phase else { return }
+        cancelRun()
+        phase = .pick
+        checklist = HostChecklist()
+        machineID = nil
+        loadCandidates()
+    }
+
     // MARK: Runs
 
     private func add() {
@@ -355,11 +371,18 @@ public final class AddMachineModel {
         task = Task { [weak self] in
             guard let self else { return }
             var report = await stream(.enroll(host: host, name: name))
+            // Cancel can end the stream after it has parsed a report. Do not start the
+            // app-install fallback from that retained report.
+            guard !Task.isCancelled else { return }
             if let first = report, Self.needsAppInstall(first) {
                 // The app's own install path (remote.connect, remote.install) puts the right-arch
                 // build on the host; enroll then runs again from the top.
                 installingAppBuild = true
                 checklist.run(.install)
+                guard !Task.isCancelled else {
+                    installingAppBuild = false
+                    return
+                }
                 let installed = await services.install(host, name)
                 installingAppBuild = false
                 guard !Task.isCancelled else { return }

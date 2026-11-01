@@ -525,8 +525,10 @@ impl V2Tool {
             // argument (tests/tool-evals: 22 such calls from two models). Only where an id
             // goes: a selector or a resource-id field. A json field (`settings_set {value}`,
             // `keybindings_set {args}`) keeps its object.
-            let takes_id =
-                selector || field.is_some_and(|field| field["type"]["kind"] == "resource_id");
+            let takes_id = selector
+                || field.is_some_and(|field| {
+                    field.pointer("/type/kind").and_then(Value::as_str) == Some("resource_id")
+                });
             let record_id = value
                 .as_object()
                 .and_then(|record| record.get("id"))
@@ -555,7 +557,9 @@ impl V2Tool {
                             .then(|| field["type"]["resource"].as_str())
                             .flatten()
                     });
-                    let decimal = field.is_some_and(|field| field["type"]["name"] == "decimal");
+                    let decimal = field.is_some_and(|field| {
+                        field.pointer("/type/name").and_then(Value::as_str) == Some("decimal")
+                    });
                     let value = match (resource, value.as_str()) {
                         (Some(resource), Some(raw)) => {
                             let id = self.id_argument(name, resource, raw, &mut session)?;
@@ -620,8 +624,9 @@ impl V2Tool {
                 params.insert(name.clone(), default);
             } else if field["required"] == Value::Bool(true) {
                 let schema = Generator::new(catalog()).field(field);
-                let values = schema["enum"]
-                    .as_array()
+                let values = schema
+                    .get("enum")
+                    .and_then(Value::as_array)
                     .map(|values| {
                         let names: Vec<&str> = values.iter().filter_map(Value::as_str).collect();
                         format!(" (one of {})", names.join(", "))
@@ -683,7 +688,8 @@ impl V2Tool {
     /// Whether the operation needs a `terminal` selector (`terminal_list` only filters by
     /// one, through its optional `tab`).
     pub(super) fn needs_terminal(&self) -> bool {
-        self.descriptor["params"]["selectors"]["terminal"] == "required"
+        self.descriptor.pointer("/params/selectors/terminal").and_then(Value::as_str)
+            == Some("required")
     }
 
     fn waits(&self) -> bool {

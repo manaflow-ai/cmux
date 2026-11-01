@@ -1,13 +1,16 @@
 // l10n-allow-file: test fixture prompts, thoughts and commands, not shipped UI.
 // The steps of a turn read as one list (Leo 2026-10-13, cmux NEXT on macOS 27): tool calls,
 // thoughts and a background shell's end all draw on one rhythm (22px since #24565), whether
-// they share a transcript row or not. A finished thought is one quiet row like the others that
-// opens to its full text, wrapped, with no tooltip (Leo 2026-10-20), and a row shows nothing more
-// on hover: its disclosure chevron is there at rest.
+// they share a transcript row or not. An opened run's steps sit in one card (`.cv-steps`,
+// #27896, the card the message groups draw, #27864): each is still one 22px row, the card's steps
+// on one equal pitch of their own, and the rows outside cards keep the rhythm with no gap. A
+// finished thought is one quiet row like the others that opens to its full text, wrapped, with no
+// tooltip (Leo 2026-10-20). Inner tool rows keep their chevron slot quiet until hover, then light
+// their icon, words and chevron together; the group header keeps its own disclosure.
 //
 // Before: the background task's end used a smaller font in a 22px row with its own margins, a
 // step in the next transcript row sat 10px further down than one in the same row, a thought was
-// cut to one line with the rest in a tooltip, and a hover brightened the row and showed its chevron.
+// cut to one line with the rest in a tooltip, and inner rows kept a visible chevron at rest.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -193,23 +196,35 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     const rows = await page.locator(".acpmux-row .cv-tool").evaluateAll((nodes) =>
       nodes.map((node) => {
         const box = node.getBoundingClientRect();
+        const card = node.closest(".cv-steps");
         return {
           text: node.textContent?.replace(/\s+/g, " ").trim().slice(0, 24) ?? "",
-          top: Math.round(box.top),
+          top: box.top,
           height: Math.round(box.height),
           fontSize: getComputedStyle(node).fontSize,
+          card: card ? [...document.querySelectorAll(".cv-steps")].indexOf(card) : -1,
         };
       }),
     );
     // The finished thought is folded to one line too.
     expect(rows.map((row) => row.height)).toEqual(rows.map(() => 22));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
-    // Each step starts where the one above it ends.
-    const gaps = rows.slice(1).map((row, index) => row.top - (rows[index]!.top + rows[index]!.height));
-    expect({ rows: rows.map((row) => row.text), gaps }).toEqual({
-      rows: rows.map((row) => row.text),
-      gaps: gaps.map(() => 0),
-    });
+    const pairs = rows.slice(1).map((row, index) => ({
+      above: rows[index]!,
+      row,
+      gap: Math.round((row.top - (rows[index]!.top + rows[index]!.height)) * 10) / 10,
+    }));
+    // Outside a card, each step starts where the one above it ends.
+    const outside = pairs.filter(({ above, row }) => above.card < 0 && row.card < 0);
+    expect(outside.map(({ row, gap }) => ({ row: row.text, gap }))).toEqual(
+      outside.map(({ row }) => ({ row: row.text, gap: 0 })),
+    );
+    // In a card, every step is one pitch below the one above it: the same gap, no drift.
+    const inCard = pairs.filter(({ above, row }) => above.card >= 0 && above.card === row.card);
+    expect(inCard.length).toBeGreaterThanOrEqual(2);
+    expect(inCard.map(({ row, gap }) => ({ row: row.text, gap }))).toEqual(
+      inCard.map(({ row }) => ({ row: row.text, gap: inCard[0]!.gap })),
+    );
     expect(rows.length).toBeGreaterThanOrEqual(5);
     await page.close();
   });
@@ -242,22 +257,47 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  test("a step row shows nothing more on hover; its chevron is there at rest", async () => {
+  test("an inner step row reveals and lights its chevron only on hover", async () => {
     const page = await open();
-    const row = page.locator(".acpmux-row button.cv-tool").first();
+    await openRun(page);
+    const row = page.locator(".cv-steps > .cv-step > .cv-tool").first();
     const look = () =>
       row.evaluate((node) => {
         const chevron = node.querySelector<SVGElement>(".cv-tool__chevron");
+        const icon = node.querySelector<HTMLElement>(".cv-tool__icon");
+        const text = node.querySelector<HTMLElement>(".cv-tool__text, .cv-command__text");
         return {
           color: getComputedStyle(node).color,
-          chevron: chevron ? getComputedStyle(chevron).visibility : "none",
+          icon: icon ? getComputedStyle(icon).color : "none",
+          text: text ? getComputedStyle(text).color : "none",
+          chevron: chevron ? getComputedStyle(chevron).opacity : "none",
+          width: node.getBoundingClientRect().width,
         };
       });
+    const waitForChevron = (opacity: string) =>
+      page.waitForFunction((expected) => {
+        const chevron = document.querySelector<SVGElement>(".cv-steps > .cv-step > .cv-tool .cv-tool__chevron");
+        return chevron && getComputedStyle(chevron).opacity === expected;
+      }, opacity);
     await page.mouse.move(0, 0);
+    await waitForChevron("0");
     const rest = await look();
-    expect(rest.chevron).toBe("visible");
+    expect(rest.chevron).toBe("0");
     await row.hover();
-    expect(await look()).toEqual(rest);
+    await waitForChevron("1");
+    const hovered = await look();
+    expect(hovered.chevron).toBe("1");
+    expect(hovered.color).toBe(hovered.icon);
+    expect(hovered.color).toBe(hovered.text);
+    expect(hovered.color).not.toBe(rest.color);
+    expect(hovered.width).toBe(rest.width);
+    await row.click();
+    await page.mouse.move(0, 0);
+    await waitForChevron("1");
+    const opened = await look();
+    expect(opened.chevron).toBe("1");
+    expect(opened.color).toBe(opened.icon);
+    expect(opened.color).toBe(opened.text);
     await page.close();
   });
 });

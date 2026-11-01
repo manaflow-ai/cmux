@@ -167,10 +167,27 @@ pub(super) async fn forward(
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
     let reply = forward_inner(hub, conn, m, params).await.transpose();
+    // A client waits on a peer that is down (a chat it opens): the peer reconnects within
+    // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here.
+    if conn.origin != Origin::Peer
+        && let Some(Err(e)) = &reply
+        && let Some(peer) = unreachable_peer(hub, e)
+    {
+        peer.want();
+    }
     if conn.origin == Origin::Peer {
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
     }
     reply
+}
+
+/// The peer of this daemon that `e` refused a request for because its link is down.
+fn unreachable_peer(hub: &Hub, e: &RpcError) -> Option<Arc<crate::peer::Peer>> {
+    let data = e.data.as_ref()?;
+    if data.get("reason").and_then(Value::as_str) != Some("peer_unreachable") {
+        return None;
+    }
+    hub.peer_by_name(data.get("peer").and_then(Value::as_str)?)
 }
 
 async fn forward_inner(
@@ -207,6 +224,11 @@ async fn forward_inner(
     {
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
+        }
+        // A conditional stop runs only where the session lives: an older peer would ignore the
+        // condition and stop it anyway (`hub/stop_if_idle.rs`).
+        if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
+            return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
         }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
         // takes it (`hub/file_uploads.rs`).
@@ -283,6 +305,11 @@ async fn forward_inner(
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
         }
+        // And a chat's older native turns (`hub/native_history.rs`): a pane stops paging on it.
+        if m == method::MUX_NATIVE_HISTORY && !peer.supports_native_history() {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m)
+                .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
         // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
         // forwarded, whatever the peer serves this link as, one entry there would stand for
         // every client here.
@@ -345,8 +372,10 @@ async fn forward_inner(
                 let attach = tokio::spawn({
                     let (peer, id) = (peer.clone(), id.clone());
                     async move {
-                        let _ =
-                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                        // A failed attach is logged there, and unmarked when the peer refused
+                        // it; the prompt still goes, and answers with the peer's own error if
+                        // the chat is gone.
+                        let _ = peer.attach_hidden(&id).await;
                     }
                 });
                 tokio::select! {
@@ -482,6 +511,11 @@ async fn forward_inner(
         // The link the request goes on and the generation the row names as it goes: a page is
         // kept only while that link is the peer's, and only as that generation's.
         let link = peer.link_epoch();
+        // A client here opens peer chats: their copies are read ahead from now on, so the next
+        // one opens on its copy even while its peer reconnects (`hub/peer_snapshot/warm.rs`).
+        if m == method::MUX_ATTACH && conn.origin != Origin::Peer {
+            hub.want_peer_copies();
+        }
         let pages = matches!(m, method::MUX_ATTACH | method::MUX_EVENTS);
         let purge =
             m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false);
@@ -635,7 +669,7 @@ fn mac_group_read(result: &mut Value, mac_signs: bool) {
 /// from too, that `Hub::peer_history_ask_counts` drops (its own asks from an
 /// older run stay there without their nonce). The rest of the reply, and the
 /// session, stay.
-fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
+pub(crate) fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
     let pending = match m {
         method::MUX_INFO => Some("/pending"),
         method::MUX_ATTACH => Some("/session/pending"),

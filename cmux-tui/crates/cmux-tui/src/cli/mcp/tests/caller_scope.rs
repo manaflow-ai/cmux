@@ -188,6 +188,31 @@ fn a_terminal_with_no_place_opens_in_the_column_right_of_the_chat() {
     assert_eq!(request["params"]["name"], "Chief TUI");
 }
 
+/// `pane: "current"` is the chat's own pane, which a new tab would cover: models write
+/// it by reflex for "on my right" (tests/tool-evals r13a), so it goes beside the chat
+/// like no pane. The chat's pane named by its id is still obeyed.
+#[test]
+fn a_terminal_for_the_current_pane_opens_beside_the_chat() {
+    let fake =
+        Fake { beside: json!({"pane": RIGHT_PANE, "placement": "existing_column"}), ..placed() };
+    let mut server = Server::new(fake, None);
+    for arguments in [
+        json!({"pane": "current", "name": "w"}),
+        json!({"workspace": "current", "pane": "current", "name": "w"}),
+        json!({"pane": OWN_PANE, "name": "w"}),
+    ] {
+        let result = call(&mut server, "tab_create_terminal", arguments);
+        assert_ne!(result["isError"], true, "{result}");
+    }
+    let sent = sent_resources(&server);
+    let creates: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "tab.create_terminal").collect();
+    assert_eq!(creates.len(), 3, "{sent:?}");
+    assert_eq!(creates[0]["request"]["params"]["pane"], RIGHT_PANE, "{}", creates[0]);
+    assert_eq!(creates[1]["request"]["params"]["pane"], RIGHT_PANE, "{}", creates[1]);
+    assert_eq!(creates[2]["request"]["params"]["pane"], OWN_PANE, "{}", creates[2]);
+}
+
 /// With no column right of the chat, a split right of the chat makes one,
 /// running the command, and the new tab gets the asked name.
 #[test]
@@ -254,4 +279,44 @@ fn a_named_place_or_an_unplaced_client_keeps_its_target() {
     let mut server = Server::new(Fake::default(), None);
     call(&mut server, "workspace_open_url", json!({"url": "https://example.com"}));
     assert!(sent_params(&server).get("workspace").is_none());
+}
+
+/// #26648: an agent's `current` browser is the one nearest its chat, which
+/// the app reports, not the daemon's active tab, which follows the person's
+/// focus into another window.
+#[test]
+fn a_current_browser_is_the_one_nearest_the_caller() {
+    let near = "tab_99999999999999999999999999999999";
+    let fake = Fake {
+        browser: Some(
+            json!({"tab": near, "pane": OTHER_PANE, "screen": OWN_SCREEN, "workspace": OWN_WS,
+                   "session": null}),
+        ),
+        ..placed()
+    };
+    let mut server = Server::new(fake, None);
+    let result = call(
+        &mut server,
+        "browser_back",
+        json!({"workspace": "current", "tab": "current", "browser": "current"}),
+    );
+    assert_ne!(result["isError"], true, "{result}");
+    let params = sent_params(&server);
+    assert_eq!(params["tab"], near);
+    assert_eq!(params["browser"], "current");
+    // The daemon reads a `current` browser only below a full chain of ids.
+    assert_eq!(params["pane"], OTHER_PANE);
+    assert_eq!(params["screen"], OWN_SCREEN);
+    assert_eq!(params["workspace"], OWN_WS);
+}
+
+/// With no browser near the chat the call is refused: it never falls through
+/// to the person's focused browser in another window.
+#[test]
+fn a_caller_with_no_browser_near_it_is_refused() {
+    let fake = Fake { browser: Some(Value::Null), ..placed() };
+    let mut server = Server::new(fake, None);
+    let result = call(&mut server, "browser_back", json!({"browser": "current"}));
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(server.backend.sent.borrow().iter().all(|sent| sent["kind"] != "resource"));
 }

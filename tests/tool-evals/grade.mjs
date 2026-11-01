@@ -100,6 +100,91 @@ export const LOCAL_CHECKS = {
     const found = ctx.after.tabs.some((t) => lower(t.label) === lower(label));
     return { ok: found, detail: ctx.after.tabs.map((t) => t.label).join(", "), category: "closed_user_tab" };
   },
+  /** The tab labelled `label` before the turn (same tab or same terminal) is now in `workspace` (a name or "origin"). */
+  tab_in_workspace(ctx, { label, workspace }) {
+    const was = ctx.before.tabs.find((t) => lower(t.label) === lower(label));
+    const now = was && ctx.after.tabs.find((t) => t.id === was.id || (was.content_id && t.content_id === was.content_id));
+    const want = workspace === "origin" ? ctx.origin.workspace_id : ctx.after.workspaces.find((w) => lower(w.name) === lower(workspace))?.id;
+    const at = now && ctx.after.panes.find((p) => p.id === now.pane_id)?.workspace_id;
+    const detail = !was ? `no ${label} tab before` : !now ? "tab gone" : `in ${ctx.after.workspaces.find((w) => w.id === at)?.name ?? at}`;
+    return { ok: !!want && at === want, detail, category: now ? "wrong_place" : "closed_user_tab" };
+  },
+  /** The tabs `names` share one tab group that holds exactly them. */
+  tab_group_members_exact(ctx, { names }) {
+    const tabs = names.map((n) => ctx.after.tabs.find((t) => lower(t.label) === lower(n)));
+    const group = ctx.after.tabGroups.find((g) => g.id === tabs[0]?.group_id);
+    const members = group ? group.tab_ids.map((id) => ctx.after.tabs.find((t) => t.id === id)?.label ?? id) : [];
+    const ok = !!group && tabs.every((t) => t?.group_id === group.id) && group.tab_ids.length === names.length;
+    return { ok, detail: group ? `group "${group.name}": ${members.join(", ")}` : "not grouped", category: group ? "wrong_grouping" : "no_grouping" };
+  },
+  /** The tab or workspace `name` is in no group. */
+  not_grouped(ctx, { kind, name }) {
+    const items = kind === "tab" ? ctx.after.tabs.map((t) => [t.label, t.group_id]) : ctx.after.workspaces.map((w) => [w.name, w.group_id]);
+    const hit = items.find(([n]) => lower(n) === lower(name));
+    return { ok: !!hit && !hit[1], detail: hit ? (hit[1] ? `in ${hit[1]}` : "") : `no ${kind} ${name}`, category: "wrong_grouping" };
+  },
+  /** Every word names a different tab of `pane` (an alias or "origin"): tabs renamed after their content. */
+  pane_tab_names_cover(ctx, { pane, words }) {
+    const id = pane === "origin" ? ctx.origin.pane_id : ctx.aliases?.[pane] ?? pane;
+    const labels = ctx.after.tabs.filter((t) => t.pane_id === id).map((t) => lower(t.label));
+    const assign = (i, used) => i === words.length || labels.some((l, k) => !used.has(k) && l.includes(lower(words[i])) && assign(i + 1, new Set([...used, k])));
+    return { ok: assign(0, new Set()), detail: labels.join(", "), category: "not_done" };
+  },
+  /** New tabs sit in a new pane stacked in the same column as `pane` (an alias or "origin"): a split down or up. */
+  new_tabs_stacked(ctx, { pane }) {
+    const id = pane === "origin" ? ctx.origin.pane_id : ctx.aliases?.[pane] ?? pane;
+    const target = ctx.after.panes.find((p) => p.id === id);
+    const before = new Set(ctx.before.tabs.map((t) => t.id));
+    const tabs = ctx.after.tabs.filter((t) => !before.has(t.id));
+    const wrong = tabs.filter((t) => {
+      const p = ctx.after.panes.find((x) => x.id === t.pane_id);
+      return !p || !target || p.id === id || p.screen_id !== target.screen_id || p.column_index !== target.column_index;
+    });
+    return { ok: tabs.length > 0 && wrong.length === 0, detail: `${tabs.length} new, ${wrong.length} not stacked`, category: "wrong_place" };
+  },
+  /**
+   * The app opened exactly `count` (default 1) viewer tabs of `kind` (file, diff, page) whose
+   * path or URL matches `what`, each on `side` of `of` (an alias or "origin", default origin):
+   * right, left, below, above, "in" (that pane itself), or "other_workspace". A tab the app
+   * put in the chat's own pane never counts as right, left, below or above. `docked`: the
+   * tab's pane is in a docked (sticky) column, or not.
+   */
+  opened(ctx, { kind, what, side, of = "origin", count = 1, docked }) {
+    const ref = of === "origin" ? ctx.origin.pane_id : ctx.aliases?.[of] ?? of;
+    const at = (id) => ctx.after.panes.find((p) => p.id === id);
+    const base = at(ref);
+    const opens = (ctx.appOpens ?? []).filter((o) => (!kind || o.kind === kind) && (!what || new RegExp(what, "i").test(o.what ?? "")));
+    const where = (o) => {
+      const p = at(o.pane);
+      if (p && base && p.workspace_id !== base.workspace_id) return "other_workspace";
+      if (!p || !base || p.screen_id !== base.screen_id) return "elsewhere";
+      if (p.id === base.id) return "in";
+      if (p.column_index > base.column_index) return "right";
+      if (p.column_index < base.column_index) return "left";
+      return p.row_index > base.row_index ? "below" : "above";
+    };
+    const sides = opens.map(where);
+    const dockOk = docked === undefined || opens.every((o) => !!at(o.pane)?.docked === docked);
+    const ok = opens.length === count && (!side || sides.every((s) => s === side)) && dockOk;
+    const detail = `${opens.length} ${kind ?? ""} opened${sides.length ? ` (${sides.join(", ")})` : ""}; all opens: ${(ctx.appOpens ?? []).map((o) => `${o.kind} ${o.what}`).join(" | ").slice(0, 160)}`;
+    return { ok, detail, category: opens.length === count ? "wrong_place" : "not_done" };
+  },
+  /** `pane` (an alias) is in a docked (sticky) column, or is not when `docked` is false. */
+  pane_docked(ctx, { pane, docked = true }) {
+    const id = pane === "origin" ? ctx.origin.pane_id : ctx.aliases?.[pane] ?? pane;
+    const p = ctx.after.panes.find((x) => x.id === id);
+    return { ok: !!p && !!p.docked === docked, detail: p ? `docked ${p.docked}` : "no pane", category: "not_done" };
+  },
+  /** The person's focus is on the pane the app opened into (they asked to go there). */
+  focus_on_opened(ctx) {
+    const panes = new Set((ctx.appOpens ?? []).map((o) => o.pane));
+    return { ok: panes.has(ctx.after.focus.pane_id), detail: `focus ${ctx.after.focus.pane_id}`, category: "not_done" };
+  },
+  /** The person's focus is on `pane` (an alias): for a turn that was asked to move it. */
+  focus_on_pane(ctx, { pane }) {
+    const id = ctx.aliases?.[pane] ?? pane;
+    return { ok: ctx.after.focus.pane_id === id, detail: `focus ${ctx.after.focus.pane_id}`, category: "not_done" };
+  },
   workspace_first(ctx, { name }) {
     const sorted = [...ctx.after.workspaces].sort((a, b) => (a.sidebar_index ?? a.index ?? 0) - (b.sidebar_index ?? b.index ?? 0));
     return { ok: lower(sorted[0]?.name) === lower(name), detail: sorted.map((w) => w.name).join(", "), category: "not_done" };

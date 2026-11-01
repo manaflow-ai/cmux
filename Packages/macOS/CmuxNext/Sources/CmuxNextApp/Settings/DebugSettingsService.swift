@@ -35,7 +35,7 @@ enum TunableCatalog {
         // The Chief view gallery's toggle (its own line, so the busy list below merges cleanly).
         ChiefViewsPage.tunables +
         DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
-            + [AgentPaneTunables.inspector.descriptor]
+            + [AgentPaneTunables.sessionInfo.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
             + TitlebarHistoryTunables.all + HibernationTunables.all + CloudTunables.all
@@ -138,7 +138,8 @@ final class DebugSettingsService: InternalPageProvider {
             let page = webPage(model: model)
             windowPage = page
             let controller = DebugSettingsWindowController(model: model, content: page,
-                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
+                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } },
+                                                           activeLook: services.activeLook)
             controller.onClose = { [weak self] in
                 guard let self else { return }
                 windowPage?.close()

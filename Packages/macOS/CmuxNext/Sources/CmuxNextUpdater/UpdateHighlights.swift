@@ -28,13 +28,16 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
         public var category: Category
         /// An SF Symbol the source names; never required.
         public var symbol: String?
+        /// Optional pull request for the shared PR chip.
+        public var pr: URL?
 
-        public init(id: String, title: String, summary: String?, category: Category, symbol: String? = nil) {
+        public init(id: String, title: String, summary: String?, category: Category, symbol: String? = nil, pr: URL? = nil) {
             self.id = id
             self.title = title
             self.summary = summary
             self.category = category
             self.symbol = symbol
+            self.pr = pr
         }
     }
 
@@ -99,7 +102,7 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
             let entries = document.entries.sorted { (order.firstIndex(of: $0.category) ?? 9) < (order.firstIndex(of: $1.category) ?? 9) }
             let items = entries.map { entry in
                 Item(id: entry.id, title: entry.title.resolved(for: languages),
-                     summary: Self.oneLine(entry.summary.resolved(for: languages)), category: Category(entry.category))
+                     summary: Self.oneLine(entry.summary.resolved(for: languages)), category: Category(entry.category), pr: entry.pr)
             }
             return (.whatsNew, Self.language(of: document.entries.first?.title, for: languages), items)
         }

@@ -177,3 +177,26 @@ fn ledger_scan_finds_and_quarantines_a_corrupt_ledger() {
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
+
+fn pragma_count(registry: &WorkspaceRegistry, pragma: &str) -> i64 {
+    registry.connection.get().query_row(&format!("PRAGMA {pragma}"), [], |row| row.get(0)).unwrap()
+}
+
+/// Pruned ledger rows leave free pages; one maintenance step must return up
+/// to 256 of them, not one, or an idle owner keeps waking until they are gone.
+#[test]
+fn one_incremental_vacuum_step_returns_up_to_256_free_pages() {
+    let root = temp_root("incremental-vacuum-step");
+    let registry = WorkspaceRegistry::open(&root, "incremental-vacuum-step").unwrap();
+    assert_eq!(pragma_count(&registry, "auto_vacuum"), 2, "a fresh registry vacuums incrementally");
+    fill_ledger(&registry, "projection_mutations", 400, 8 * 1024);
+    registry.connection.get().execute("DELETE FROM projection_mutations", []).unwrap();
+    let before = pragma_count(&registry, "freelist_count");
+    assert!(before > 300, "the test needs more than 256 free pages, got {before}");
+
+    let more = registry.incremental_journal_vacuum().unwrap();
+
+    let after = pragma_count(&registry, "freelist_count");
+    assert_eq!(before - after, 256, "one step returns 256 pages ({before} -> {after})");
+    assert!(more, "free pages remain for a later step");
+}

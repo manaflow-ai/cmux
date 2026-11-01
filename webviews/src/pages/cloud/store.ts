@@ -5,6 +5,7 @@
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { AccountReader } from "./account";
+import { connectionFailure } from "./connectionFailure";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
 import { TransferWatch, type FileTransfer } from "./transfers";
@@ -29,6 +30,7 @@ import {
   isUnsupported,
   planRefusal,
   type ActionRunResult,
+  type AccountEvent,
   type AuthStatus,
   type CloudMachine,
   type CloudPlan,
@@ -43,7 +45,11 @@ import {
   type SnapshotListResult,
 } from "./ops";
 
-export type Connection = "connecting" | "connected" | "disconnected";
+export type Connection = "connecting" | "connected" | "disconnected" | "failed";
+
+/** The first and the longest wait before the store reads auth again after the link refused it. */
+export const CLOUD_RESTART_MIN_MS = 1_000;
+export const CLOUD_RESTART_MAX_MS = 10_000;
 
 export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
@@ -126,6 +132,14 @@ export class CloudStore {
   private readonly listeners = new Set<() => void>();
   private started = false;
   private unwatch?: () => void;
+  /** The account stream (`cmux.cloud.auth.watch`): lives from start to stop, across sessions. */
+  private unwatchAuth?: () => void;
+  /** Bumped by stop: an auth stream that subscribes after it is closed at once. */
+  private lifetime = 0;
+  /** The lifetime whose account subscribe is in flight, if any. */
+  private watchingAuth?: number;
+  /** The account stream's last event. */
+  private lastAccount?: AccountEvent;
   /**
    * Bumped by stop, sign-out, team switch and retry. Every async load captures it and drops its
    * result (and closes its watch) when it changed, so an old account or team never writes state.
@@ -133,6 +147,10 @@ export class CloudStore {
   private session = 0;
   /** Bumped by sign-in, sign-out and team switch (not by Retry): an answer from another account is dropped. */
   private accountEpoch = 0;
+  /** The next `start` after a first auth read the link refused (`startLater`); cleared by stop. */
+  private restart: ReturnType<typeof setTimeout> | undefined;
+  /** Link refusals of the first auth read in a row: the wait before the next one doubles. */
+  private restartAttempts = 0;
   readonly detail: DetailReader;
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
@@ -208,18 +226,55 @@ export class CloudStore {
     } catch (error) {
       if (session !== this.session) return;
       this.started = false;
-      this.set({ loading: false, ...failure(error) });
+      const failed = failure(error);
+      const connection = connectionFailure(error);
+      this.set({ ...failed, loading: false, connection });
+      if (connection === "disconnected") this.startLater();
       return;
     }
     if (session !== this.session) return;
-    this.set({ auth, connection: "connected" });
+    // The link answers: follow the app's account from here on (each start after a stop subscribes again).
+    void this.watchAuth();
+    // Back after `startLater`: the refused read's error goes, and the page loads as on a first
+    // start (Retry does the same before it starts).
+    const recovered = this.restartAttempts > 0;
+    this.restartAttempts = 0;
+    this.set({
+      auth,
+      connection: "connected",
+      ...(recovered ? { loading: true, error: undefined, errorCode: undefined } : {}),
+    });
     if (auth.signedIn) await this.loadSignedIn(session);
     else this.set({ loading: false });
   }
 
   stop(): void {
     this.started = false;
+    this.lifetime += 1;
+    this.unwatchAuth?.();
+    this.unwatchAuth = undefined;
+    this.watchingAuth = undefined;
+    this.lastAccount = undefined;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    this.restartAttempts = 0;
     this.endSession();
+  }
+
+  /**
+   * The link refused the first auth read (on a launch or a daemon restart the daemon or its Cloud
+   * relay is not up yet): read it again on its own, 1 s and then doubling to 10 s, so the page
+   * comes up once the link does. The connection stays "disconnected" meanwhile (the page shows it
+   * only once that lasts, ui/lasting.ts) and Retry still asks at once. Ends with a read that
+   * succeeds or a failure that is not the link's, and with `stop` (the last listener leaving).
+   */
+  private startLater(): void {
+    clearTimeout(this.restart);
+    const delay = Math.min(CLOUD_RESTART_MAX_MS, CLOUD_RESTART_MIN_MS * 2 ** this.restartAttempts++);
+    this.restart = setTimeout(() => {
+      this.restart = undefined;
+      if (this.listeners.size > 0) void this.start();
+    }, delay);
   }
 
   get canRetry(): boolean {
@@ -229,13 +284,18 @@ export class CloudStore {
   /** After a disconnect: drops the old session and starts again (the localized Retry button). */
   async retry(): Promise<void> {
     this.stop();
-    this.set({ connection: this.client ? "connecting" : "disconnected", loading: true, error: undefined });
+    this.set({
+      connection: this.client ? "connecting" : "disconnected",
+      loading: true,
+      error: undefined,
+      errorCode: undefined,
+    });
     await this.start();
   }
 
   /** Sign-in is a native browser flow the host runs as origin user (cloud-app.md section 2). */
   async signIn(): Promise<void> {
-    if (!this.client || this.state.connection === "disconnected") return;
+    if (!this.client || this.state.connection !== "connected") return;
     const session = this.session;
     try {
       const result = await this.client.call<ActionRunResult | null>(ACTION_RUN, {
@@ -503,6 +563,69 @@ export class CloudStore {
 
   // Internals.
 
+  /**
+   * Follows the app's account: a page opened while signed out (or before the session was restored
+   * at launch) shows the machines once the account signs in anywhere in the app, and a sign-out
+   * elsewhere clears them. Each event only says "read auth again" (`accountChanged`).
+   */
+  private async watchAuth(): Promise<void> {
+    const lifetime = this.lifetime;
+    if (!this.client || this.unwatchAuth || this.watchingAuth === lifetime) return;
+    // A subscribe of an earlier lifetime that is still in flight closes itself when it answers.
+    this.watchingAuth = lifetime;
+    try {
+      const unwatch = await this.client.subscribe<AccountEvent>(CloudOps.authWatch, (event) => {
+        if (lifetime !== this.lifetime) return;
+        const previous = this.lastAccount;
+        this.lastAccount = event;
+        // Another signed-in account (a user switch): its auth status may read the same, so it reloads.
+        const switched = !!previous?.signedIn && !!event?.signedIn && (previous.user ?? null) !== (event.user ?? null);
+        void this.accountChanged(switched);
+      });
+      if (lifetime !== this.lifetime) return unwatch();
+      this.unwatchAuth = unwatch;
+    } catch {
+      // An older host serves no account stream, or the link is down: the next start subscribes again.
+    } finally {
+      if (this.watchingAuth === lifetime) this.watchingAuth = undefined;
+    }
+  }
+
+  /**
+   * Reads auth again after an account event. Nothing changes when the page already shows that
+   * account (its own Sign In, a team switch it ran, the stream's first event) unless `switched`
+   * (another signed-in user); otherwise the old account's state goes and the new one loads, as
+   * after the page's own sign-in or sign-out. A read that fails restarts the page the way a
+   * failed first read does (back on its own once the link is, or Retry), so the event is never lost.
+   */
+  private async accountChanged(switched = false): Promise<void> {
+    // Before the first auth read answered, that read is newer than the event.
+    if (!this.client || this.state.connection !== "connected" || !this.state.auth) return;
+    const session = this.session;
+    let auth: AuthStatus;
+    try {
+      auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
+    } catch (error) {
+      if (session !== this.session) return;
+      // The old account's machines must not stay: drop them, and start again like a first read.
+      this.restartSession();
+      void this.detail.load(undefined);
+      this.started = false;
+      const connection = connectionFailure(error);
+      this.set({ ...signedOutState(), auth: undefined, ...failure(error), connection });
+      if (connection === "disconnected") this.startLater();
+      return;
+    }
+    const shown = this.state.auth;
+    if (session !== this.session || !shown) return;
+    if (!switched && shown.signedIn === auth.signedIn && (shown.team ?? null) === (auth.team ?? null)) return;
+    const next = this.restartSession();
+    void this.detail.load(undefined);
+    if (!auth.signedIn) return this.set({ ...signedOutState(), auth });
+    this.set({ ...signedOutState(), auth, loading: true });
+    await this.loadSignedIn(next);
+  }
+
   private endSession(): void {
     this.session += 1;
     this.unwatch?.();
@@ -553,7 +676,7 @@ export class CloudStore {
       this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
     } catch (error) {
       buffer = null;
-      if (session === this.session) this.set({ loading: false, ...failure(error) });
+      if (session === this.session) this.set({ loading: false, connection: "failed", ...failure(error) });
       return;
     }
     await this.account.load(session);
@@ -708,7 +831,7 @@ export class CloudStore {
   }
 
   private canChange(): boolean {
-    return !!this.client && this.state.connection !== "disconnected" && !!this.state.auth?.signedIn;
+    return !!this.client && this.state.connection === "connected" && !!this.state.auth?.signedIn;
   }
 
   private key(): string {
@@ -766,7 +889,7 @@ function codeOf(error: unknown): string | undefined {
  * alert at a time, so an error banner replaces the no-image banner.
  */
 export function failure(error: unknown, withMessage = true): Partial<CloudState> {
-  if (isPageError(error) && error.code === "cmux.protocol.transport") {
+  if (connectionFailure(error) === "disconnected") {
     return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
   }
   return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};

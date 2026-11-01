@@ -17,7 +17,7 @@ enum TerminalLinkMenu {
         guard let link, link.scheme == "http" || link.scheme == "https" else { return [] }
         let menu = registry.makeContextMenu(
             for: .browserLink, target: target,
-            entries: ContextMenuCatalog.shared.entries(for: .browserLink, removing: pageOnly),
+            entries: registry.contextMenuEntries(for: .browserLink, removing: pageOnly),
             arguments: ["url": .string(link.absoluteString)]
         )
         let rows = menu.items

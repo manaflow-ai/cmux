@@ -27,6 +27,7 @@ Running the same `new --worktree ... --prompt-file ...` again reuses the session
 | From an agent session, say what the message asks of the receiver | `acpmux send coord --class block "Base is red; I cannot push"` |
 | Send a file with it | `acpmux send fix-27310 --attach ~/notes/before.png "The caret jumps after paste"` |
 | Check a `--no-wait` delivery | `acpmux send --status DELIVERY_ID` |
+| From an agent session, message several sessions at once | the `send` tool of the `acpmux` MCP server with `messages: [{to, text}, {to, file}]` (or `tag`), not a shell loop of `acpmux send --no-wait` |
 | Retry a failed last turn | `acpmux retry review-27310` |
 | Cancel the running turn | `acpmux session cancel coord` |
 
@@ -55,6 +56,7 @@ boundary); `--no-steer` queues it instead.
 | --- | --- |
 | State, model, policy and pending requests | `acpmux session info coord` |
 | Stop its agent, keeping the session to resume later | `acpmux session stop review-27310` |
+| Stop it only if it is idle and unchanged since you read its `lastSeq` (exit 6 if not) | `acpmux session stop review-27310 --if-idle --expect-revision 418` |
 | Restart its agent on the installed version | `acpmux session restart coord` |
 | Rename it | `acpmux session rename review review-27310` |
 | Change its model or effort | `acpmux session set coord effort=low` |
@@ -67,6 +69,20 @@ boundary); `--no-steer` queues it instead.
 | Label it | `acpmux session tag review-27310 pr=27310` |
 | How many sub-sessions it runs and queues | `acpmux session limits coord` |
 | Export it as a bundle; import the folder it prints elsewhere | `acpmux session export coord --dest ~/bundles` |
+
+`session stop --if-idle` stops nothing while the session has a turn (one admitted but not started
+yet included, or one its harness started itself), a queued prompt, a pending permission, an agent
+request, a background subagent or a background process,
+and with `--expect-revision REV` nothing once its revision (`lastSeq` in `acpmux ls --json` and
+`session info --json`, each record's `seq` in `session tail`) is no longer REV. The check and the
+stop happen under the lock that admits turns, so no turn starts in between. A refusal exits 6; with
+`--json` its `error.detail` is `busy` (`error.data.busyWith` says what: `turn`, `queued`,
+`permission`, `tool_call`, `subagent`, `process` (a background shell of its harness), `unstored` (a
+Claude conversation that was never stored), `unadopted_host` (an agent host this daemon could not
+adopt, or host records it cannot read), `starting`, `moving`) or `revision_moved`, and
+`error.data.revision` is the current revision. It runs on the daemon that owns the session: it is
+refused with `--mesh` and for a peer's session (`stop_if_idle_remote`), and by a daemon that predates
+it (`stop_if_idle_unsupported`, exit 1).
 
 An allow, and an answer to an agent's question, are accepted only from the cmux app; from the CLI,
 `session deny` rejects a request and `session answer` prints the questions. A session's limits are
