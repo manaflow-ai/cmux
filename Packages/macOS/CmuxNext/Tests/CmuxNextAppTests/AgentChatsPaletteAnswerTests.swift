@@ -124,7 +124,8 @@ import Testing
         var sent: [[String: any Sendable]] = []
         windows.connected { _, params in sent.append(params) }
         let page = AgentChatsPalettePage(windows: windows, history: { _ in nil }, open: { _ in }).page()
-        let stream = try #require(page.queryResults)("idle")
+        let results = try #require(page.queryResults)
+        let stream = results("idle")
         for _ in 0..<500 where !sent.contains(where: { $0["query"] as? String == "idle" }) { await Task.yield() }
         let generation = try #require(sent.last?["gen"] as? UInt64)
         let keys = (0..<200).map { "codex:\($0)" }
@@ -134,7 +135,8 @@ import Testing
         windows.apply(try #require(AcpmuxChatWindows.Update(params: message)))
         for await _ in stream {}
         page.onCancel?()
-        let more = try #require(page.moreRow)(5, "idle")
+        let moreRow = try #require(page.moreRow)
+        let more = moreRow(5, "idle")
         #expect(more.title.contains("55"), "5 cut plus 50 past the page: \(more.title)")
     }
 
