@@ -64,20 +64,25 @@ extension Workspace {
     /// user's selection/focus are restored from one snapshot after the reorder.
     /// No-ops when the tabs already match or aren't all in one pane.
     ///
+    /// Tabs in `fixed` belong to no tmux window (the terminal cmux opens when a
+    /// workspace's last tab closes, for one). They keep their positions, so one of
+    /// them can't stop the rest from following tmux.
+    ///
     /// Known beta limitation: if a *remote* window reorder arrives while the user is
     /// mid tab-drag, this can move tabs under the drag. The trigger is narrow (a
     /// concurrent remote reorder during a ~1s local drag) and self-heals — the
     /// drop's `didReorderTabsInPane` reconciles `connection.windowOrder` to the
     /// final order. A drag-aware guard would need bonsplit to expose drag state.
     @discardableResult
-    func reorderRemoteTmuxMirrorTabs(toPanelOrder panelOrder: [UUID]) -> Bool {
+    func reorderRemoteTmuxMirrorTabs(toPanelOrder panelOrder: [UUID], keepingInPlace fixed: Set<UUID> = []) -> Bool {
         // A global tmux window order cannot span multiple cmux panes.
         let presentPaneIds = Set(panelOrder.compactMap { paneId(forPanelId: $0) })
         guard presentPaneIds.count == 1, let paneId = presentPaneIds.first else { return false }
         let currentPanelIds = bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
         guard let desired = RemoteTmuxSessionMirror.mirrorTabReorder(
             current: currentPanelIds,
-            requested: panelOrder
+            requested: panelOrder,
+            keepingInPlace: fixed
         ) else { return false }
 #if DEBUG
         cmuxDebugLog("remote-tmux: reorder mirror tabs ws=\(id.uuidString.prefix(5)) count=\(desired.count)")
