@@ -633,11 +633,11 @@ class LinuxStaleRunTests(unittest.TestCase):
         mac = make_run(branch="mac", status="queued", age=30)
         jobs = {mac["id"]: mac_jobs(queued=1)}
         prs = {"feat": [self.closed_pr()], "mac": [self.closed_pr(2)]}
-        result = self.linux_plan([*linux, mac], jobs, prs, max_cancels=1, max_linux_stale_cancels=2)
+        result = self.linux_plan([*linux, mac], jobs, prs, max_cancels=1, max_stale_cancels=2)
         actions = {d.candidate.run["id"]: (d.action, d.note) for d in result.decisions}
         self.assertEqual(actions[mac["id"]], ("cancel", ""))
         self.assertEqual([actions[run["id"]][0] for run in linux], ["cancel", "cancel", "skip"])
-        self.assertIn("stale Linux runs", actions[linux[2]["id"]][1])
+        self.assertIn("unstarted stale runs", actions[linux[2]["id"]][1])
 
     def test_branches_to_resolve_includes_pr_runs_without_macos_jobs(self):
         with_mac = make_run(branch="a")
@@ -651,9 +651,100 @@ class LinuxStaleRunTests(unittest.TestCase):
         query, _ = janitor.graphql_query("manaflow-ai", "cmux", ["feat"])
         self.assertIn("closedAt", query)
 
-    def test_max_linux_stale_cancels_is_bounded(self):
+    def test_max_stale_cancels_is_bounded(self):
         with mock.patch.dict("os.environ", {"GH_TOKEN": "t", "GH_REPO": "manaflow-ai/cmux"}):
-            self.assertEqual(janitor.main(["--max-linux-stale-cancels", "201"]), 2)
+            self.assertEqual(janitor.main(["--max-stale-cancels", "201"]), 2)
+
+
+class StaleRunSweepTests(unittest.TestCase):
+    """The stale-run sweep takes only unstarted runs: no-Mac stale PR runs and push runs on deleted branches."""
+
+    def sweep_plan(self, runs, prs=None, heads=None, **kwargs):
+        return janitor.build_plan(runs, {}, prs or {}, threshold=6, max_cancels=10, pull_request_policy="compile-only",
+                                  now=NOW, branch_heads=heads or {}, lost={}, unclaimed={}, **kwargs)
+
+    def merged(self, number=1):
+        pr = make_pr(number, state="MERGED")
+        pr["closedAt"] = iso(5)
+        return pr
+
+    def test_started_no_mac_stale_pr_run_is_left_to_finish(self):
+        run = make_run(branch="feat", status="in_progress", age=30)
+        self.assertEqual(self.sweep_plan([run], {"feat": [self.merged()]}).decisions, [])
+        superseded = make_run(branch="sup", status="in_progress", sha="old")
+        self.assertEqual(self.sweep_plan([superseded], {"sup": [make_pr(2, head="new")]}).decisions, [])
+
+    def test_queued_push_run_on_a_deleted_branch_is_cancelled(self):
+        run = make_run(event="push", branch="lane/gone", status="queued", path=".github/workflows/cmux-tui-artifacts.yml")
+        result = self.sweep_plan([run], heads={"lane/gone": ""})
+        self.assertEqual([(d.candidate.category, d.action, d.candidate.reason) for d in result.decisions],
+                         [("stale-push", "cancel", "push to deleted branch lane/gone")])
+
+    def test_push_run_on_a_live_or_unread_branch_is_kept(self):
+        live = make_run(event="push", branch="lane/live", status="queued")
+        unread = make_run(event="push", branch="lane/unread", status="queued")
+        self.assertEqual(self.sweep_plan([live, unread], heads={"lane/live": "abc"}).decisions, [])
+
+    def test_started_or_re_run_push_on_a_deleted_branch_is_kept(self):
+        started = make_run(event="push", branch="lane/gone", status="in_progress")
+        rerun = make_run(event="push", branch="lane/gone", status="queued", attempt=2)
+        self.assertEqual(self.sweep_plan([started, rerun], heads={"lane/gone": ""}).decisions, [])
+
+    def test_protected_pushes_on_a_deleted_branch_are_kept(self):
+        heads = {"main": "", "feat-cmux-next": "", "rc/1.2": "", "lane/gone": ""}
+        runs = [make_run(event="push", branch=b, status="queued") for b in ("main", "feat-cmux-next", "rc/1.2")]
+        runs.append(make_run(event="push", branch="lane/gone", status="queued", name="Nightly NEXT",
+                             path=".github/workflows/nightly-next.yml"))
+        runs.append(make_run(event="push", branch="lane/gone", status="queued", name="Release",
+                             path=".github/workflows/release.yml"))
+        self.assertEqual(self.sweep_plan(runs, heads=heads).decisions, [])
+
+    def test_protected_workflow_of_a_merged_pr_is_kept(self):
+        run = make_run(branch="feat", status="queued", name="iOS TestFlight", path=".github/workflows/testflight.yml")
+        self.assertEqual(self.sweep_plan([run], {"feat": [self.merged()]}).decisions, [])
+
+    def test_stale_push_shares_the_sweep_cap(self):
+        pushes = [make_run(event="push", branch=f"lane/gone{i}", status="queued", age=40 - i) for i in range(2)]
+        pr_run = make_run(branch="feat", status="queued", age=20)
+        result = self.sweep_plan([*pushes, pr_run], {"feat": [self.merged()]},
+                                 heads={"lane/gone0": "", "lane/gone1": ""}, max_stale_cancels=2)
+        self.assertEqual(sorted(d.action for d in result.decisions), ["cancel", "cancel", "skip"])
+
+    def test_cancel_re_checks_that_the_run_has_not_started(self):
+        run = make_run(event="push", branch="lane/gone", status="queued")
+        candidate = janitor.Candidate(run, "stale-push", "push to deleted branch lane/gone", janitor.macos_usage([]))
+        fake = FakeGitHub({run["id"]: dict(run, status="in_progress")})
+        results, failures = janitor.cancel_plan(fake, [candidate])
+        self.assertEqual(results[run["id"]], "skipped (started: now in_progress)")
+        self.assertEqual((failures, fake.posts()), (0, []))
+
+    def test_each_cancel_names_its_run_and_reason_in_the_log(self):
+        run = make_run(event="push", branch="lane/gone", status="queued")
+        candidate = janitor.Candidate(run, "stale-push", "push to deleted branch lane/gone", janitor.macos_usage([]))
+        fake = FakeGitHub({run["id"]: dict(run)})
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            results, _ = janitor.cancel_plan(fake, [candidate])
+        self.assertEqual(results[run["id"]], "cancelled")
+        self.assertIn(f"cancelled run {run['id']} (stale-push): push to deleted branch lane/gone", out.getvalue())
+
+    def test_push_branches_to_check_skips_protected_and_started_runs_and_is_capped(self):
+        runs = [make_run(event="push", branch="main", status="queued"),
+                make_run(event="push", branch="lane/a", status="queued", age=50),
+                make_run(event="push", branch="lane/b", status="in_progress"),
+                make_run(event="push", branch="lane/c", status="queued", age=40),
+                make_run(event="push", branch="lane/d", status="queued", age=30),
+                make_run(branch="lane/e", status="queued")]
+        self.assertEqual(janitor.push_branches_to_check(runs, known={"lane/c"}, cap=2), ["lane/a", "lane/d"])
+
+    def test_branch_refs_round_trip(self):
+        query, variables = janitor.branch_refs_query("manaflow-ai", "cmux", ["lane/a", "lane/b"])
+        self.assertIn("r1: ref(qualifiedName: $r1)", query)
+        self.assertEqual(variables["r0"], "refs/heads/lane/a")
+        parsed = janitor.parse_branch_refs(
+            {"data": {"repository": {"r0": {"target": {"oid": "abc"}}, "r1": None}}}, ["lane/a", "lane/b"])
+        self.assertEqual(parsed, {"lane/a": "abc", "lane/b": ""})
+        self.assertEqual(janitor.parse_branch_refs({"data": {"repository": None}}, ["lane/a"]), {})
 
 
 class CancelPlanRateLimitTests(unittest.TestCase):
