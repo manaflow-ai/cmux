@@ -92,7 +92,8 @@ test("the Updated card lists the changes by area, then the count of the rest", a
   ]);
   expect(host.querySelector(".wn-card-more")?.textContent).toBe("+35 more");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  expect(buttons).toEqual(["Close", "See What's New"]);
+  // The build line's commit is the copy button (BuildLine), then the card's own two.
+  expect(buttons).toEqual(["3934171", "Close", "See What's New"]);
 });
 
 test("the Updated card says the version and date in words, not a raw build number", async () => {
@@ -193,7 +194,12 @@ test("a click on the build's commit copies the full version and says Copied in t
   expect(line.textContent).toBe("Build a9d1434 · Newest");
   const id = line.querySelector<HTMLElement>(".wn-card-build-id")!;
   expect(id.textContent).toBe("a9d1434");
-  expect(id.getAttribute("role")).toBe("button");
+  // A native button (cmux-ad 2026-11-01: a span with role="button" and its own key handler hid the
+  // control from the lint behind a silencer): focus, Return and Space come from the platform.
+  expect(id.tagName).toBe("BUTTON");
+  expect(id.getAttribute("type")).toBe("button");
+  expect(id.hasAttribute("role")).toBe(false);
+  expect(id.hasAttribute("tabindex")).toBe(false);
   expect(id.getAttribute("aria-label")).toBe("Copy Version 1.0.0-nightly.4037004604601");
   await act(async () => {
     id.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -202,5 +208,45 @@ test("a click on the build's commit copies the full version and says Copied in t
   // The same line, the same length class: no popover, no tooltip, no layout jump.
   expect(line.textContent).toBe("Build a9d1434 · Copied");
   expect(host.querySelector(".wn-card [title]")).toBeNull();
+  delete (window.navigator as { clipboard?: unknown }).clipboard;
+});
+
+// Return or Space on the focused commit is the button's own activation: a click with detail 0. It
+// copies even while text elsewhere on the page is selected; only a pointer click that ends a drag
+// selects instead.
+test("Return or Space on the build's commit copies the full version, with a selection on the page", async () => {
+  const copied: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
+  await renderCard(leo, index(["4037004604601"]));
+  const id = host.querySelector<HTMLButtonElement>(".wn-card-build-id")!;
+  const eyebrow = host.querySelector(".wn-card-eyebrow")!;
+  // BuildLine reads the page's selection from globalThis, which is the window in a page.
+  const hadSelection = "getSelection" in scope;
+  scope.getSelection = window.getSelection.bind(window);
+  // The commit has keyboard focus and the card's title is selected.
+  id.focus();
+  window.getSelection()!.selectAllChildren(eyebrow);
+  expect(window.document.activeElement).toBe(id);
+  expect(window.getSelection()!.isCollapsed).toBe(false);
+  // A pointer click that ends a selection copies nothing.
+  await act(async () => {
+    id.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
+  });
+  expect(copied).toEqual([]);
+  expect(window.getSelection()!.isCollapsed).toBe(false);
+  // The key's activation (what a browser sends for Return or Space on a focused button) copies.
+  await act(async () => {
+    id.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 0 }));
+  });
+  expect(copied).toEqual(["1.0.0-nightly.4037004604601"]);
+  // Let jsdom's queued selectionchange reach this file's React root, not a later file's.
+  await act(async () => {
+    window.getSelection()!.removeAllRanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  if (!hadSelection) delete scope.getSelection;
   delete (window.navigator as { clipboard?: unknown }).clipboard;
 });

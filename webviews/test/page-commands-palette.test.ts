@@ -311,8 +311,8 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
           throw new Error(`offered ${String(last)}`, { cause: error });
         },
       );
-      // Each command reveals its section: scrolled to and lit for a moment (inspector.css `[data-revealed]`).
-      const shown = page.locator('aside.acpmux-chat-inspector[data-presence="shown"]');
+      // Each command reveals its section: scrolled to and lit for a moment (sessionInfo.css `[data-revealed]`).
+      const shown = page.locator('aside.acpmux-session-info[data-presence="shown"]');
       await page.evaluate(
         (session) => window.cmuxAcpmuxBridge!.command!(`header:showBackgroundTasks|${session}`),
         PAPERCUT_CHAT,

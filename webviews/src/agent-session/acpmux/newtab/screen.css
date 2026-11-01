@@ -19,6 +19,10 @@
    the draft. */
 .nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
+.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
+.nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
+.nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
 /* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the liquid-glass popup surface every pane popup paints (ui/popupSurface.css, .ui-glass: frosted so the rows under it never read through; only Reduce Transparency makes it the opaque popup; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
@@ -101,7 +105,8 @@
    column for `!` there too: `!pwd` never draws `!` over the `p`. */
 .nt-field-slot[data-glyph-column] .nt-field,
 .nt-input:not([data-split]) .nt-field-slot .nt-field {
-  padding-inline-start: var(--ds-control-icon);
+  --nt-field-pad-inline-start: var(--ds-control-icon);
+  padding-inline-start: var(--nt-field-pad-inline-start);
 }
 .nt-input[data-split] .nt-field-slot:not([data-glyph-column]) .nt-input-glyph {
   inset-inline-start: calc(-1 * var(--acpmux-composer-lead-gap));
@@ -881,7 +886,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding: 0 8px 0 22px;
 }
 .nt-screen[data-template="cards"][data-pill] .nt-field {
-  padding-block: 18px;
+  --nt-input-pad-block: 18px;
+  padding-block: var(--nt-input-pad-block);
 }
 .nt-toolbar {
   display: flex;

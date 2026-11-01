@@ -101,7 +101,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         return {
           left: rect.left - inner.left,
           right: inner.right - rect.right,
-          stops: line.querySelectorAll(".acpmux-chat-inspector-stop, .cv-subagent__stop").length,
+          stops: line.querySelectorAll(".acpmux-session-info-stop, .cv-subagent__stop").length,
           cursor: getComputedStyle(line.querySelector(".acpmux-agent-line__button")!).cursor,
         };
       });

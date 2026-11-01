@@ -165,6 +165,139 @@ class DedicatedRoute(unittest.TestCase):
         self.assertEqual(rescue.job_pool({"labels": [DEDICATED]}), DEDICATED)
 
 
+def admission_job(setup: str, minutes_ago: float, label: str = DEDICATED, name: str = "build-nightly-app",
+                  run_id: int = 40614043040) -> dict:
+    at = (NOW - dt.timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"name": name, "labels": [label], "run_id": run_id, "runner_name": "cmux7s-mac-mini-glaeda-nightly-next",
+            "status": "completed" if setup == "failure" else "in_progress", "started_at": at, "completed_at": at,
+            "steps": [{"name": "Set up job", "conclusion": "success"}, {"name": "Set up runner", "conclusion": setup}]}
+
+
+class DedicatedRefusal(unittest.TestCase):
+    """#25708: cmux7's admission refused every push's build below its 40 GiB disk floor while GitHub listed
+    it idle, so each push lost attempt 1 and a rescue re-run (run 40614043040, 2026-10-28)."""
+
+    def test_a_recent_refusal_holds_the_builder_off(self) -> None:
+        job = picker.latest_admission(DEDICATED, [admission_job("failure", 5)])
+        why = picker.refusal(DEDICATED, job, NOW)
+        self.assertIn("refused run 40614043040", why)
+        self.assertIn("Set up runner", why)
+
+    def test_an_old_refusal_or_a_later_admission_offers_it_again(self) -> None:
+        old = picker.latest_admission(DEDICATED, [admission_job("failure", 31)])
+        self.assertEqual(picker.refusal(DEDICATED, old, NOW), "")
+        later = picker.latest_admission(DEDICATED, [admission_job("failure", 20), admission_job("success", 10)])
+        self.assertEqual(picker.refusal(DEDICATED, later, NOW), "")
+        self.assertEqual(picker.refusal(DEDICATED, None, NOW), "")
+
+    def test_only_the_builders_own_build_job_counts(self) -> None:
+        for job in (admission_job("failure", 5, label=SIDE), admission_job("failure", 5, name="signer-app"),
+                    admission_job("", 5)):
+            with self.subTest(job=job):
+                self.assertIsNone(picker.latest_admission(DEDICATED, [job]))
+
+    def test_the_reader_pages_jobs_and_ignores_older_admissions(self) -> None:
+        pages = {"/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=6":
+                     {"workflow_runs": [{"id": 3}, {"id": 2}, {"id": 1}]},
+                 "/actions/runs/3/jobs?filter=all&per_page=100&page=1": {"jobs": [admission_job("", 1)]},
+                 # A run on its third attempt: the refused job is on the second page.
+                 "/actions/runs/2/jobs?filter=all&per_page=100&page=1":
+                     {"jobs": [admission_job("success", 9, name="decide", run_id=2)] * 100},
+                 "/actions/runs/2/jobs?filter=all&per_page=100&page=2": {"jobs": [admission_job("failure", 4, run_id=2)]},
+                 "/actions/runs/1/jobs?filter=all&per_page=100&page=1": {"jobs": [admission_job("success", 20, run_id=1)]}}
+        seen = []
+
+        class Fake:
+            def get(self, path):
+                seen.append(path)
+                return pages[path]
+
+        self.assertEqual(picker.read_admission(Fake(), DEDICATED)["run_id"], 2)
+        self.assertIn("/actions/runs/1/jobs?filter=all&per_page=100&page=1", seen)
+
+    def test_the_reader_uses_job_time_across_run_creation_order(self) -> None:
+        # An older-created run can execute later through a full rerun or delayed dependencies.
+        for latest_setup, earlier_setup in (("failure", "success"), ("success", "failure")):
+            with self.subTest(latest_setup=latest_setup):
+                pages = {"/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=6":
+                             {"workflow_runs": [{"id": 2}, {"id": 1}]},
+                         "/actions/runs/2/jobs?filter=all&per_page=100&page=1":
+                             {"jobs": [admission_job(earlier_setup, 20, run_id=2)]},
+                         "/actions/runs/1/jobs?filter=all&per_page=100&page=1":
+                             {"jobs": [admission_job(latest_setup, 5, run_id=1)]}}
+
+                class Fake:
+                    def get(self, path):
+                        return pages[path]
+
+                latest = picker.read_admission(Fake(), DEDICATED)
+                self.assertEqual(latest["run_id"], 1)
+                self.assertEqual(bool(picker.refusal(DEDICATED, latest, NOW)), latest_setup == "failure")
+
+    def run_pick(self, admission):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1",
+                   "GITHUB_EVENT_NAME": "push", "ROUTE_TOKEN": "r", "SNAPSHOT_TOKEN": "s",
+                   "OWNED_LABELS": f"{DEV} {SIDE}", "CANDIDATE": LARGE, "DEDICATED_LABEL": DEDICATED}
+            clock = Clock()
+            picker.main(env, now=NOW, sleep=clock.sleep, clock=clock,
+                        read_runners=lambda t, r: [runner(*BUILDER), runner(SIDE)],
+                        read_snapshot=lambda t, r: snapshot({}), read_admission_fn=admission)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines()), clock
+
+    def test_an_idle_but_refusing_builder_is_skipped_for_the_owned_pool(self) -> None:
+        out, clock = self.run_pick(lambda t, r: admission_job("failure", 5))
+        self.assertEqual((out["dedicated"], out["owned"], out["runner"]), ("", SIDE, SIDE))
+        self.assertEqual(clock.sleeps, [])
+        out, _ = self.run_pick(lambda t, r: admission_job("success", 5))
+        self.assertEqual(out["owned"], DEDICATED)
+
+    def test_the_dedicated_mode_honours_the_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "push",
+                   "ROUTE_TOKEN": "r", "SNAPSHOT_TOKEN": "s", "DEDICATED_LABEL": DEDICATED}
+            picker.main(env, now=NOW, argv=("dedicated",), read_runners=lambda t, r: [runner(*BUILDER)],
+                        read_admission_fn=lambda t, r: admission_job("failure", 5))
+            self.assertEqual(output.read_text().strip(), "dedicated=")
+
+    def test_an_unread_admission_history_leaves_the_builder_offered(self) -> None:
+        def broken(token, repo):
+            raise OSError("HTTP 403")
+        out, _ = self.run_pick(broken)
+        self.assertEqual(out["owned"], DEDICATED)
+
+    # Production names the dedicated builder as the trusted pair too (vars.CI_NIGHTLY_NEXT_TRUSTED_POOL and
+    # _RUNNER are labels of the same cmux7s runner, BUILDER here), and build-nightly-app takes `trusted` before
+    # `owned`: a hold that cleared only `dedicated` sent the build back to the Mac that refused it (#29768).
+    def run_trusted_pick(self, admission):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1",
+                   "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/nightly-next", "ROUTE_TOKEN": "r",
+                   "SNAPSHOT_TOKEN": "s", "OWNED_LABELS": f"{DEV} {SIDE}", "CANDIDATE": LARGE,
+                   "DEDICATED_LABEL": DEDICATED, "TRUSTED_POOL": BUILDER[0], "TRUSTED_RUNNER": BUILDER[1]}
+            clock = Clock()
+            picker.main(env, now=NOW, sleep=clock.sleep, clock=clock,
+                        read_runners=lambda t, r: [runner(*BUILDER), runner(SIDE)],
+                        read_snapshot=lambda t, r: snapshot({}), read_admission_fn=admission)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def test_a_refusing_builder_is_not_offered_as_the_trusted_pair_either(self) -> None:
+        out = self.run_trusted_pick(lambda t, r: admission_job("failure", 5))
+        self.assertEqual((out["dedicated"], out["trusted"], out["owned"]), ("", "", SIDE))
+        out = self.run_trusted_pick(lambda t, r: admission_job("success", 5))
+        self.assertEqual(out["dedicated"], DEDICATED)
+
+    def test_a_refusal_of_a_build_routed_by_the_trusted_pair_counts(self) -> None:
+        # A trusted-routed build-nightly-app carries only the pair's labels, not the dedicated label.
+        job = dict(admission_job("failure", 5), labels=[BUILDER[0], BUILDER[1]])
+        self.assertIsNone(picker.latest_admission(DEDICATED, [job]))
+        self.assertEqual(picker.latest_admission([DEDICATED, BUILDER[1]], [job]), job)
+        self.assertIn("refused run 40614043040", picker.refusal(DEDICATED, job, NOW))
+
+
 class TrustedRoute(unittest.TestCase):
     def test_trusted_pair_is_selected_with_both_labels(self) -> None:
         selector, why = picker.trusted_route(
@@ -233,6 +366,7 @@ class Main(unittest.TestCase):
                     "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/nightly-next",
                     "ROUTE_TOKEN": "r", "SNAPSHOT_TOKEN": "s", "OWNED_LABELS": f"{DEV} {SIDE}", "CANDIDATE": LARGE}
             clock = Clock()
+            reads.setdefault("read_admission_fn", lambda token, repo: None)
             self.assertEqual(picker.main({**base, **env}, now=NOW, argv=argv, sleep=clock.sleep, clock=clock,
                                          **reads), 0)
             return dict(line.split("=", 1) for line in output.read_text().splitlines())

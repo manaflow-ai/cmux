@@ -11,7 +11,7 @@
    pass under it (conversation.css). The stack never takes the transcript's last
    --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
    their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
-   review, the diff, the inspector) the stack is in the pane's flow under the stage. */
+   review, the diff, Session Info) the stack is in the pane's flow under the stage. */
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));
