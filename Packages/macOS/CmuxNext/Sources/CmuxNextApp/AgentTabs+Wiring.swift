@@ -186,6 +186,8 @@ extension AgentTabStore {
             AcpmuxHost(daemons: daemons, environment: $0, startsDaemons: $1, peerApprover: peerApprover)
         }
         tabs.localSessionHost = chief.localRouter(tabs.host)
+        // A chat that home keeps opens on its own page, never the spare connected to this Mac's acpmux.
+        tabs.chiefKeepsSession = { session in AcpmuxChiefSessionRouter.keeps(session: session, home: home.acpmuxHome) }
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) else { return nil }
@@ -388,8 +390,8 @@ extension AgentTabStore {
             host.servesLogin = daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
-            host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
-                AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
+            host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil && AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
+            host.cloudTeamMachine = services.machines.session(daemon.machineID)?.harnessLogin?.skippedTeamMachine == true
             // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
