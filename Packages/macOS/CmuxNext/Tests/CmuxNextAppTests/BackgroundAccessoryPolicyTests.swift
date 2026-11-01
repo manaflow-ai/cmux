@@ -127,6 +127,54 @@ struct BackgroundAccessoryPolicyTests {
         }
     }
 
+    @MainActor private final class HeldReports {
+        var batches = 0
+    }
+
+    /// The restore's first workspace can be reported after the restore ended: the create's reply comes
+    /// before the store applies the event that lists it (1 run in 3 on cmux12s, job 691124a2e9b4323980de7e07).
+    /// The store holds that report here until the restore ended, so the order is certain, not a race. The
+    /// launch window the person closed stays closed: the workspace waits in it, and no window shows.
+    @Test func aWorkspaceTheRestoreAskedForReportedAfterItEndedStaysInTheClosedLaunchWindow() async throws {
+        let app = NSApplication.shared
+        let policyBefore = app.activationPolicy()
+        defer { app.setActivationPolicy(policyBefore) }
+        try await Self.withLaunch { launch in
+            let windows = launch.services.windows
+            let store = launch.services.daemon.store
+            defer { store.eventHold = nil }
+            let held = HeldReports()
+            store.eventHold = { batch in
+                guard batch.contains(where: { if case .workspaceAdded = $0.event { true } else { false } }) else { return false }
+                held.batches += 1
+                return true
+            }
+            windows.restoreWhenLoaded()
+            try #require(!windows.restored, "the restore finished before the launch window could close")
+            try #require(windows.controllers.count == 1, "no launch window")
+            _ = launch.services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
+            #expect(windows.controllers.isEmpty)
+            launch.presented.policies = []
+            await Self.wait(within: .seconds(90)) { windows.restored && !windows.restoring }
+            try #require(windows.restored && !windows.restoring, "the restore never finished")
+            try #require(store.workspaces.isEmpty, "the restore's workspace was listed before the restore ended: \(store.workspaces.map(\.id))")
+            try #require(held.batches > 0, "the daemon reported no new workspace while the restore ran")
+
+            // The daemon's report arrives now; reconcile runs in this apply.
+            store.releaseHeldEvents()
+            let reported = store.workspaces.map(\.id)
+            try #require(!reported.isEmpty, "the held report listed no workspace")
+            // A window it opened would be presented in this turn or the next ones; test-only wait.
+            try? await Task.sleep(for: .milliseconds(500))
+            let registry = windows.registry.value
+            #expect(launch.presented.policies.isEmpty, "the late workspace presented a window after the user closed the launch window")
+            #expect(windows.controllers.isEmpty, "the late workspace opened \(windows.controllers.count) window(s) after the user closed the launch window")
+            #expect(reported.allSatisfy { registry.owner(of: $0).flatMap { registry.window($0) }?.isOpen == false },
+                    "the late workspace is not in a closed window: \(registry.windows.map { ($0.id, $0.isOpen, $0.workspaceIDs) })")
+            #expect(windows.closedLaunchWindowID == nil, "the closed launch window is still remembered after its workspace arrived")
+        }
+    }
+
     @Test func noWindowIsAMenuBarAppAndAnOpeningWindowComesBackRegular() async throws {
         let app = NSApplication.shared
         let policyBefore = app.activationPolicy()

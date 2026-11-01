@@ -210,6 +210,9 @@ extension AgentPaneCloudStart {
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
                                     cloneState: String? = nil, clonePhase: String? = nil,
                                     cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
+                                    environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
+                                    setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
+                                    setupError: String? = nil, setupHasScript: Bool? = nil,
                                     to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
@@ -221,6 +224,15 @@ extension AgentPaneCloudStart {
         if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
         if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
         if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
+        if let environmentId { value["environmentId"] = .string(environmentId) }
+        var setupFields: [String: JSONValue] = [:]
+        if let setupState { setupFields["state"] = .string(setupState) }
+        if let setupStatus { setupFields["status"] = .string(setupStatus) }
+        if let setupStartedAt { setupFields["startedAt"] = .number(setupStartedAt) }
+        if let setupFinishedAt { setupFields["finishedAt"] = .number(setupFinishedAt) }
+        if let setupError { setupFields["error"] = .string(setupError) }
+        if let setupHasScript { setupFields["hasScript"] = .bool(setupHasScript) }
+        if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])

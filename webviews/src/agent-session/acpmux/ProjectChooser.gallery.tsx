@@ -241,7 +241,7 @@ export default componentEntry<Props>({
       props: {
         projects: [
           { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
-          { cwd: "/home/you/src/relay", label: "relay", host: "big-red", peer: "big-red" },
+          { cwd: "/home/you/src/relay", label: "relay", host: "linux-box", peer: "linux-box" },
           { cwd: "/home/you/src/ml-train", label: "ml-train", host: "gpu-box", peer: "gpu-box" },
           { cwd: "/workspace/api-server", label: "api-server", host: "build-box", peer: "build-box" },
         ],

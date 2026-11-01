@@ -65,7 +65,7 @@ extension AgentTabStore {
         // Non-Cloud hosts retain the folder picker fallback. A Cloud host owns
         // the no-folder choice in Rust and receives no cwd so it can create a
         // fresh `~/chats/<chat-id>` folder on the machine.
-        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key)
+        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? (ownerLink == nil ? remoteFolder?(key) : nil)
         var supportsNoCwd = false
         if fallback == nil {
             let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
