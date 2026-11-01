@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+import unittest
+from unittest import mock
+
+from scripts.ci import nightly_next_control_rescue as rescue
+
+
+def event(*, path: str, event: str = "schedule", attempt: int = 1) -> dict:
+    return {"workflow_run": {"id": 42, "path": path, "event": event, "run_attempt": attempt,
+                              "head_repository": {"full_name": "manaflow-ai/cmux"}}}
+
+
+class ControlRescueTests(unittest.TestCase):
+    def test_control_target_accepts_only_own_first_attempt(self):
+        self.assertIsNotNone(rescue.control_target(event(path=next(iter(rescue.CONTROL_PATHS))), "manaflow-ai/cmux"))
+        self.assertIsNone(rescue.control_target(event(path=".github/workflows/ci.yml"), "manaflow-ai/cmux"))
+        self.assertIsNone(rescue.control_target(event(path=next(iter(rescue.CONTROL_PATHS)), attempt=2), "manaflow-ai/cmux"))
+        self.assertIsNone(rescue.control_target(event(path=next(iter(rescue.CONTROL_PATHS))), "someone/cmux"))
+
+    def test_started_control_is_never_rescued(self):
+        jobs = [{"name": "admit", "status": "in_progress", "runner_name": "fleet-1"}]
+        self.assertTrue(rescue.control_started(jobs))
+        api = mock.Mock()
+        api.jobs.return_value = jobs
+        self.assertEqual(rescue.rescue_control(api, event(path=next(iter(rescue.CONTROL_PATHS)))['workflow_run'],
+                                               sleep=lambda _: None, clock=lambda: 0.0), "started")
+        api.cancel.assert_not_called()
+
+    def test_unstarted_control_is_cancelled_and_retried_after_settlement(self):
+        api = mock.Mock()
+        api.jobs.return_value = []
+        api.request.return_value = {"status": "completed"}
+        with mock.patch.object(rescue, "WAIT_SECONDS", 0):
+            result = rescue.rescue_control(api, event(path=next(iter(rescue.CONTROL_PATHS)))['workflow_run'],
+                                           sleep=lambda _: None, clock=lambda: 0.0)
+        self.assertEqual(result, "rerun")
+        api.cancel.assert_called_once_with(42)
+        api.rerun.assert_called_once_with(42)
+
+
+if __name__ == "__main__":
+    unittest.main()
