@@ -13,6 +13,7 @@ test("automatic rejected-login recovery transfers and retries only once", async 
       return undefined;
     },
   };
+  const attempts = new Set<string>();
   const recovery = cloudCredentialRecovery(
     true,
     "machine",
@@ -24,11 +25,26 @@ test("automatic rejected-login recovery transfers and retries only once", async 
     },
     (session) => session === "session",
     () => client,
+    attempts,
+  );
+  const rebuiltRecovery = cloudCredentialRecovery(
+    true,
+    "machine",
+    "session",
+    "claude",
+    async (_method, params) => {
+      transfers += 1;
+      return { transferred: true, promptId: params.retryPromptId, ticket: "ticket" };
+    },
+    (session) => session === "session",
+    () => client,
+    attempts,
   );
 
   expect(recovery).toBeDefined();
+  expect(rebuiltRecovery).toBeDefined();
   await recovery!("prompt-row", "Try again", true);
-  await recovery!("retried-prompt-row", "Try again", true);
+  await rebuiltRecovery!("retried-prompt-row", "Try again", true);
 
   expect(transfers).toBe(1);
   expect(retries).toBe(1);

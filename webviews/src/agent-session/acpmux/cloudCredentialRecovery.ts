@@ -13,6 +13,7 @@ export function cloudCredentialRecovery(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   isCurrent: (sessionId: string) => boolean,
   currentClient: () => RecoveryClient | undefined,
+  automaticAttempts: Set<string>,
 ): Recovery | undefined {
   const provider = agentKey(harness?.split("/").pop());
   if (!connected || !machineID || !sessionId || (provider !== "claude" && provider !== "codex")) return undefined;
@@ -20,8 +21,17 @@ export function cloudCredentialRecovery(
   let automaticAttempted = false;
   return async (rowId, prompt, automatic = false) => {
     const client = currentClient();
-    if (pending || (automatic && automaticAttempted) || !client || !isCurrent(sessionId)) return;
-    if (automatic) automaticAttempted = true;
+    if (
+      pending ||
+      (automatic && (automaticAttempted || automaticAttempts.has(sessionId))) ||
+      !client ||
+      !isCurrent(sessionId)
+    )
+      return;
+    if (automatic) {
+      automaticAttempted = true;
+      automaticAttempts.add(sessionId);
+    }
     pending = true;
     try {
       const retryPromptId = crypto.randomUUID();
