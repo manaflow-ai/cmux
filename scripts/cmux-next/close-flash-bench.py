@@ -28,64 +28,58 @@ Usage (a fleet GUI host, never a person's Mac):
     --artifact artifacts/close-flash/report.json --arg=--config=bench --arg=--kinds=closeWindow [--arg=--close-rounds=25]
   (the close key: --arg=--config=debug with the default --kinds; --arg=--arm=base labels an A/B arm)
 """
-import importlib.util, json, os, re, socket, subprocess, sys, tempfile, time
+import json, os, re, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 
-def load(name, file):
-    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, file))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from bench_launch import BenchApp  # noqa: E402  the one launch path: CFBundleExecutable, the state-folder socket
 
 
-AP = load("activation_perf", "activation-perf.py")
+def wait(predicate, seconds, step=0.25):
+    """`predicate()`'s first truthy value within `seconds`, else None."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:  # bounded poll of the app's socket state in a bench
+        value = predicate()
+        if value:
+            return value
+        time.sleep(step)  # bench: the poll interval
+    return None
 
 
-class ActiveApp(AP.App):
-    """activation-perf's App, launched with activation (no CMUX_NEXT_NO_ACTIVATE) and activated again by `open`."""
+class CloseFlashApp:
+    """The tagged app, launched through bench_launch.BenchApp (its Info.plist executable, its state-folder socket,
+    the GUI-session check, its teardown) but allowed to activate: BenchApp's CMUX_NEXT_NO_ACTIVATE is removed, since
+    the close button flashes only in an active app. Debug Settings is pinned to its own window (its default is a tab
+    in the active pane, whose Cmd-W is a tab close with no close button), so the host's debug-tunables.json never
+    decides it."""
 
-    def launch(self):
-        with open(self.config, "w") as f:
-            json.dump({"appearance": {"backgroundOpacity": 1}}, f)
-        self.tunables = os.path.join(self.scratch, "debug-tunables.json")
+    def __init__(self, bundle, out, session=None):
+        self.bundle = os.path.realpath(bundle).rstrip("/")
+        os.makedirs(out, exist_ok=True)
+        self.tunables = os.path.join(out, "debug-tunables.json")
         with open(self.tunables, "w") as f:
             json.dump({"version": 1, "values": {"settings.presentation": "window"}}, f)
-        ghostty = os.path.join(self.scratch, "ghostty")
-        open(ghostty, "w").close()
-        if os.path.exists(self.socket):
-            os.unlink(self.socket)
-        env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-               "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
-               "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1440,900",
-               "CMUX_NEXT_CONFIG_FILE": self.config, "CMUX_NEXT_GHOSTTY_CONFIG": ghostty,
-               "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(self.scratch, "chief"),
-               "CMUX_NEXT_HANG_THRESHOLD_MS": str(self.hang_ms), "ACPMUX_AGENT_LAUNCH": "deny",
-               # Debug Settings opens as its own window (its default is a tab in the active pane, whose Cmd-W is a
-               # tab close with no close button): pinned here, so the host's debug-tunables.json never decides it.
-               "CMUX_NEXT_DEBUG_TUNABLES_FILE": self.tunables}
-        try:
-            from tag_teardown import TagTeardown
-            self.teardown = TagTeardown(self.bundle)
-            self.teardown.install()
-        except ImportError:
-            self.teardown = None
-        log = open(os.path.join(self.out, "app.log"), "a")
-        self.started = time.time()
-        self.process = subprocess.Popen([os.path.join(self.bundle, "Contents/MacOS/cmux DEV")], env=env,
-                                        stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-        print(f"close-flash: launched {self.tag} pid {self.process.pid}", flush=True)
-        if not AP.wait(lambda: os.path.exists(self.socket) and "error" not in (self.rpc("debug.layout_counters") or {"error": 1}), 180):
-            raise SystemExit("close-flash: the app's debug socket never answered (a bench or Debug build is required)")
-        AP.wait(lambda: AP.Session(self, self.scratch).workspace_ids(), 60)
+        self.bench = BenchApp(self.bundle, out=out, log_name="app.log", env={
+            "CMUX_NEXT_NO_ACTIVATE": None, "CMUX_NEXT_HANG_THRESHOLD_MS": "50",
+            "CMUX_NEXT_DEBUG_TUNABLES_FILE": self.tunables}, session=session)
+
+    def launch(self):
+        self.bench.launch()  # raises LaunchError (a SystemExit) with the reason and the log tail
+        print(f"close-flash: launched {self.bench.tag} pid {self.bench.process.pid} ({self.bench.binary})", flush=True)
         if not self.activate():
             raise SystemExit("close-flash: the app never became active (the close button flashes only in an active app)")
 
     def activate(self):
         subprocess.run(["open", self.bundle], capture_output=True, timeout=30)
-        return AP.wait(lambda: (self.rpc("debug.focus") or {}).get("app_active") is True, 10)
+        return wait(lambda: (self.rpc("debug.focus") or {}).get("app_active") is True, 10)
+
+    def rpc(self, method, params=None, timeout=60):
+        return self.bench.rpc(method, params, timeout)
+
+    def stop(self):
+        self.bench.stop()
 
 
 # ---------------------------------------------------------------- the daemon build (as the item 4 A/B overlay)
@@ -225,7 +219,7 @@ def close_window_round(app):
     if before is None:
         return {"error": "debug.windows did not answer"}
     app.rpc("action.run", {"action": "newWindow", "args": {}, "focus": True, "origin": "script"}, timeout=120)
-    fresh = AP.wait(lambda: sorted((open_windows(app) or set()) - before), 30)
+    fresh = wait(lambda: sorted((open_windows(app) or set()) - before), 30)
     if not fresh:
         return {"error": "New Window opened no window"}
     active = app.activate()
@@ -235,7 +229,7 @@ def close_window_round(app):
     if seq is None:
         return {"error": "debug.action_budget did not answer before the close"}
     reply = app.rpc("debug.key", {"window": fresh[0], "key": "w", "modifiers": ["control", "cmd"]})
-    closed = AP.wait(lambda: (lambda now: now is not None and fresh[0] not in now)(open_windows(app)), 10)
+    closed = wait(lambda: (lambda now: now is not None and fresh[0] not in now)(open_windows(app)), 10)
     time.sleep(0.3)  # test script: the monitor hands the run over after its commit
     runs = budget_runs(app, seq)
     if runs is None:
@@ -252,7 +246,7 @@ def close_window_round(app):
 
 def close_key_round(app):
     app.rpc("action.run", {"action": "openDebugSettings", "args": {}, "focus": True, "origin": "script"}, timeout=60)
-    if not AP.wait(lambda: debug_settings_open(app) is True, 10):
+    if not wait(lambda: debug_settings_open(app) is True, 10):
         # debug_settings_open is True only for Debug Settings in its own window (a tab answers like no window).
         return {"error": "Debug Settings did not open in its own window (DevTools is off in a Release or bench build: "
                          "use --config=debug; or the presentation pin in the tunables file did not apply)"}
@@ -265,7 +259,7 @@ def close_key_round(app):
     reply = app.rpc("debug.key", {"target": "debugSettings", "key": "w", "modifiers": ["cmd"]})
     if isinstance(reply, dict) and reply.get("error"):
         return {"error": f"close key: {reply['error']}"}
-    closed = AP.wait(lambda: debug_settings_open(app) is False, 10)
+    closed = wait(lambda: debug_settings_open(app) is False, 10)
     time.sleep(0.3)  # test script: the monitor hands the run over after its commit
     runs = budget_runs(app, seq)
     if runs is None:
@@ -308,10 +302,13 @@ def main(argv):
     report = {"arm": opts.arm, "host": os.uname().nodename, "kinds": kinds,
               "macos": subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip(),
               "rounds": {kind: [] for kind in kinds}, "failures": []}
-    app = ActiveApp(os.path.abspath(opts.app), opts.out, 50)
+    app = CloseFlashApp(os.path.abspath(opts.app), opts.out)
     try:
         app.launch()
-        report["daemon_start"] = daemon_check(app.bundle)
+        # The window can show before the headless daemon starts: poll (bounded) until a daemon of the bundle runs,
+        # then keep the last check (it names why it failed).
+        report["daemon_start"] = wait(lambda: (lambda check: check if check["ok"] else None)(daemon_check(app.bundle)), 60) \
+            or daemon_check(app.bundle)
         for _ in range(opts.close_rounds):
             for kind in kinds:
                 report["rounds"][kind].append(rounds_of[kind](app))

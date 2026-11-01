@@ -404,6 +404,14 @@ function typedText(remark: RemarkParser, markdown: string): string {
 }
 
 /** The caret's offset inside the first paragraph, else past its end. */
+/// Brings a selection the browser changed on its own (not yet told by a selectionchange) into the
+/// editor's state, as ProseMirror's DOM observer would at that event. Its observer is not public API.
+function readDomSelection(view: EditorView) {
+  const observer = (view as unknown as { domObserver?: { forceFlush?(): void; flush?(): void } }).domObserver;
+  observer?.forceFlush?.();
+  observer?.flush?.();
+}
+
 function caretOf(view: EditorView): number {
   const { selection, doc } = view.state;
   const first = doc.firstChild;
@@ -673,6 +681,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               handleDOMEvents: {
                 keydown: (_view, event) => {
                   returnTaken = false;
+                  // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
+                  // the editor's state only at the next selectionchange, a task later. A key that
+                  // comes first saw the old selection: after ArrowRight collapsed a selected New Tab
+                  // location, ProseMirror's keypress typed over the whole location it still thought
+                  // was selected. Its own keydown flushes only pending DOM mutations, so read the
+                  // selection here, before the surface's keys and ProseMirror's see it.
+                  if (!event.isComposing && event.keyCode !== 229 && !_view.composing) readDomSelection(_view);
                   latest.current.onKeyDown?.(event);
                   if (event.defaultPrevented) return true;
                   // Browser editing shortcuts must remain reliable in literal New Tab input.
