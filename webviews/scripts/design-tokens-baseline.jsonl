@@ -34,10 +34,10 @@
 {"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"height","property":"height","values":{"calc(100% - 12px)":1,"18px":1}}
 {"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"spacing","property":"gap","values":{"10px":1}}
 {"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"spacing","property":"padding","values":{"6px 16px 6px 6px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"height","values":{"56px":2,"38px":1,"min(280px, 58vh)":1,"9px":1,"1.5px":1,"42px":1,"4px":1,"16px":1,"44px":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"height","values":{"56px":2,"38px":1,"min(280px, 58vh)":1,"9px":1,"1.5px":1,"42px":1,"4px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"min-height","values":{"44px":1,"300px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"gap","values":{"3px":2,"6px":2,"13px":1,"2px 6px":1,"2px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"padding","values":{"0 32px 0 10px":1,"0 10px 0 14px":1,"7px 10px":1,"7px 24px 7px 8px":1,"0 28px 0 10px":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"gap","values":{"3px":2,"6px":2,"13px":1,"2px 6px":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"padding","values":{"0 32px 0 10px":1,"0 10px 0 14px":1,"7px 10px":1,"7px 24px 7px 8px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"height","property":"height","values":{"1px":1,"calc(23.5px * var(--cmux-interface-scale, 1))":1,"calc(15px * var(--cmux-interface-scale, 1))":1,"3px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"padding","values":{"0 8px 6px":1,"6px 10px 4px":1,"0 6px 0 8px":1}}
@@ -83,20 +83,6 @@
 {"file":"agent-session/acpmux/header/header.css","kind":"spacing","property":"padding","values":{"0 6px":4,"8px 6px 2px":1,"0 10px":2,"8px 6px 6px":1,"2px 6px 6px":1,"4px 6px":1,"8px 6px 8px":1}}
 {"file":"agent-session/acpmux/Inspector.css","kind":"spacing","property":"gap","values":{"6px 16px":1}}
 {"file":"agent-session/acpmux/Inspector.css","kind":"spacing","property":"padding","values":{"10px 16px":1,"4px 10px":1,"3px 16px":1}}
-{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"height","property":"height","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"padding","values":{"2px 8px 6px":1}}
-{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"padding-left","values":{"18px":1}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"height","property":"height","values":{"6px":1,"1px":1,"7px":2,"26px":1,"22px":1}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"height","property":"min-height","values":{"26px":2}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"gap","values":{"6px":7,"2px":5,"3px":1}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding","values":{"6px 10px 0 14px":1,"8px 10px 10px":1,"4px 8px 6px":1,"0 2px":1,"5px 4px 5px 8px":1,"0 6px":1,"2px 4px 2px 8px":2,"8px 10px":1}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-bottom","values":{"5px":1}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-left","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-right","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-top","values":{"34px":1,"5px":1}}
-{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"height","property":"height","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 6)":1}}
-{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"height","property":"min-height","values":{"calc(var(--ds-control-row) + var(--ds-space-2) + var(--cmux-hairline, 0.5px) * 4)":1,"calc(var(--ds-control-row) + var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
-{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"spacing","property":"gap","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
 {"file":"agent-session/acpmux/markdownField.css","kind":"spacing","property":"padding","values":{"calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))":1,"0 5px":1,"1px 4px":1,"8px 10px":1}}
 {"file":"agent-session/acpmux/markdownField.css","kind":"spacing","property":"padding-left","values":{"22px":1,"10px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"height","property":"height","values":{"44px":1}}
@@ -156,6 +142,20 @@
 {"file":"agent-session/acpmux/savedEnvironments.css","kind":"height","property":"min-height","values":{"22px":1}}
 {"file":"agent-session/acpmux/savedEnvironments.css","kind":"spacing","property":"gap","values":{"10px":1,"2px":1,"6px":3}}
 {"file":"agent-session/acpmux/savedEnvironments.css","kind":"spacing","property":"padding","values":{"10px 12px":1,"2px":1,"0 10px":2}}
+{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"height","property":"height","values":{"6px":1,"10px":1}}
+{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"padding","values":{"2px 8px 6px":1}}
+{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"padding-left","values":{"18px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"height","property":"height","values":{"6px":1,"1px":1,"7px":2,"26px":1,"22px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"height","property":"min-height","values":{"26px":2}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"gap","values":{"6px":7,"2px":5,"3px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding","values":{"6px 10px 0 14px":1,"8px 10px 10px":1,"4px 8px 6px":1,"0 2px":1,"5px 4px 5px 8px":1,"0 6px":1,"2px 4px 2px 8px":2,"8px 10px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-bottom","values":{"5px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-left","values":{"6px":1,"10px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-right","values":{"6px":1,"10px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-top","values":{"34px":1,"5px":1}}
+{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"height","property":"height","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 6)":1}}
+{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"height","property":"min-height","values":{"calc(var(--ds-control-row) + var(--ds-space-2) + var(--cmux-hairline, 0.5px) * 4)":1,"calc(var(--ds-control-row) + var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
+{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"spacing","property":"gap","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
 {"file":"agent-session/acpmux/shell/ShellRow.gallery.css","kind":"height","property":"min-height","values":{"36px":1,"18px":1}}
 {"file":"agent-session/acpmux/shell/ShellRow.gallery.css","kind":"spacing","property":"padding","values":{"0 12px 4px 26px":1}}
 {"file":"agent-session/acpmux/started/sessionHover.css","kind":"spacing","property":"gap","values":{"3px":1}}
