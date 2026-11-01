@@ -27,6 +27,8 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: unknown; result: unknown };
+  "agent-session-turn-prepare": { params: unknown; result: unknown };
+  "agent-session-turn-abandon": { params: unknown; result: unknown };
   "_acpmux/sessions": { params: SessionsParams; result: SessionsResult };
   "_acpmux/attach": { params: AttachParams; result: AttachResult };
   "_acpmux/detach": { params: SessionRef; result: Done };
@@ -195,6 +197,10 @@ export interface AcpmuxRequests {
   "_acpmux/harness/secret/set": { params: unknown; result: unknown };
   "_acpmux/harness/icon": { params: unknown; result: unknown };
   "_acpmux/harness/health": { params: unknown; result: unknown };
+  "_acpmux/agent_login/start": { params: unknown; result: unknown };
+  "_acpmux/agent_login/finish": { params: unknown; result: unknown };
+  "_acpmux/agent_login/cancel": { params: unknown; result: unknown };
+  "_acpmux/agent_login/api_key": { params: unknown; result: unknown };
   "_acpmux/harness/inventory/watch": { params: InventoryWatchParams; result: unknown };
   "_acpmux/harness/inventory/refresh": { params: InventoryRefreshParams; result: unknown };
   "_acpmux/harness/update/plan": { params: HarnessUpdatePlanParams; result: unknown };
@@ -313,6 +319,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-abandon", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attach", kind: "request", acp: false, typed: true },
   { name: "_acpmux/detach", kind: "request", acp: false, typed: true },
@@ -485,6 +493,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness/secret/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/icon", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/health", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_login/start", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_login/finish", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_login/cancel", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_login/api_key", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/inventory/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/inventory/refresh", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/update/plan", kind: "request", acp: false, typed: true },

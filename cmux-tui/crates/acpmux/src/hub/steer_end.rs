@@ -218,6 +218,8 @@ impl Hub {
         // (only a line's first words run one), one with uploaded files and an inbox digest (one
         // steer, `inbox_digest.rs`).
         let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        let (class, provenance) = (opts.class, opts.provenance.as_ref());
+        super::prompt_sender::add_steer_sender(&mut params, sender.as_deref(), class, provenance);
         if let Some(from) = sender
             && !step_now
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())

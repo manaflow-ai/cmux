@@ -19,13 +19,21 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 POOL = "fromJSON(vars.RUNNER_POOLS).linux"
 TARGETS = {
     "app-platform.yml": {"check"},
-    "ci.yml": {"changes"},
     "cmux-next-terminal.yml": {"rust-terminal-linux", "swift-terminal-linux"},
     "fast-checks.yml": {"checks"},
 }
 
 
 class RunnerSetTests(unittest.TestCase):
+    def test_secret_bearing_changes_uses_the_live_ephemeral_mirror(self) -> None:
+        job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
+        runs_on = job["runs-on"]
+        self.assertNotIn(POOL, runs_on)
+        self.assertIn("contains(fromJSON", runs_on)
+        self.assertIn("vars.LINUX_RUNNER) && vars.LINUX_RUNNER", runs_on)
+        self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
+        self.assertNotIn("cmux-fleet-linux-x64", runs_on)
+
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():
             document = yaml.safe_load((WORKFLOWS / workflow).read_text(encoding="utf-8")) or {}

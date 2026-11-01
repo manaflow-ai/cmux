@@ -8,6 +8,7 @@ import { ChevronIcon } from "./ComposerPickers";
 import {
   EnvironmentIcon,
   EnvironmentPicker,
+  type EnvironmentFaceStyle,
   SECTION_LABELS,
   environmentStateLabel,
   useMachineRefresh,
@@ -127,6 +128,7 @@ export function ComposerContext({
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
+  environmentFace,
   cloudSignedIn: cloudSignedInSeam,
 }: {
   summary?: Summary;
@@ -199,6 +201,8 @@ export function ComposerContext({
   closeOnTrustAsk?: boolean;
   /// Gallery seam; the persisted composer setting is used when omitted.
   showMachineLoadWarnings?: boolean;
+  /// Gallery seam: the environment control's look (EnvironmentPicker `faceStyle`).
+  environmentFace?: EnvironmentFaceStyle;
   /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
   cloudSignedIn?: boolean;
 }) {
@@ -450,6 +454,13 @@ export function ComposerContext({
   const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
   const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
+  // What the environment control names: the row the list checks, so this Mac reads "This Mac" (its
+  // own name stays in the tooltip's list row), any other machine its name.
+  const placeName =
+    waitingName ??
+    savedPick?.name ??
+    (currentComputer?.kind === "local" ? t("composer.thisMac") : currentComputer?.label) ??
+    t(CONTEXT_LABELS.chooseComputer);
   const pickEnvironment = (id: string) => {
     if (pickCloudMachine(id)) return;
     if (savedRows?.current !== undefined) savedRows.onClear();
@@ -536,13 +547,7 @@ export function ComposerContext({
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
-              value={
-                sandboxPicked
-                  ? t("composer.sandboxed")
-                  : cloudPicked
-                    ? t("composer.cloud")
-                    : (waitingName ?? savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
-              }
+              value={sandboxPicked ? t("composer.sandboxed") : cloudPicked ? t("composer.cloud") : placeName}
               face={
                 // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
                 sandboxPicked || cloudPicked ? (
@@ -565,11 +570,12 @@ export function ComposerContext({
                         name={savedPick ? undefined : currentComputer?.label}
                       />
                     }
-                    value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                    value={placeName}
                     chevron
                   />
                 )
               }
+              {...(environmentFace ? { faceStyle: environmentFace } : {})}
               environments={offload && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
               current={selectedComputer}
               onPick={pickEnvironment}

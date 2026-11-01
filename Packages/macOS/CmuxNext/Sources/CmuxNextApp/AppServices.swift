@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
@@ -178,12 +179,6 @@ final class AppServices {
     let actionBudget: ActionBudgetMonitor
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
-    /// Serializes Cmd +/− chat font writes so key repeats cannot lose a step.
-    @MainActor final class ChatFontSizeWriteQueue {
-        var latest: Task<ActionWorkFailure?, Never>?
-        var generation = 0
-    }
-    let agentChatFontSizeWrites = ChatFontSizeWriteQueue()
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking`, and its log sink (``BlockingLogSink``).
     let blocking = BlockingDetector.forProcess()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
@@ -494,6 +489,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
     private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
+    /// This Mac's acpmux session lanes: the turn-state watch writes them, readers look a session up by id.
+    let agentLanes = AgentLaneStore.shared
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.
@@ -517,6 +514,8 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The bundled `cmux` (`<Resources>/bin/cmux`): asking for it makes no file call on the main thread.
+    let bundledCLI: BundledExecutable
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began, and
     /// this app's peer-route approver key (``PeerApprovalsApp/approver()``, made at launch; nil in tests).
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake, peerApprover: AgentPanePeerApprover?
@@ -550,6 +549,7 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
+        bundledCLI = BundledExecutable(resources: Bundle.main.resourceURL, name: "cmux", work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         self.agentPaneStateFiles = agentPaneStateFiles
@@ -563,8 +563,8 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
-        // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
-        daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
+        // The automatic restart's toggle, and Restart cmux-tui over content while the daemon is gone (restore fuzz h2).
+        daemon.installRecovery()
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

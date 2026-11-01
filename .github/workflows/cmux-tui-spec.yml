@@ -464,6 +464,29 @@ jobs:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA"
 
+      # The host's clone/enrollment and root-peer IPC invariants must execute,
+      # not only compile. Reuse this job's Rust setup and warm target directory.
+      - name: Cloud host identity tests
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          set -o pipefail
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
+            if ! python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/cmux-host <<<"$changed"; then
+              echo "No Cloud host test input changed; skipping identity tests." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          cd cmux-tui
+          log="$RUNNER_TEMP/cmux-host-identity-tests.log"
+          cargo test --locked -p cmux-host --lib identity 2>&1 | tee "$log"
+          if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log"; then
+            echo "::error title=Cloud host identity tests::identity selected no test"
+            exit 1
+          fi
+
       # The panic ratchet (plans/cmux-next/rust-panic-free.md) on the same packages:
       # their production targets with the ratchet's lints, judged against the baseline
       # at HEAD. Only cmux-tui.yml's dispatch run checked it before, so #27935 landed two

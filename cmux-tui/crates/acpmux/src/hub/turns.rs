@@ -3,6 +3,7 @@
 use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use super::message_events::{
     embed_message_context, ensure_message_provenance, message_context, name_message,
@@ -306,6 +307,37 @@ impl Hub {
         result
     }
 
+    async fn finish_cloud_execution(
+        cloud_exec: &mut Option<(
+            crate::cloud_rewind::CloudTurnClient,
+            crate::cloud_rewind::TurnScope,
+        )>,
+        session: &Session,
+        turn_id: &str,
+    ) {
+        if let Some((cloud, scope)) = cloud_exec.take() {
+            let session_id = session.id.clone();
+            let turn_id = turn_id.to_owned();
+            tokio::spawn(async move {
+                let mut delay = Duration::from_millis(100);
+                let mut attempts = 0u64;
+                loop {
+                    match cloud.finish_execution(&scope).await {
+                        Ok(_) => break,
+                        Err(error) => {
+                            attempts += 1;
+                            if attempts == 1 || attempts.is_power_of_two() {
+                                tracing::warn!(session = %session_id, turn = %turn_id, attempts, "cloud turn finish pending: {error}");
+                            }
+                            tokio::time::sleep(delay).await;
+                            delay = (delay * 2).min(Duration::from_secs(30));
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     async fn run_prompt_joined(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -328,6 +360,24 @@ impl Hub {
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let no_queue = opts.no_queue;
+        let cloud_turn = opts.cloud_turn.clone();
+        if let Some(envelope) = cloud_turn.as_ref() {
+            if envelope.purpose != "execute"
+                || envelope.session != session.id
+                || envelope.turn != prompt_id
+            {
+                return Err(RpcError::invalid_params("cloud execution does not match this prompt"));
+            }
+            session
+                .validate_prepared(
+                    &prompt_id,
+                    &envelope.turn,
+                    envelope.generation,
+                    &envelope.attempt_id,
+                    None,
+                )
+                .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        }
         let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
@@ -472,6 +522,11 @@ impl Hub {
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
         if steer_now {
+            if cloud_turn.is_some() {
+                return Err(RpcError::invalid_params(
+                    "a captured cloud turn cannot steer another turn",
+                ));
+            }
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
@@ -602,8 +657,51 @@ impl Hub {
             && self.config.read().await.agent_inbox();
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
             .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
+            .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
+        let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
+            if envelope.session != session.id
+                || envelope.turn != turn_id
+                || envelope.purpose != "execute"
+                || std::env::var("CMUX_PLATFORM_WORKSPACE_ID").ok().as_deref()
+                    != Some(envelope.workspace.as_str())
+                || std::env::var("CMUX_PLATFORM_MACHINE_ID").ok().as_deref()
+                    != Some(envelope.machine.as_str())
+                || session
+                    .validate_prepared(
+                        &prompt_id,
+                        &turn_id,
+                        envelope.generation,
+                        &envelope.attempt_id,
+                        None,
+                    )
+                    .is_err()
+            {
+                let e =
+                    RpcError::invalid_params("cloud turn capability does not match this prompt");
+                self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+                drop(guard);
+                return Err(e);
+            }
+            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
+                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let scope = envelope.scope();
+            let auth = Arc::new(
+                crate::cloud_rewind::EphemeralCapability::new(envelope.capability.clone())
+                    .map_err(|e| RpcError::internal(e.to_string()))?,
+            );
+            let cloud = crate::cloud_rewind::CloudTurnClient::new(
+                &origin,
+                &scope.workspace,
+                &scope.machine,
+                auth,
+            )
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+            Some((cloud, scope))
+        } else {
+            None
+        };
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -620,6 +718,17 @@ impl Hub {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
             let e = super::queue::closing_error();
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        // Claim only after every dispatch fence that can refuse the prompt has passed. The
+        // capability is one-use; every successful claim is finished below or on each early exit.
+        if let Some((cloud, scope)) = cloud_exec.as_ref()
+            && let Err(error) = cloud.claim_execution(scope).await
+        {
+            let e = RpcError::new(-32000, format!("cloud turn claim refused: {error}"));
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
         }
@@ -726,6 +835,7 @@ impl Hub {
             Ok(started) => started,
             Err(e) => {
                 self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
@@ -747,6 +857,7 @@ impl Hub {
             .await
         {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+            Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
         }
@@ -756,6 +867,7 @@ impl Hub {
             Err(e) => {
                 self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
@@ -819,12 +931,14 @@ impl Hub {
                 let e = stopped_before_prompt();
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
                 self.forum_turn_end(session, &told, false);
+                Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
             Err(e) => {
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
                 self.forum_turn_end(session, &told, false);
+                Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
@@ -845,6 +959,7 @@ impl Hub {
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
             self.forum_turn_end(session, &told, false);
+            Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
         }
@@ -852,6 +967,8 @@ impl Hub {
         Self::hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         self.clear_deferred_unread(session);
+        // The turn before's foreground subagents are over (`work_below.rs`).
+        self.end_foreground_subagents(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
@@ -866,7 +983,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": wire}),
+            super::prompt_sender::run_params(&agent_sid, json!(wire), &run),
             &turn_id,
             false,
             false,
@@ -1102,6 +1219,7 @@ impl Hub {
                 carried.as_deref(),
             )
             .await;
+        Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
         if let Some(c) = &carried {
             self.start_carried(session, &child, &turn_id, c, guard.take_slot());
         }

@@ -28,11 +28,12 @@ pub(crate) fn local_catalog(mux: &Mux) -> anyhow::Result<Value> {
     let projects = mux.read_registry_state(|connection| {
         crate::state::projects_store::list_value(connection, false, None, None)
     })?;
-    let paths: Vec<&str> = projects["projects"]
-        .as_array()
+    let paths: Vec<&str> = projects
+        .get("projects")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|project| project["path"].as_str())
+        .filter_map(|project| project.get("path").and_then(Value::as_str))
         .collect();
     let deadline = Instant::now() + CATALOG_DEADLINE;
     Ok(catalog(&paths, |path| read_remote(path, deadline)))

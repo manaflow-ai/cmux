@@ -21,6 +21,7 @@ pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_link;
+pub mod agent_login;
 pub mod agent_tools;
 pub mod attach;
 pub mod author;
@@ -38,6 +39,7 @@ pub mod cli;
 pub mod client;
 pub mod clock;
 pub mod cloud_repo_mcp;
+pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
