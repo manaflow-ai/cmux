@@ -42,16 +42,17 @@ public final class AgentNeedsInputJump {
     ///   - tabs: This Mac's tabs, in tree order.
     ///   - needsInput: Whether a tab waits for the person (default `StatusMapping.needsInput`).
     public init(chats: AgentPriorityChats, tabs: @escaping @MainActor () -> [TabModel],
-                needsInput: @escaping @MainActor (TabModel) -> Bool = { StatusMapping.shared.needsInput($0) }) {
+                needsInput: (@MainActor (TabModel) -> Bool)? = nil) {
         self.chats = chats
         self.tabs = tabs
-        self.needsInput = needsInput
+        self.needsInput = needsInput ?? Self.waits
     }
 
     /// Everything waiting, in the order the action visits it: the waiting chats, then each other
     /// tab that waits, once per tab; a tab that shows one of those chats is that chat's stop.
     public static func targets(chats: AgentPriorityChats, tabs: [TabModel],
-                               needsInput: @MainActor (TabModel) -> Bool = { StatusMapping.shared.needsInput($0) }) -> [Target] {
+                               needsInput: (@MainActor (TabModel) -> Bool)? = nil) -> [Target] {
+        let needsInput = needsInput ?? Self.waits
         let waiting = chats.needingInput()
         let sessions = Set(waiting.map(\.id))
         var seen = Set<String>()
@@ -60,6 +61,9 @@ public final class AgentNeedsInputJump {
         }
         return waiting.map(Target.chat) + blocked.map { .tab($0.id) }
     }
+
+    /// `StatusMapping.needsInput`: an acpmux turn or an OSC 7501 program waits for the person.
+    private static func waits(_ tab: TabModel) -> Bool { StatusMapping.shared.needsInput(tab) }
 
     /// Every tab of `store`'s tree, in tree order: the tabs the menu bar counts and the action visits.
     public static func tabs(of store: DaemonStore) -> [TabModel] {
