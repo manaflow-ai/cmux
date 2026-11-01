@@ -16,6 +16,12 @@ public struct CloudChatGrant: Decodable, Equatable, Sendable {
     }
 }
 
+/// Current permission for a NEW app chat start, checked separately from an existing link's
+/// cached vmKind. `none` after revoke or team departure prevents another managed chat start.
+public enum CloudChatStartAccess: String, Decodable, Equatable, Sendable {
+    case owner, granted, none
+}
+
 /// Sharing a team Cloud machine's chats: the classic web backend's `/api/vm/{id}/chat-grants`
 /// routes, as the person's Stack session in the active team (``CloudAPIClient/send``). Anyone who
 /// can reach the machine reads the list; only its creator (while still on its team) or a team admin
@@ -27,6 +33,13 @@ extension CloudAPIClient {
     public func chatGrants(_ id: String) async throws -> [CloudChatGrant] {
         struct List: Decodable { var grants: [CloudChatGrant] }
         return try await send("GET", chatGrantsPath(id), as: List.self).grants
+    }
+
+    /// A side-effect-free GET: reads current team membership and grant state without creating
+    /// a new attach token, waking a machine or writing a lease. Classic API only.
+    public func chatStartAccess(_ id: String) async throws -> CloudChatStartAccess {
+        struct Answer: Decodable { let chatStart: CloudChatStartAccess }
+        return try await send("GET", "/api/vm/\(pathSegment(id))/chat-start-access", as: Answer.self).chatStart
     }
 
     /// Shares the machine's chats with `userID`. Idempotent: an existing grant is kept.
