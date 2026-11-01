@@ -113,11 +113,9 @@ extension AgentTabStore {
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, daemons: services.acpmuxDaemons,
                                  updates: services.daemonUpdates, peerApprover: services.peerApprover)
         tabs.cloudRepositoryLocal = { [weak services] in
-            guard let services,
-                  let value = await services.daemon.request("cloud.repo.local", { connection in
-                      try await connection.request(AgentPaneCloudRepositoryLocalRequest(), timeout: .seconds(30))
-                  }) else {
-                throw DaemonError.notConnected
+            guard let services else { throw DaemonError.notConnected }
+            let value = try await services.daemon.perform("cloud.repo.local") { connection in
+                try await connection.request(AgentPaneCloudRepositoryLocalRequest(), timeout: .seconds(30))
             }
             return try JSONEncoder().encode(value)
         }

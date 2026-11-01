@@ -427,9 +427,15 @@ final class AgentTabStore {
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
         model.onCloudRepositoryLocal = cloudRepositoryLocal
-        if let remoteHost = paneHost as? AgentTabRemoteHost {
+        // A tab listed by a Cloud peer can still attach its ACP page through this Mac's local
+        // transport (the record names this Mac), while repository actions belong to that peer's
+        // daemon. Reuse the authenticated attach host for those actions instead of treating the
+        // local page transport as the repository principal.
+        let repositoryHost = (paneHost as? AgentTabRemoteHost)
+            ?? (daemonForTab(key)?.isLocal == false ? remoteHost(key) as? AgentTabRemoteHost : nil)
+        if let repositoryHost {
             model.onCloudRepositoryRemote = { method, params, timeout in
-                try await remoteHost.cloudRepository(method: method, params: params, timeout: timeout)
+                try await repositoryHost.cloudRepository(method: method, params: params, timeout: timeout)
             }
         }
         wire(model, key: key)

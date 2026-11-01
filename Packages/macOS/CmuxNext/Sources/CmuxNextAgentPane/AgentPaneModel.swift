@@ -481,8 +481,7 @@ public final class AgentPaneModel {
             return await onCloudHandoffTurn(session)
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
         case .cloudRepository(let request):
-            return await request.reply(localSocketPath: transport.socketPath ?? "", machineSocketPath: transport.acpmuxSocket ?? transport.socketPath ?? "",
-                                       remoteChat: remoteChat, sessionID: sessionId,
+            return await request.reply(remoteChat: remoteChat, sessionID: sessionId,
                                        request: transport.cloudRepository ?? onCloudRepositoryRemote,
                                        localRequest: onCloudRepositoryLocal)
         case .cloudEnvironment(let request):

@@ -54,12 +54,14 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
         case "cloud.repo.local": return object.isEmpty
         case "cloud.repo.sync":
             return object["repos"]?.arrayValue != nil
+                && object.keys.allSatisfy { ["repos", "recent", "complete", "install_url"].contains($0) }
         case "cloud.repo.list", "cloud.repo.attached":
             return (object["session"] == nil || session(object["session"]) != nil) && (object.keys.allSatisfy { ["session", "query"].contains($0) })
         case "cloud.repo.add":
             return (object["session"] == nil || session(object["session"]) != nil) && repo(object["repo"]) != nil && object.keys.allSatisfy { ["session", "repo", "ref"].contains($0) }
         case "cloud.repo.wait_github":
-            guard object["session"] == nil || session(object["session"]) != nil else { return false }
+            guard object.keys.allSatisfy({ ["session", "timeout_ms"].contains($0) }),
+                  object["session"] == nil || session(object["session"]) != nil else { return false }
             if let timeout = object["timeout_ms"]?.intValue { return (0...60_000).contains(timeout) }
             return object["timeout_ms"] == nil
         default: return false
@@ -78,7 +80,7 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
 
     /// Forwards a validated action. Typed repository failures are successful daemon results and
     /// remain in `value`, so the web card can render the next action without treating it as transport failure.
-    func reply(localSocketPath: String, machineSocketPath: String, remoteChat: Bool, sessionID: String?,
+    func reply(remoteChat: Bool, sessionID: String?,
                request: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)? = nil,
                localRequest: (@MainActor () async throws -> Data)? = nil) async -> [String: Any] {
         guard remoteChat || method == "cloud.repo.local" || method == "cloud.repo.sync" else {
