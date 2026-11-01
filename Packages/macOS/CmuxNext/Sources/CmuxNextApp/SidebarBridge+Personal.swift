@@ -100,6 +100,7 @@ extension SidebarBridge {
                 report(ActionWorkFailure("set-personal-workspace", DaemonError.notConnected))
                 return .failed
             }
+            print("ORDER-PROBE personal ids=\(ids) window=\(String(describing: self?.state?.id)) registry=\(String(describing: self?.services.windows.registry.value.windows)) launch=\(String(describing: self?.services.windows.launchWindowID))")
             guard let self, let state, services.windows.registry.value.window(state.id)?.isOpen == true,
                   ids.allSatisfy({ services.machines.workspace(id: $0.rawValue) != nil }),
                   let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return .skipped }

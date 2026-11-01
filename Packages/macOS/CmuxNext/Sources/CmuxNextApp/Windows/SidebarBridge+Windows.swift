@@ -39,6 +39,7 @@ extension SidebarBridge {
         // drag, with no undo step of its own (the placement belongs to the create or drop that asked for it).
         if SidebarDocWiring.docMachines(services.machines).place(ids, at: position, model: model) ||
             SidebarDocWiring.handle(.reorder(ids, to: position), bridge: self, undoable: false) {
+            print("ORDER-PROBE doc ids=\(ids) position=\(position)")
             // The mirror already holds this move, but its observed projection normally follows a turn later.
             // A burst resolves the next slot now: show the current document through the normal rows writer
             // first, including a refused move's unchanged order. No second pending edit owns its lifetime.

@@ -369,6 +369,7 @@ final class ClassicUpgradeSimulator {
             Issue.record("\(label): \(outcome.failures.count) workspaces failed, first: \(failure.value)", sourceLocation: sourceLocation)
         }
         let windows = windows()
+        print("ORDER-PROBE verify profile=\(profile.name) screens=\(NSScreen.screens.count) windows=\(services.windows.registry.value.windows) personal=\(services.daemon.store.personal.workspaces) current=\(String(describing: SidebarDocStore.current?.shown))")
         // The decoder keeps classic's order and count, so it lines up with the profile.
         var expectedIDs: [[String]] = []
         var seen = Set<String>()
