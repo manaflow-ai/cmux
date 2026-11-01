@@ -13,6 +13,11 @@ import Darwin
 /// `selected` row's title, so a real-key proof checks what Return will run before it presses it.
 enum DebugPaletteCapture {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        // `rows: true` with no path: only the shown rows' ids and the query, no image (a bench's per-key check).
+        if params["rows"]?.boolValue == true, params["path"] == nil {
+            let model = services.palette.model
+            return .object(["query": .string(model.query), "rows": .array(model.rows.map { .string($0.id) })])
+        }
         guard let path = params["path"]?.stringValue, !path.isEmpty else { return .object(["error": .string("path is required")]) }
         guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
         guard case .object(var result) = capture(panel, to: path) else { return capture(panel, to: path) }
