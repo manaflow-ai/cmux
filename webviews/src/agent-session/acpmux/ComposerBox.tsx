@@ -350,7 +350,7 @@ export function ComposerBox({
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* The compact box grid for +, the prompt, the mic and Send, with the model group in
               ComposerFoot, in both looks. The granted-permission status gets no slot of its own
-              (hq#1957 item 15 compact row): grants live in the permission mode's Access menu. */}
+              (hq#1957 item 15 compact row): grants are revoked from the chat menu (header/grantsMenu.ts). */}
           <div
             className="acpmux-composer-bar acpmux-composer-inner"
             data-footer-look={plainFooter ? "plain" : undefined}

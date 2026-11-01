@@ -252,7 +252,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
       });
     }
     // Play steps (webviews/src/gallery/play.ts) act through Playwright's trusted mouse and keyboard.
-    await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string }) => {
+    await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string; width?: number }) => {
       const at = () => page.mouse.move(action.x ?? 0, action.y ?? 0);
       if (action.kind === "click") await page.mouse.click(action.x ?? 0, action.y ?? 0);
       else if (action.kind === "contextmenu") await page.mouse.click(action.x ?? 0, action.y ?? 0, { button: "right" });
@@ -261,6 +261,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
       else if (action.kind === "up") { await at(); await page.mouse.up(); }
       else if (action.kind === "type") await page.keyboard.type(action.text ?? "");
       else if (action.kind === "press") await page.keyboard.press(action.text ?? "");
+      // A sidebar toggle resizes the pane: the stage's viewport takes the new width, its height stays.
+      else if (action.kind === "resize") await page.setViewportSize({ width: Math.round(action.width ?? width), height });
     });
     // One still per settled play step (frame/playRunner.ts), for the per-PR diff's filmstrips.
     const stills: { index: number; step: string; screenshot: string }[] = [];
@@ -309,6 +311,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // Long frames gate only on Chromium's Long Animation Frames; rAF timing in headless WebKit on a
     // CPU-only VM measures the VM's software rendering, so the stage reports it as a warning.
     const play = await page.evaluate(() => (window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null);
+    // Opening the stage, measured for layout shift like a play step (frame/main.ts): gallery health's shift gate.
+    const load = await page.evaluate(() => (window as unknown as { cmuxGalleryLoadReport?: unknown }).cmuxGalleryLoadReport ?? null);
     // An experiment case (`measure=1`) leaves its frame timings per step (frame/experimentRunner.ts).
     const experiment = await page.evaluate(() => (window as unknown as { cmuxGalleryExperimentReport?: unknown }).cmuxGalleryExperimentReport ?? null);
     // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
@@ -321,7 +325,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), ...(clip ? { clip } : { fullPage: true }) });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, load, ...(experiment ? { experiment } : {}) };
     if (workflow) result.workflowEvidence = { beforeSteps, afterSteps, final: { screenshot: screenshotName, axDigest: await axDigest() }, timingIncludesEvidenceCapture: false };
     if (geometrySelections) result.geometry = await collectGeometry(page, geometrySelections, { schemaVersion: 1, revision, capture: { caseId: item.id, engine, theme: String(params.colorScheme), viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, screenshot: screenshotName, screenshotSha256: "", coordinateSpace: "css-px" } }, outputDir);
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);

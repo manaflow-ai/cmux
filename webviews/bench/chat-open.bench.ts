@@ -401,7 +401,7 @@ try {
     for (const arm of round % 2 ? [...arms].reverse() : arms) byArm.get(arm)!.push(await open(arm));
   for (const [arm, rounds] of byArm) {
     const median = (pick: (r: Round) => number) =>
-      [...rounds.map(pick)].sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
+      rounds.map(pick).sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
     console.log(
       `chat-open [rail ${arm}]: ${TURNS} turns, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
     );

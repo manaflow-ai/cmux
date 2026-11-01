@@ -415,7 +415,7 @@ impl TokenVerifier for NativeTokenVerifier {
         if c.svc.is_empty()
             || c.svc.len() > 2
             || c.svc.iter().any(|s| !matches!(s, Service::Daemon | Service::Ssh))
-            || (c.svc.len() == 2 && c.svc[0] == c.svc[1])
+            || matches!(c.svc.as_slice(), [first, second] if first == second)
         {
             return Err(TokenRefused::Invalid);
         }
