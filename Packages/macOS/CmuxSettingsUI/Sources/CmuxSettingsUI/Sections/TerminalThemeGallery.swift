@@ -55,6 +55,9 @@ struct TerminalThemeSettingsRows: View {
             let galleryModel: TerminalThemeGalleryModel
             if let model {
                 galleryModel = model
+                // The side a pick writes follows the appearance, which may have
+                // changed while the rows were off screen.
+                galleryModel.appearanceDidChange(prefersDark: colorScheme == .dark)
                 galleryModel.refreshSelection()
             } else {
                 // Built on first appearance, not in init: the context reads config files.
@@ -71,17 +74,19 @@ struct TerminalThemeSettingsRows: View {
         }
     }
 
-    private static func subtitle(for selection: CmuxTerminalThemePair) -> String {
+    /// Names the theme each appearance uses, even when both use the same one,
+    /// so a light theme on the dark side shows before macOS turns dark.
+    static func subtitle(for selection: CmuxTerminalThemePair) -> String {
         let defaultName = String(
             localized: "settings.terminal.themeGallery.default",
             defaultValue: "Ghostty default colors",
             bundle: .module
         )
+        guard selection.light != nil || selection.dark != nil else {
+            return defaultName
+        }
         let light = selection.light ?? defaultName
         let dark = selection.dark ?? defaultName
-        if light.caseInsensitiveCompare(dark) == .orderedSame {
-            return light
-        }
         return String.localizedStringWithFormat(
             String(localized: "settings.terminal.themeGallery.pair", defaultValue: "Light: %1$@ · Dark: %2$@", bundle: .module),
             light,
