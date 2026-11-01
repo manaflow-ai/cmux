@@ -24,9 +24,9 @@ extension WorkspaceRowView {
 
     /// An AppKit label cell draws its text this far inside its frame; the
     /// marquee label draws at its edge, so it sits this much further in.
-    static let labelInset = LayoutGrid.halfStep
+    static let labelInset = Metrics.space1
     /// Room for a two-digit count, so 9 to 10 tabs moves nothing else.
-    static let countWidth: CGFloat = LayoutGrid.iconBox
+    static let countWidth: CGFloat = 18
     /// The PR badge never takes more than this from the title.
     static let badgeMaxWidth: CGFloat = 72
 
@@ -115,27 +115,25 @@ extension WorkspaceRowView {
         // A group member's content starts where an ungrouped row's does: no indent for the group
         // (Leo 2026-10-21); the members' line is one layer per group beside the rows
         // (SidebarListView+GroupLines).
+        let indent = CGFloat(treeDepth) * SidebarStyle.treeIndent // a started workspace sits in under its parent
         let (th, sh, top, cy) = textMetrics(head: b)
-        let columns = SidebarStyle.columns(rowWidth: b.width, depth: treeDepth)
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).
-        let leading = columns.lead
+        let leading = SidebarStyle.horizontalInset + indent
         // A `leftRail` row keeps its dot's slot empty, so its title stays clear of the rail, where the dot style has it.
         let railSlot = iconKind == nil && rowColor?.style == .leftRail
         let side: CGFloat
         switch iconKind {
         case nil: side = railSlot ? SidebarStyle.dotSize + Metrics.space1 : 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconColumnBox
+        case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
-        // The icon's box starts on lead (where an iconless title would start) and its glyph centers in it; the text
-        // column is the grid's, one gap after the box.
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
-        layoutTreeLine(leading: SidebarStyle.columns(rowWidth: b.width).lead)
+        layoutTreeLine(leading: SidebarStyle.horizontalInset)
 
         // Trailing cluster, right to left: the dot or spinner on the trailing column, the tab
         // count (a fixed slot, the same with or without hover), close-or-badge, then the other marks.
-        var trailing = columns.trailingEdge
+        var trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) + SidebarStyle.trailingSlotSide
         let control = SidebarStyle.controlSize
         // Lawrence msg 11914: the row's dot or spinner owns the trailing column (the x the group
         // header chevron and every band item's dot share) whatever else the row shows; the
@@ -151,18 +149,16 @@ extension WorkspaceRowView {
         tabCount.isHidden = count == nil || isShowingPlaceholder
         if count != nil {
             let h = ceil(tabCount.intrinsicContentSize.height)
-            tabCount.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: Self.countWidth, height: h))
-            tabCount.frame.origin.y = SidebarStyle.textY(tabCount, centerY: cy)
-            trailing = columns.trailingEdge(before: tabCount.frame)
+            tabCount.frame = NSRect(x: trailing - Self.countWidth, y: cy - h / 2, width: Self.countWidth, height: h)
+            trailing -= Self.countWidth + Metrics.space2
         }
         prBadge.isHidden = badgeText == nil || isShowingPlaceholder
         if badgeText != nil {
             let size = prBadge.intrinsicContentSize
             let w = min(ceil(size.width), Self.badgeMaxWidth), h = ceil(size.height)
-            let textFrame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
-            prBadge.frame = prBadge.frame(forAlignmentRect: textFrame)
-            prBadge.frame.origin.y = SidebarStyle.textY(prBadge, centerY: cy)
-            trailing = columns.trailingEdge(before: prBadge.frame)
+            // The text ends at `trailing`; the frame adds the label's padding around it.
+            prBadge.frame = prBadge.frame(forAlignmentRect: NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h))
+            trailing -= w + Metrics.space2
         }
         let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
         let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
@@ -188,50 +184,46 @@ extension WorkspaceRowView {
         setHoverShown(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
         setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
-        var badgeEdge: CGFloat?
-        if !badge.state.isUnread, keycap.number != nil {
-            _ = layoutKeycap(trailing: trailing, cy: cy, control: control)
-            badgeEdge = columns.trailingEdge(before: keycap.frame)
-        }
-        // An unread dot with the column free is the column's mark (`layoutColumnMark`). Otherwise the dot (8 pt) or
-        // the count takes the next slot, a small glyph centered in it.
+        var slot: CGFloat = 0
+        if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
         if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
             let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
-            badge.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
-            badgeEdge = columns.trailingEdge(before: badge.frame)
+            let pad = badge.state == .dot ? Metrics.space2 - (SidebarStyle.unreadDotSize - SidebarStyle.dotSize) / 2 : 0
+            badge.frame = NSRect(x: trailing - w - pad, y: cy - h / 2, width: w, height: h)
+            slot = max(control, w + pad)
         }
-        closeButton.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
-        if let badgeEdge { trailing = badgeEdge }
+        closeButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
+        if slot > 0 { trailing -= slot + Metrics.space2 }
         trailing = layoutTime(trailing: trailing, cy: cy, height: sh)
         // The menu button, on hover only, left of the x (or in its place on a
         // row that cannot close). Hidden (not only clear) when it does not
         // show; VoiceOver uses the row's custom action.
         setHoverShown(moreButton, showMore, fades: controlFades)
-        moreButton.frame = closeButton.frame.offsetBy(dx: hoverCloses && !isShowingPlaceholder ? -SidebarStyle.trailingSlotPitch : 0, dy: 0)
+        moreButton.frame = closeButton.frame.offsetBy(dx: hoverCloses && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
         let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: b.width, cy: cy, control: control,
                                           showClose: showClose, showMore: showMore)
         let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
         if markReplacesStatus, columnMark?.view !== agentMark {
-            agentMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
-            trailing = columns.trailingEdge(before: agentMark.frame)
+            agentMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+            trailing = agentMark.frame.minX - Metrics.space2
         } else if activity.showsGlyph, columnMark?.view !== activity {
-            activity.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
-            trailing = columns.trailingEdge(before: activity.frame)
+            activity.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+            trailing = activity.frame.minX - Metrics.space2
         }
         if !mutedMark.isHidden {
-            mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
-            trailing = columns.trailingEdge(before: mutedMark.frame)
+            mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
+            trailing -= ind + Metrics.space2
         }
         if !machineMark.isHidden, columnMark?.view !== machineMark {
             // The computer the row runs on: a status mark's box on the trailing column's line, centered on the row
             // (Leo 2026-11-01, on the small tinted cloud before the name: "I HATE HOW SMALL THEY ARE I HATE THAT
             // THEY'RE ON THE LEFT I HATE THAT THEY'RE ON THE BOTTOM"). It gives way to the hover controls as the
             // other marks do.
-            machineMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
-            trailing = columns.trailingEdge(before: machineMark.frame)
+            machineMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+            trailing = machineMark.frame.minX - Metrics.space2
         }
         if !usageWarningMark.isHidden {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
@@ -246,17 +238,16 @@ extension WorkspaceRowView {
             if !onColumn { trailing = usageWarningMark.frame.minX - Metrics.space2 }
         }
         if !audioButton.isHidden {
-            audioButton.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
-            trailing = columns.trailingEdge(before: audioButton.frame)
+            audioButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
+            trailing -= control + Metrics.space1
         }
         if !presenceDots.isHidden {
             let w = presenceDots.preferredWidth
-            presenceDots.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: isExpanded ? th : b.height))
-            trailing = columns.trailingEdge(before: presenceDots.frame)
+            presenceDots.frame = NSRect(x: trailing - w, y: isExpanded ? top : 0, width: w, height: isExpanded ? th : b.height)
+            trailing -= w + Metrics.space2
         }
 
-        // Without an icon the title starts on lead; with one (or a left rail's kept dot slot), on the text column
-        // (`workspaceTitleX`).
+        // Without an icon the title starts at the leading inset; with one, after it (`titleTextX`).
         var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth, reservesColorRail: railSlot)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
@@ -271,7 +262,7 @@ extension WorkspaceRowView {
                                       width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
         // The marquee fades glyphs out across the padding left of them.
         let inset = Self.labelInset
-        title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : columns.lead)
+        title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
         title.fadeWidth = SidebarStyle.titleFadeWidth
         let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)

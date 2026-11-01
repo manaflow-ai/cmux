@@ -108,22 +108,18 @@ final class SidebarIconView: NSView {
 
     override func layout() {
         super.layout()
-        // A row's icon column can be wider than the glyph (the comfortable 20 pt box): the glyph keeps its own
-        // `iconBox` square, centered in the column, so density moves the column and not the glyph's size.
-        let side = min(bounds.width, bounds.height, SidebarStyle.iconBox)
-        let content = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-        imageView.frame = content
-        emoji.frame = content
+        imageView.frame = bounds
+        emoji.frame = bounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if case .emoji(_, _?)? = icon {
             // The chip fills the icon square behind the emoji.
-            swatch.frame = content
+            swatch.frame = bounds
             swatch.cornerRadius = bounds.height * 0.25
         } else {
-            let dot = SidebarStyle.dotSize
-            swatch.frame = CGRect(x: (bounds.width - dot) / 2, y: (bounds.height - dot) / 2, width: dot, height: dot)
-            swatch.cornerRadius = dot / 2
+            let side = SidebarStyle.dotSize
+            swatch.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+            swatch.cornerRadius = side / 2
         }
         CATransaction.commit()
         needsDisplay = true
