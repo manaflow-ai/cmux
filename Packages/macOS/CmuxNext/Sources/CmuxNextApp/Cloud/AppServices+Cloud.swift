@@ -115,11 +115,14 @@ extension AppServices {
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
+        // The GitHub App lease goes when a sign-out starts (its install revoke may fail).
+        cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted() }
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: (user: String, team: String)?
             var routerUser: String??
-            for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
+            var leaseAccount = GitHubAppLease.Account()
+            for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID, cloud.auth.managedTeamID != nil) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
                 self.agentTabs.syncCloudCredentialTransferAvailability(services: self)
@@ -128,6 +131,15 @@ extension AppServices {
                 if routerUser != .some(user) {
                     routerUser = .some(user)
                     self.modelRouter?.accountChanged(user)
+                }
+                // The sign-in acpmux mints GitHub App tokens with (GitHubAppLease) follows the user
+                // and the active team (its cmux id), whose GitHub connection Cloud mints from.
+                let team = GitHubAppLease.backendTeam(stackProjectID: cloud.auth.configuration.stackProjectID,
+                                                      userID: user, stackTeamID: state.3, managed: state.4)
+                if leaseAccount.changed(user: user, team: team) {
+                    let project = cloud.auth.configuration.stackProjectID
+                    self.githubAppLease.accountChanged(user: user.map { CloudIdentity.workerUserID(stackProjectID: project, stackUserID: $0) },
+                                                       team: team)
                 }
                 // Phone access follows the account: start after sign-in, restart on a user or team switch,
                 // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.

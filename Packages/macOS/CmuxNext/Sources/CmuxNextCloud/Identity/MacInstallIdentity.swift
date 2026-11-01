@@ -84,7 +84,8 @@ public actor MacInstallIdentity {
             transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
             deviceName: deviceName, clientVersion: clientVersion, record: record,
             profile: .mac, team: team, expectedEnvironment: environment)
-        let token = try await scoped.installToken()
+        // In this task, so a caller that is cancelled (a superseded lend) stops the mint too.
+        let token = try await scoped.installTokenInCallerTask()
         guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
         return token
     }

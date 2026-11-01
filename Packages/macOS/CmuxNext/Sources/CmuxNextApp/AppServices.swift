@@ -255,6 +255,10 @@ final class AppServices {
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
     }()
+    /// The cmux sign-in lent to acpmux for GitHub App tokens (Cloud/GitHubAppLease.swift).
+    private(set) lazy var githubAppLease = GitHubAppLease(identity: cloud.installIdentity,
+                                                          apiBaseURL: cloud.configuration.ownerAPIBaseURL(),
+                                                          environment: { [weak self] in self.flatMap(QuitAgents.environment) })
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// What agent cursor tags say and where a click on one goes.

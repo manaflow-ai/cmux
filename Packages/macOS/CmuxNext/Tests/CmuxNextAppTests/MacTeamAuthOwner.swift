@@ -12,6 +12,8 @@ actor MacTeamAuthOwner: InstallAuthTransport {
     private var pending: CheckedContinuation<Void, Never>?
     private let held = AsyncStream<Void>.makeStream()
     private(set) var requestedTeams: [String] = []
+    /// Whether the held team token request's task was cancelled when it was let go.
+    private(set) var cancelledAtToken: Bool?
     private(set) var registrations = 0
     private(set) var grants: [[String]] = []
 
@@ -54,6 +56,7 @@ actor MacTeamAuthOwner: InstallAuthTransport {
         if context.team != nil, hold {
             hold = false
             await withCheckedContinuation { pending = $0; held.continuation.yield(()) }
+            cancelledAtToken = Task.isCancelled
         }
         let team = context.team ?? "team_" + String(repeating: "c", count: 20)
         let claims: [String: Any] = ["iss": "https://cmux-api/staging", "sub": "user_1", "inst": context.install, "team": team, "grant": "grant_1", "aud": "api"]
