@@ -9,7 +9,9 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
-use super::{Keys, StartCopy, import, pin, plan, remote_name, valid_key, valid_workspace};
+use super::{
+    Keys, Lease, StartCopy, import, pin, plan, remote_name, too_broad, valid_key, valid_workspace,
+};
 
 const ME: &str = "user-leo";
 const TEAMMATE: &str = "user-austin";
@@ -567,11 +569,13 @@ fn an_unreadable_ledger_refuses_the_send_and_keeps_its_bytes() {
     assert!(unreadable.is_dir());
 }
 
-/// SW-00 (#29046): a push that finished on the machine but lost its answer
-/// looks like one that never ran. Its retry, after a relaunch too, copies into
-/// a new folder and never writes over the first one, which the chat may use.
+/// A copy that did not finish (cut off, or its answer lost: SW-00, #29046)
+/// is resumed by its retry, after a relaunch too: the retry pushes into the
+/// same folder, where the push's saved record skips what already landed. No
+/// chat opened there yet (a chat opens only once its copy finished), so
+/// nothing a chat changed is written over.
 #[test]
-fn a_copy_whose_answer_was_lost_is_never_written_over() {
+fn a_retry_of_a_copy_that_did_not_finish_resumes_its_folder() {
     let dir = scratch();
     let path = ledger_in(dir.path());
     let copy = copy_of("/Users/me/src/paint", "app");
@@ -585,7 +589,7 @@ fn a_copy_whose_answer_was_lost_is_never_written_over() {
     assert_eq!(retry["copied"], json!(true));
     let seen = seen.borrow();
     assert_eq!(seen.len(), 2);
-    assert_ne!(seen[0], seen[1], "the retry wrote over the lost copy");
+    assert_eq!(seen[0], seen[1], "the retry started over in a new folder");
     assert_eq!(retry["folder"], json!(seen[1]));
     // Once finished, it is the send's copy: no third push.
     let count = RefCell::new(0);
@@ -619,6 +623,75 @@ fn two_copies_of_one_send_at_once_never_share_a_folder() {
     let seen = seen.borrow();
     assert_eq!(seen.len(), 2);
     assert_ne!(seen[0], seen[1]);
+}
+
+/// A retry finds its unfinished copy's folder held by a copy still running
+/// (another process): it takes a folder of its own; once that copy is gone
+/// (its process ended), the next retry resumes the folder.
+#[test]
+fn a_retry_resumes_its_folder_only_when_no_live_copy_holds_it() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let seen = RefCell::new(Vec::<String>::new());
+    let fails = |_: &Path, _: &Path, remote: &str| {
+        seen.borrow_mut().push(remote.to_string());
+        Err(("fs.failure".to_string(), "cut off".to_string()))
+    };
+    assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
+    let place =
+        Ledger::update(&path, |pins| pins.copy_place(&send(&copy.key), "vm-a")).unwrap().unwrap();
+    // A live copy holds it (its lease, as another process would).
+    let held = Lease::take(&path, &send(&copy.key), "vm-a", &place).unwrap();
+    assert!(Lease::take(&path, &send(&copy.key), "vm-a", &place).is_none());
+    assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
+    drop(held);
+    let ok = |_: &Path, _: &Path, remote: &str| {
+        seen.borrow_mut().push(remote.to_string());
+        Ok(())
+    };
+    let done = copy.run(&path, &ok);
+    assert_eq!(done["copied"], json!(true), "{done}");
+    let seen = seen.borrow();
+    assert_eq!(seen.len(), 3);
+    assert_ne!(seen[1], seen[0], "a live copy's folder was shared");
+    // The second try's folder was left by a copy now gone, so the third
+    // resumes that one (the newest unfinished copy).
+    assert_eq!(seen[2], seen[1]);
+}
+
+/// The disk's root, the system's top folders and the home folder itself are
+/// never copied; a project below one is.
+#[test]
+fn a_copy_of_the_root_a_system_folder_or_home_is_refused() {
+    let home = Path::new("/Users/me");
+    for broad in [
+        "/",
+        "/System",
+        "/Library",
+        "/Applications",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/private",
+        "/etc",
+        "/var",
+        "/Volumes",
+        "/Volumes/",
+        "/Users/me",
+        "/Users/me/",
+    ] {
+        assert!(too_broad(broad, Some(home)), "{broad}");
+    }
+    for project in ["/Users/me/src/paint", "/Volumes/ssd/paint", "/usr/local/src/app", "/opt/proj"]
+    {
+        assert!(!too_broad(project, Some(home)), "{project}");
+    }
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let never = |_: &Path, _: &Path, _: &str| -> Result<(), (String, String)> { panic!("copied") };
+    let answer = copy_of("/System", "").run(&path, &never);
+    assert_eq!(answer["error_code"], json!("folder_too_broad"), "{answer}");
 }
 
 /// Router review at 83b8b35: the sends the App kept in its user defaults

@@ -219,11 +219,6 @@ export const PAGES = {
       },
     ],
   },
-  // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
-  artifacts: {
-    out: "webviews/src/pages/artifacts/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/artifacts/Localizable.xcstrings" }],
-  },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",

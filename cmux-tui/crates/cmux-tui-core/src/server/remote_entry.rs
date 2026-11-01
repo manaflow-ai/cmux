@@ -18,7 +18,7 @@
 //! 3. every later line passes the [`RemoteGate`] before anything parses or
 //!    dispatches it. The default gate, [`DenyAllGate`], refuses everything
 //!    with `error_code: remote_denied`; [`super::FsGate`] admits only the
-//!    seven `fs-v1` ops, and lane 10's conversation gate will add its own
+//!    seven `fs-v1` ops and the two `git-seed-v1` ops, and lane 10's conversation gate will add its own
 //!    explicit allowlist.
 //!
 //! A remote client is registered as [`ClientTransport::Remote`], so checks

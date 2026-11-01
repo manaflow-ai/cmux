@@ -184,7 +184,9 @@ pub fn build_capabilities() -> Vec<&'static str> {
     capabilities.retain(|capability| !host_dependent.contains(capability));
     #[cfg(unix)]
     capabilities.retain(|capability| {
-        *capability != crate::fs_ops::FS_CAPABILITY && *capability != BROWSER_RUNTIME_CAPABILITY
+        *capability != crate::fs_ops::FS_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_CAPABILITY
+            && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.retain(|capability| *capability != crate::image_paste::CAPABILITY);
@@ -402,6 +404,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::git_seed::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities

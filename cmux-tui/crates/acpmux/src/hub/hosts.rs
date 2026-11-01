@@ -1211,6 +1211,9 @@ impl Hub {
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         doing: work.doing.clone(),
+                        // A restart keeps no provenance of the turn: its History line stays.
+                        notice: false,
+                        // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
                     });
                     if work.turn_trigger {

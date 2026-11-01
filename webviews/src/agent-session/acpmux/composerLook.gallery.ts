@@ -181,6 +181,19 @@ const ALT_FILLED_DISC = `
   border-radius: 999px; background: var(--agent-text); color: var(--agent-bg, Canvas);
 }`;
 
+/// The room under Codex's box (Leo 2026-11-01: "our thing has not enough space at the bottom compared
+/// to chatgpt... i feel like we could easily remove a bit of vertical space within and just get that
+/// little bit of bottom padding so there's not so much uncomfortable tangent line at the bottom").
+/// The pick (codex-chat): a 12 px floor, paid for by the prompt's top (15 to 11) and the row (52 to
+/// 44), so the stack keeps its height. The alternates are gallery-only CSS over it.
+const ALT_FLOOR = (floor: number, padTop: number, row: number) => `
+.acpmux-composer[data-composer-look="codex"] {
+  --acpmux-codex-floor: ${floor}px; --acpmux-md-pad-top: ${padTop}px; --acpmux-codex-row: ${row}px;
+}`;
+const ALT_FLOOR_FLUSH = ALT_FLOOR(0, 15, 52);
+const ALT_FLOOR_8 = ALT_FLOOR(8, 13, 46);
+const ALT_FLOOR_16 = ALT_FLOOR(16, 9, 40);
+
 const chatHeight = 360;
 
 export default agentPaneEntry({
@@ -247,6 +260,26 @@ export default agentPaneEntry({
       note: "The second dot, Codex's look (the pick): one row in the box under the prompt, + and the mode left, the context ring, the model and effort, the mic and Send right.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-floor-before-flush": {
+      note: "Before (not shipped): Codex's box on the pane's bottom edge, the prompt 15 px under the top and a 52 px row.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex", ALT_FLOOR_FLUSH),
+    },
+    "codex-floor-12": {
+      note: "The pick: a 12 px floor under the box, as ChatGPT's and Codex's; the prompt 11 px under the top and a 44 px row pay for it, so the stack is as tall as before.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-floor-8": {
+      note: "Alternate (not shipped): an 8 px floor, Claude's quiet row's; still reads close to the edge beside ChatGPT's.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex", ALT_FLOOR_8),
+    },
+    "codex-floor-16": {
+      note: "Alternate (not shipped): a 16 px floor; the 40 px row it needs crowds the controls against the box's bottom.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex", ALT_FLOOR_16),
     },
     "codex-chat-dots": {
       note: "Codex's look with the pointer in the box's internal dead-space row: the two dots show there, Codex marked.",

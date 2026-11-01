@@ -9,8 +9,8 @@
 // hands it.
 import { closeHistory } from "@milkdown/kit/prose/history";
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
-import { type EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
-import type { EditorView, NodeView } from "@milkdown/kit/prose/view";
+import { type EditorState, Plugin, Selection, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
+import { Decoration, DecorationSet, type EditorView, type NodeView } from "@milkdown/kit/prose/view";
 import { $node, $prose } from "@milkdown/kit/utils";
 import {
   escapeTextMarks,
@@ -177,11 +177,62 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
   };
 }
 
+/// A piece of a selection as a copy carries it (composer/composerCopy.ts): a run of its text, as the
+/// field copies text (a line or block break a newline), or a placed attachment, by id.
+export type SelectionPart = { text: string } | { id: string };
+
+/// Stands in for each placed attachment while the selection's text is read: a private-use character,
+/// never in a node's text the field's own copy writes (`selectionParts`).
+const PART_MARK = "\uE000";
+
+/// The selection of `state` as its runs of text and its placed attachments, in order. Text runs
+/// read as the field's own copy does (MarkdownField `copiedText`).
+export function selectionParts(state: EditorState): SelectionPart[] {
+  const { from, to } = state.selection;
+  const ids: string[] = [];
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === INLINE_NODE) ids.push(idOf(node));
+  });
+  const text = state.doc.textBetween(from, to, "\n", (leaf) =>
+    leaf.type.name === INLINE_NODE ? PART_MARK : (leaf.type.spec.leafText?.(leaf) ?? ""),
+  );
+  const parts: SelectionPart[] = [];
+  text.split(PART_MARK).forEach((run, index) => {
+    const id = index > 0 ? ids[index - 1] : undefined;
+    if (id !== undefined) parts.push({ id });
+    if (run) parts.push({ text: run });
+  });
+  return parts;
+}
+
+/// Whether the selection of `state` holds the whole draft: Select All, or a drag from its start to
+/// its end.
+export function wholeSelected(state: EditorState): boolean {
+  const { selection, doc } = state;
+  if (selection.empty) return false;
+  return selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to;
+}
+
+/// The placed attachments inside a selection wear the selection's tint, as its text does: a chip is
+/// not text, so the browser's own highlight passes over it (Leo, 2026-11-01: "select all in composer
+/// which also selects all the attachments").
+function selectedDecorations(state: EditorState): DecorationSet | null {
+  const { selection, doc } = state;
+  if (selection.empty) return null;
+  const marks: Decoration[] = [];
+  doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+    if (node.type.name === INLINE_NODE)
+      marks.push(Decoration.node(pos, pos + node.nodeSize, { class: "acpmux-md-inline-selected" }));
+  });
+  return marks.length ? DecorationSet.create(doc, marks) : null;
+}
+
 export function inlinePlugin(views: InlineViews) {
   return $prose(
     () =>
       new Plugin({
         props: {
+          decorations: selectedDecorations,
           nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) },
           handleKeyDown: (view, event) => {
             if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;

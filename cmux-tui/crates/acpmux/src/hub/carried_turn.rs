@@ -329,6 +329,7 @@ impl Hub {
         if !turn.trigger {
             self.clear_deferred_unread(session);
         }
+        self.end_foreground_subagents(session);
         {
             let mut m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             m.turn_count += 1;

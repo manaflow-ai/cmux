@@ -88602,7 +88602,8 @@
     {
       "accepts" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -88620,6 +88621,13 @@
             "text" : "Strip"
           },
           "value" : "strip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatAttachmentBoth",
+            "text" : "Inline and Strip"
+          },
+          "value" : "both"
         }
       ],
       "consumers" : [
@@ -88645,6 +88653,7 @@
         "file",
         "inline",
         "strip",
+        "both",
         "composer",
         "messages"
       ],

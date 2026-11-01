@@ -599,6 +599,7 @@ impl Hub {
             && self.config.read().await.agent_inbox();
         let mut turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
             .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
+            .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
@@ -857,6 +858,7 @@ impl Hub {
         if !trigger {
             self.clear_deferred_unread(session);
         }
+        self.end_foreground_subagents(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
