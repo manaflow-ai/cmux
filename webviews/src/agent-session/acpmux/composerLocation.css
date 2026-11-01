@@ -1182,8 +1182,8 @@
   --acpmux-row-group-gap: 0px;
   --acpmux-row-edge: 14px;
   min-height: 28px;
-  /* Claude desktop (2x capture, Leo 2026-10-20): the row's middle 22 px under the box. */
-  margin-top: 8px;
+  /* The foot gap (grid.md 5.1, Leo 2026-10-29: "hm i still feel like we could go lower tho"). */
+  margin-top: var(--grid-gap-foot);
   /* Claude Code's row sits at the window's bottom edge with about 8 px under it (Leo 2026-10-21: too
      much space at the bottom compared to Claude Code). The floating dock's composer adds nothing
      under the row (below), so these 8 px are all the room there is: never on the window's edge

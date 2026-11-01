@@ -1,3 +1,4 @@
+import { TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
@@ -3729,7 +3730,14 @@ export function VirtualTranscript({
         ? dockTray - Math.min(0, dockTray - foldBase.current + rowsGrew)
         : foldBase.current;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + dockRoom - trayHold;
+  // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
+  // a turn footer's action row lies in the band under its reply, so that band comes first
+  // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
+  const tailGap =
+    dockSpace > 0
+      ? (measured.layout.restBand ?? 0)
+      : (measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1));
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + tailGap + dockRoom - trayHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -3754,7 +3762,7 @@ export function VirtualTranscript({
         )
       : grown;
   const room = sessionSwitched || following ? dockRoom - lifted - trayHold : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
   rowsEndRef.current = rowsEnd;
@@ -5793,6 +5801,9 @@ function AcpmuxPane() {
   const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
+  // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
+  // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
+  const [cloudTeamMachine, setCloudTeamMachine] = useState(false);
   // Automatic Cloud credential recovery survives turn-action memo rebuilds and is bounded per session.
   const automaticCloudCredentialAttempts = useRef<Set<string>>(new Set());
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
@@ -7557,7 +7568,7 @@ function AcpmuxPane() {
             }).catch(() => undefined),
         }),
       transferCloudCredentials: cloudCredentialRecovery(
-        connected && cloudCredentialRecoveryAvailable,
+        connected && cloudCredentialRecoveryAvailable && !cloudTeamMachine,
         cloudMachineID,
         snapshot.sessionId,
         snapshot.summary?.harness,
@@ -7585,6 +7596,7 @@ function AcpmuxPane() {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
         hostKind: cloudRouteHostKind,
+        ...(cloudMachineID && cloudTeamMachine && { teamMachine: true }),
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
       // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
@@ -7608,6 +7620,7 @@ function AcpmuxPane() {
       cloudMachineID,
       cloudRouteHostKind,
       cloudCredentialRecoveryAvailable,
+      cloudTeamMachine,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
@@ -9686,6 +9699,7 @@ function AcpmuxPane() {
           cloudMachineID?: unknown;
           cloudAccount?: unknown;
           cloudCredentialRecoveryAvailable?: unknown;
+          cloudTeamMachine?: unknown;
           /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
           cloudHandoffs?: unknown;
           cloudRepositoryAvailable?: unknown;
@@ -9697,6 +9711,7 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
+        setCloudTeamMachine(host.cloudTeamMachine === true);
         setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
