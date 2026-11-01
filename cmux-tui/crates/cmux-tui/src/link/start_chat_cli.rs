@@ -47,6 +47,7 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use ledger::{Ledger, Send};
@@ -256,7 +257,9 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
 pub(super) fn valid_environment(id: &str) -> bool {
     id.len() == 28
         && id.starts_with("env_")
-        && id[4..].bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        && id
+            .get(4..)
+            .is_some_and(|hex| hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
 }
 
 /// A repository as the cmux platform names one: `owner/name`, GitHub's characters, at most 140 bytes.
@@ -325,9 +328,9 @@ pub(super) fn origin_url(config: &str) -> Option<String> {
 /// any other host.
 pub(super) fn github_repo(url: &str) -> Option<String> {
     let rest = ["https://", "http://", "ssh://", "git+ssh://"].iter().find_map(|scheme| {
-        url.get(..scheme.len())
-            .filter(|s| s.eq_ignore_ascii_case(scheme))
-            .map(|_| &url[scheme.len()..])
+        url.split_at_checked(scheme.len())
+            .filter(|(head, _)| head.eq_ignore_ascii_case(scheme))
+            .map(|(_, rest)| rest)
     });
     let path = match rest {
         Some(rest) => {
@@ -387,10 +390,10 @@ impl Ensure {
     pub(super) fn body(&self) -> Value {
         let mut body = json!({"clientKey": self.create_key, "repo": self.repo});
         if let Some(git_ref) = &self.git_ref {
-            body["ref"] = json!(git_ref);
+            body.set("ref", json!(git_ref));
         }
         if let Some(environment) = &self.environment {
-            body["environment"] = json!(environment);
+            body.set("environment", json!(environment));
         }
         body
     }
