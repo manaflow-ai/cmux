@@ -133,7 +133,7 @@ import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
-import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -402,6 +402,7 @@ import {
   useBackgroundKey,
 } from "./conversation/runInBackground";
 import { UserBubble } from "./conversation/UserBubble";
+import { withSkillDollars } from "./slashCommands";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import {
   editableKey,
@@ -5268,12 +5269,13 @@ export function VirtualTranscript({
         {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
+        // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
+        // 2026-10-23: "that little bit above composer can flicker").
         data-seeking={seeking || undefined}
         aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top - origin > 0.5 || undefined}
-        data-fade-bottom={
-          (!renderFollowing && layout.totalHeight - (renderScroll.top - origin) - height > 0.5) || undefined
-        }
+        data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
         // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
         // out of sight behind it instead of reading through its glass.
         data-jump-shown={(jumpButton && behind) || undefined}
@@ -7403,6 +7405,9 @@ function AcpmuxPane() {
   // Another agent's waiting message's ⋯ menu actions (conversation/QueuedMessageCard.tsx), made
   // below where the side chat is known; the cards read them as they draw.
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
+  // The agent's commands, for an edited prompt's Codex skills (`edit.send`), read at the send.
+  const agentCommands = useRef(snapshot.commands);
+  agentCommands.current = snapshot.commands;
   const turnActions = useMemo<TurnActions>(
     () => ({
       queuedMessages: () => queuedMessageActionsRef.current,
@@ -7423,8 +7428,13 @@ function AcpmuxPane() {
       ...(stableEditSeqs.size > 0 && {
         edit: {
           seqs: stableEditSeqs,
+          // A Codex skill typed `/name` in the editor goes as `/$name` (slashCommands.ts).
           send: (rowId: string, throughSeq: number, text: string) =>
-            callNative<boolean>("chat.editResend", { rowId, throughSeq, text }).then(
+            callNative<boolean>("chat.editResend", {
+              rowId,
+              throughSeq,
+              text: withSkillDollars(text, agentCommands.current),
+            }).then(
               (sent) => sent === true,
               () => false,
             ),
