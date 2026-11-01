@@ -77,6 +77,7 @@ async fn stop_and_completion_share_one_lock_order() {
                     &turn.turn_id,
                     turn.turn_seq,
                     None,
+                    false,
                     None,
                 )
                 .await

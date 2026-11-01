@@ -870,7 +870,7 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 40-line paste: a Pasted text chip (first words, Pasted text · 40 lines) over the typed prompt, × on hover.",
+      note: "A 40-line paste: a Pasted text card (its first lines faded, Pasted text · 40 lines) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -888,6 +888,32 @@ export default agentPaneEntry({
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
         await ctx.hover({ selector: ".acpmux-attachment-pasted" });
+      },
+    },
+    // Leo (2026-11-01): "bro this is a TERRIBLE text preview we need to do better for these text
+    // type attachments' previews". In the default inline view the paste is a small page of its first
+    // lines in the prompt's line (composer/TextAttachmentCard.tsx), never its name underlined.
+    "text-pasted-inline": {
+      note: "A 41-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 41 lines, after the typed words.",
+      ready: { draft: "Why does the build fail? " },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const data = new view.DataTransfer();
+        const log = Array.from(
+          { length: 40 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        );
+        data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: data });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-md-inline-chip[data-preview="text"]'));
+        const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
+        if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
+          throw new Error("the inline paste card must show the paste's first lines");
+        if (!/41 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+          throw new Error("the inline paste card must say its line count");
       },
     },
     // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating

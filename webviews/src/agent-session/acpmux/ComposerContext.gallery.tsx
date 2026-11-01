@@ -286,6 +286,14 @@ const openComputer: Play = async (ctx) => {
   );
 };
 
+/// The environment control's machine list: Machines… on its right-click menu (its main list is This
+/// Mac and Cloud, Leo 2026-10-31: "it's just a cloud button").
+const openMachineList: Play = async (ctx) => {
+  await ctx.contextMenu({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "menuitem", name: "Machines…" });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-machines [role="option"]'));
+};
+
 // Composer warning specimens use the same health shape emitted by the cached `_acpmux/status`
 // snapshot. Keep a quiet specimen beside the warning states so a capture shows the unchanged
 // menu when the host is within budget.
@@ -604,7 +612,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: 'Preview: where a chat runs, as Codex\'s "Where should this chat run?" (Leo, 2026-10-31: "JUST A LITTLE CLOUD ICON OR FUCKING THE SELECTION"): This Mac and Cloud, then a hairline and the other machines with ⌥⌘1–9. No section headers, no second lines, no search under 8 machines; New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control\'s right-click menu. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.',
+      note: 'Where a chat runs, as Codex\'s "Where should this chat run?" (Leo, 2026-10-31: "we ideally also can just hide the machines too and it\'s just a cloud button"): This Mac and Cloud, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine. The machines, New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control\'s right-click menu.',
       props: {
         ...baseProps,
         environments: true,
@@ -617,8 +625,19 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "environment-picker-machines": {
+      note: "Machines… (the control's right-click menu): every machine, This Mac first, then the person's other machines with ⌥⌘1–9, one line each; gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status. No Cloud row here: Cloud is the main list's.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: openMachineList,
+    },
     "environment-picker-alone": {
-      note: "Preview, Leo's case: a person with no other machine sees two rows, This Mac and Cloud, as Codex's menu.",
+      note: "Leo's case: two rows, This Mac and Cloud, as Codex's menu. A person with other machines sees the same two.",
       props: {
         ...baseProps,
         environments: true,
@@ -682,7 +701,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     "environment-picker-cloud-chat": {
       // The whole list, down to the Cloud section, past the entry's 180px stage.
       height: 420,
-      note: "Preview: a chat seeded onto a Cloud machine (kind-aqua-sandpiper). This Mac's row stays This Mac (its own name, office-mac, the host's `localMachineName`, is the row's tooltip) and the Cloud machine is one of the other machines, checked, never This Mac's row (Leo, 2026-10-30: \"the ui is so ass in general for this tho\").",
+      note: "Preview: a chat seeded onto a Cloud machine (kind-aqua-sandpiper). This Mac's row stays This Mac (its own name, office-mac, the host's `localMachineName`, is the row's tooltip) and the Cloud machine is the one other row, checked, between This Mac and Cloud, never This Mac's row (Leo, 2026-10-30: \"the ui is so ass in general for this tho\"). gpu-box is not listed: it is in Machines….",
       props: {
         ...baseProps,
         environments: true,
@@ -721,20 +740,6 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
       },
     },
-    "environment-picker-sandboxed-search": {
-      note: "Labs (hq#3367): in a list long enough for a search field, searching for it shows Sandboxed in Cloud's place.",
-      props: {
-        ...fleetProps,
-        environments: true,
-        runMode: { mode: "persistent", onMode: () => undefined },
-      },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
-        await ctx.type("sandbox");
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
-      },
-    },
     "environment-picker-sandboxed-picked": {
       note: "Labs (hq#3367): Sandboxed picked. The control names it where the machine was, and its row stays checked in Cloud's place; any machine goes back to a Persistent chat.",
       props: {
@@ -748,7 +753,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-cloud-row": {
-      note: "Labs (cloud work mode): where this chat runs is one pick. Cloud heads the Cloud section with one line on what it does: the app picks and sizes a machine and copies the folder, with no machine, size or environment to choose. The account's machines and New Cloud Machine stay below it.",
+      note: "Cloud work mode: where this chat runs is one pick, This Mac or Cloud. Cloud is one line: the host gives the new workspace its own new machine (cloud.startChat, one workspace per machine) and copies the folder, with no machine, size or environment to choose. The machines are in Machines….",
       props: {
         ...baseProps,
         environments: true,
@@ -763,21 +768,11 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-cloud-picked": {
-      note: "Labs (cloud work mode): Cloud picked. The control reads Cloud where the machine was, its row is checked, and any machine row goes back to this Mac or that machine.",
+      note: "Cloud work mode: Cloud picked. The control reads Cloud where the machine was and its row is checked; This Mac goes back to this Mac.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
-      },
-    },
-    "environment-picker-cloud-search": {
-      note: "Labs (cloud work mode): typing cloud keeps the Cloud row first, above New Cloud Machine and Open Cloud…",
-      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
-        await ctx.type("cloud");
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"]'));
       },
     },
     "environment-picker-cloud-closed": {
@@ -785,7 +780,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
     },
     "environment-picker-cloud-machines": {
-      note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) among the other machines, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
+      note: "Machines…: the machines, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) among the other machines, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
       props: {
         ...baseProps,
         environments: true,
@@ -795,10 +790,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         cloudMachines: accountMachines,
         onCloudMachine: () => undefined,
       },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
-      },
+      play: openMachineList,
     },
     "computer-menu-cloud-machines": {
       note: "Previews off: the plain Computer menu lists the account's Cloud machines acpmux does not list the same way, with their stage on the second line.",
@@ -807,10 +799,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-fleet": {
       height: 760,
-      note: "Preview: every machine acpmux lists (21, from `host ls`): This Mac and Cloud, then the person's own machines and the Cloud and VM pools with no headers, and a search field (8 or more machines); in each group the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      note: "Machines…: every machine acpmux lists (21, from `host ls`): This Mac, then the person's own machines and the Cloud and VM pools with no headers, and a search field (8 or more machines); in each group the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await openMachineList(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
       },
     },
@@ -832,13 +824,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peers: ["gpu-box", "build-mini", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "build-mini": "ssh", "Cloud machine": "cloud" },
       },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
-      },
+      play: openMachineList,
     },
     "environment-picker-no-cloud": {
-      note: "Preview: with no cloud machine yet, Cloud is still the second row; a pick opens New Cloud Machine.",
+      note: "With no Cloud machine yet, Cloud is still the second row; a pick makes a new one (New Cloud Machine).",
       props: {
         ...baseProps,
         environments: true,
@@ -852,10 +841,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "saved-environments": {
-      note: "Preview, New Tab page: the saved environments under This Mac and Cloud, before the machines; Create environment is the control's right-click menu.",
+      note: "New Tab page, Machines…: the saved environments under This Mac, before the machines; Create environment is the control's right-click menu too.",
       props: savedProps(),
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await openMachineList(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-saved"));
       },
     },

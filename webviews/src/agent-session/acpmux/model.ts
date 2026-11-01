@@ -929,6 +929,12 @@ export type AcpmuxSnapshot = {
    * text) that opens a turn. Absent while unread, and for a chat with no older history.
    */
   earlierPrompts?: readonly AcpmuxRow[];
+  /**
+   * The chat's prompt count from its summary (`turnCount`), while the pane does not hold every prompt
+   * yet (the prompt index has not answered, or the daemon has none) and older history is left: the
+   * thread rail starts at the height that many prompts take. Absent once `earlierPrompts` is read.
+   */
+  promptCount?: number;
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
@@ -1081,13 +1087,27 @@ function foldedGroupHeight(group: ToolGroup): number {
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 16;
+/// The rest gap (Leo 2026-11-01: "more space between composer and latest messages ... tho maybe not
+/// as much as claude code"): from the newest row's line (a turn footer's 24px action row, or the
+/// running turn's live line) to the top of the floating bottom stack (the running tray, else the
+/// composer card). About two and a half body lines, as Codex leaves under its action row; Claude Code
+/// leaves about four and a half. The last row's own turn gap is part of it, and the room under the
+/// last row adds the rest (`restRoom`). leo-workspace design/chat-transcript.md.
+export const REST_GAP = 56;
+/// What the room under the last row adds over a floating stack to the last row's turn gap. The
+/// gallery compares other values through `<html data-rest-gap>` (composerRestGap.gallery.ts).
+export function restRoom(): number {
+  const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.restGap;
+  const gap = set === undefined || !Number.isFinite(Number(set)) ? REST_GAP : Number(set);
+  return Math.max(0, gap - TURN_GAP);
+}
 /// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
 /// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
 /// images alone.
 const userMetaHeight = (row: AcpmuxRow) => {
   const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
   return (
-    (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
+    (row.text && !row.failed && !chief ? META_GAP + META_ROW : 0) +
     (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
   );
 };
@@ -1110,9 +1130,13 @@ const USER_BUBBLE_SIDES = 24;
 const BLOCK_GAP = 14;
 const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
-/// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
+/// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset. An
+/// unlabeled fence has no header row (CodeHeader.tsx), only the inset above and below; a box-drawing
+/// diagram's lines are 1.15 of its font (conversation.css `.cv-codeblock--diagram`).
 const CODE_CHROME = 58.5;
 const CODE_PADDING = 13;
+const UNLABELED_CODE_CHROME = 2 * CODE_PADDING;
+const DIAGRAM_LINE_RATIO = 1.15;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
 const SCROLLBAR_HEIGHT = 15;
@@ -1558,6 +1582,16 @@ function listHeight(
   }, 0);
 }
 
+/** A fenced code card's estimated height in a column `width` wide, without its outer margin. */
+export function codeCardHeight(text: string, lang: string | undefined, width: number): number {
+  const lines = text.split("\n");
+  const { codeCharWidth, codeLineHeight, blockCodeSize } = metrics();
+  const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
+  const chrome = isUnlabeledLang(lang) ? UNLABELED_CODE_CHROME : CODE_CHROME;
+  const lineHeight = isDiagram(text, lang) ? blockCodeSize * DIAGRAM_LINE_RATIO : codeLineHeight;
+  return chrome + lines.length * lineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
+}
+
 function blockHeight(
   block: Token,
   width: number,
@@ -1577,12 +1611,8 @@ function blockHeight(
       );
     case "hr":
       return 2;
-    case "code": {
-      const lines = (block as Tokens.Code).text.split("\n");
-      const { codeCharWidth, codeLineHeight } = metrics();
-      const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
-      return CODE_CHROME + lines.length * codeLineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
-    }
+    case "code":
+      return codeCardHeight((block as Tokens.Code).text, (block as Tokens.Code).lang, width);
     case "table":
       return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;
     case "paragraph":
@@ -2039,6 +2069,7 @@ import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that
