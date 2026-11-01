@@ -1329,19 +1329,6 @@ const MessageRow = memo(
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
-              {row.queued && !readOnly && (
-                <button
-                  type="button"
-                  className="cv-user__cancel"
-                  onClick={() =>
-                    void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({
-                      promptId: row.queued,
-                    })
-                  }
-                >
-                  {t("switch.cancelPrompt")}
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -1422,10 +1409,9 @@ const DateRow = memo(
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 const ThinkingRow = memo(
   function ThinkingRow({ row }: RowProps) {
-    const queued = useTranscriptReadOnly() ? undefined : row.queued;
     return (
       <Thinking
-        status={row.status}
+        starting={row.queued !== undefined}
         since={row.at}
         doing={row.doing}
         doingAt={row.doingAt}
@@ -1438,19 +1424,12 @@ const ThinkingRow = memo(
         quietKey={row.quietKey}
         below={row.below}
         command={row.doingCommand}
-        onCancel={
-          queued
-            ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
-            : undefined
-        }
       />
     );
   },
-  // The start status line (version 0) becomes "Thinking" (version 1) in place.
   (a, b) =>
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
-    a.row.status === b.row.status &&
     a.row.queued === b.row.queued &&
     a.row.at === b.row.at &&
     a.row.doing === b.row.doing &&
@@ -12512,7 +12491,10 @@ function AcpmuxPane() {
               });
               return held;
             }}
-            onStop={stopThroughReconnect.stop}
+            // A prompt held while the agent starts goes back to the composer; else Stop stops the turn.
+            onStop={() => {
+              if (!harnessSwitch.cancelQueuedAll()) stopThroughReconnect.stop();
+            }}
             onQueueRemove={(promptId) =>
               startingSends.owns(promptId) ? Promise.resolve(startingSends.remove(promptId)) : removeQueued(promptId)
             }

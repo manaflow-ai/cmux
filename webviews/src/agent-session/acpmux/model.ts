@@ -1107,7 +1107,7 @@ export function restRoom(): number {
 const userMetaHeight = (row: AcpmuxRow) => {
   const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
   return (
-    (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
+    (row.text && !row.failed && !chief ? META_GAP + META_ROW : 0) +
     (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
   );
 };
