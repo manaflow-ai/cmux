@@ -232,6 +232,9 @@ public final class UpdaterService {
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
     @ObservationIgnored var installingBuild: String?
+    /// The build whose install left this build running at the last relaunch, and why
+    /// (``UpdateInstallCheck``); the staged update card says so while that build is staged.
+    public internal(set) var failedInstall: (build: String, failure: UpdateInstallFailure)?
     /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
     @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
     /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
@@ -341,6 +344,7 @@ public final class UpdaterService {
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        checkLastInstall()
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
         // The app settled the install before making the updater (AppServices): an install that ran

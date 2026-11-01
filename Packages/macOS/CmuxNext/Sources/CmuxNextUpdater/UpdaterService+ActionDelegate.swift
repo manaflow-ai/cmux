@@ -15,6 +15,7 @@ extension UpdaterService: UpdateActionDelegate {
         UpdateHarness.mark("will_relaunch")
         #endif
         recordRelaunchFocus()
+        recordInstallCheck()
         willRelaunch?()
         // Only a relaunch the person asked for (a click, or a click that took an automatic install
         // over) takes the windows off the screen; its failure and stall paths bring them back. An

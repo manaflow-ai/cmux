@@ -20,7 +20,14 @@ extension UpdaterService {
            updateSnooze.hides(version: version, at: now()) { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
         return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes,
-                               changelog: stagedChangelog)
+                               changelog: stagedChangelog, failure: stagedInstallFailure)
+    }
+
+    /// Why the last install of the staged build left this build running, or nil: the staged
+    /// build is another one, or its install was never tried.
+    var stagedInstallFailure: UpdateInstallFailure? {
+        guard let failedInstall, failedInstall.build == stagedBuild() else { return nil }
+        return failedInstall.failure
     }
 
     /// The staged update's pill when the user asked to check while it waits.

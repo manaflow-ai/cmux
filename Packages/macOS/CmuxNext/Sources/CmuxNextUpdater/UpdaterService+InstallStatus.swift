@@ -41,7 +41,7 @@ extension UpdaterService {
             guard !installGaveUp else { return }
             installGaveUp = true
             log.append("install: no relaunch after \(status.seconds) s; the windows come back")
-            installAbandoned?()
+            abandonInstall()
             return
         }
         if status.seconds == Int(UpdateInstallStatus.slowAfter.components.seconds) {
