@@ -41,7 +41,7 @@ env:
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'ubuntu-24.04' }}
     # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
     timeout-minutes: 75
     # One tick runs and the newest waits: GitHub replaces an older pending tick
