@@ -342,6 +342,17 @@ def owned_pick(env: Mapping[str, str],
                           drain_anyway=(env.get("DRAIN_ANYWAY") or "").strip() == DRAIN_ANYWAY_VALUE)
 
 
+def owned_pool_label(owned: str) -> str:
+    """Return the shared pool label from an owned pick, never its per-runner label."""
+    if not owned:
+        return ""
+    try:
+        labels = json.loads(owned)
+    except (TypeError, ValueError):
+        return ""
+    return labels[0] if isinstance(labels, list) and labels and isinstance(labels[0], str) else ""
+
+
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_jobs: Callable[[str], Any] | None = None,
@@ -360,7 +371,8 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
 
     owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep, bounded)
     if list(argv[:1]) == ["owned"]:
-        write_output(env, {"owned": owned}, [f"owned: {owned or 'none'} ({owned_why})"])
+        write_output(env, {"owned": owned, "owned_pool": owned_pool_label(owned)},
+                     [f"owned: {owned or 'none'} ({owned_why})"])
         return 0
     variable = (env.get("CANDIDATE") or "").strip()
     snapshot, problem = None, "no token to read the pool snapshot"
@@ -375,7 +387,7 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
     label, other, why, verified = blacksmith_picker.place(variable, snapshot, now, attempt, problem)
     if not verified:
         print(f"::warning title=signing runner::{why}")
-    write_output(env, {"owned": owned, "runner": label, "alternate": other,
+    write_output(env, {"owned": owned, "owned_pool": owned_pool_label(owned), "runner": label, "alternate": other,
                        "placement": "verified" if verified else "unverified"},
                  [f"owned: {owned or 'none'} ({owned_why})", f"blacksmith: {why}; a re-run takes `{other}`"])
     return 0

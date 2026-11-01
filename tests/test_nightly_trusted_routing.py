@@ -284,8 +284,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         jobs = DOC["jobs"]
         route = (
             "needs.pick-nightly-sign-runner.outputs.attempt",
-            "needs.pick-nightly-sign-runner.outputs.sign_owned",
-            "fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned)",
+            "needs.pick-nightly-sign-runner.outputs.sign_owned_pool",
         )
         for name in ("publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"):
             with self.subTest(job=name):
@@ -293,13 +292,25 @@ class NightlyTrustedRouting(unittest.TestCase):
                 runs_on = str(job["runs-on"])
                 for term in route:
                     self.assertIn(term, runs_on)
+                self.assertNotIn("fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned)", runs_on)
+                source = runs_on.removeprefix("${{").removesuffix("}}")
+                fallback = {
+                    "github.run_attempt": 1,
+                    "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+                    "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
+                    "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+                }
+                self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-16vcpu-ubuntu-2404")
+                self.assertEqual(evaluate(parse_expression(source), {**fallback, "github.repository_owner": "someone"}),
+                                 "blacksmith-16vcpu-ubuntu-2404")
                 self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 steps = job["steps"]
                 self.assertEqual(steps[0]["name"], "Hold the whole Mac before any credential")
-                self.assertEqual(steps[0]["id"], "credential-claim-gate")
+                self.assertEqual(steps[0]["id"], "claim-gate")
                 self.assertIn("GLAEDA_JOB_CLAIM", steps[0]["run"])
                 self.assertIn("glaeda-signing-hooks.txt", steps[0]["run"])
                 self.assertNotIn("secrets.", steps[0]["run"])
+                self.assertTrue(any("signing-runner-claim.sh" in str(step.get("run", "")) for step in steps))
                 needs = job["needs"]
                 self.assertIn("pick-nightly-sign-runner", needs)
 

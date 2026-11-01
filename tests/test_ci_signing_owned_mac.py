@@ -236,7 +236,7 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     for step_id in dict.fromkeys(STEP_OUTPUT.findall(value)):
         run = steps.get(step_id, "")
         if OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
-            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned\b", value) is not None
+            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned(?:_pool)?\b", value) is not None
             found.append(OWNED_PICKER if owned else BLACKSMITH_PICKER)
         else:
             found.append(BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
@@ -360,11 +360,17 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                                 "SIGNING_JOBS, which gives it the whole mini)")
             for read in owned_reads:
                 clauses = attempt_clauses(jobs, read)
-                if not any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" + re.escape(read)
-                                     + r"\s*&&\s*fromJSON\(\s*" + re.escape(read) + r"\s*\)", runs_on)
-                           for clause in clauses):
-                    failures.append(f"{label}: reads {read} other than as `{' or '.join(clauses)} && {read} && "
-                                    f"fromJSON({read})`, so a re-run could stay on the fleet")
+                if read.endswith(".owned_pool"):
+                    route_ok = any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" +
+                                             re.escape(read), runs_on) for clause in clauses)
+                    route_shape = f"{' or '.join(clauses)} && {read}"
+                else:
+                    route_ok = any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" + re.escape(read)
+                                             + r"\s*&&\s*fromJSON\(\s*" + re.escape(read) + r"\s*\)", runs_on)
+                                   for clause in clauses)
+                    route_shape = f"{' or '.join(clauses)} && {read} && fromJSON({read})"
+                if not route_ok:
+                    failures.append(f"{label}: reads {read} other than as `{route_shape}`, so a re-run could stay on the fleet")
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
             gate = steps[0] if steps else {}
@@ -478,9 +484,16 @@ class LegacySignReRunTakesAnOwnedMacFirst(unittest.TestCase):
         self.assertEqual(str(outputs["attempt"]).strip(), "${{ github.run_attempt }}")
         # Any attempt's pick stands (attempt 1 of a push, or once the sweeper's marker is up), as `owned` does.
         self.assertEqual(str(outputs["sign_owned"]).replace("sign-owned", "owned"), str(outputs["owned"]))
+        self.assertIn("steps.sign-owned.outputs.owned_pool", str(outputs["sign_owned_pool"]))
 
 
 class SigningOwnedMacTests(unittest.TestCase):
+    def test_owned_pool_label_drops_the_runner_pin(self) -> None:
+        self.assertEqual(signing_runner.owned_pool_label('["glaeda-nightly-std-xcode-26.6", "glaeda-runner-cmux12-glaeda-nightly"]'),
+                         "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(signing_runner.owned_pool_label(""), "")
+        self.assertEqual(signing_runner.owned_pool_label("not-json"), "")
+
     def test_workflows(self) -> None:
         failures, owned_jobs = check(workflows())
         self.assertEqual(failures, [])
