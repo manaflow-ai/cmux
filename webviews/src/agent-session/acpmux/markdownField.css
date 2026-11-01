@@ -343,7 +343,8 @@
 }
 /* Settings' strip view (ComposerBox attachmentView): the strip alone shows the attachments; each keeps
    its place in the text, so the inline view shows it there again and the prompt goes the same. */
-.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
+.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline,
+.nt-composer[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
   display: none;
 }
 /* A file placed in the text: its name on the chip, as the strip's link chip has it. */
