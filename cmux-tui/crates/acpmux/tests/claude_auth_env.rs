@@ -782,6 +782,58 @@ async fn a_secret_delivered_after_start_reaches_the_next_agent() {
     assert_eq!(found(&reply)["loginOnly"], json!([]), "a revoked secret still reached the agent");
 }
 
+/// Cloud environment declarations reach the actual child without any shell
+/// startup hook, refresh on replacement/deletion, and never enter the cache.
+#[tokio::test]
+async fn literal_machine_env_reaches_local_children_without_a_profile_hook() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-env", "export ANTHROPIC_API_KEY=sk-login\n");
+    let first = "synthetic-machine-first'\\$HOME\n$(touch should-not-exist)";
+    let other = "synthetic-machine-other";
+    let d = start(
+        &dir,
+        json!({
+            "claude": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": first})),
+            "profile": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": "profile", "DEMO_KEY": "profile"})),
+            "reference": claude(json!({"DEMO_KEY": "${env:DEMO_KEY}"})),
+        }),
+        &[],
+    ).await;
+    let (before, _) = ask_as(&d, "claude", "before-machine-env").await;
+    assert_eq!(found(&before)["loginOnly"], json!([]));
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    let replace = |value: &str| {
+        let next = conf.join("next-machine.env");
+        std::fs::write(&next, format!("export DEMO_KEY='{}'\n", value.replace('\'', "'\\''")))
+            .unwrap();
+        std::fs::set_permissions(&next, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::rename(next, &file).unwrap();
+    };
+    replace(first);
+    let (delivered, _) = ask_as(&d, "claude", "machine-delivered").await;
+    assert_eq!(found(&delivered)["loginOnly"], json!(["DEMO_KEY"]));
+    assert_eq!(found(&delivered)["machineMatches"], true);
+    assert!(!dir.join("should-not-exist").exists());
+    let (profile, _) = ask_as(&d, "profile", "machine-profile-precedence").await;
+    assert_eq!(found(&profile)["machineMatches"], true);
+    let (reference, _) = ask_as(&d, "reference", "machine-not-a-reference").await;
+    assert!(reference.is_err(), "a machine declaration resolved through the generic env reference");
+    replace(other);
+    let (rotated, _) = ask_as(&d, "claude", "machine-rotated").await;
+    assert_eq!(found(&rotated)["loginOnly"], json!(["DEMO_KEY"]));
+    assert_eq!(found(&rotated)["machineMatches"], false);
+    std::fs::remove_file(&file).unwrap();
+    let (revoked, _) = ask_as(&d, "claude", "machine-revoked").await;
+    assert_eq!(found(&revoked)["loginOnly"], json!([]));
+    for name in ["login-env.json", "daemon.out", "daemon.stderr"] {
+        let content = std::fs::read_to_string(dir.join(name)).unwrap();
+        assert!(!content.contains("synthetic-machine-first"), "machine value leaked to {name}");
+        assert!(!content.contains(other), "rotated machine value leaked to {name}");
+    }
+}
+
 /// A version-manager prefix passes, but never a secret under it: the agent
 /// gets MISE_DATA_DIR, not MISE_GITHUB_TOKEN or NVM_AUTH_HEADER, unless
 /// `loginEnvAllow` names one exactly.

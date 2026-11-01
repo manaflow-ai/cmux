@@ -37,6 +37,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+mod machine;
 mod watch;
 pub use watch::start as watch_startup_files;
 
@@ -162,8 +163,14 @@ pub fn begin() -> Plan {
         return Plan { run_shell: true, wait: true };
     };
     let stale = cache.saved_at.is_none_or(|t| now_secs().saturating_sub(t) > MAX_AGE.as_secs());
-    // Only names the current rule keeps (an older cache may hold more).
-    let vars = cache.vars.into_iter().filter(|(k, v)| storable(k, v)).collect();
+    // Machine values belong only to local spawns, even if a shell profile
+    // also sourced that file before this cache was written.
+    let machine = machine::read();
+    let vars = cache
+        .vars
+        .into_iter()
+        .filter(|(k, v)| !machine.contains_key(k) && storable(k, v))
+        .collect();
     st.imported = Some(build(for_children(vars), cache.path));
     st.outcome = Outcome::Cached;
     st.secret_names = cache.secret_names.clone();
@@ -261,8 +268,11 @@ async fn import_once(read: &str) -> bool {
         return false;
     };
     let (login, login_path) = parse_env0(&text, &marker);
-    // Only what a child or the daemon itself may use is kept, in memory too.
-    let login: Vec<(String, String)> = login.into_iter().filter(|(k, v)| storable(k, v)).collect();
+    // Literal machine declarations are local-spawn authority. A profile may
+    // also source them, but they must not enter generic login APIs or the cache.
+    let machine = machine::read();
+    let login: Vec<(String, String)> =
+        login.into_iter().filter(|(k, v)| !machine.contains_key(k) && storable(k, v)).collect();
     save_cache(read, &login, login_path.as_deref());
     let imported = build(for_children(login), login_path);
     let added = imported.vars.len();
@@ -722,10 +732,15 @@ fn pairs_for(
     // A name delivered to this machine (`cmux cloud deliver-secrets`) goes to
     // every local child: the person sent it for this machine's shells and
     // agents. Remote-origin launches never call this (`apply_remote_tokio`).
-    pairs()
+    let mut values: BTreeMap<_, _> = pairs()
         .into_iter()
         .filter(|(k, v)| allowed_with(k, v, family, profile) || delivered(k))
-        .collect()
+        .collect();
+    // Read literals at the local spawn boundary; never expose them through
+    // var/allowed_var/nested_overrides or persist them in login-env.json.
+    // Explicit profile/preset/session env is applied after this overlay.
+    values.extend(machine::read());
+    values.into_iter().collect()
 }
 
 /// Login values of the keys `config::scrub_nested_claude_env` removes (a

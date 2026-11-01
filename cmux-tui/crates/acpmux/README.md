@@ -1218,7 +1218,14 @@ DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK
 with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
-(`cmux cloud deliver-secrets`; its value is never cached). A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
+(`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
+private, owned `~/.config/cmux/machine.env` declarations directly: only literal
+`export NAME='value'` entries (including quoted newlines and escaped single quotes), with no shell
+execution. Process-loader and cmux bootstrap names are refused. These declarations override the
+login/daemon values, while explicit profile, preset and session env still win. Values are read again
+for each local launch, so replacement and deletion rotate/revoke them; they never enter the login
+cache, nested-session restoration, remote-origin launches or `${env:VAR}` references. A missing,
+non-private, linked, oversized or malformed file contributes no declarations. A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
 `ANTHROPIC_*` keys from its agents and gives them the login shell's values instead, within the
 same allow-list. Precedence: profile, preset and session env, then the daemon's own environment,
 then the login shell's.
