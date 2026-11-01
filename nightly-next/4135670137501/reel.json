@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4135670137501",
+  "notes": "notes/4135670137501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27559,
+      "title": "cmux NEXT composer: placeholder, + and Send on one grid (draft: baseline measurement)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31359,
+      "title": "cmux NEXT transcript: the session link chip takes the theme's colours, not a fixed blue",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
