@@ -115,11 +115,16 @@ pub fn classify(comm: &str, argv: &[&str]) -> Option<Heavy> {
     let mut asks: Vec<(&str, Option<&str>)> = vec![(comm.trim(), arg(1))];
     if let Some(zero) = arg(0) {
         asks.push((program(zero), arg(1)));
-        // `node …/vitest.mjs run`, `bun x tsc`: the script is the tool.
-        if matches!(program(zero), "node" | "bun")
-            && let Some(script) = arg(1)
-        {
-            asks.push((program(script), arg(2)));
+        // `node …/vitest.mjs run`: the script is the tool; `bun x tsc` (and `bunx`, `npx`): the
+        // tool after `x`.
+        let (script, sub) = match (program(zero), arg(1)) {
+            ("bun", Some("x")) => (arg(2), arg(3)),
+            ("bunx" | "npx", s) => (s, arg(2)),
+            ("node" | "bun", s) => (s, arg(2)),
+            _ => (None, None),
+        };
+        if let Some(script) = script {
+            asks.push((program(script), sub));
         }
     }
     let mut best: Option<Heavy> = None;
@@ -210,7 +215,6 @@ fn linux(load: &mut Load) {
     use crate::host_pressure as p;
     let read = |path: &str| std::fs::read_to_string(path).ok();
     let stat = || read("/proc/stat").and_then(|s| p::parse_proc_stat_cpu(&s));
-    let before = stat();
     if let Some(cpu) = read("/proc/pressure/cpu") {
         load.cpu_some_avg60 = p::parse_psi_avg60(&cpu, "some");
     }
@@ -224,6 +228,8 @@ fn linux(load: &mut Load) {
     }
     load.oom_kills = read("/proc/vmstat").and_then(|s| p::parse_vmstat_oom_kill(&s));
     load.heavy = heavy_now();
+    // The window is the sleep alone: the reads above stay out of it.
+    let before = stat();
     std::thread::sleep(CPU_WINDOW);
     load.cpu_busy = before.zip(stat()).and_then(|(a, b)| p::cpu_busy(a, b));
 }
@@ -243,7 +249,7 @@ fn heavy_now() -> Option<Heavy> {
         found.push((comm, String::from_utf8_lossy(&cmdline).into_owned()));
     }
     heaviest(found.iter().map(|(comm, cmdline)| {
-        (comm.as_str(), cmdline.split('\0').filter(|w| !w.is_empty()).take(3).collect())
+        (comm.as_str(), cmdline.split('\0').filter(|w| !w.is_empty()).take(4).collect())
     }))
 }
 
@@ -269,6 +275,9 @@ mod tests {
         assert_eq!(classify("cc1plus", &[]), need(Kind::Build, 8, 8));
         assert_eq!(classify("bun", &["bun", "test", "a.test.ts"]), need(Kind::Test, 6, 2));
         assert_eq!(classify("bun", &["bun", "run", "dev"]), None);
+        assert_eq!(classify("bun", &["bun", "x", "tsc", "-b"]), need(Kind::Build, 6, 2));
+        assert_eq!(classify("npx", &["npx", "vitest", "run"]), need(Kind::Test, 6, 2));
+        assert_eq!(classify("npx", &["npx", "vite", "build"]), need(Kind::Build, 6, 2));
         // A node script is its tool.
         let vitest = ["node", "/w/node_modules/.bin/vitest.mjs", "run"];
         assert_eq!(classify("node", &vitest), need(Kind::Test, 6, 2));

@@ -121,3 +121,38 @@ test("a host notice is a muted notice row where acpmux logged it", async () => {
     client.close();
   }
 });
+
+// A notice that comes mid-reply sits between the text before it and the text after it.
+test("a host notice in the middle of a reply splits the reply around it", async () => {
+  const say = (text: string) => ({
+    method: "session/update",
+    params: { sessionId: "agent-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
+  });
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "build it" }],
+      ["mux", "turn_started", {}],
+      ["in", "agent_message_chunk", say("Building now.")],
+      ["mux", "host_notice", { text: GREW, source: "cloud" }],
+      ["in", "agent_message_chunk", say(" Done.")],
+    ]),
+    "claude",
+    "claude",
+  );
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    const order = (snapshot.rows as AcpmuxRow[])
+      .filter((row) => row.kind === "assistant" || row.id.startsWith("host-notice-"))
+      .map((row) => (row.kind === "assistant" ? row.text : `notice: ${row.text}`));
+    expect(order).toEqual(["Building now.", `notice: ${GREW}`, " Done."]);
+  } finally {
+    client.close();
+  }
+});
