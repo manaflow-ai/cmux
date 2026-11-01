@@ -420,6 +420,13 @@ final class AppServices {
         ChiefPetSettingsRows.characterPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
     }
 
+    /// The picture Chief `chief` (nil: the default) wears where its profile sets none: its worn upload,
+    /// else the character it picked, else nil (its monogram).
+    func chosenPicture(of chief: String?) -> URL? {
+        ChiefPetSettingsRows.chosenPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads,
+                                           in: settings?.snapshot, file: settings?.fileRoot)
+    }
+
     /// Chief `chief`'s (nil: the default) upload while it is worn over the character picked now.
     func wornUpload(of chief: String?) -> ChiefAvatarUploads.Upload? {
         ChiefPetSettingsRows.wornUpload(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
