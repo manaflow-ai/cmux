@@ -61,7 +61,7 @@ final class AgentPageCrashRetry {
         backoff.schedule(after: .seconds(delay)) { @MainActor in body() }
     }
     /// Whether nobody can see the pane (tests set it).
-    var nobodySees: (NSView) -> Bool = AgentPaneFramePacer.nobodySees
+    var nobodySees: @MainActor (NSView) -> Bool = AgentPaneFramePacer.nobodySees
 
     /// `view`'s page ended: true when it retries (``AgentPaneView/retryAfterCrash()``), false when
     /// it kept ending and shows the crash notice.
