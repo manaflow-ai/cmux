@@ -530,13 +530,22 @@ check_sentry_cli_install_portability() {
     fi
 
     # nightly.yml uploads through scripts/upload-sentry-dsyms.sh (retried,
-    # never fatal), which installs through the same helper.
-    if awk '
+    # never fatal), which installs through the same helper. The step may run
+    # it directly or through a step script (`run: bash -e
+    # scripts/ci/nightly-steps/<step>.sh`, where #31013 moved step bodies to
+    # keep nightly.yml under its size budget); the step script is read too.
+    local step_text
+    step_text="$(awk '
       /- name: Upload dSYMs to Sentry/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
-      in_step && /\.\/scripts\/upload-sentry-dsyms\.sh/ { saw=1 }
-      END { exit !saw }
-    ' "$file"; then
+      in_step { print }
+    ' "$file")"
+    local step_script
+    step_script="$(printf '%s\n' "$step_text" | grep -Eo 'scripts/ci/[A-Za-z0-9_./-]+\.sh' | head -n 1 || true)"
+    if [[ -n "$step_script" && -f "$ROOT_DIR/$step_script" ]]; then
+      step_text+=$'\n'"$(cat "$ROOT_DIR/$step_script")"
+    fi
+    if printf '%s\n' "$step_text" | grep -Eq '(^|[[:space:]])\./scripts/upload-sentry-dsyms\.sh'; then
       uploader="$ROOT_DIR/scripts/upload-sentry-dsyms.sh"
       if ! grep -Fq '/ensure-sentry-cli.sh")"' "$uploader" \
         || ! grep -Fq 'debug-files upload --include-sources' "$uploader"; then
@@ -1309,15 +1318,63 @@ check_no_self_hosted_fleet_runners() {
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
   # Owned pool labels (glaeda-std-xcode-26.6) are fleet labels too, so no
-  # workflow names one and no MACOS_RUNNER_* variable may hold one. They reach
-  # a job only as scripts/ci/pr_runner_pool.py's output for a same-repository
-  # pull request run, and only once CI_PR_POOL_OWNED is 1; `owned` is that
-  # label shape, which runner_label_policy.py accepts in CI_PR_POOL_ORDER.
-  # check_owned_pools_route_through_picker holds the other half. The one
-  # exception is test-e2e.yml's dispatch-only runner dropdown, which may offer
-  # an owned label exactly: E2E is never a required
-  # check, and its runner job hands the label on (e2e_runner_pool.py).
+  # MACOS_RUNNER_* variable may hold one and no bare `runs-on:` or list item
+  # names one; `owned` is that label shape, which runner_label_policy.py
+  # accepts in CI_PR_POOL_ORDER. check_owned_pools_route_through_picker holds
+  # the picker half. test-e2e.yml's dispatch-only runner dropdown may offer an
+  # owned label exactly: E2E is never a required check, and its runner job
+  # hands the label on (e2e_runner_pool.py).
+  #
+  # Owned Macs come first for macOS jobs (Linux, then owned Macs through the
+  # picker, Blacksmith last; release signing may run on owned Macs; display
+  # tests gate nothing; the nightly-only minis serve the nightly). So an owned
+  # POOL label (`owned_pool`: glaeda-[<lane>-]<class>-xcode-<version>, a label
+  # many minis serve, never one host) is accepted as a quoted literal inside a
+  # `${{ }}` runs-on expression that routes through the declared picker/vars
+  # pattern: the expression reads a picker output (needs.<job>.outputs.*) or a
+  # repository variable (vars.*). In a workflow a pull request can trigger,
+  # the fork pull request branch (fork heads to Blacksmith) must come first on
+  # the line, so a fork head never reaches an owned Mac. Still refused: a bare
+  # self-hosted/macOS/ARM64 label, a single-host label (cmux-macos, mac-mini,
+  # slot-N, tart-*, ...), macos-26 outside the fork branch, and an owned label
+  # named directly with no picker or variable route.
   local owned='glaeda-(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
+  local owned_pool="'glaeda-((side|gui|session|nightly|dev|fast)-)?(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'"
+  # startsWith(vars.X, 'glaeda-side-') checks a variable's shape; it names no runner.
+  local owned_prefix_check="startsWith\\((vars|needs)\\.[A-Za-z0-9_.-]+, 'glaeda-[a-z-]+-'\\)"
+  local fork_pr_branch="github\\.event_name == 'pull_request' && github\\.event\\.pull_request\\.head\\.repo\\.full_name != github\\.repository && '(blacksmith-(6|12)vcpu-macos-(15|26|latest))'"
+  # Workflows a pull request (or pull_request_target) can trigger.
+  local pr_workflows
+  pr_workflows="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+import sys
+from pathlib import Path
+
+import yaml
+
+for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
+    document = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
+    events = document.get("on", document.get(True)) or {}
+    if isinstance(events, str):
+        events = [events]
+    if {"pull_request", "pull_request_target"} & set(events):
+        print(file)
+PYTHON
+)"
+  # The owned pool selections a runs-on line may keep, removed from its content.
+  # $1: the line's content; $2: 1 when a pull request can trigger the workflow.
+  strip_owned_pool_selection() {
+    local text="$1" pr="$2" before
+    if [[ "$text" != *'${{'* ]] || ! printf '%s\n' "$text" | grep -Eq "(vars\\.[A-Za-z0-9_]+|needs\\.[A-Za-z0-9_-]+\\.outputs\\.)"; then
+      printf '%s\n' "$text"; return
+    fi
+    if [[ "$pr" == 1 ]]; then
+      before="$(printf '%s\n' "$text" | sed -E "s/$owned_pool.*//")"
+      if ! printf '%s\n' "$before" | grep -Eq "$fork_pr_branch"; then
+        printf '%s\n' "$text"; return
+      fi
+    fi
+    printf '%s\n' "$text" | sed -E "s/$owned_prefix_check//g; s/$owned_pool//g"
+  }
   local fleet='glaeda-|macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|cmux-persistent-macos-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
   # A fork running CI in its own repository has no fleet, so its hosted
@@ -1391,6 +1448,41 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
+  # Owned pools through the picker/vars pattern pass; direct names do not.
+  for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}" \
+               "runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}"; do
+    content_without_allowed="$(strip_owned_pool_selection "$probe" 0 | sed -E "s/$fork_branch//g; s/($allowed)//g")"
+    if printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)"; then
+      echo "FAIL: fleet-runner guard self-test refused an owned pool reached through the picker/vars pattern: $probe"
+      exit 1
+    fi
+  done
+  probe="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}"
+  if printf '%s\n' "$(strip_owned_pool_selection "$probe" 1 | sed -E "s/$fork_branch//g; s/($allowed)//g")" | grep -Eiq "($fleet)"; then
+    echo "FAIL: fleet-runner guard self-test refused a pull request owned pool behind the fork branch: $probe"
+    exit 1
+  fi
+  for probe in "runs-on: glaeda-std-xcode-26.6" \
+               "runs-on: \${{ 'glaeda-std-xcode-26.6' }}" \
+               "runs-on: \${{ vars.X || 'cmux-macos-26' }}" \
+               "runs-on: \${{ vars.X || 'mac-mini' }}" \
+               "runs-on: \${{ vars.X || 'glaeda-mini-7' }}"; do
+    content_without_allowed="$(strip_owned_pool_selection "$probe" 0 | sed -E "s/$fork_branch//g; s/($allowed)//g")"
+    if ! printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)"; then
+      echo "FAIL: fleet-runner guard self-test let a direct or single-host fleet label through: $probe"
+      exit 1
+    fi
+  done
+  probe="runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}"
+  if ! printf '%s\n' "$(strip_owned_pool_selection "$probe" 1 | sed -E "s/$fork_branch//g; s/($allowed)//g")" | grep -Eiq "($fleet)"; then
+    echo "FAIL: fleet-runner guard self-test let a pull request reach an owned pool without the fork branch first: $probe"
+    exit 1
+  fi
+  if ! printf '%s\n' "- self-hosted" | sed -E "s/$owned_pool//g" | grep -Eq "($selfhosted)"; then
+    echo "FAIL: fleet-runner guard self-test let bare self-hosted through"
+    exit 1
+  fi
+
   # This capability label proves the opt-in NEXT hook wrapper was installed.
   # Permit only its complete trusted-pool/runner tuple, only in nightly.yml;
   # the bare capability, generic fleet labels and main selector stay guarded.
@@ -1406,23 +1498,12 @@ check_no_self_hosted_fleet_runners() {
   # owned-pool predicates; retries fall through to Blacksmith.
   local nightly_main_trusted_selector="github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL"
   local nightly_next_side_selector="github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/nightly-next' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER"
-  # cmux-next's GUI suites and its autofix bots keep the std GUI minis (#18589,
-  # #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool switch; with it off,
-  # or on a fork pull request (its branch comes first), they take Blacksmith.
-  # pr_runner_pool.py has no GUI pool, so only these exact selectors, in only
-  # these workflows, may name glaeda-gui-std-xcode-26.6.
-  local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6'"
-  local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
-  # #22035's session jobs named glaeda-session-std-xcode-26.6 in selectors of their own;
-  # since cmux#24295's 90-minute waits only a placement output gives that label
-  # (tests/test_ci_runs_on_fallback.py), so those jobs read the gui selectors above.
-  # The same labels as the last fallback of swift-test / daemon-test / generated-files with no
-  # placement result through the bot's attempt 3: it waits behind the fleet rather than in a
-  # Blacksmith queue (2026-10-20: 5+ hour waits on blacksmith-12vcpu-macos-26). A refused attempt
-  # 3 (owned_pool_rescue REFUSAL_RESCUE_ATTEMPT) still leaves the fleet on attempt 4.
-  local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6'"
-  local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-  local hits="" line content content_without_allowed
+  # cmux-next's GUI suites, its autofix bots and stable-next keep the std GUI
+  # minis (#18589, #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool
+  # switch, through the general owned pool rule (strip_owned_pool_selection):
+  # exact per-workflow selector strings drifted with every routing change
+  # (#27853, #28605, #29814) and turned the guard red on base.
+  local hits="" line content content_without_allowed pr_trigger
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
   # `runs-on:` arrays). `- name:` / `- uses:` step entries have a colon and are
@@ -1445,19 +1526,9 @@ check_no_self_hosted_fleet_runners() {
     fi
     # A pull request workflow keeps the exemption only while its fork pull
     # request branch comes first on the line; base autofix runs on push only.
-    case "${line%%:*}" in
-      "$ROOT_DIR/.github/workflows/cmux-next.yml")
-        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi
-        if [[ "${content%%"$gui_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_rerun_selector"/}"; fi ;;
-      "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
-        if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
-      "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
-        content="${content//"$gui_autofix_selector"/}" ;;
-      # cmux NEXT Stable: no pull_request trigger (schedule, dispatch, a push to stable-next-dry-run);
-      # its UI tests, suites and dry-run signing take the gui pool on attempt 1, Blacksmith after.
-      "$ROOT_DIR/.github/workflows/stable-next.yml")
-        content="${content//"$gui_autofix_selector"/}" ;;
-    esac
+    pr_trigger=0
+    if printf '%s\n' "$pr_workflows" | grep -Fxq -- "${line%%:*}"; then pr_trigger=1; fi
+    content="$(strip_owned_pool_selection "$content" "$pr_trigger")"
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
@@ -1468,12 +1539,13 @@ check_no_self_hosted_fleet_runners() {
   done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
     echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."
-    echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
-    echo "      blacksmith-{6,12}vcpu-macos-{15,26,latest} / warp-macos-15-arm64-6x / depot-macos-{latest,14}."
+    echo "      Reach an owned Mac pool (glaeda-[<lane>-]<class>-xcode-<version>) only as a quoted literal in a \${{ }}"
+    echo "      runs-on that reads a picker output (needs.<job>.outputs.*) or a repository variable (vars.*), with the"
+    echo "      fork pull request branch first in pull request workflows. Never a bare self-hosted label or one host."
     echo "$hits"
     exit 1
   fi
-  echo "PASS: required jobs stay on cloud runners; no workflow names a mini directly"
+  echo "PASS: owned Macs are reached only through the picker/vars pattern; no workflow names a mini or bare self-hosted"
 }
 
 check_owned_pools_route_through_picker() {
