@@ -14,24 +14,14 @@ import Foundation
 /// to keep every host, and rolls back otherwise. The new build serves `fs-v1`, so the machine's
 /// later updates go in place.
 ///
-/// Nothing the CLI or an agent passes reaches it: the build is the app bundle's own pin
-/// (`Resources/bin/cmux-tui-ssh/manifest.json`, the one `cmux link machine update` reads), the
-/// machine checks the download against that pin's SHA-256 before it replaces anything, and the
-/// script is the app's own resource.
+/// Nothing the CLI or an agent passes reaches it: the build is the app's own pin (``CloudLegacyPin``:
+/// the bundle's manifest, or for a DEV build the published pin of its own commit or cmux-tui tree,
+/// as `cmux link machine update` resolves it), the machine checks the download against that pin's
+/// SHA-256 before it replaces anything, and the script is the app's own resource.
 nonisolated enum CloudLegacyMachineUpdate {
     /// The app's pinned Linux build for Cloud machines.
-    struct Pin: Sendable, Equatable {
-        /// The build's commit: the `build` its daemon reports.
-        var commit: String
-        /// SHA-256 of the binary at ``url``.
-        var sha256: String
+    typealias Pin = CloudLegacyPin
 
-        /// The immutable per-commit release `cmux link machine update` downloads too.
-        var url: String { "\(RemoteInstallPlan.base.absoluteString)/\(commit)/cmux-tui-\(CloudLegacyMachineUpdate.target)" }
-    }
-
-    /// The Rust target of every Cloud machine's binary (x86_64, the release's static build).
-    static let target = "x86_64-unknown-linux-musl"
     /// The fleet upgrade's directory: its runs share `lock`, so the app's run and an operator's
     /// never overlap on one machine.
     static let directory = "/var/lib/cmux-tui-upgrade"
@@ -41,26 +31,6 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// for a healthy daemon, like `cmux link machine update`'s 25). A run that goes on after it
     /// ends by itself, and the machine then reports its build.
     static let waits = 6
-
-    /// The pin in the manifest beside the app's `cmux` client, nil when the app ships none (dev
-    /// builds) or it is malformed.
-    static func pin(besideCLI cli: URL) -> Pin? {
-        let manifest = cli.deletingLastPathComponent().appendingPathComponent("cmux-tui-ssh/manifest.json")
-        return (try? Data(contentsOf: manifest)).flatMap(pin(manifest:))
-    }
-
-    /// The pin in a `cmux-tui-ssh/manifest.json`: `commit` (40 hex) and the x86_64 Linux binary's
-    /// digest (64 hex). Both reach a shell, so anything else is refused.
-    static func pin(manifest: Data) -> Pin? {
-        struct Manifest: Decodable {
-            var commit: String
-            var binaries: [String: String]
-        }
-        guard let manifest = try? JSONDecoder().decode(Manifest.self, from: manifest),
-              let sha256 = manifest.binaries["cmux-tui-\(target)"]?.lowercased(),
-              isHex(manifest.commit.lowercased(), count: 40), isHex(sha256, count: 64) else { return nil }
-        return Pin(commit: manifest.commit.lowercased(), sha256: sha256)
-    }
 
     /// The guest script, from the app's resources.
     static var script: String? {
@@ -112,7 +82,7 @@ nonisolated enum CloudLegacyMachineUpdate {
         let args = "\(pin.sha256) \(pin.commit) \"$r\""
         // It reaches a shell: only a 40-hex commit.
         let expected = expected?.lowercased()
-        let expectBuild = expected.flatMap { isHex($0, count: 40) ? [writeFile($0 + "\n", to: "$r/expect-build")] : nil } ?? []
+        let expectBuild = expected.flatMap { CloudLegacyPin.isHex($0, count: 40) ? [writeFile($0 + "\n", to: "$r/expect-build")] : nil } ?? []
         let lines: [String] = [
             "set -eu",
             rootHelper,
@@ -208,15 +178,6 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// The transient unit of run `nonce`.
     static func unit(_ nonce: String) -> String { "cmux-app-tui-update-\(nonce)" }
 
-    /// The pin of the legacy update to `build`: this app's own (`besideCLI`), and only when it is
-    /// that build; nil otherwise (a dev build with no pin, or a manifest of another build).
-    static func pin(for build: String, besideCLI cli: URL) -> Pin? {
-        pin(besideCLI: cli).flatMap { pin in
-            let build = build.lowercased()
-            return build.count >= 7 && (pin.commit.hasPrefix(build) || build.hasPrefix(pin.commit)) ? pin : nil
-        }
-    }
-
     /// 16 hex characters: names the run's directory and unit.
     static func newNonce() -> String {
         String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16))
@@ -247,8 +208,9 @@ nonisolated enum CloudLegacyMachineUpdate {
     private static func writeFile(_ contents: String, to file: String) -> String {
         "echo \(Data(contents.utf8).base64EncodedString()) | base64 -d | root tee \"\(file)\" >/dev/null"
     }
+}
 
-    private static func isHex(_ text: String, count: Int) -> Bool {
-        text.count == count && text.allSatisfy { $0.isHexDigit && ($0.isNumber || $0.isLowercase) }
-    }
+nonisolated extension CloudLegacyPin {
+    /// The immutable per-commit release `cmux link machine update` downloads too.
+    var url: String { "\(RemoteInstallPlan.base.absoluteString)/\(commit)/cmux-tui-\(Self.target)" }
 }

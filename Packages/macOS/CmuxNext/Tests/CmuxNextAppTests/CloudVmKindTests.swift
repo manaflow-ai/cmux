@@ -64,4 +64,12 @@ struct CloudVmKindTests {
         #expect(recent["model"] as? String == "m")
         #expect(DaemonCapability.agentSessionStartModel.rawValue == "agent-session-start-model-v1")
     }
+
+    @Test func aNoFolderStartOmitsCwdOnlyAsAnAbsentParameter() {
+        let params = AgentSessionAttachClient.startParams(cwd: nil, harness: nil, homeConfirmed: false, personKey: nil,
+                                                           servesKeyedReason: false, callerOwnsVM: true, servesVMKind: true)
+        #expect(params["cwd"] == nil)
+        #expect(params["vm_kind"] as? String == "owner")
+        #expect(DaemonCapability.agentSessionStartNoCwd.rawValue == "agent-session-start-no-cwd-v1")
+    }
 }

@@ -90,6 +90,7 @@ MARKS = [
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),
     ("first_window_frame_committed", "first window frame committed"),
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
+    ("launch.post_frame_feeds", "acpmux-backed feeds started"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up started"),
     ("daemon.connect_start", "first connect attempt"),
@@ -137,6 +138,7 @@ REALISTIC_WORKSPACES = 24
 # with --order, and always in budget mode (any --budget, as the CI launch gate runs).
 LAUNCH_ORDER = [
     "first_window_frame_committed<launch.non_paint_services",
+    "first_window_frame_committed<launch.post_frame_feeds",
     "first_window_frame_committed<launch.post_window_warmups",
     "first_window_frame_committed<launch.agent_page_warmup",
 ]
