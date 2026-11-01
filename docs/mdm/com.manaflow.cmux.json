@@ -411,6 +411,12 @@
       "title" : "Start Agent from Any App",
       "type" : "boolean"
     },
+    "app.touchBar" : {
+      "default" : true,
+      "description" : "Shows cmux actions on Touch Bar-equipped Macs. Turn this off to use only the system Control Strip.",
+      "title" : "Touch Bar Controls",
+      "type" : "boolean"
+    },
     "app.uiScale" : {
       "default" : 1,
       "description" : "app.uiScale",
