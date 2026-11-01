@@ -1,4 +1,5 @@
 import Carbon
+import CmuxSettings
 import Foundation
 import Observation
 
@@ -20,7 +21,7 @@ final class KeyboardShortcutSettingsObserver {
     @ObservationIgnored
     private var settingsObserver: NSObjectProtocol?
     @ObservationIgnored
-    private var featureGateObserver: NSObjectProtocol?
+    private var featureGateObservers: [NSObjectProtocol] = []
     @ObservationIgnored
     private var recorderObserver: NSObjectProtocol?
     @ObservationIgnored
@@ -47,16 +48,19 @@ final class KeyboardShortcutSettingsObserver {
                 self?.reloadCachedShortcuts()
             }
         }
-        // Feature-gated sidebar defaults are also stored in UserDefaults. The
-        // matcher must rebuild when a gate changes, even when no shortcut was
-        // edited.
-        featureGateObserver = notificationCenter.addObserver(
-            forName: RightSidebarBetaFeatureSettings.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            Self.deliverOnMainActor { [weak self] in
-                self?.reloadCachedShortcuts()
+        // Positional sidebar defaults (`ctrl+N` follows the visible tabs)
+        // depend on tab availability: the beta toggles, the remote Cloud flag
+        // (which can resolve after launch) and managed policy. The matcher
+        // must rebuild when any gate changes, even when no shortcut was edited.
+        featureGateObservers = [
+            RightSidebarBetaFeatureSettings.didChangeNotification,
+            .cmuxFeatureFlagsDidChange,
+            ManagedDevicePolicy.didChangeNotification,
+        ].map { name in
+            notificationCenter.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+                Self.deliverOnMainActor { [weak self] in
+                    self?.reloadCachedShortcuts()
+                }
             }
         }
         recorderObserver = notificationCenter.addObserver(
@@ -85,8 +89,8 @@ final class KeyboardShortcutSettingsObserver {
         if let settingsObserver {
             notificationCenter.removeObserver(settingsObserver)
         }
-        if let featureGateObserver {
-            notificationCenter.removeObserver(featureGateObserver)
+        for observer in featureGateObservers {
+            notificationCenter.removeObserver(observer)
         }
         if let recorderObserver {
             notificationCenter.removeObserver(recorderObserver)
