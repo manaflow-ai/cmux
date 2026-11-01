@@ -2,7 +2,7 @@
 // lowercases to two characters, so every offset after it was one too far and a plain "i" query
 // missed it; the find now folds it to "i" first, keeping each character's offset.
 import { expect, test } from "bun:test";
-import { collectFindMatches, foldFindText } from "../src/find/model";
+import { collectFindMatches } from "../src/find/model";
 
 const item = (lines: string[]) =>
   ({
@@ -37,6 +37,8 @@ test("a plain i query finds İ, and İ finds i, with the original length", () =>
   ]);
 });
 
-test("the fold keeps the string length", () => {
-  expect(foldFindText("İİ NEEDLE").length).toBe("İİ NEEDLE".length);
+test("several İ before the match shift nothing", () => {
+  const [match] = collectFindMatches([item(["İİİ needle"])], "NEEDLE");
+  expect(match?.start).toBe(4);
+  expect(match?.lineText.slice(match.start, match.start + match.length)).toBe("needle");
 });
