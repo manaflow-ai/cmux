@@ -2561,6 +2561,7 @@ jobs:
           NIGHTLY_WAIT_FOR_FLEET: "1"
           FLEET_LINUX: ""
           SIDE_LABEL: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
           ROUTE_TOKEN: ${{ steps.light-route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
