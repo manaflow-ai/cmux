@@ -109,7 +109,10 @@ import Testing
 
     // MARK: Headers
 
-    /// "Update available" is not a header's business: the name only, the words in its tooltip.
+    /// "Update available" is not a header's business: the name only, the words in its tooltip. An
+    /// optional update reads as connected, so a remote header keeps its green connected dot (#26786;
+    /// Leo 2026-10-28: "you just get a little green dot ... as if you were working on your own
+    /// computer, but now it's remote").
     @Test(arguments: [false, true])
     func aMachineHeaderNeverSaysUpdateAvailable(hostGroup: Bool) {
         #expect(SectionHeaderRowView.statusText(.updateAvailable, hostGroup: hostGroup) != Strings.statusUpdateAvailable)
@@ -122,7 +125,7 @@ import Testing
                                                   siblingIndex: 0, parentIndex: nil, isLastInGroup: false, isCollapsed: false,
                                                   childCount: 0, groupColor: nil))
         #expect(header.badgeText == nil)
-        #expect(header.statusTone == nil, "no dot")
+        #expect(header.statusTone == .success, "the connected dot, never an update dot")
         #expect(header.themedToolTip?.contains(Strings.statusUpdateAvailable) == true, "the tooltip still says it")
     }
 }
