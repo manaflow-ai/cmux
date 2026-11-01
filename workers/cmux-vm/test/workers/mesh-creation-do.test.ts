@@ -1,0 +1,31 @@
+import { env } from "cloudflare:workers";
+import { Effect } from "effect";
+import { expect, it } from "vitest";
+import { newMeshId, TenantId } from "../../src/lib/ids.ts";
+import { IDEMPOTENCY_TTL_MS } from "../../src/limits/ledger.ts";
+import { durableObjectLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
+
+it("preserves mesh identity, quota and dispatch fencing through the real durable RPC", async () => {
+  const tenant = TenantId.make(crypto.randomUUID()), now = Date.now(), meshId = newMeshId();
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, durableObjectLimitsLayer(env.TENANT_LIMITS)));
+  const key = "1".repeat(64), fingerprint = "2".repeat(64), holder = "worker-one";
+  const intent = { key, fingerprint, meshId, holder, createdBy: "service:cloud", displayName: null };
+  expect(await Effect.runPromise(limits.meshCreation(tenant, { op: "begin", ...intent }))).toMatchObject({ state: "record", acquired: true });
+  const stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant));
+  await stub.reserve("mesh", 1, 0, now, "mesh-quota");
+  expect(await Effect.runPromise(limits.meshCreation(tenant, { op: "retain", key, meshId, holder, reservationId: "mesh-quota" }))).toMatchObject({ state: "record" });
+  await Effect.runPromise(limits.meshCreation(tenant, { op: "context", key, meshId, holder, context: "3".repeat(64) }));
+  await Effect.runPromise(limits.meshCreation(tenant, { op: "send", key, meshId, holder, token: "first" }));
+  await Effect.runPromise(limits.meshCreation(tenant, { op: "abandon", key, meshId, holder }));
+  await stub.release("mesh-quota");
+  const reloaded = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant)), later = now + IDEMPOTENCY_TTL_MS * 3;
+  await reloaded.begin("sweeper", "unrelated", later);
+  expect(await reloaded.reserve("mesh", 1, 0, later, "extra")).toEqual({ ok: false });
+  expect(await reloaded.meshCreation({ op: "begin", ...intent, holder: "worker-two" }, later)).toMatchObject({ state: "record", acquired: true, record: { meshId, dispatch: { state: "sent", token: "first" } } });
+  expect(await reloaded.meshCreation({ op: "send", key, meshId, holder: "worker-two", token: "second" }, later + 1)).toEqual({ state: "denied" });
+  await reloaded.meshCreation({ op: "cancel", key, meshId }, later + 2);
+  expect(await reloaded.meshCreation({ op: "complete", key, meshId }, later + 3)).toEqual({ state: "denied" });
+  await reloaded.meshCreation({ op: "cancelled", key, meshId }, later + 4);
+  expect(await reloaded.reserve("mesh", 1, 0, later + 5, "replacement")).toMatchObject({ ok: true });
+  expect(await reloaded.meshCreation({ op: "begin", ...intent }, later + 6)).toMatchObject({ state: "record", acquired: false, record: { phase: "deleted" } });
+});

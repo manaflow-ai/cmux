@@ -72,12 +72,15 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               })),
               time: box(row.querySelector(".acpmux-agent-line__time")!),
               status: box(row.querySelector(".acpmux-agent-line__stop-track")!),
-              stop: box(row.querySelector(".acpmux-agent-line__stop-slot > button")!),
+              // Stop's slot holds no button (#28533: Stop is in the line's menu); it keeps its track.
+              stop: box(row.querySelector(".acpmux-agent-line__stop-slot")!),
+              stopButtons: row.querySelectorAll(".acpmux-agent-line__stop-slot > button").length,
             };
           });
           // This fixture must exercise wrapping; measuring only the progress element's box
           // misses text painted outside a fixed-height title track.
           expect(geometry.lines.length).toBeGreaterThan(1);
+          expect(geometry.stopButtons).toBe(0);
           expect(geometry.title.top).toBeGreaterThanOrEqual(geometry.row.top - 1);
           expect(geometry.title.bottom).toBeLessThanOrEqual(geometry.row.bottom + 1);
           for (const line of [geometry.progress, ...geometry.lines]) {
@@ -197,15 +200,29 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           await more.click();
           expect(await more.getAttribute("aria-expanded")).toBe("true");
 
-          // Give the list a row of room again, then exercise the live Stop control inside its
-          // scroller. A clipped tray or a footer overlay must not cover the control's hit target.
-          await page.evaluate(() => {
+          // Give the list room for one whole running line again, then reach its Stop inside the
+          // scroller: its menu (#28533). A clipped tray or a footer overlay must not cover the line's
+          // hit target. A narrow line is two rows (its time and state wrap under its name), so one
+          // header's height of list is not a line: grow the dock until the list holds the whole line
+          // (the squeezed composer takes its own height back first).
+          const room = await page.evaluate(() => {
             const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+            const list = dock.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
+            const line = list.querySelector<HTMLElement>('.acpmux-agent-line[data-status="running"]')!;
             const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-            const height = Number.parseFloat(dock.style.maxHeight);
-            dock.style.maxHeight = `${height + 2 * header.getBoundingClientRect().height}px`;
+            const step = header.getBoundingClientRect().height;
+            for (let tries = 0; tries < 12 && list.clientHeight < line.offsetHeight; tries++) {
+              dock.style.maxHeight = `${Number.parseFloat(dock.style.maxHeight) + step}px`;
+            }
+            return { list: list.clientHeight, line: line.offsetHeight };
           });
-          const stop = page.locator(".acpmux-running-tray .acpmux-agent-line__stop-slot > button").first();
+          expect(room.list).toBeGreaterThanOrEqual(room.line);
+          expect(await page.locator(".acpmux-running-tray .acpmux-agent-line__stop-slot > button").count()).toBe(0);
+          const stop = page
+            .locator(
+              '.acpmux-running-tray__list .acpmux-agent-line[data-status="running"] > .acpmux-agent-line__button',
+            )
+            .first();
           await stop.scrollIntoViewIfNeeded();
           const control = await stop.evaluate((node) => {
             const list = node.closest(".acpmux-running-tray__list")!;
@@ -222,6 +239,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(control.top).toBeGreaterThanOrEqual(control.listTop - 0.5);
           expect(control.bottom).toBeLessThanOrEqual(control.listBottom + 0.5);
           expect(control.hit).toBe(true);
+          await stop.click({ button: "right" });
+          const item = page.locator('[role="menu"] [role="menuitem"]');
+          await item.first().waitFor();
+          expect((await item.allTextContents()).every((text) => text.startsWith("Stop "))).toBe(true);
         } finally {
           await page.close();
         }
@@ -303,8 +324,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(rest.every((row) => row.chevron.right === first!.chevron.right)).toBe(true);
         expect(columns.head.chevron.right).toBe(first!.chevron.right);
         if (columns.footer) expect(columns.footer.right).toBe(first!.chevron.right);
-        expect(columns.rows.some((row) => row.hasStop)).toBe(true);
-        expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
+        // No line carries a Stop at rest (#28533): it is in each line's menu.
+        expect(columns.rows.every((row) => !row.hasStop)).toBe(true);
 
         const measure = () =>
           page.evaluate(() => {
@@ -383,8 +404,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right === initial.head.chevron.right)).toBe(
           true,
         );
-        expect(initial.rows.some((row) => row.hasStop)).toBe(true);
-        expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
+        expect(initial.rows.every((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
         expect(initial.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
@@ -513,38 +533,29 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         }
         await page.setViewportSize({ width: 300, height: 560 });
 
+        // A running line's empty Stop slot lies over its button: a click there opens the line (its
+        // Stop is in its menu, #28533).
         const clickTargets = await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
-          const noStop = rows.find((row) => !row.querySelector(".acpmux-agent-line__stop-slot > button"));
-          const withStop = rows.find((row) => row.querySelector(".acpmux-agent-line__stop-slot > button"));
-          if (!noStop || !withStop) throw new Error("missing stop and no-stop rows");
+          const running = rows.find((row) => row.dataset.status === "running");
+          if (!running) throw new Error("missing a running row");
           const clicks = window as typeof window & { __trayClicks?: string[] };
           clicks.__trayClicks = [];
-          noStop
-            .querySelector(".acpmux-agent-line__button")
-            ?.addEventListener("click", () => clicks.__trayClicks?.push("open"));
-          withStop
-            .querySelector(".acpmux-agent-line__stop-slot > button")
-            ?.addEventListener("click", () => clicks.__trayClicks?.push("stop"));
-          const center = (node: HTMLElement) => {
-            const box = node.getBoundingClientRect();
+          const center = (row: HTMLElement, name: string) => {
+            row
+              .querySelector(".acpmux-agent-line__button")
+              ?.addEventListener("click", () => clicks.__trayClicks?.push(name));
+            const slot = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot");
+            if (!slot || slot.getBoundingClientRect().width === 0) throw new Error("a row has no sized stop slot");
+            const box = slot.getBoundingClientRect();
             return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
           };
-          // The empty slot's own center, where it lies over the row's button: the click must reach the row.
-          const slot = noStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot");
-          const stop = withStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button");
-          if (!slot || slot.getBoundingClientRect().width === 0)
-            throw new Error("the no-stop row has no sized stop slot");
-          return { noStop: center(slot), stop: center(stop!) };
+          return { running: center(running, "running") };
         });
-        await page.mouse.click(clickTargets.noStop.x, clickTargets.noStop.y);
+        await page.mouse.click(clickTargets.running.x, clickTargets.running.y);
         expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
-          ["open"],
-        );
-        await page.mouse.click(clickTargets.stop.x, clickTargets.stop.y);
-        expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
-          ["open", "stop"],
+          ["running"],
         );
 
         // Running lines say no Running: the spinner is their state (the next describe's anatomy).

@@ -17,9 +17,10 @@ const begun: CloudStartProgress = {
   folder: "paint",
 };
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
+const timing = { startedAt: 10_000, finishedAt: 12_400 } as const;
 
 const showStart: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__status"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__summary"));
 };
 
 export default componentEntry<ComponentProps<typeof CloudStartView>>({
@@ -62,6 +63,34 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           message: "Couldn't copy paint to paint-dev: the machine stopped answering.",
         },
       },
+    },
+    "checklist-machine": {
+      note: "Cloud machine is being created; the machine step spins while later steps remain quiet.",
+      props: { start: { ...begun, machineStartedAt: 10_000, machine: known.machine } },
+    },
+    "checklist-clone": {
+      note: "A repository is being cloned into the chat folder.",
+      props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", machine: known.machine, machineFinishedAt: 12_400, clone: { state: "running", ...timing } } },
+    },
+    "checklist-setup-cached": {
+      note: "The environment snapshot is ready, so setup completes from cache.",
+      props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", clone: { state: "done", ...timing }, setup: { state: "done", status: "ready", ...timing } } },
+    },
+    "checklist-setup-running": {
+      note: "The derived environment is still building its setup snapshot.",
+      props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", clone: { state: "done", ...timing }, setup: { state: "running", status: "building", startedAt: 10_000 } } },
+    },
+    "checklist-setup-failed": {
+      note: "Setup failed and the card keeps the short log tail inline.",
+      props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", clone: { state: "done", ...timing }, setup: { state: "failed", status: "failed", logTail: "npm ERR! missing script: build", ...timing } } },
+    },
+    "checklist-setup-skipped": {
+      note: "No setup script is configured; the link opens Edit cloud environment at Script.",
+      props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", clone: { state: "done", ...timing }, setup: { state: "skipped", hasScript: false } } },
+    },
+    initialized: {
+      note: "Once the harness starts, the checklist folds to one quiet line.",
+      props: { start: { ...begun, initialized: true, agent: "Claude Code", harnessStartedAt: 12_400, harnessFinishedAt: 12_900 } },
     },
   },
   // The gallery loads no experiment without a step (format.ts validateEntries): the card is static,
