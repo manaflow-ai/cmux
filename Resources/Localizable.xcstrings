@@ -671763,55 +671763,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.\n\nswitch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.\n\n<surface> is a UUID, a ref like surface:3, or an index with --workspace."
+            "value": "list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.\n\nswitch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.\n\n<surface> is a UUID, a ref like surface:3, or an index with --workspace. --workspace only scopes --surface and can't be used alone."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: يعرض حسابات Claude Code المسجّلة (agents.claudeAccounts في cmux.json، إضافةً إلى الحساب الافتراضي ~/.claude). يعمل دون تشغيل cmux.\n\nswitch <name>: ينقل طرفية Claude إلى ذلك الحساب ويتابع المحادثة نفسها هناك. تُعاد تشغيل الطرفية تحت ذلك الحساب ويكتب cmux أمر الاستئناف. يبدّل الطرفية التي استدعته ما لم يحدد --surface طرفية أخرى. يبدّل --force أيضًا أثناء رد Claude، مما يوقف الرد.\n\n<surface> هو UUID، أو مرجع مثل surface:3، أو فهرس مع --workspace."
+            "value": "list: يعرض حسابات Claude Code المسجّلة (agents.claudeAccounts في cmux.json، إضافةً إلى الحساب الافتراضي ~/.claude). يعمل دون تشغيل cmux.\n\nswitch <name>: ينقل طرفية Claude إلى ذلك الحساب ويتابع المحادثة نفسها هناك. تُعاد تشغيل الطرفية تحت ذلك الحساب ويكتب cmux أمر الاستئناف. يبدّل الطرفية التي استدعته ما لم يحدد --surface طرفية أخرى. يبدّل --force أيضًا أثناء رد Claude، مما يوقف الرد.\n\n<surface> هو UUID، أو مرجع مثل surface:3، أو فهرس مع --workspace. يقتصر --workspace على تحديد نطاق --surface ولا يمكن استخدامه وحده."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: prikazuje registrovane Claude Code račune (agents.claudeAccounts u cmux.json, plus zadani račun ~/.claude). Radi i kada cmux nije pokrenut.\n\nswitch <name>: premješta Claude terminal na taj račun i tamo nastavlja isti razgovor. Terminal se ponovo pokreće pod tim računom, a cmux upisuje komandu za nastavak. Prebacuje terminal iz kojeg je komanda pozvana, osim ako --surface navodi drugi. Uz --force prebacuje i dok Claude odgovara, čime se odgovor zaustavlja.\n\n<surface> je UUID, referenca poput surface:3 ili indeks uz --workspace. --workspace samo sužava --surface i ne može se koristiti sam."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: viser de registrerede Claude Code-konti (agents.claudeAccounts i cmux.json plus standardkontoen ~/.claude). Virker, uden at cmux kører.\n\nswitch <name>: flytter en Claude-terminal til den konto og fortsætter den samme samtale der. Terminalen genstarter under kontoen, og cmux indtaster kommandoen til at genoptage. Skifter den terminal, der kørte kommandoen, medmindre --surface angiver en anden. Med --force skiftes der også, mens Claude svarer, hvilket stopper svaret.\n\n<surface> er et UUID, en reference som surface:3 eller et indeks sammen med --workspace. --workspace afgrænser kun --surface og kan ikke bruges alene."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: zeigt die registrierten Claude-Code-Konten an (agents.claudeAccounts in cmux.json sowie das Standardkonto ~/.claude). Funktioniert ohne laufendes cmux.\n\nswitch <name>: verschiebt ein Claude-Terminal zu diesem Konto und setzt dort dieselbe Unterhaltung fort. Das Terminal startet unter dem Konto neu, und cmux gibt den Fortsetzungsbefehl ein. Gewechselt wird das aufrufende Terminal, sofern --surface kein anderes angibt. Mit --force wird auch gewechselt, während Claude antwortet; die Antwort wird dabei gestoppt.\n\n<surface> ist eine UUID, eine Referenz wie surface:3 oder ein Index mit --workspace."
+            "value": "list: zeigt die registrierten Claude-Code-Konten an (agents.claudeAccounts in cmux.json sowie das Standardkonto ~/.claude). Funktioniert ohne laufendes cmux.\n\nswitch <name>: verschiebt ein Claude-Terminal zu diesem Konto und setzt dort dieselbe Unterhaltung fort. Das Terminal startet unter dem Konto neu, und cmux gibt den Fortsetzungsbefehl ein. Gewechselt wird das aufrufende Terminal, sofern --surface kein anderes angibt. Mit --force wird auch gewechselt, während Claude antwortet; die Antwort wird dabei gestoppt.\n\n<surface> ist eine UUID, eine Referenz wie surface:3 oder ein Index mit --workspace. --workspace grenzt nur --surface ein und kann nicht allein verwendet werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: muestra las cuentas de Claude Code registradas (agents.claudeAccounts en cmux.json, más la cuenta predeterminada ~/.claude). Funciona sin cmux en ejecución.\n\nswitch <name>: mueve una terminal de Claude a esa cuenta y continúa allí la misma conversación. La terminal se reinicia con esa cuenta y cmux escribe el comando de reanudación. Cambia la terminal que lo ejecuta, salvo que --surface indique otra. --force también cambia mientras Claude está respondiendo, lo que detiene la respuesta.\n\n<surface> es un UUID, una referencia como surface:3 o un índice con --workspace."
+            "value": "list: muestra las cuentas de Claude Code registradas (agents.claudeAccounts en cmux.json, más la cuenta predeterminada ~/.claude). Funciona sin cmux en ejecución.\n\nswitch <name>: mueve una terminal de Claude a esa cuenta y continúa allí la misma conversación. La terminal se reinicia con esa cuenta y cmux escribe el comando de reanudación. Cambia la terminal que lo ejecuta, salvo que --surface indique otra. --force también cambia mientras Claude está respondiendo, lo que detiene la respuesta.\n\n<surface> es un UUID, una referencia como surface:3 o un índice con --workspace. --workspace solo delimita --surface y no puede usarse por sí solo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "list : affiche les comptes Claude Code enregistrés (agents.claudeAccounts dans cmux.json, plus le compte par défaut ~/.claude). Fonctionne sans que cmux soit lancé.\n\nswitch <name> : déplace un terminal Claude vers ce compte et y poursuit la même conversation. Le terminal redémarre sous ce compte et cmux saisit la commande de reprise. La commande change le terminal appelant, sauf si --surface en désigne un autre. --force change aussi de compte pendant que Claude répond, ce qui arrête la réponse.\n\n<surface> est un UUID, une référence comme surface:3 ou un index avec --workspace."
+            "value": "list : affiche les comptes Claude Code enregistrés (agents.claudeAccounts dans cmux.json, plus le compte par défaut ~/.claude). Fonctionne sans que cmux soit lancé.\n\nswitch <name> : déplace un terminal Claude vers ce compte et y poursuit la même conversation. Le terminal redémarre sous ce compte et cmux saisit la commande de reprise. La commande change le terminal appelant, sauf si --surface en désigne un autre. --force change aussi de compte pendant que Claude répond, ce qui arrête la réponse.\n\n<surface> est un UUID, une référence comme surface:3 ou un index avec --workspace. --workspace ne fait que préciser --surface et ne peut pas être utilisé seul."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: mostra gli account Claude Code registrati (agents.claudeAccounts in cmux.json, più l'account predefinito ~/.claude). Funziona anche se cmux non è in esecuzione.\n\nswitch <name>: sposta un terminale Claude su quell'account e vi prosegue la stessa conversazione. Il terminale si riavvia con quell'account e cmux digita il comando di ripresa. Cambia il terminale da cui viene eseguito il comando, a meno che --surface non ne indichi un altro. Con --force il cambio avviene anche mentre Claude sta rispondendo, e la risposta viene interrotta.\n\n<surface> è un UUID, un riferimento come surface:3 o un indice insieme a --workspace. --workspace serve solo a delimitare --surface e non può essere usato da solo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: 登録済みの Claude Code アカウント（cmux.json の agents.claudeAccounts と、既定の ~/.claude アカウント）を表示します。cmux が起動していなくても動作します。\n\nswitch <name>: Claude のターミナルをそのアカウントに移し、同じ会話をそこで続けます。ターミナルはそのアカウントで再起動し、cmux が再開コマンドを入力します。--surface で別のターミナルを指定しない限り、呼び出し元のターミナルを切り替えます。--force を指定すると Claude の応答中でも切り替え、その応答は停止します。\n\n<surface> は UUID、surface:3 のような参照、または --workspace と組み合わせたインデックスです。"
+            "value": "list: 登録済みの Claude Code アカウント（cmux.json の agents.claudeAccounts と、既定の ~/.claude アカウント）を表示します。cmux が起動していなくても動作します。\n\nswitch <name>: Claude のターミナルをそのアカウントに移し、同じ会話をそこで続けます。ターミナルはそのアカウントで再起動し、cmux が再開コマンドを入力します。--surface で別のターミナルを指定しない限り、呼び出し元のターミナルを切り替えます。--force を指定すると Claude の応答中でも切り替え、その応答は停止します。\n\n<surface> は UUID、surface:3 のような参照、または --workspace と組み合わせたインデックスです。--workspace は --surface の対象を絞り込むだけで、単独では使用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: បង្ហាញគណនី Claude Code ដែលបានចុះឈ្មោះ (agents.claudeAccounts ក្នុង cmux.json រួមទាំងគណនីលំនាំដើម ~/.claude)។ ដំណើរការបាន ទោះបី cmux មិនកំពុងដំណើរការក៏ដោយ។\n\nswitch <name>: ផ្លាស់ទីទែមីណាល់ Claude ទៅគណនីនោះ ហើយបន្តការសន្ទនាដដែលនៅទីនោះ។ ទែមីណាល់ចាប់ផ្ដើមឡើងវិញក្រោមគណនីនោះ ហើយ cmux វាយពាក្យបញ្ជាសម្រាប់បន្ត។ វាប្ដូរទែមីណាល់ដែលដំណើរការពាក្យបញ្ជានេះ លុះត្រាតែ --surface បញ្ជាក់ទែមីណាល់ផ្សេង។ --force ប្ដូរផងដែរ ខណៈ Claude កំពុងឆ្លើយ ដែលធ្វើឱ្យការឆ្លើយនោះឈប់។\n\n<surface> គឺជា UUID ឯកសារយោងដូចជា surface:3 ឬលិបិក្រមជាមួយ --workspace។ --workspace គ្រាន់តែកំណត់វិសាលភាពរបស់ --surface ហើយមិនអាចប្រើតែឯងបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: 등록된 Claude Code 계정(cmux.json의 agents.claudeAccounts와 기본 ~/.claude 계정)을 표시합니다. cmux가 실행 중이 아니어도 동작합니다.\n\nswitch <name>: Claude 터미널을 해당 계정으로 옮기고 같은 대화를 그곳에서 이어 갑니다. 터미널이 해당 계정으로 다시 시작되고 cmux가 재개 명령을 입력합니다. --surface로 다른 터미널을 지정하지 않으면 호출한 터미널을 전환합니다. --force를 지정하면 Claude가 응답 중일 때도 전환하며, 응답은 중지됩니다.\n\n<surface>는 UUID, surface:3 같은 참조, 또는 --workspace와 함께 쓰는 인덱스입니다."
+            "value": "list: 등록된 Claude Code 계정(cmux.json의 agents.claudeAccounts와 기본 ~/.claude 계정)을 표시합니다. cmux가 실행 중이 아니어도 동작합니다.\n\nswitch <name>: Claude 터미널을 해당 계정으로 옮기고 같은 대화를 그곳에서 이어 갑니다. 터미널이 해당 계정으로 다시 시작되고 cmux가 재개 명령을 입력합니다. --surface로 다른 터미널을 지정하지 않으면 호출한 터미널을 전환합니다. --force를 지정하면 Claude가 응답 중일 때도 전환하며, 응답은 중지됩니다.\n\n<surface>는 UUID, surface:3 같은 참조, 또는 --workspace와 함께 쓰는 인덱스입니다. --workspace는 --surface의 범위만 지정하며 단독으로 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: viser de registrerte Claude Code-kontoene (agents.claudeAccounts i cmux.json, pluss standardkontoen ~/.claude). Fungerer uten at cmux kjører.\n\nswitch <name>: flytter en Claude-terminal til den kontoen og fortsetter den samme samtalen der. Terminalen starter på nytt under kontoen, og cmux skriver inn kommandoen for å gjenoppta. Bytter terminalen som kjørte kommandoen, med mindre --surface angir en annen. Med --force byttes det også mens Claude svarer, noe som stopper svaret.\n\n<surface> er en UUID, en referanse som surface:3 eller en indeks sammen med --workspace. --workspace avgrenser bare --surface og kan ikke brukes alene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: wyświetla zarejestrowane konta Claude Code (agents.claudeAccounts w cmux.json oraz domyślne konto ~/.claude). Działa bez uruchomionego cmux.\n\nswitch <name>: przenosi terminal Claude na to konto i kontynuuje tam tę samą rozmowę. Terminal uruchamia się ponownie na tym koncie, a cmux wpisuje polecenie wznowienia. Przełącza terminal, z którego wywołano polecenie, chyba że --surface wskazuje inny. Z --force przełącza także wtedy, gdy Claude odpowiada, co przerywa odpowiedź.\n\n<surface> to UUID, odwołanie w rodzaju surface:3 lub indeks razem z --workspace. --workspace jedynie zawęża --surface i nie może być używane samodzielnie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: mostra as contas do Claude Code registradas (agents.claudeAccounts no cmux.json, além da conta padrão ~/.claude). Funciona sem o cmux em execução.\n\nswitch <name>: move um terminal do Claude para essa conta e continua a mesma conversa nela. O terminal reinicia com essa conta e o cmux digita o comando de retomada. Troca o terminal que executou o comando, a menos que --surface indique outro. Com --force, a troca acontece também enquanto o Claude está respondendo, o que interrompe a resposta.\n\n<surface> é um UUID, uma referência como surface:3 ou um índice com --workspace. --workspace apenas delimita --surface e não pode ser usado sozinho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: показывает зарегистрированные учётные записи Claude Code (agents.claudeAccounts в cmux.json, а также учётную запись по умолчанию ~/.claude). Работает без запущенного cmux.\n\nswitch <name>: переносит терминал Claude в эту учётную запись и продолжает там тот же разговор. Терминал перезапускается под этой учётной записью, и cmux вводит команду возобновления. Переключает терминал, из которого вызвана команда, если --surface не указывает другой. С --force переключение происходит и во время ответа Claude, при этом ответ останавливается.\n\n<surface> — это UUID, ссылка вида surface:3 или индекс вместе с --workspace. --workspace только уточняет --surface и не может использоваться отдельно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: แสดงบัญชี Claude Code ที่ลงทะเบียนไว้ (agents.claudeAccounts ใน cmux.json รวมถึงบัญชีเริ่มต้น ~/.claude) ใช้งานได้แม้ cmux ไม่ได้ทำงานอยู่\n\nswitch <name>: ย้ายเทอร์มินัล Claude ไปยังบัญชีนั้นและสนทนาเดิมต่อที่นั่น เทอร์มินัลจะเริ่มใหม่ภายใต้บัญชีนั้น และ cmux จะพิมพ์คำสั่งสำหรับทำต่อให้ คำสั่งนี้จะสลับเทอร์มินัลที่เรียกใช้ เว้นแต่ --surface จะระบุเทอร์มินัลอื่น --force จะสลับแม้ในขณะที่ Claude กำลังตอบ ซึ่งจะหยุดการตอบนั้น\n\n<surface> คือ UUID, การอ้างอิงอย่าง surface:3 หรือดัชนีที่ใช้ร่วมกับ --workspace ทั้งนี้ --workspace ใช้เพียงจำกัดขอบเขตของ --surface และใช้ตามลำพังไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: kayıtlı Claude Code hesaplarını gösterir (cmux.json içindeki agents.claudeAccounts ve varsayılan ~/.claude hesabı). cmux çalışmıyorken de çalışır.\n\nswitch <name>: bir Claude terminalini o hesaba taşır ve aynı konuşmayı orada sürdürür. Terminal o hesapla yeniden başlar ve cmux devam etme komutunu yazar. --surface başka bir terminal belirtmedikçe komutu çalıştıran terminali değiştirir. --force, Claude yanıt verirken de geçiş yapar ve yanıtı durdurur.\n\n<surface> bir UUID, surface:3 gibi bir referans ya da --workspace ile birlikte bir dizindir. --workspace yalnızca --surface kapsamını belirler ve tek başına kullanılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: показує зареєстровані облікові записи Claude Code (agents.claudeAccounts у cmux.json, а також типовий обліковий запис ~/.claude). Працює без запущеного cmux.\n\nswitch <name>: переносить термінал Claude до цього облікового запису й продовжує там ту саму розмову. Термінал перезапускається під цим обліковим записом, і cmux вводить команду відновлення. Перемикає термінал, з якого викликано команду, якщо --surface не вказує інший. З --force перемикання відбувається й тоді, коли Claude відповідає; відповідь при цьому зупиняється.\n\n<surface> — це UUID, посилання на кшталт surface:3 або індекс разом із --workspace. --workspace лише уточнює --surface і не може використовуватися окремо."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "list：列出已注册的 Claude Code 账号（cmux.json 中的 agents.claudeAccounts，以及默认的 ~/.claude 账号）。无需运行 cmux 即可使用。\n\nswitch <name>：将 Claude 终端移到该账号，并在那里继续同一段对话。终端会以该账号重新启动，cmux 会输入继续命令。除非 --surface 指定其他终端，否则切换调用此命令的终端。--force 也会在 Claude 响应时切换，并停止该响应。\n\n<surface> 可以是 UUID、类似 surface:3 的引用，或配合 --workspace 的索引。"
+            "value": "list：列出已注册的 Claude Code 账号（cmux.json 中的 agents.claudeAccounts，以及默认的 ~/.claude 账号）。无需运行 cmux 即可使用。\n\nswitch <name>：将 Claude 终端移到该账号，并在那里继续同一段对话。终端会以该账号重新启动，cmux 会输入继续命令。除非 --surface 指定其他终端，否则切换调用此命令的终端。--force 也会在 Claude 响应时切换，并停止该响应。\n\n<surface> 可以是 UUID、类似 surface:3 的引用，或配合 --workspace 的索引。--workspace 仅用于限定 --surface 的范围，不能单独使用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "list：列出已註冊的 Claude Code 帳號（cmux.json 中的 agents.claudeAccounts，以及預設的 ~/.claude 帳號）。不需執行 cmux 也能使用。\n\nswitch <name>：將 Claude 終端機移到該帳號，並在那裡繼續同一段對話。終端機會以該帳號重新啟動，cmux 會輸入繼續指令。除非 --surface 指定其他終端機，否則切換呼叫此指令的終端機。--force 也會在 Claude 回應時切換，並停止該回應。\n\n<surface> 可以是 UUID、像 surface:3 這樣的參照，或搭配 --workspace 的索引。"
+            "value": "list：列出已註冊的 Claude Code 帳號（cmux.json 中的 agents.claudeAccounts，以及預設的 ~/.claude 帳號）。不需執行 cmux 也能使用。\n\nswitch <name>：將 Claude 終端機移到該帳號，並在那裡繼續同一段對話。終端機會以該帳號重新啟動，cmux 會輸入繼續指令。除非 --surface 指定其他終端機，否則切換呼叫此指令的終端機。--force 也會在 Claude 回應時切換，並停止該回應。\n\n<surface> 可以是 UUID、像 surface:3 這樣的參照，或搭配 --workspace 的索引。--workspace 僅用於限定 --surface 的範圍，不能單獨使用。"
           }
         }
       }
@@ -672058,55 +672124,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux claude-account [list] [--json]\n           cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "الاستخدام: cmux claude-account [list] [--json]\n           cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux claude-account [list] [--json]\n          cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux claude-account [list] [--json]\n      cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux claude-account [list] [--json]\n            cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "Verwendung: cmux claude-account [list] [--json]\n            cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation: cmux claude-account [list] [--json]\n             cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "Utilisation: cmux claude-account [list] [--json]\n             cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "使い方: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux claude-account [list] [--json]\n            cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "사용법: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux claude-account [list] [--json]\n      cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux claude-account [list] [--json]\n        cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux claude-account [list] [--json]\n               cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux claude-account [list] [--json]\n          cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux claude-account [list] [--json]\n          cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux claude-account [list] [--json]\n              cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         }
       }

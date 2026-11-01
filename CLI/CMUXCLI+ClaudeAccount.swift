@@ -8,7 +8,7 @@ extension CMUXCLI {
     static var claudeAccountUsage: String {
         String(
             localized: "cli.claudeAccount.usage",
-            defaultValue: "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            defaultValue: "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
         )
     }
 
@@ -18,7 +18,7 @@ extension CMUXCLI {
 
         switch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.
 
-        <surface> is a UUID, a ref like surface:3, or an index with --workspace.
+        <surface> is a UUID, a ref like surface:3, or an index with --workspace. --workspace only scopes --surface and can't be used alone.
         """)
     }
 
