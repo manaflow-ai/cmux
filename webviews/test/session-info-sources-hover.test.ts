@@ -91,7 +91,8 @@ await requireBrowserLane("session-info-sources-hover.test.ts", async () => {
         const url = "cmux.com/docs/session-info";
         await page.hover(`.acpmux-session-info-source a.acpmux-session-info-source__link >> text=${url}`);
         // The still first, so a red run still shows what it drew.
-        if (out) await page.screenshot({ path: path.join(out, `session-info-sources-hover-${colorScheme}-chromium.png`) });
+        if (out)
+          await page.screenshot({ path: path.join(out, `session-info-sources-hover-${colorScheme}-chromium.png`) });
         const link = await backgrounds(page, url);
         expect(link.tint).not.toBe(clear);
         expect({ row: link.row, link: link.link }).toEqual({ row: link.tint, link: clear });
