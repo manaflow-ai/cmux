@@ -85,7 +85,7 @@ final class LocalServerSource: ServerSource {
     /// `Contents/Resources/bin/cmux`, or nil when this build does not carry it.
     static func bundledCLI(bundle: Bundle = .main) -> URL? {
         guard let url = bundle.resourceURL?.appendingPathComponent("bin/cmux"),
-              FileManager.default.isExecutableFile(atPath: url.path) else { return nil }
+              FileManager.checked.isExecutableFile(atPath: url.path) else { return nil }
         return url
     }
 
