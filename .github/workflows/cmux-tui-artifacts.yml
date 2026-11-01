@@ -37,6 +37,9 @@ name: cmux-tui artifacts
 #   cmux-tui-windows/<commit-sha>/cmux-tui-x86_64-pc-windows-gnu.exe  immutable, its
 #                                                  own prefix: never in cmux-tui/latest
 #   cmux-tui-windows/<commit-sha>/manifest.json
+#                                                  Windows objects publish only from a
+#                                                  dispatch with include_windows (no
+#                                                  Windows release ships; build-windows)
 #   cmux-tui/latest/cmux-tui-<rust-target>         rolling, every main push
 #   cmux-tui/latest/manifest.json
 #   cmux-relay/<commit-sha>/cmux-relay-<rust-target> immutable, commit-addressed
@@ -94,6 +97,12 @@ on:
         required: false
         default: ""
         type: string
+      include_windows:
+        # The only route to the Windows daemon: pushes never build it (build-windows).
+        description: "Also build and publish the unsigned Windows daemon and acpmux for GPUI"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # One group per feat-cmux-next push (cx-73f2), per other pushed branch, and
@@ -635,18 +644,17 @@ jobs:
           fi
           echo "daemon_marker=$daemon_marker" >> "$GITHUB_OUTPUT"
 
-          # A cmux-tui-pin-* push also repairs a tree's Windows daemon and
-          # publishes its commit's own binaries for cmux-tui.pin
-          # (pin-cmux-tui.sh), so it skips only a true duplicate: 222 pin
-          # builds took 25,215 minutes on 2026-10-12 (cx-urd.26).
+          # A cmux-tui-pin-* push also publishes its commit's own binaries for
+          # cmux-tui.pin (pin-cmux-tui.sh), so it skips only a true duplicate:
+          # 222 pin builds took 25,215 minutes on 2026-10-12 (cx-urd.26). A
+          # missing Windows daemon no longer counts: pushes never build Windows
+          # (build-windows), so a dispatch with include_windows repairs it.
           pin_duplicate=false
           if [[ "$tree_ready" == true && "$REF" == refs/heads/cmux-tui-pin-* ]] &&
               curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 -o /dev/null \
-                "https://files.cmux.com/cmux-tui/tree/$published_key/completion-windows.json?preflight=$RUN_ID" 2>/dev/null &&
-              curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 -o /dev/null \
                 "https://files.cmux.com/cmux-tui/$SHA/manifest.json?preflight=$RUN_ID" 2>/dev/null; then
             pin_duplicate=true
-            echo "Tree $published_key, its Windows daemon and commit $SHA's binaries are published; this pin push builds nothing (dispatch to republish)."
+            echo "Tree $published_key and commit $SHA's binaries are published; this pin push builds nothing (dispatch to republish)."
           fi
 
           # Main still needs commit-addressed artifacts and latest/ updates.
@@ -1178,10 +1186,18 @@ jobs:
   # then add the Windows daemon to this commit's publication and to the tree
   # (completion-windows.json), the same republication a cmux-tui-pin-* push
   # makes for a tree published without Windows.
+  #
+  # Only a workflow_dispatch with include_windows builds it. No Windows release
+  # ships, and this leg spent two Blacksmith Windows jobs (about 24 min, p90 32)
+  # on every push that built a tree (Leo, 2026-10-21: "HOW ... CAN THERE BE ...
+  # WINDOWS ... JOBS WHEN WE DONT EVEN HAVE A RELEASE FOR ... WINDOWS SUPPORT").
+  # The Linux cross-check (cmux-tui-windows-check.yml) still keeps the Windows
+  # build compiling on every change.
   build-windows:
     name: build-windows
     if: >-
-      ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+      ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.include_windows &&
+          needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
