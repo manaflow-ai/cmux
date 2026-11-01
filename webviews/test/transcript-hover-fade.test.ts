@@ -150,14 +150,14 @@ describe("transcript hover-revealed controls fade", () => {
   });
 
   test("the scan sees the hover rows Leo pointed at", () => {
-    // A received message's row (its age, Copy, Pin, ⋯), its Reply and "Read after this step", a
-    // finished call's check and time, a tool output's corner actions, Open chat on a message line.
+    // A received message's hover slot, its Reply, a finished call's check and time, and corner actions.
+    // Chat-opening controls are always shown, so they have no hover reveal to fade.
     const names = controls.map((one) => one.name);
     for (const name of [
       "cv-user__actions",
       "cv-received-actions",
       "cv-received__reply",
-      "cv-received__queued",
+      "cv-received__hover",
       "cv-reply-actions",
       "cv-turn-actions",
       "cv-command__ok",
@@ -165,7 +165,6 @@ describe("transcript hover-revealed controls fade", () => {
       "cv-tool-output__actions",
       "cv-sent-actions",
       "cv-table-tools",
-      "cv-disclosure__open",
       "cv-media__actions",
     ])
       expect(names).toContain(name);

@@ -2,9 +2,10 @@ import "./harnessStatus.css";
 import { useEffect, useRef, useState } from "react";
 import { copyTextResult } from "./conversation/clipboard";
 import { Icon } from "./icons/Icon";
-import { translate, type Translate, useT } from "./i18n";
+import { translate, type Translate, usePaneLanguage, useT } from "./i18n";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { useEscapeToDismiss } from "./paneSurface";
+import { usageLimitsLabel } from "./usageLimits";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -81,6 +82,7 @@ export function HarnessStatusCard({
   onDismiss(): void;
 }) {
   const t = useT();
+  const locale = usePaneLanguage();
   // This card can be open while the composer owns focus. Capture an otherwise-unclaimed Escape
   // here; open menus and popovers remain first in line (paneSurface.ts).
   useEscapeToDismiss(true, onDismiss, { capture: true });
@@ -94,7 +96,10 @@ export function HarnessStatusCard({
   const source = info(summary);
   const auth = authSourceLabel(summary, t);
   const settings = source.settingsSources ?? summary.settingsSources;
-  const usageLimits = text(source.usageLimits) ?? text(summary.usageLimits) ?? t("status.notReported");
+  const usageLimits =
+    usageLimitsLabel(source.usageLimits, t, locale) ??
+    usageLimitsLabel(summary.usageLimits, t, locale) ??
+    t("status.notReported");
   const fields: readonly StatusField[] = [
     [t("status.field.version"), version(rows, summary, t)],
     [t("status.field.session"), display(summary.sessionId, t)],

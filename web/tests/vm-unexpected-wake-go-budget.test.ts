@@ -1,23 +1,9 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-// The cron zeroes a Go machine's runtime budget before re-pausing it. When a
-// resume wins the race, the machine it gives back needs that budget again, or
-// it stops as soon as it starts. Runs with `--isolate`, so this mock stays here.
-let remainingSeconds = 3_600;
-/** "fail" makes the usage read throw; "none" returns no Go subscription. */
-let usageRead: "ok" | "fail" | "none" = "ok";
-const realGoUsage = await import("../services/vms/goUsage");
-mock.module("../services/vms/goUsage", () => ({
-  ...realGoUsage,
-  getGoVmUsage: async () => {
-    if (usageRead === "fail") throw new Error("usage unavailable");
-    if (usageRead === "none") return null;
-    return { periodStart: new Date(), periodEnd: new Date(), usedSeconds: 0, remainingSeconds, savedVms: 0 };
-  },
-}));
-
+// A concurrency re-pause can still zero a provider cap. Plus must clear
+// that cap before giving a machine back to a resume that won the race.
 const { VmBillingGateway, noOpVmBillingGateway } = await import("../services/vms/billingGateway");
 const { VmProviderOperationError } = await import("../services/vms/errors");
 const { VmProviderGateway } = await import("../services/vms/providerGateway");
@@ -92,41 +78,15 @@ async function runLostRace(options: { readonly budgetFails?: boolean } = {}) {
   return { budgets, resumes };
 }
 
-describe("giving a Go machine back after a lost re-pause race", () => {
-  test("restores the remaining runtime budget before resuming", async () => {
-    usageRead = "ok";
-    remainingSeconds = 3_600;
+describe("giving a Plus machine back after a lost re-pause race", () => {
+  test("clears the runtime cap before resuming", async () => {
     const { budgets, resumes } = await runLostRace();
-    expect(budgets).toEqual([0, 3_600]);
+    expect(budgets).toEqual([0, null]);
     expect(resumes).toEqual([PROVIDER_VM_ID]);
   });
 
-  test("leaves the machine paused when the Go allowance is used up", async () => {
-    usageRead = "ok";
-    remainingSeconds = 0;
-    const { budgets, resumes } = await runLostRace();
-    expect(budgets).toEqual([0]);
-    expect(resumes).toEqual([]);
-  });
-
-  test("still resumes when the budget can't be restored", async () => {
-    usageRead = "ok";
-    remainingSeconds = 3_600;
+  test("still resumes when clearing the cap fails", async () => {
     const { budgets, resumes } = await runLostRace({ budgetFails: true });
-    expect(budgets).toEqual([0, 3_600]);
-    expect(resumes).toEqual([PROVIDER_VM_ID]);
-  });
-
-  test("still resumes, without touching the budget, when Go usage can't be read", async () => {
-    usageRead = "fail";
-    const { budgets, resumes } = await runLostRace();
-    expect(budgets).toEqual([0]);
-    expect(resumes).toEqual([PROVIDER_VM_ID]);
-  });
-
-  test("clears the budget for a machine whose owner is no longer on Go", async () => {
-    usageRead = "none";
-    const { budgets, resumes } = await runLostRace();
     expect(budgets).toEqual([0, null]);
     expect(resumes).toEqual([PROVIDER_VM_ID]);
   });

@@ -123,8 +123,13 @@ acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt s
 acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; any size and number (large ones are uploaded in chunks first)
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
-acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
+acpmux ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
+acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--host HOST]   # a filter hides nothing
+acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
+acpmux session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
+acpmux ls 'review-*' --fields name,status          # name globs (`host/glob` for one peer); --fields takes dotted paths
+acpmux send --tag area=X [--dry-run] "…"           # a --no-wait message to every live session with the tag, one line each
 acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
 acpmux session cancel NAME                         # stop the running turn; the session stays
@@ -132,6 +137,7 @@ acpmux session restart NAME                        # restart its agent process a
 acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
 acpmux session queue list|remove|clear NAME        # its queued prompts; clear --from-agents drops agents' messages only
 acpmux session kill --purge NAME                   # delete (only sessions you created)
+acpmux session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only if idle and unchanged; else exit 6, nothing stopped
 ```
 
 `send` on a busy or blocked session never refuses: the prompt queues and the
@@ -219,8 +225,10 @@ resolve): your policy answers those, and `ask` sends them to a person.
 ## 6. Other machines
 
 A session on a peer is named `HOST/NAME` (`big-red/review-42`), and every command takes that
-form. Say and pass that name: never ask the person for a session id, and never use a bare id
-from another machine (an id names a session only on the machine that runs it).
+form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
+host or its peers has it; when several do, the command refuses and prints the exact
+`HOST/NAME` command for each, so pick one and run it. Say and pass `HOST/NAME`: never ask the
+person for a session id.
 
 ```bash
 acpmux host status                               # each host: reachable, round trip, disk, load, build
@@ -280,7 +288,8 @@ read-tool payloads in event output.
 
 Exit codes: 0 ok · 1 runtime or agent error · 2 usage, or a permission is
 waiting (`wait`) · 3 timeout · 4 no such session · 5 every permission in the
-turn was denied · 130 interrupted.
+turn was denied · 6 `session stop --if-idle` refused (`busy` or
+`revision_moved`; `error.data.revision` is the current `lastSeq`) · 130 interrupted.
 
 ## 8. Rules
 

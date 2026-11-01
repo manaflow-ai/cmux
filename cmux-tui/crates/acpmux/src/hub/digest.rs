@@ -194,16 +194,37 @@ impl Hub {
         name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| id.to_owned())
     }
 
-    /// After a completed turn: the agent messages a failed turn held run again, in place.
-    pub(super) fn release_held_agent_messages(&self, session: &Arc<Session>) {
-        let ids: Vec<String> = session
-            .queue()
-            .iter()
-            .filter(|q| q.held && q.run.agent.is_some())
-            .map(|q| q.prompt_id.clone())
-            .collect();
+    /// After a completed turn: the agent messages a failed turn held run again, in place. It ends
+    /// a person's Stop's hold too (`cancel.rs`), but only `hold`, the one the caller saw (0: none):
+    /// a Stop since then keeps them held. The hold is checked and ended under the queue lock,
+    /// where `hold_agent_messages` begins it, so a Stop is never lost between the two.
+    pub(super) fn release_held_agent_messages(&self, session: &Arc<Session>, hold: u64) {
+        let ids: Vec<String> = {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if session
+                .stop_hold
+                .compare_exchange(hold, 0, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return;
+            }
+            queue
+                .iter_mut()
+                .filter(|q| q.held && q.run.agent.is_some())
+                .map(|q| {
+                    q.held = false;
+                    q.prompt_id.clone()
+                })
+                .collect()
+        };
         if !ids.is_empty() {
-            self.resume_held(session, &ids);
+            session.queue_moved.notify_waiters();
+            self.append(
+                session,
+                "mux",
+                "queue_resumed",
+                json!({"queued": session.queued(), "promptIds": ids}),
+            );
         }
     }
 
@@ -287,9 +308,11 @@ impl Hub {
         if inbox_digest::is_digest(head.provenance.as_ref()) {
             return Vec::new();
         }
+        // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
         if head.agent.is_none()
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
+            || super::inbox::review_box(session)
         {
             return Vec::new();
         }
@@ -379,6 +402,10 @@ impl Hub {
         if taken.is_empty() || session.meta().status == SessionStatus::Closed {
             return;
         }
+        // A person's Stop holds every other agent's message (`cancel.rs`): these come back held
+        // by it, so they never start a turn the moment the stopped one ended.
+        let by_stop = session.stop_hold.load(Ordering::SeqCst) != 0;
+        let hold = hold || by_stop;
         let order: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for (i, mut q) in taken.iter().cloned().enumerate() {
@@ -401,9 +428,27 @@ impl Hub {
             if let Some(class) = q.run.class {
                 queued.set("class", json!(class));
             }
-            let images = super::prompt_images::keep(&q.run.blocks);
+            let images =
+                super::prompt_images::keep_sourced(&q.run.blocks, q.run.display_parts.as_ref());
             if !images.is_empty() {
                 queued.set("images", Value::Array(images));
+            }
+            // As the prompt's first `queued` record had them (`queue.rs`): its row's order, and
+            // what a restart restores its run's display parts (each attachment's source) from.
+            let inline_parts = super::prompt_images::inline_parts(
+                &q.run.blocks,
+                queued
+                    .get("images")
+                    .and_then(Value::as_array)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+                q.run.display_parts.as_ref(),
+            );
+            if !inline_parts.is_empty() {
+                queued.set("inlineParts", Value::Array(inline_parts));
+            }
+            if let Some(display_parts) = &q.run.display_parts {
+                queued.set("displayParts", display_parts.clone());
             }
             super::session::mark_pasted(&mut queued, &q.run.blocks);
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
@@ -414,7 +459,11 @@ impl Hub {
         let held: Vec<&String> =
             taken.iter().filter(|q| q.held || hold).map(|q| &q.prompt_id).collect();
         if !held.is_empty() {
-            self.append(session, "mux", "queue_paused", json!({"held": held, "requeued": true}));
+            let mut msg = json!({"held": held, "requeued": true});
+            if by_stop {
+                msg.set("reason", json!("stop"));
+            }
+            self.append(session, "mux", "queue_paused", msg);
         }
         self.append(session, "mux", "queue_order", json!({"order": order}));
         session.queue_moved.notify_waiters();
@@ -426,6 +475,15 @@ impl Hub {
 
 /// What one prompt's turn hands the agent messages that join it: its answer, and the queue
 /// entries they left, which go back if it fails.
+/// A turn of agent messages a restart cut and handed to the next daemon: that daemon continues
+/// it with the words of every message that joined it (its `user_message` holds them all,
+/// `restart_resume.rs`), so none goes back to this daemon's queue (`requeue_joined`).
+pub(super) fn forget_joined(joined: Option<&DigestTurn>) {
+    if let Some(joined) = joined {
+        joined.taken.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
 pub(super) struct DigestTurn {
     pub(super) answer: tokio::sync::watch::Sender<Option<Answer>>,
     taken: StdMutex<Vec<QueuedPrompt>>,
@@ -463,6 +521,8 @@ mod tests {
             class: None,
             supersede: None,
             full_access_device: None,
+            message_id: None,
+            message_sender: None,
         })
     }
 
@@ -534,5 +594,71 @@ mod tests {
             .map(|m| m["from"].as_str().unwrap())
             .collect();
         assert_eq!(senders, ["lane-a", "lane-b", "lane-a"]);
+    }
+
+    /// A message put back after a failed turn keeps its display parts (each attachment's source)
+    /// in its `requeued` record, so a restart restores them with it.
+    #[tokio::test]
+    async fn a_requeued_message_keeps_its_attachments_source_across_a_restart() {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hub = Arc::new(Hub::new(config, store));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "requeue-sourced", "name": "requeue",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta.clone());
+        let source = json!({"name": "Finder", "bundleId": "com.apple.finder"});
+        let display =
+            json!([{"kind": "file", "blockIndex": 1, "name": "notes.txt", "source": source}]);
+        let run = PromptRun {
+            blocks: vec![
+                json!({"type": "text", "text": "see the notes"}),
+                json!({"type": "resource_link", "name": "notes.txt", "uri": "file:///tmp/notes.txt"}),
+            ],
+            display_parts: Some(display.clone()),
+            control: Control::default(),
+            trust_gate: false,
+            provenance: None,
+            agent: Some("lane-a".into()),
+            class: None,
+            supersede: None,
+            full_access_device: None,
+            message_id: None,
+            message_sender: None,
+        };
+        let digest = DigestTurn::default();
+        *digest.taken.lock().unwrap() = vec![QueuedPrompt {
+            prompt_id: "p1".into(),
+            turn_id: "t-p1".into(),
+            client: "test".into(),
+            preview: "see the notes".into(),
+            queued_at: 7,
+            withdraw: Arc::new(tokio::sync::Notify::new()),
+            run: Arc::new(run),
+            restored: false,
+            resume: false,
+            steer: false,
+            held: false,
+            sent_now: false,
+            joined: Arc::new(StdMutex::new(None)),
+            requeued: false,
+            retries: 0,
+        }];
+        hub.requeue_joined(&session, &digest, false);
+
+        // The daemon starts again: the chat's queue comes back from its log.
+        let restarted = hub.make_session(meta);
+        hub.restore_queue(&restarted);
+        let queue = restarted.queue.lock().unwrap();
+        let back = queue
+            .iter()
+            .find(|q| q.prompt_id == "p1")
+            .expect("the requeued message is queued again");
+        assert_eq!(back.run.display_parts.as_ref(), Some(&display));
+        assert_eq!(back.run.display_parts.as_ref().unwrap()[0]["source"], source);
     }
 }

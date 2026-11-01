@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFiles
 import CmuxNextLayout
 
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
@@ -295,6 +296,25 @@ enum TabHandlers {
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
         PinnedPage.bind(registry, ctx: ctx)
+        // Edit Source and Open as Page (u18051, u18462): a rendered page and its source in the code editor, one action apart.
+        for (id, asText) in [("browser.editSource", true), ("file.openAsPage", false)] as [(ActionID, Bool)] {
+            registry.bindEffect(id, effect: { switchView($0, ctx, asText: asText) })
+            ActionTargetVisibility.hide(id, in: registry) { otherView($0, ctx, asText: asText) == nil }
+        }
+    }
+
+    /// The file the targeted (else focused) tab's other view shows (``FileOpenKind/otherView(asText:editorFile:markdownFile:pageURL:)``).
+    private static func otherView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> URL? {
+        let s = ctx.services
+        guard let id = (invocation.target?.kind == .tab ? invocation.target?.id : nil) ?? s.windows.active?.focusedPane?.stripModel.selectedID?.rawValue else { return nil }
+        let page = LocalPageTab.page(of: FilePageHandlers.providerKey(id, s)), file = FilePageHandlers.file(ofTab: id, s)
+        return FileOpenKind.otherView(asText: asText, editorFile: page == FilePageKind.editor.page ? file : nil, markdownFile: page == FilePageKind.markdown.page ? file : nil,
+                                      pageURL: s.locateTab(id)?.0.url ?? s.cache.existingBrowser(id)?.tab.state.url?.absoluteString)
+    }
+
+    private static func switchView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> ActionEffect {
+        guard let file = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
+        ctx.services.linkOpener.openFile(file, from: ctx.services.locateTab(invocation.target?.id ?? "").flatMap { ctx.services.paneController(for: $0.1) }, asText: asText); return .done
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

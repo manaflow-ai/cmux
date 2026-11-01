@@ -91,6 +91,7 @@ public final class AddDeviceView: NSView {
 
     private func buildNetwork(_ width: CGFloat) {
         stack.addArrangedSubview(label(AddDeviceStrings.networkHelp, font: Typography.body, color: Palette.textSecondary, width: width))
+        stack.addArrangedSubview(label(AddDeviceStrings.sshKeyHint, font: Typography.caption, color: Palette.textSecondary, width: width))
         switch model.candidates {
         case .loading:
             let row = NSStackView()
@@ -103,6 +104,9 @@ public final class AddDeviceView: NSView {
         case .loaded:
             if let problem = model.networkProblem {
                 stack.addArrangedSubview(label(problem, font: Typography.body, color: Palette.danger, width: width))
+                if model.canInstallTailscale {
+                    stack.addArrangedSubview(button(.installTailscale, key: nil, id: "cmux.addDevice.button.installTailscale"))
+                }
                 // The ssh config's computers do not need the network.
                 if !model.available.isEmpty { stack.addArrangedSubview(list(model.available, width: width)) }
             } else if model.available.isEmpty {
@@ -202,6 +206,25 @@ public final class AddDeviceView: NSView {
             box.widthAnchor.constraint(equalToConstant: width),
         ])
         stack.addArrangedSubview(box)
+        if model.offersOtherComputer { stack.addArrangedSubview(otherComputerRow(width)) }
+    }
+
+    /// A computer already reached with ssh needs no setup line: Other Computer… adds it by name.
+    private func otherComputerRow(_ width: CGFloat) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = Metrics.space3
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        // The hint wraps within its share of the row, so the button keeps its whole title in every language.
+        let hint = label(AddDeviceStrings.otherComputerHint, font: Typography.body, color: Palette.textSecondary, width: (width * 0.6).rounded())
+        row.addArrangedSubview(hint)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(spacer)
+        row.addArrangedSubview(button(.otherComputer, key: nil, id: "cmux.addDevice.button.otherComputer"))
+        row.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return row
     }
 
     private func footer(_ width: CGFloat) -> NSView {
@@ -225,6 +248,7 @@ public final class AddDeviceView: NSView {
         case .otherComputer: "otherComputer"
         case .newCloudMachine: "newCloudMachine"
         case .enterCode: "enterCode"
+        case .installTailscale: "installTailscale"
         case .copyLine: "copyLine"
         case .copyJoinLine: "copyJoinLine"
         case .makeJoinLine: "makeJoinLine"

@@ -65,9 +65,14 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_VM_KIND_CAPABILITY);
+        capabilities.push(AGENT_SESSION_FOLDERS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
+    }
+    #[cfg(unix)]
+    if mux.serves_owner_cloud_start() {
+        capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -358,6 +363,7 @@ pub(super) fn advertised_capabilities(
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
+        crate::state::conversation_tabs_store::CLOSED_CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TAB_ROUTE_CAPABILITY,

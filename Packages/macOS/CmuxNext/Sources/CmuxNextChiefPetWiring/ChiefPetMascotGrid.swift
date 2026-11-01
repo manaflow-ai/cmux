@@ -172,11 +172,6 @@ final class ChiefPetMascotCell: NSButton {
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityLabel() -> String? { name }
 
-    override func resetCursorRects() {
-        guard isEnabled else { return }
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
     override var mouseDownCanMoveWindow: Bool { false }
 
     nonisolated override var wantsUpdateLayer: Bool { true }

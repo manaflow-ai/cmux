@@ -629,6 +629,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSTextField call:textDidChange/1": {
+   "27.0.1": true
+  },
   "NSTextField call:textDidEndEditing/1": {
    "26.5.2": true,
    "26.7": true,
@@ -651,6 +654,18 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSTextField get:placeholderAttributedString/0": {
+   "27.0.1": true
+  },
+  "NSTextField get:placeholderString/0": {
+   "27.0.1": true
+  },
+  "NSTextField set:placeholderAttributedString/1": {
+   "27.0.1": true
+  },
+  "NSTextField set:placeholderString/1": {
    "27.0.1": true
   },
   "NSTextFieldCell call:accessibilityAttributeNames/0": {
@@ -686,6 +701,12 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSTextView call:draggingEntered/1": {
+   "27.0.1": true
+  },
+  "NSTextView call:draggingUpdated/1": {
+   "27.0.1": true
+  },
   "NSTextView call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
@@ -708,6 +729,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSTextView call:performDragOperation/1": {
    "27.0.1": true
   },
   "NSTextView call:resignFirstResponder/0": {
@@ -1049,6 +1073,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSViewController call:viewDidLoad/0": {
    "27.0.1": true
   },
   "NSWindow call:addChildWindow/2:ordered": {

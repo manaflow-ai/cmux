@@ -68,7 +68,7 @@ enum HomeChiefActions {
         let services = context.services
         let work: ActionWork = Task {
             guard let error = await control.stop() else { return nil }
-            if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? NSApp.keyWindow) }
+            if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? services.keyWindowSource()) }
             return ActionWorkFailure(refusal: .unavailable, reason: error.text)
         }
         registry.track(work)

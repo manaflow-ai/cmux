@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { effortLevel, openEffort } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -141,8 +142,8 @@ test("the current model's inline effort pick returns focus to the prompt through
   document.body.append(prompt);
   const effortPicks: string[] = [];
   await openPicker(["low", "high"], true, effortPicks);
-  const segment = host.ownerDocument.querySelector<HTMLElement>('[aria-label="Opus 5.5 · Low"]');
-  expect(segment).toBeDefined();
+  const segment = await effortLevel(host.ownerDocument, "Opus 5.5 · Low");
+  expect(segment).not.toBeNull();
   await act(async () => segment!.click());
   await focusSettles(() => document.activeElement === prompt);
   expect(effortPicks).toEqual(["low"]);
@@ -157,9 +158,7 @@ test.each([
 ])("ModelPicker preserves $capability efforts with inline=$inline", async ({ capability, inline }) => {
   await openPicker(capability === "empty" ? [] : undefined, inline, [], capability === "empty");
   expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(
-    capability === "absent" && inline ? 3 : 0,
-  );
+  expect(await openEffort(document)).toHaveLength(capability === "absent" && inline ? 3 : 0);
   const effortSubmenu = [...document.querySelectorAll(".acpmux-quick-sub")].find((row) =>
     row.textContent?.startsWith("Effort"),
   );
@@ -168,11 +167,11 @@ test.each([
 
 test("a direct catalog's unmarked empty effort list remains explicitly unsupported", async () => {
   await openPicker([], true, [], undefined);
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(await openEffort(document)).toHaveLength(0);
 });
 
 test("the running model uses live session levels over stale catalog efforts", async () => {
   await openPicker(["low"], true);
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(3);
-  expect(document.querySelector('[aria-label="Opus 5.5 · High"]')).toBeDefined();
+  expect(await openEffort(document)).toHaveLength(3);
+  expect(document.querySelector('[aria-label="Opus 5.5 · High"]')).not.toBeNull();
 });

@@ -2,6 +2,52 @@
 
 use super::*;
 use serde_json::json;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+
+thread_local! {
+    static RECORD_BYTES_ALLOCS: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+struct AllocationCounter;
+
+// Test-only allocator: counting is enabled per thread, so unrelated tests do not
+// affect the record-size assertion while the old `to_vec` implementation allocates.
+unsafe impl GlobalAlloc for AllocationCounter {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let _ = RECORD_BYTES_ALLOCS.try_with(|count| {
+            if let Some(value) = count.get() {
+                count.set(Some(value.saturating_add(1)));
+            }
+        });
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let _ = RECORD_BYTES_ALLOCS.try_with(|count| {
+            if let Some(value) = count.get() {
+                count.set(Some(value.saturating_add(1)));
+            }
+        });
+        unsafe { System.alloc_zeroed(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        let _ = RECORD_BYTES_ALLOCS.try_with(|count| {
+            if let Some(value) = count.get() {
+                count.set(Some(value.saturating_add(1)));
+            }
+        });
+        unsafe { System.realloc(ptr, layout, size) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: AllocationCounter = AllocationCounter;
 
 fn key(mux: &str) -> Key {
     ("huge-blue".to_owned(), mux.to_owned())
@@ -14,6 +60,16 @@ fn head(mux: &str) -> Head {
         generation: Some(7),
         ..Head::default()
     }
+}
+
+#[test]
+fn record_size_includes_its_line_terminator_without_building_a_vec() {
+    let value = json!({"sessionId": "m1", "seq": 1, "msg": "🙂"});
+    let expected = serde_json::to_vec(&value).unwrap().len() as u64 + 1;
+    RECORD_BYTES_ALLOCS.with(|count| count.set(Some(0)));
+    assert_eq!(record_bytes(&value), expected);
+    let allocations = RECORD_BYTES_ALLOCS.with(|count| count.replace(None).unwrap_or(0));
+    assert_eq!(allocations, 0, "record_bytes allocated {allocations} times");
 }
 
 #[test]

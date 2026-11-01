@@ -4,11 +4,13 @@ import AppKit
 /// `HomeTurnProgress`): one caption line, whatever the turn did. The notice keeps its parts one per
 /// text line (the folded steps, the narration, the step running now); they draw side by side as
 /// "Reading › Starting agents · 7s" (a part ending in the "›" needs no dot after it), the parts
-/// before the last quieter. When the column is too
-/// narrow the earlier parts are cut with "…" first, so the step now and its time stay whole.
+/// before the last quieter. When the column is too narrow the earlier parts give way first, whole
+/// parts at a time, so the step now and its time stay whole and no stub ("Ran 3 co…") is drawn.
 ///
 /// User 2026-10-29: "reading/starting agents should be one line": the row no longer grows a row per
-/// part, so it keeps upstream's 16 pt as steps finish and thoughts arrive.
+/// part, so it keeps upstream's 16 pt as steps finish and thoughts arrive. User 2026-10-30: "make it
+/// just one line with shimmer text": it is the whole running indicator (no typing bubble under it) and
+/// a light band sweeps its text (`HomeNoticeShimmer`).
 enum HomeNoticeRows {
     /// The row's height: upstream's one-line status row, for every notice.
     static let firstHeight: CGFloat = 16
@@ -45,32 +47,59 @@ enum HomeNoticeRows {
         return lead.map { joined([$0, last]) } ?? last
     }
 
-    /// The parts as drawn in `maxWidth`: the last whole while it fits, the lead cut with "…" into the
-    /// room left (dropped when not even one character fits), the last cut only when it alone is too wide.
+    /// The parts as drawn in `maxWidth`: the last whole while it fits; the lead whole, else its longest
+    /// head of whole parts that fits ("Ran 3 commands…", or the fold "… files ›" with no "…" after its
+    /// chevron), else dropped: never a stub cut mid-word ("Ran 3 co…"). The last is cut only when it
+    /// alone is too wide.
     static func fittedParts(_ notice: String, font: NSFont, maxWidth: CGFloat) -> (lead: String?, last: String) {
         let (lead, last) = parts(notice)
         guard maxWidth > 0, let lead else { return (lead, fitted(last, font: font, maxWidth: maxWidth)) }
-        // A cut lead ends in "…", so the dot follows it.
-        let room = maxWidth - TextDraw.width(last, font: font) - TextDraw.width(separator, font: font)
-        guard room > 0 else { return (nil, fitted(last, font: font, maxWidth: maxWidth)) }
-        let cut = fitted(lead, font: font, maxWidth: room)
-        guard cut != "…", TextDraw.width(cut, font: font) <= room else { return (nil, last) }
-        return (cut, last)
+        let lastWidth = TextDraw.width(last, font: font)
+        guard lastWidth <= maxWidth else { return (nil, fitted(last, font: font, maxWidth: maxWidth)) }
+        let fits = { (head: String) in
+            TextDraw.width(head + gap(after: head), font: font) + lastWidth <= maxWidth
+        }
+        return (leadHeads(notice).last(where: fits), last)
+    }
+
+    /// The lead's heads as it may be drawn, shortest first: each whole part ("Ran 3 commands") of each
+    /// row in turn, ending in "…" unless it ends at the fold's "›" or is the whole lead.
+    static func leadHeads(_ notice: String) -> [String] {
+        let rows = lines(notice).dropLast()
+        var heads: [String] = []
+        var done: [String] = []
+        for (index, row) in rows.enumerated() {
+            let pieces = row.components(separatedBy: separator)
+            for count in 1...pieces.count {
+                let head = joined(done + [pieces.prefix(count).joined(separator: separator)])
+                let whole = index == rows.count - 1 && count == pieces.count
+                heads.append(whole || head.hasSuffix("›") ? head : head + "…")
+            }
+            done.append(row)
+        }
+        return heads
     }
 
     /// Draws `notice` from `x` with its baseline at `baseline`, cut to `maxWidth`.
     static func draw(_ notice: String, x: CGFloat, baseline: CGFloat, maxWidth: CGFloat, in ctx: CGContext) {
         let font = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs), upstream's notice face
         let (lead, last) = fittedParts(notice, font: font, maxWidth: maxWidth)
+        // The text color at full strength: the cell's shimmer mask (HomeNoticeShimmer) dims it to the caption
+        // grey and its sweeping band lifts it back.
+        let color = textColor
         var left = x
         if let lead {
-            let quiet = Fixture.secondaryText.withAlphaComponent(0.72)
+            let quiet = color.withAlphaComponent(0.72)
             let head = lead + gap(after: lead)
             TextDraw.line(head, font: font, color: quiet, x: left, baseline: baseline, in: ctx)
             left += TextDraw.width(head, font: font)
         }
-        TextDraw.line(last, font: font, color: Fixture.secondaryText, x: left, baseline: baseline, in: ctx)
+        TextDraw.line(last, font: font, color: color, x: left, baseline: baseline, in: ctx)
     }
+
+    /// The line's text color under the shimmer's band (a message's text color); elsewhere the mask's
+    /// ``HomeNoticeShimmer/restAlpha`` makes it the caption grey.
+    static var textColor: NSColor { Fixture.incomingText }
 
     /// `line`, or its head and "…" when it is wider than `maxWidth`.
     static func fitted(_ line: String, font: NSFont, maxWidth: CGFloat) -> String {
