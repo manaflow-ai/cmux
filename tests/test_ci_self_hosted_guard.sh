@@ -1437,11 +1437,11 @@ check_no_self_hosted_fleet_runners() {
     fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$next_trusted_selector"/}"
+      content="${content/"$nightly_only_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
       content="${content/"$nightly_main_trusted_selector"/}"
       content="${content/"$nightly_next_side_selector"/}"
-      content="${content/"$nightly_only_selector"/}"
     fi
     # A pull request workflow keeps the exemption only while its fork pull
     # request branch comes first on the line; base autofix runs on push only.
