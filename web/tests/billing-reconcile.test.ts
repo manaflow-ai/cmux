@@ -31,7 +31,344 @@ function subscription(
   } as Stripe.Subscription;
 }
 
+function teamItems(
+  id: string,
+  quantity: number,
+): Stripe.Subscription["items"] {
+  return {
+    object: "list",
+    data: [{
+      id,
+      object: "subscription_item",
+      current_period_end: 1_800_000_000,
+      quantity,
+      price: { id: "price_team" },
+    }],
+    has_more: false,
+    url: "/v1/subscription_items",
+  } as Stripe.Subscription["items"];
+}
+
 describe("Stripe subscription reconciliation", () => {
+  test("reports team seat drift with current member, Stripe, and stored counts", async () => {
+    let stripeUpdateCalls = 0;
+    let seatWriteCalls = 0;
+    const analytics: Array<Record<string, unknown>> = [];
+    const updateSubscriptionQuantity = async () => {
+      stripeUpdateCalls += 1;
+    };
+    const updateSeats = async () => {
+      seatWriteCalls += 1;
+    };
+    const dependencies = {
+      withLease: withoutLease,
+      list: async () => [{
+        id: "sub_team_growth",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+        scope: "team",
+        stackTeamId: "team_growth",
+        seats: 1,
+      }],
+      retrieve: async () => subscription("sub_team_growth", "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: "team_growth" },
+        items: teamItems("si_team_growth", 1),
+      }),
+      getTeam: async () => ({
+        listUsers: async () => [{ id: "member-1" }, { id: "member-2" }, { id: "member-3" }],
+      }),
+      updateSubscriptionQuantity,
+      updateSeats,
+      captureTeamSeatDrift: async (input: Record<string, unknown>) => {
+        analytics.push(input);
+      },
+      markChecked: async () => {},
+    };
+    const result = await reconcileStripeSubscriptions({}, dependencies);
+
+    expect(stripeUpdateCalls).toBe(0);
+    expect(seatWriteCalls).toBe(0);
+    expect(analytics).toEqual([{
+      subscriptionId: "sub_team_growth",
+      teamId: "team_growth",
+      memberCount: 3,
+      stripeQuantity: 1,
+      storedSeats: 1,
+    }]);
+    expect(result).toMatchObject({ checked: 1, drifted: 1, repaired: 0, failed: 0 });
+  });
+
+  test("reports an empty roster as one desired seat without mutating billing", async () => {
+    let stripeUpdateCalls = 0;
+    let seatWriteCalls = 0;
+    const analytics: Array<Record<string, unknown>> = [];
+    const updateSubscriptionQuantity = async () => {
+      stripeUpdateCalls += 1;
+    };
+    const updateSeats = async () => {
+      seatWriteCalls += 1;
+    };
+    const dependencies = {
+      withLease: withoutLease,
+      list: async () => [{
+        id: "sub_team_shrink",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+        scope: "team",
+        stackTeamId: "team_shrink",
+        seats: 5,
+      }],
+      retrieve: async () => subscription("sub_team_shrink", "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: "team_shrink" },
+        items: teamItems("si_team_shrink", 5),
+      }),
+      getTeam: async () => ({ listUsers: async () => [] }),
+      updateSubscriptionQuantity,
+      updateSeats,
+      captureTeamSeatDrift: async (input: Record<string, unknown>) => {
+        analytics.push(input);
+      },
+      markChecked: async () => {},
+    };
+    const result = await reconcileStripeSubscriptions({}, dependencies);
+
+    expect(stripeUpdateCalls).toBe(0);
+    expect(seatWriteCalls).toBe(0);
+    expect(analytics).toEqual([{
+      subscriptionId: "sub_team_shrink",
+      teamId: "team_shrink",
+      memberCount: 0,
+      stripeQuantity: 5,
+      storedSeats: 5,
+    }]);
+    expect(result).toMatchObject({ checked: 1, drifted: 1, repaired: 0, failed: 0 });
+  });
+
+  test("emits nothing when team quantities already match", async () => {
+    let stripeUpdateCalls = 0;
+    let seatWriteCalls = 0;
+    let analyticsCalls = 0;
+    const updateSubscriptionQuantity = async () => {
+      stripeUpdateCalls += 1;
+    };
+    const updateSeats = async () => {
+      seatWriteCalls += 1;
+    };
+    const dependencies = {
+      withLease: withoutLease,
+      list: async () => [{
+        id: "sub_team_equal",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+        scope: "team",
+        stackTeamId: "team_equal",
+        seats: 2,
+      }],
+      retrieve: async () => subscription("sub_team_equal", "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: "team_equal" },
+        items: teamItems("si_team_equal", 2),
+      }),
+      getTeam: async () => ({ listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] }),
+      updateSubscriptionQuantity,
+      updateSeats,
+      captureTeamSeatDrift: async () => {
+        analyticsCalls += 1;
+      },
+      markChecked: async () => {},
+    };
+    const result = await reconcileStripeSubscriptions({}, dependencies);
+
+    expect(stripeUpdateCalls).toBe(0);
+    expect(seatWriteCalls).toBe(0);
+    expect(analyticsCalls).toBe(0);
+    expect(result).toMatchObject({ checked: 1, drifted: 0, repaired: 0, failed: 0 });
+  });
+
+  test("checks every team in the bounded batch without a reservation quota", async () => {
+    const rows = Array.from({ length: 51 }, (_, index) => ({
+      id: `sub_team_${index}`,
+      status: "active",
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: new Date(1_800_000_000_000),
+      scope: "team",
+      stackTeamId: `team_${index}`,
+      seats: 1,
+    }));
+    const visitedTeams: string[] = [];
+    const analytics: Array<Record<string, unknown>> = [];
+    const dependencies = {
+      withLease: withoutLease,
+      list: async () => rows,
+      retrieve: async (id: string) => subscription(id, "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: id.replace("sub_", "") },
+        items: teamItems(`si_${id}`, 1),
+      }),
+      getTeam: async (teamId: string) => {
+        visitedTeams.push(teamId);
+        return { listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] };
+      },
+      captureTeamSeatDrift: async (input: Record<string, unknown>) => {
+        analytics.push(input);
+      },
+      markChecked: async () => {},
+    };
+    await reconcileStripeSubscriptions({}, dependencies);
+
+    expect(visitedTeams).toHaveLength(51);
+    expect(new Set(visitedTeams)).toEqual(
+      new Set(rows.map((row) => row.stackTeamId)),
+    );
+    expect(analytics).toHaveLength(51);
+  });
+
+  test("isolates a team seat drift failure and continues with other teams", async () => {
+    let stripeUpdateCalls = 0;
+    let seatWriteCalls = 0;
+    const analytics: Array<Record<string, unknown>> = [];
+    const contexts: Record<string, unknown>[] = [];
+    const updateSubscriptionQuantity = async () => {
+      stripeUpdateCalls += 1;
+    };
+    const updateSeats = async () => {
+      seatWriteCalls += 1;
+    };
+    const dependencies = {
+      withLease: withoutLease,
+      concurrency: 1,
+      list: async () => [
+        {
+          id: "sub_team_failed",
+          status: "active",
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: new Date(1_800_000_000_000),
+          scope: "team",
+          stackTeamId: "team_failed",
+          seats: 1,
+        },
+        {
+          id: "sub_team_ok",
+          status: "active",
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: new Date(1_800_000_000_000),
+          scope: "team",
+          stackTeamId: "team_ok",
+          seats: 1,
+        },
+      ],
+      retrieve: async (id: string) => subscription(id, "active", {
+        metadata: {
+          app: "cmux",
+          plan: "team",
+          stackTeamId: id === "sub_team_failed" ? "team_failed" : "team_ok",
+        },
+        items: teamItems(`si_${id}`, 1),
+      }),
+      getTeam: async (teamId: string) => {
+        if (teamId === "team_failed") throw new Error("Stack unavailable");
+        return { listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] };
+      },
+      updateSubscriptionQuantity,
+      updateSeats,
+      captureTeamSeatDrift: async (input: Record<string, unknown>) => {
+        analytics.push(input);
+      },
+      captureError: (_error: unknown, context: Record<string, string | number | boolean>) => {
+        contexts.push(context);
+      },
+      markChecked: async () => {},
+    };
+    const result = await reconcileStripeSubscriptions({}, dependencies);
+
+    expect(stripeUpdateCalls).toBe(0);
+    expect(seatWriteCalls).toBe(0);
+    expect(analytics).toEqual([{
+      subscriptionId: "sub_team_ok",
+      teamId: "team_ok",
+      memberCount: 2,
+      stripeQuantity: 1,
+      storedSeats: 1,
+    }]);
+    expect(result).toMatchObject({ checked: 2, drifted: 1, repaired: 0, failed: 1 });
+    expect(contexts).toEqual([{
+      operation: "stripe_subscription_reconcile",
+      recoverable: true,
+    }]);
+  });
+
+  test("fails closed when remote team identity disagrees with the local row", async () => {
+    let rosterReads = 0;
+    let analyticsCalls = 0;
+    const errors: unknown[] = [];
+    const dependencies = {
+      withLease: withoutLease,
+      list: async () => [{
+        id: "sub_team_identity",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+        scope: "team",
+        stackTeamId: "team_local",
+        seats: 1,
+      }],
+      retrieve: async () => subscription("sub_team_identity", "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: "team_remote" },
+        items: teamItems("si_team_identity", 1),
+      }),
+      getTeam: async () => {
+        rosterReads += 1;
+        return { listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] };
+      },
+      captureTeamSeatDrift: async () => {
+        analyticsCalls += 1;
+      },
+      captureError: (error: unknown) => {
+        errors.push(error);
+      },
+      markChecked: async () => {},
+    };
+    const result = await reconcileStripeSubscriptions({}, dependencies);
+
+    expect(result).toMatchObject({ checked: 1, drifted: 0, repaired: 0, failed: 1 });
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain("remote=team_remote local=team_local");
+    expect(rosterReads).toBe(0);
+    expect(analyticsCalls).toBe(0);
+  });
+
+  test("records a recoverable failure when the roster misses the 15-second deadline", async () => {
+    const errors: unknown[] = [];
+    const result = await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
+      list: async () => [{
+        id: "sub_team_timeout",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+        scope: "team",
+        stackTeamId: "team_timeout",
+        seats: 1,
+      }],
+      retrieve: async () => subscription("sub_team_timeout", "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: "team_timeout" },
+        items: teamItems("si_team_timeout", 1),
+      }),
+      getTeam: async () => ({
+        listUsers: () => new Promise<readonly unknown[]>(() => {}),
+      }),
+      captureError: (error: unknown) => {
+        errors.push(error);
+      },
+      markChecked: async () => {},
+    });
+
+    expect(result).toMatchObject({ checked: 1, drifted: 0, repaired: 0, failed: 1 });
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain("Stack team interaction exceeded the per-team deadline");
+  }, 20_000);
+
   test("checks remote subscriptions concurrently and repairs only drift", async () => {
     let inFlight = 0;
     let peak = 0;
