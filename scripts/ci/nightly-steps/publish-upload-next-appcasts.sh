@@ -6,11 +6,21 @@ set -euo pipefail
 # one (If-Match on the bytes read), and only when this source descends from the
 # live source. Build numbers are run ids, so they cannot establish source order.
 : "${SOURCE_SHA:?the publication source SHA is required}"
+result="$(mktemp)"
+trap 'rm -f "$result"' EXIT
+written=false current=true refused=false
 for appcast in $NIGHTLY_FEEDS; do
+  : > "$result"
   python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
   python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" write-feed --feed "nightly-out/$appcast" \
-    --source-sha "$SOURCE_SHA" --github-output "$GITHUB_OUTPUT"
+    --source-sha "$SOURCE_SHA" --github-output "$result"
+  if grep -qx 'feed_written=true' "$result"; then written=true; fi
+  if ! grep -qx 'feed_current=true' "$result"; then current=false; fi
+  if grep -qx 'publication_refused=true' "$result"; then refused=true; fi
 done
+# One refused feed must never be hidden by a later accepted feed's outputs.
+printf 'feed_written=%s\nfeed_current=%s\npublication_refused=%s\n' \
+  "$written" "$current" "$refused" >> "$GITHUB_OUTPUT"
 # Release push, only when a feed was actually written (write-feed
 # records feed_written=true): the presence worker re-reads the public
 # nightly-next feed and tells connected NEXT apps at once. No secret

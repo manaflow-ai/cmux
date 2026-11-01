@@ -6482,11 +6482,11 @@ jobs:
       # What publish-nightly-next-github publishes to the release: the feed as it went
       # live and the release body's PR list.
       - name: Hand the published feed to the GitHub release job
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_current == 'true'
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-hand-feed.sh
 
       - name: Upload the published feed for the GitHub release job
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_current == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
@@ -6555,7 +6555,7 @@ jobs:
           METADATA_OUTCOME: ${{ steps.publish_metadata.outcome }}
           APPCASTS_OUTCOME: ${{ steps.upload_appcasts.outcome }}
           NEXT_APPCASTS_OUTCOME: ${{ steps.upload_next_appcasts.outcome }}
-          NEXT_FEED_WRITTEN: ${{ steps.upload_next_appcasts.outputs.feed_written }}
+          NEXT_FEED_CURRENT: ${{ steps.upload_next_appcasts.outputs.feed_current }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           HEAD_SHA: ${{ steps.source.outputs.build_sha }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-tag-outcome.sh

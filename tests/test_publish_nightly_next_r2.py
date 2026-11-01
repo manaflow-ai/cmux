@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -170,11 +171,34 @@ class WriteFeedTests(FeedWriteCase):
         self.assertIn("publication_refused=true", self.output.read_text())
         # A successful no-op must not authorize the GitHub release, notes or tag.
         env = {**os.environ, "TAG_MOVE_OUTCOME": "success", "CHANNEL_RELEASE_TAG": "nightly-next",
-               "NEXT_FEED_WRITTEN": "false", "GITHUB_OUTPUT": str(self.output)}
+               "NEXT_FEED_CURRENT": "false", "GITHUB_OUTPUT": str(self.output)}
         subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-tag-outcome.sh")],
                        env=env, check=True, capture_output=True, text=True)
         self.assertIn("tag_status=unpublished", self.output.read_text())
         self.assertNotIn("tag_status=updated", self.output.read_text())
+
+    def test_rerun_reuses_an_already_accepted_build_and_source_for_metadata_repair(self) -> None:
+        source = "a" * 40
+        live = feed((200, "accepted-download", 1), source={200: source}).encode()
+        self.assertEqual(self.run_with([live], [], source_sha=source), 0)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.path.read_bytes(), live)
+        self.assertIn("feed_written=false", self.output.read_text())
+        self.assertIn("feed_current=true", self.output.read_text())
+        self.assertNotIn("publication_refused=true", self.output.read_text())
+        env = {**os.environ, "TAG_MOVE_OUTCOME": "success", "CHANNEL_RELEASE_TAG": "nightly-next",
+               "NEXT_FEED_CURRENT": "true", "GITHUB_OUTPUT": str(self.output), "HEAD_SHA": source,
+               "CHANNEL_FEED_BASE": BASE, "GITHUB_STEP_SUMMARY": str(Path(self.dir.name) / "summary")}
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-tag-outcome.sh")],
+                       env=env, check=True, capture_output=True, text=True)
+        self.assertIn("tag_status=updated", self.output.read_text())
+
+    def test_the_same_build_number_with_a_different_source_is_refused(self) -> None:
+        live = feed((200, "x", 1), source={200: "b" * 40}).encode()
+        self.assertEqual(self.run_with([live], [], source_sha="a" * 40), 0)
+        self.assertEqual(self.calls, [])
+        self.assertIn("publication_refused=true", self.output.read_text())
+        self.assertNotIn("feed_current=true", self.output.read_text())
 
     def test_markerless_live_feed_uses_the_exact_verified_notes_build(self) -> None:
         source_a, source_b = "a" * 40, "b" * 40
@@ -235,11 +259,37 @@ class PublicationBoundaryTests(unittest.TestCase):
         for name in ("Hand the published feed to the GitHub release job", "Upload the published feed for the GitHub release job"):
             i = next(i for i, step in enumerate(steps) if step.get("name") == name)
             self.assertGreater(i, write)
-            self.assertIn("steps.upload_next_appcasts.outputs.feed_written == 'true'", steps[i]["if"])
+            self.assertIn("steps.upload_next_appcasts.outputs.feed_current == 'true'", steps[i]["if"])
         outcome = next(step for step in steps if step.get("id") == "tag-outcome")
-        self.assertEqual(outcome["env"]["NEXT_FEED_WRITTEN"], "${{ steps.upload_next_appcasts.outputs.feed_written }}")
+        self.assertEqual(outcome["env"]["NEXT_FEED_CURRENT"], "${{ steps.upload_next_appcasts.outputs.feed_current }}")
         readback = next(step for step in steps if step.get("id") == "feedcheck")
         self.assertIn("steps.upload_next_appcasts.outputs.feed_written == 'true'", readback["if"])
+
+    def test_one_refused_feed_cannot_be_hidden_by_another_accepted_feed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            ci = directory / "ci"
+            ci.mkdir()
+            (ci / "nightly-next-guard.py").write_text("")
+            (ci / "publish-nightly-next-r2.py").write_text(
+                "import json, os, pathlib, sys\n"
+                "args=sys.argv\n"
+                "name=pathlib.Path(args[args.index('--feed')+1]).name\n"
+                "pathlib.Path(args[args.index('--github-output')+1]).write_text(json.loads(os.environ['FEED_RESULTS'])[name])\n")
+            accepted = "feed_written=true\nfeed_current=true\n"
+            refused = "feed_written=false\npublication_refused=true\n"
+            output = directory / "out"
+            env = {**os.environ, "PUBLISH_TOOLING": temp, "SOURCE_SHA": "a" * 40,
+                   "GITHUB_OUTPUT": str(output), "RELEASE_POKE_URL": "",
+                   "FEED_RESULTS": json.dumps({"accepted.xml": accepted, "refused.xml": refused})}
+            for feeds in ("accepted.xml refused.xml", "refused.xml accepted.xml"):
+                with self.subTest(feeds=feeds):
+                    output.write_text("")
+                    env["NIGHTLY_FEEDS"] = feeds
+                    subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-upload-next-appcasts.sh")],
+                                   env=env, check=True, capture_output=True, text=True)
+                    self.assertEqual(dict(line.split("=", 1) for line in output.read_text().splitlines()),
+                                     {"feed_written": "true", "feed_current": "false", "publication_refused": "true"})
 
     def test_github_writers_require_the_exact_build_on_the_live_feed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -408,6 +408,17 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
             return 0
         if live is not None:
             theirs = newest_build(live)
+            if not same_build and theirs == ours and source_sha:
+                live_source = item_source(live, theirs) or signed_notes_source(theirs)
+                if live_source == source_sha.lower():
+                    # The CAS may have succeeded before a later handoff failed.
+                    # Retry metadata publication from the bytes already accepted.
+                    feed.write_bytes(live)
+                    if github_output:
+                        with open(github_output, "a", encoding="utf-8") as out:
+                            out.write("feed_written=false\nfeed_current=true\n")
+                    print(f"{feed.name}: this exact build and source are already live; reusing the live feed")
+                    return 0
             if (theirs != ours) if same_build else (theirs >= ours):
                 print(f"{feed.name}: the live feed serves build {theirs}, this feed's newest is {ours}; "
                       "left as it is")
@@ -451,7 +462,7 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
             print(f"{feed.name}: build {ours} is live at {public_base()}{feed.name}")
             if github_output:
                 with open(github_output, "a", encoding="utf-8") as out:
-                    out.write("feed_written=true\n")
+                    out.write("feed_written=true\nfeed_current=true\n")
             return 0
         if result.returncode != CONFLICT:
             return result.returncode
