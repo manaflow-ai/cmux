@@ -4,15 +4,23 @@ name: nightly-next feed watch
 # which Lawrence and Leo daily-drive. nightly.yml's own alarm runs only inside
 # nightly-next push runs, so a stall before promotion (a red Release compile,
 # an unpublished cmux-tui tree) never raised it. A schedule runs only from the
-# default branch, so this lives on main. Every 30 minutes it measures how long
-# feat-cmux-next pushes have waited for the feed and keeps one
+# default branch, so this lives on main. Every 10 minutes it measures how long
+# feat-cmux-next pushes have waited for the feed (limit 30 minutes) and keeps one
 # `nightly-next-feed-stale` issue naming the stuck stage
 # (scripts/ci/nightly_next_feed_watch.py, tested by
 # tests/test_nightly_next_feed_watch.py). It also requests the continuation
-# run that publishes a build Apple accepted after its run stopped waiting.
+# run that publishes a build Apple accepted after its run stopped waiting, and
+# dispatches a current-tip build after 20 minutes without a publication when
+# no started nightly-next build has the tip or a commit containing it as its
+# head (a run queued 10 minutes without a runner is not started; main's runs
+# never count). The
+# tick (nightly-next-tick.yml) asks at landing; this is the backstop, and at
+# :07/:37 with a 25-minute trigger it could not meet the 30-minute bound.
+# A run whose signing or publication failed after a good compile is resumed
+# from its saved unsigned app rather than built again.
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    - cron: "2-59/10 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -24,10 +32,13 @@ concurrency:
 jobs:
   watch:
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ubuntu-24.04
+    # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
+    # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
-      actions: write # read nightly-next runs and artifacts; dispatch a continuation run
+      actions: write # read runs and dispatch continuation/starvation builds
+      checks: read # the nightly-next tick's refusal annotation
       contents: read # the nightly-next release body's published commit
       issues: write # the nightly-next-feed-stale issue
     steps:
@@ -49,10 +60,34 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: scripts/cmux-next/continue-nightly-next.sh --repo "$REPOSITORY"
 
-      - name: Check how long feat-cmux-next pushes have waited for the feed
+      # A nightly-next run whose compile succeeded and whose signing,
+      # notarization, verification or publication then failed keeps its
+      # unsigned app for a day. Retry only those steps: dispatch nightly.yml on
+      # nightly-next with nightly_next_unsigned_run, which signs and publishes
+      # that app without compiling. One resume at a time, at most
+      # NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES (2; 0 turns it off) per failed run,
+      # only for a build newer than the feed. Nothing is cancelled: a newer tip
+      # still builds beside it (scripts/ci/nightly_next_unsigned_resume.py,
+      # tested by tests/test_nightly_next_unsigned_resume.py).
+      - name: Resume a failed nightly-next signing from its saved unsigned app
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          MAX_LAG_HOURS: ${{ vars.NIGHTLY_NEXT_MAX_FEED_LAG_HOURS || '4' }}
+          MAX_RESUMES: ${{ vars.NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES || '2' }}
+        run: python3 scripts/ci/nightly_next_unsigned_resume.py --repo "$REPOSITORY" --max-resumes "$MAX_RESUMES"
+
+      # The watcher exits 3 when GitHub is unavailable. Keep this step
+      # blocking: the failed step and the script's GITHUB_STEP_SUMMARY entry
+      # are the durable degraded-health signal, while feed CDN read failures
+      # remain warnings and do not fail the check by themselves.
+      - name: Check feed health (degraded when GitHub API is unavailable)
+        id: feed_watch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          MAX_LAG_HOURS: ${{ vars.NIGHTLY_NEXT_MAX_FEED_LAG_HOURS || '0.5' }}
+          LEGACY_IDENTITY: ${{ vars.NIGHTLY_NEXT_LEGACY_IDENTITY == 'off' && 'off' || 'on' }}
+          TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'on' || 'off' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 scripts/ci/nightly_next_feed_watch.py --repo "$REPOSITORY" --max-lag-hours "$MAX_LAG_HOURS" --run-url "$RUN_URL"
+        run: python3 scripts/ci/nightly_next_feed_watch.py --repo "$REPOSITORY" --max-lag-hours "$MAX_LAG_HOURS" --legacy-identity "$LEGACY_IDENTITY" --train "$TRAIN" --run-url "$RUN_URL"

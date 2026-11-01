@@ -37,6 +37,8 @@ const enrollVmTunnel = mock(() => ({ workflow: "enroll-tunnel" }));
 const readVmTunnel = mock(() => ({ workflow: "read-tunnel" }));
 const openBaseVm = mock(() => ({ workflow: "base.open" }));
 const resetBaseVm = mock(() => ({ workflow: "base.reset" }));
+let savedVmCountFixture = 0;
+const savedCountWorkflow = Symbol("savedCount");
 const listUserVms = mock(() => ({ workflow: "list" }));
 const getVm = mock(() => ({ workflow: "get" }));
 const destroyVm = mock(() => ({ workflow: "destroy" }));
@@ -134,6 +136,8 @@ mock.module("../app/lib/stack", () => ({
 
 mock.module("../services/vms/workflows", () => ({
   ...workflowsModule,
+  countSavedUserVms: (...args: Parameters<typeof workflowsModule.countSavedUserVms>) =>
+    useWorkflowStubs ? savedCountWorkflow : workflowsModule.countSavedUserVms(...args),
   enrollVmTunnel: ((...args: Parameters<typeof realEnrollVmTunnel>) =>
     useWorkflowStubs ? callMock(enrollVmTunnel, args) : realEnrollVmTunnel(...args)) as typeof realEnrollVmTunnel,
   readVmTunnel: ((...args: Parameters<typeof realReadVmTunnel>) =>
@@ -170,6 +174,7 @@ mock.module("../services/vms/workflows", () => ({
   runVmWorkflowExit: (async (...args: Parameters<typeof realRunVmWorkflowExit>) => {
     if (!useWorkflowStubs) return realRunVmWorkflowExit(...args);
     try {
+      if (useWorkflowStubs && args[0] === (savedCountWorkflow as unknown)) return Exit.succeed(savedVmCountFixture);
       return Exit.succeed(await callMock(runVmWorkflow, args));
     } catch (error) {
       return isVmWorkflowError(error) ? Exit.fail(error) : Exit.die(error);
@@ -239,7 +244,7 @@ const {
   VmProviderOperationError,
 } = await import("../services/vms/errors");
 const { verifyRequest, clearNativeAuthCacheForTests } = await import("../services/vms/auth");
-const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
+const { vmWorkflowErrorResponse, withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 const { accountDeletionUserHash } = await import("../services/account/deletionLock");
 const { VmPublicationProviderError } = await import(
   "../services/vm-publications/provider"
@@ -266,6 +271,7 @@ beforeEach(() => {
   getUser.mockClear();
   getUser.mockResolvedValue(null);
   authTombstoneRows = [];
+  savedVmCountFixture = 0;
   runVmWorkflow.mockClear();
   (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<never>): void }).mockImplementation(
     async () => {
@@ -552,6 +558,35 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
+  test("publishes Plus's one-machine allowance without an hourly cap in VM list limits", async () => {
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      selectedTeam: null,
+      clientReadOnlyMetadata: { cmuxPlan: "go" },
+      listTeams: async () => [],
+    });
+    savedVmCountFixture = 1;
+    runVmWorkflow.mockResolvedValue([]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+
+    expect(response.status).toBe(200);
+    const { limits } = await response.json();
+    expect(limits).not.toHaveProperty("vmHoursIncluded");
+    expect(limits).not.toHaveProperty("vmHoursUsed");
+    expect(limits).toMatchObject({
+      planId: "go",
+      maxActiveVms: 1,
+      savedVmLimit: 1,
+      activeVmCount: 1,
+      savedVmCount: 1,
+      memoryOptionsMb: [4096, 8192, 16384],
+      maxVcpus: 8,
+      maxMemoryMb: 16384,
+      maxDiskMb: 131072,
+    });
+  });
+
   test.each(["cookie", "native"])("hydrates an ID-only selected team for paid VM list limits (%s)", async (auth) => {
     const listTeams = mock(async () => [
       { id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
@@ -563,6 +598,7 @@ describe("VM REST auth", () => {
       selectedTeam: { id: "team-1" },
       listTeams,
     });
+    savedVmCountFixture = 3;
     runVmWorkflow.mockResolvedValue([{
       providerVmId: "provider-vm-team-1", provider: "freestyle",
       image: "snapshot-test", status: "running", createdAt: 1_777_000_000_000,
@@ -590,7 +626,7 @@ describe("VM REST auth", () => {
       // the paused machine does not count. That fallback is pool accounting,
       // not a current-size marker for clients.
       limits: {
-        planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
+        planId: "team", maxActiveVms: 20, activeVmCount: 3, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
         poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 48, usedMemoryMb: 98304,
         maxDiskMb: 131072, maxMemoryMb: 16384, maxVcpus: 8,
       },
@@ -1507,9 +1543,12 @@ describe("VM REST auth", () => {
         expect(route.constructor).toHaveBeenCalledTimes(1);
         const provisionInput = (route.constructor.mock.calls as unknown[][])[0]?.[0] as {
           modelPlane?: { provision?: unknown; revoke?: unknown };
+          deferAfterResponse?: unknown;
         };
         expect(typeof provisionInput.modelPlane?.provision).toBe("function");
         expect(typeof provisionInput.modelPlane?.revoke).toBe("function");
+        // Guest work after the answer (the vm-kind record) is kept alive by the platform, never detached.
+        expect(typeof provisionInput.deferAfterResponse).toBe("function");
       }
     }
   });
@@ -2199,7 +2238,12 @@ describe("VM REST auth", () => {
       callerPlanId: "pro",
       maxActiveVms: 5,
       modelPlane: expect.objectContaining({}),
+      // The owner team's member list for the caller's vmKind.
+      teamDirectory: expect.objectContaining({}),
+      // A teammate's chat grant counts toward vmKind on this route only.
+      readChatGrants: true,
     });
+    expect(typeof (attachInput.teamDirectory as { listMemberIds?: unknown }).listMemberIds).toBe("function");
     // An opted-in machine's agent-update exec runs after the response.
     expect(typeof deferAfterResponse).toBe("function");
     expect(openAttachEndpoint).not.toHaveBeenCalled();
@@ -2685,6 +2729,30 @@ describe("VM REST auth", () => {
     } finally {
       console.error = originalError;
     }
+  });
+
+  test("does not expose unknown provider diagnostics in a retryable VM error", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "getStatus",
+      cause: Object.assign(new Error("upstream https://internal.example/tenant/private-id?token=sentinel"), {
+        status: 404,
+        code: "UNKNOWN_ERROR",
+      }),
+    }), { locale: "en" });
+
+    expect(response).not.toBeNull();
+    const payload = await response!.json();
+    expect(payload).toMatchObject({
+      error: "vm_cloud_service_unavailable",
+      retryable: true,
+      details: { providerCode: "provider_error" },
+    });
+    expect(payload.details.providerMessage).toBeUndefined();
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("internal.example");
+    expect(serialized).not.toContain("sentinel");
+    expect(serialized).not.toContain("UNKNOWN_ERROR");
   });
 
   test("requires an Origin header for cookie-authenticated mutations", async () => {

@@ -468,6 +468,10 @@ cleanup() {
     kill -TERM "$CODEX_WORKLOAD_PID" >/dev/null 2>&1 || true
     wait "$CODEX_WORKLOAD_PID" >/dev/null 2>&1 || true
   fi
+  # Never leave the shutdown FIFO in the evidence directory an upload reads.
+  if [[ -n "$CODEX_SHUTDOWN_FILE" && -p "$CODEX_SHUTDOWN_FILE" ]]; then
+    rm -f "$CODEX_SHUTDOWN_FILE"
+  fi
   # Preserve diagnostics when the app never emits a report. The normal
   # success path captures these below after the report arrives, but an early
   # readiness failure used to delete the only useful endpoint evidence during
@@ -1143,6 +1147,10 @@ if [[ "$REAL_USAGE" -eq 1 ]]; then
   mkdir -p "$REAL_USAGE_DIR"
   CODEX_SHUTDOWN_FILE="$REAL_USAGE_DIR/shutdown"
   rm -f "$CODEX_SHUTDOWN_FILE"
+  # A FIFO the workload blocks on until the line written below. Holding it open
+  # read-write keeps that write from blocking if the workload already exited.
+  mkfifo "$CODEX_SHUTDOWN_FILE"
+  exec 7<>"$CODEX_SHUTDOWN_FILE"
   echo "==> starting real Codex workload in three Mac workspaces"
   CMUX_E2E_TAG="$TAG" \
   CMUX_CODEX_EVIDENCE_DIR="$REAL_USAGE_DIR" \
@@ -1388,13 +1396,15 @@ PY_TARGET
         --background-seconds "$background_seconds" \
         --video "$cycle_dir/ios-e2e.mp4"
   done
-  touch "$CODEX_SHUTDOWN_FILE"
+  printf 'stop\n' >&7
   if ! wait "$CODEX_WORKLOAD_PID"; then
     echo "error: real Codex workload failed" >&2
     cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
     exit 1
   fi
   CODEX_WORKLOAD_PID=""
+  exec 7>&-
+  rm -f "$CODEX_SHUTDOWN_FILE"
   REAL_USAGE_DIR="$REAL_USAGE_DIR" /usr/bin/python3 <<'PY_REAL_USAGE'
 import json
 import os

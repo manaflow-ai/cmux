@@ -468,15 +468,18 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
   -keyout "$STALL_DIR/key.pem" -out "$STALL_DIR/cert.pem" > "$STALL_DIR/openssl.log" 2>&1
 # The server certificate is self-signed; this test is about stalls, not trust.
 printf 'insecure\n' > "$STALL_DIR/.curlrc"
+# The server reports its port through a FIFO this shell holds open, so the
+# timed read below waits for it without polling.
+mkfifo "$STALL_DIR/port.fifo"
+exec 5<>"$STALL_DIR/port.fifo"
 python3 - "$STALL_DIR" <<'PY' &
 import os, socket, ssl, sys, threading, time
 root = sys.argv[1]
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(f"{root}/cert.pem", f"{root}/key.pem")
 listener = socket.create_server(("127.0.0.1", 0))
-with open(f"{root}/port.tmp", "w") as handle:
-    handle.write(str(listener.getsockname()[1]))
-os.rename(f"{root}/port.tmp", f"{root}/port")
+with open(f"{root}/port.fifo", "w") as handle:
+    handle.write("%d\n" % listener.getsockname()[1])
 def stall(connection):
     try:
         with context.wrap_socket(connection, server_side=True) as tls:
@@ -493,12 +496,10 @@ while True:
 PY
 STALL_SERVER_PID=$!
 trap 'kill "$STALL_SERVER_PID" 2>/dev/null || true; rm -rf "$TEST_DIR"' EXIT
-port_deadline=$((SECONDS + 10))
-while (( SECONDS < port_deadline )) && [[ ! -s "$STALL_DIR/port" ]]; do
-  sleep 0.1
-done
-[[ -s "$STALL_DIR/port" ]] || { echo "FAIL: stall server did not start" >&2; exit 1; }
-STALL_PORT="$(cat "$STALL_DIR/port")"
+STALL_PORT=""
+read -r -t 10 -u 5 STALL_PORT || true
+exec 5<&-
+[[ "$STALL_PORT" =~ ^[0-9]+$ ]] || { echo "FAIL: stall server did not start" >&2; exit 1; }
 mkdir -p "$TEST_DIR/Stalled.app/Contents"
 stall_status=0
 started=$SECONDS

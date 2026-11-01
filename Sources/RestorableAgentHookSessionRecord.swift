@@ -17,6 +17,8 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// Whether the last Stop listed a session cron (CLI `ClaudeHookSessionRecord`).
+    var hadSessionCronsAtStop: Bool?
     var updatedAt: TimeInterval
     var activePromptDepth: Int?
     var activePromptTurnIds: [String]?

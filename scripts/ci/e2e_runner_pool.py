@@ -306,6 +306,8 @@ def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | N
     snapshot = client.snapshot(now=now)
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return None
+    if pr_runner_pool.snapshot_truncated(snapshot):
+        return None  # a partial queue is no usable snapshot (the default keeps its say)
     since = str(snapshot["generated_at"])
     load = PoolLoad(
         snapshot,
@@ -549,6 +551,69 @@ def read_live_owned(repo: str, env: Mapping[str, str], owned: str | None,
     return live_owned(read_live_runners(repo, env, owned, pr_xcode_app), pr_xcode_app)
 
 
+# A RUNNER_POOLS `_dead` mark the latest write of the variable still holds: runner_pools.py rewrites the value
+# (and its `_updated`) whenever a mark is added, refreshed, expired or cleared, so a mark as new as `_updated`
+# has not been cleared by any pass since, however old it is. simple_pool_picker.marked_dead() drops it after
+# DEAD_MARK_TTL_MINUTES all the same, which is right while the writer runs and wrong when it does not: on
+# 2026-11-01 the marks of 01:31:51Z (the value's `_updated` too) lapsed at 02:01:51Z with no pass since, and the DEV
+# publisher's --wait-owned pick at about 02:02Z put verify and tip-dmg-build on blacksmith-6vcpu-macos-26, which
+# had 0 of 12 runners online (run 41261942674). Such a mark keeps counting for LINGERING_DEAD_MARK_MINUTES; the
+# writer's next pass clears it at once if the label started a job, and a wrong call only waits on the owned fleet.
+LINGERING_DEAD_MARK_MINUTES = simple_pool_picker.BLACKSMITH_DEAD_EVIDENCE_MINUTES
+OWNED_ROLE = re.compile(r"^glaeda-(?:aws-)?(?:root|side|gui)-")
+
+
+def _moment(value: Any) -> dt.datetime | None:
+    try:
+        parsed = dt.datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def lingering_dead(pools: Mapping[str, Any] | None, now: dt.datetime) -> set[str]:
+    """The labels a RUNNER_POOLS `_dead` mark names that no later write of the variable cleared (the mark is at
+    least as new as `_updated`), within LINGERING_DEAD_MARK_MINUTES of `now`. simple_pool_picker.marked_dead()'s
+    fresh marks cover these while the writer runs; this keeps the ones it would let lapse while the writer does not."""
+    pools = pools if isinstance(pools, Mapping) else {}
+    marks = pools.get(simple_pool_picker.DEAD_MARKS_KEY)
+    updated = _moment(pools.get("_updated"))
+    if not isinstance(marks, Mapping) or updated is None:
+        return set()
+    out = set()
+    for label, since in marks.items():
+        seen = _moment(since)
+        if seen is None or seen < updated or not (
+                dt.timedelta(minutes=-5) <= now - seen < dt.timedelta(minutes=LINGERING_DEAD_MARK_MINUTES)):
+            continue
+        out.add(str(label))
+    return out
+
+
+def owned_from_slots(env: Mapping[str, str], classes: set[str]) -> tuple[simple_pool_picker.Pool, ...]:
+    """The owned pools CI_OWNED_POOL_SLOTS configures for the lane's Xcode pin (and `classes`, when given), with
+    their declared slots as capacity and no runner known idle: what a --wait-owned pick waits on when the runners
+    read failed. Run 41261942674's read got HTTP 403 on both the glaeda-minis group and the org-wide list, so
+    simple_pool_picker.observe() skipped every owned pool and the pick had nothing to wait on but a dead
+    Blacksmith label, while the std minis sat idle."""
+    xcode_app = env.get("CMUX_CI_XCODE_APP_PR", "")
+    slots = simple_pool_picker._slots(env.get("CI_OWNED_POOL_SLOTS"))
+    pools = []
+    for label in sorted(slots, key=simple_pool_picker.owned_order):
+        # A pool's own label only: its root-, side- and gui- labels are roles on the same machines.
+        if not simple_pool_picker.OWNED_FAMILY.fullmatch(label) or OWNED_ROLE.match(label):
+            continue
+        if not simple_pool_picker.owned_matches_xcode(label, xcode_app):
+            continue
+        if classes and simple_pool_picker.owned_class(label) not in classes:
+            continue
+        if slots[label] <= 0:
+            continue
+        pools.append(simple_pool_picker.Pool(label, slots[label], free=0,
+                                             xcode_app=simple_pool_picker.owned_xcode_app(label, xcode_app)))
+    return tuple(pools)
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -565,7 +630,33 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--test-filter", default=None, help="the workflow's test_filter input")
     parser.add_argument("--owned-ui", default="", help=f"vars.{OWNED_UI_VARIABLE}")
     parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
+    parser.add_argument("--jobs", type=int, default=E2E_JOBS,
+                        help="machines the run holds at once; an auto pick names an owned pool only with "
+                             "that many free (cmux-next-dev-daily.yml asks 2 for verify and tip-dmg-build)")
+    parser.add_argument("--wait-owned", action="store_true",
+                        help="an auto pick with nothing free waits on the owned fleet (ci.yml's rule)")
+    parser.add_argument("--blacksmith-labels", default="",
+                        help="comma-separated Blacksmith labels the caller's jobs can run on; an auto pick "
+                             "counts free room and returns a Blacksmith label only among these (default: all)")
+    parser.add_argument("--owned-fallback", action="store_true",
+                        help="print the first owned pool CI_OWNED_POOL_SLOTS configures for the Xcode pin and "
+                             "--owned-classes (no API read), or nothing; cmux-next-dev-daily.yml's verify and "
+                             "tip-dmg-build take it when every Blacksmith macOS 26 label shows dead")
+    parser.add_argument("--owned-classes", default="",
+                        help="comma-separated owned classes (std, light, xl) an auto pick may name or wait on "
+                             "(default: all); cmux-next-dev-daily.yml keeps its download-bound jobs off light")
     args = parser.parse_args(argv)
+    classes = {name.strip() for name in args.owned_classes.split(",") if name.strip()}
+    unknown = sorted(classes - set(simple_pool_picker.RUN_CLASSES))
+    if unknown:
+        parser.error(f"--owned-classes: not an owned class: {', '.join(unknown)} "
+                     f"(one of {', '.join(simple_pool_picker.RUN_CLASSES)})")
+
+    if args.owned_fallback:
+        fleet = () if (args.owned or "").strip() != "1" else owned_from_slots(
+            {"CI_OWNED_POOL_SLOTS": args.owned_slots, "CMUX_CI_XCODE_APP_PR": args.pr_xcode_app}, classes)
+        print(fleet[0].label if fleet else "")
+        return 0
 
     # Auto choices use the shared live rule. Explicit labels retain the
     # workflow's direct-request contract and its validation below.
@@ -578,13 +669,59 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         values.update({"CI_PR_POOL_OWNED": args.owned, "CI_OWNED_POOL_SLOTS": args.owned_slots,
                        "CI_PR_POOL_OVERFLOW": args.overflow, "MACOS_RUNNER_PR": args.variable,
                        "CMUX_CI_XCODE_APP_PR": args.pr_xcode_app})
-        choice = simple_pool_picker.pick(simple_pool_picker.observe(
+        repository = values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or ""
+        head = values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY") or ""
+        fork = values.get("FORK_PULL_REQUEST") == "true" or head != repository
+        # --wait-owned (cmux-next-dev-daily.yml's verify placement, which the
+        # owned-pool rescue watches on attempt 1): minis first, as ci.yml's
+        # pick. With no owned Mac free and no free, moving Blacksmith slot, a
+        # same-repository run waits on the fleet, never on a stalled
+        # Blacksmith queue. Other callers keep the old pick.
+        state = simple_pool_picker.observe(
             token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
-            repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
-            jobs=1, env=values,
-            fork=values.get("FORK_PULL_REQUEST") == "true"
-            or (values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY"))
-            != (values.get("GH_REPO") or values.get("GITHUB_REPOSITORY"))))
+            repository=repository, jobs=max(1, args.jobs), env=values, fork=fork,
+            wait_owned=args.wait_owned and not fork
+            and simple_pool_picker.wait_on_owned(values, head=head, repository=repository))
+        usable = {label.strip() for label in args.blacksmith_labels.split(",") if label.strip()}
+        if usable:
+            # --blacksmith-labels (cmux-next-dev-daily.yml: its macOS jobs fall back only to
+            # blacksmith-6vcpu-macos-26): a free slot on a label those jobs never run on (macOS 15)
+            # is no room for them, so it must not keep --wait-owned from waiting on the fleet
+            # (run 40449661622 queued on a stalled macOS 26 label behind a free macOS 15 one).
+            state = dataclasses.replace(state, blacksmith=tuple(
+                pool for pool in state.blacksmith if pool.label in usable))
+        if classes:
+            # --owned-classes (cmux-next-dev-daily.yml: std). Its verify and tip-dmg-build each download
+            # the 188 MB signed app; the light pool's minis took 736-974 s for that against about 15 s on
+            # a std mini (24 h to 2026-10-30), so verify ran 895 s median there against 41 s and 71 of 90
+            # hit its 15 minute limit. A pool of another class is neither picked nor waited on.
+            state = dataclasses.replace(state, owned=tuple(
+                pool for pool in state.owned if simple_pool_picker.owned_class(pool.label) in classes))
+        waiting = isinstance(state, simple_pool_picker.State) and state.wait_on_owned
+        if waiting:
+            # Never a label RUNNER_POOLS marks dead, even after its mark's TTL when no write cleared it.
+            gone = lingering_dead(simple_pool_picker.runner_pools(values.get("RUNNER_POOLS")),
+                                  dt.datetime.now(dt.timezone.utc))
+            if gone:
+                state = dataclasses.replace(state, blacksmith=tuple(
+                    dataclasses.replace(pool, stalled=True) if pool.label in gone else pool
+                    for pool in state.blacksmith))
+            if state.owned_enabled and not state.owned:
+                # The runners read failed (or listed none): wait on the configured owned pools.
+                state = dataclasses.replace(state, owned=owned_from_slots(values, classes))
+        choice = simple_pool_picker.pick(state)
+        if waiting and not choice.owned:
+            # --wait-owned never returns a dead or stalled Blacksmith label while an owned pool is configured:
+            # it waits on the fleet instead (the owned-pool rescue watches it).
+            pool = next((pool for pool in state.blacksmith if pool.label == choice.label), None)
+            if pool is not None and pool.stalled:
+                fleet = state.owned or owned_from_slots(values, classes)
+                if fleet:
+                    owned = min(fleet, key=lambda item: simple_pool_picker.owned_order(item.label))
+                    choice = simple_pool_picker.Choice(
+                        owned.label, f"{choice.label} is dead or stalled; waits on the owned label instead",
+                        owned.xcode_app, True)
+        print(f"pool pick: {choice.label or 'default'} ({choice.reason})", file=sys.stderr)
         print(choice.label or args.variable or SMALL_RUNNER)
         return 0
     if args.retry_of is not None:

@@ -1,0 +1,283 @@
+name: nightly-next train
+# The cmux NEXT nightly release train (docs/ci/nightly-next-train.md; design
+# leo-workspace workstreams/cmux-next-nightly-train.md).
+#
+# mode drive (default), on feat-cmux-next: plan the cars from the last good
+#   build (durable canary verdict, nightly-next-verdict.yml) to the tip, run
+#   the per-car guards, build the candidate (tip minus the quarantined cars) as
+#   a train commit, bisect k ways on red, and ask main to promote the green
+#   train commit (promote guard G1'/G2'). Repository variable
+#   NIGHTLY_NEXT_TRAIN decides how far it goes:
+#     unset | dry-run   plan and per-car guards only; the run summary is the
+#                       plan (the default until Leo turns it on);
+#     on                the whole train; needs environment nightly-next-train
+#                       (below);
+#     off               nothing runs.
+#   Tuning (repository variables, defaults from the design):
+#   NIGHTLY_NEXT_TRAIN_K (4 builds per bisection round),
+#   NIGHTLY_NEXT_TRAIN_ROUNDS (3), NIGHTLY_NEXT_TRAIN_CAP_MINUTES (120).
+# mode plan: the dry run whatever the variable says (nightly-next-tick.yml).
+# mode build, on a nightly-train/* ref the drive job pushed: the candidate's
+#   Release compile. Its job name is promote guard G2' (TRAIN_GATE_JOB in
+#   scripts/ci/promote-nightly-next.mjs); keep the two in step.
+#
+# A feed pull dispatches mode drive with the fix-forward contract
+# (scripts/ci/nightly_next_fix_forward.py): pulled_build, good_build,
+# quarantine, reason.
+#
+# GitHub registers a dispatch workflow only from the default branch, so this
+# file is on main too; a run there does nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: drive, plan (dry run) or build (a nightly-train/* ref only)
+        required: false
+        default: drive
+        type: string
+      tip:
+        description: feat-cmux-next commit (40 hex) to end the train at, an ancestor of the dispatched head; empty is that head
+        required: false
+        default: ''
+        type: string
+      train_run:
+        description: (mode build) the drive run that pushed this ref
+        required: false
+        default: ''
+        type: string
+      pulled_build:
+        description: (fix-forward) the first pulled build
+        required: false
+        default: ''
+        type: string
+      good_build:
+        description: (fix-forward) the build the feed serves now; the train's base
+        required: false
+        default: ''
+        type: string
+      quarantine:
+        description: (fix-forward) a commit (40 hex) whose car starts quarantined
+        required: false
+        default: ''
+        type: string
+      reason:
+        description: (fix-forward) why the build was pulled
+        required: false
+        default: ''
+        type: string
+
+permissions: {}
+
+jobs:
+  drive:
+    name: nightly-next train
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.mode != 'build' && vars.NIGHTLY_NEXT_TRAIN != 'off'
+    # The full train pushes train commits (they change workflow files), so it
+    # needs the release App's contents and workflows write; that lives in
+    # environment nightly-next-train (deployment branch feat-cmux-next). The
+    # dry run holds no secret.
+    environment: ${{ inputs.mode != 'plan' && vars.NIGHTLY_NEXT_TRAIN == 'on' && 'nightly-next-train' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 150
+    permissions:
+      actions: write # dispatch the candidate builds and main's promotion
+      contents: read
+      issues: write # the nightly-next quarantine issue (direct pushes)
+      pull-requests: write # one quarantine comment per car
+    # A fix-forward (pulled_build) or a train to a given tip has its own group, so
+    # a newer request never replaces it. Plain drives share one: each plans from
+    # the durable verdict to the branch tip when it starts, so the waiting one
+    # does the work of any it replaced.
+    concurrency:
+      group: ${{ inputs.pulled_build != '' && format('nightly-next-train-fix-{0}-{1}', inputs.pulled_build, github.run_id) || inputs.tip != '' && format('nightly-next-train-tip-{0}', github.run_id) || 'nightly-next-train' }}
+      cancel-in-progress: false
+    steps:
+      # The scripts always run from the dispatched feat-cmux-next head, never
+      # from inputs.tip: the drive job holds the release App token, so it must
+      # not run code from a commit that never landed.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          filter: blob:none
+
+      # Before any token exists: the tip must be a feat-cmux-next commit.
+      - name: Check the tip is on feat-cmux-next
+        env:
+          TIP: ${{ inputs.tip }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TIP" ]; then
+            exit 0
+          fi
+          if ! [[ "$TIP" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::tip must be a 40-hex commit"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TIP" "$GITHUB_SHA"; then
+            echo "::error::tip $TIP is not on feat-cmux-next ($GITHUB_SHA); refusing to run the train"
+            exit 1
+          fi
+
+      - name: Mint release App token
+        id: app-token
+        if: inputs.mode != 'plan' && vars.NIGHTLY_NEXT_TRAIN == 'on'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Run the train
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          MODE: ${{ inputs.mode == 'plan' && 'dry-run' || vars.NIGHTLY_NEXT_TRAIN == 'on' && 'on' || 'dry-run' }}
+          TIP: ${{ inputs.tip }}
+          GOOD_BUILD: ${{ inputs.good_build }}
+          QUARANTINE: ${{ inputs.quarantine }}
+          REASON: ${{ inputs.reason }}
+          NIGHTLY_NEXT_TRAIN_K: ${{ vars.NIGHTLY_NEXT_TRAIN_K }}
+          NIGHTLY_NEXT_TRAIN_ROUNDS: ${{ vars.NIGHTLY_NEXT_TRAIN_ROUNDS }}
+          NIGHTLY_NEXT_TRAIN_CAP_MINUTES: ${{ vars.NIGHTLY_NEXT_TRAIN_CAP_MINUTES }}
+        run: |
+          set -euo pipefail
+          tip="${TIP:-$GITHUB_SHA}"
+          if [ "$MODE" = on ]; then
+            # Train commits and nightly-train/* refs are pushed with the App.
+            # The token sits in this ephemeral runner's ~/.gitconfig, not the
+            # checkout's config, and the cleanup step removes it.
+            git config --global url."https://x-access-token:${APP_TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
+          git config --global user.name "cmux nightly train"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 scripts/ci/nightly_next_train_drive.py drive --tip "$tip" --mode "$MODE" \
+            --repo "$GITHUB_REPOSITORY" --good-build "$GOOD_BUILD" --quarantine "$QUARANTINE" \
+            --reason "$REASON" --out train-result.json
+
+      - name: Clear the App credential
+        if: always()
+        run: git config --global --remove-section "url.https://x-access-token:${APP_TOKEN}@github.com/" 2>/dev/null || true
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Keep the train result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-train-${{ github.run_id }}
+          path: train-result.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # The candidate compile's route, picked on Linux right before it queues: an
+  # owned Mac while one of its runners is idle now, else the Blacksmith macOS 26
+  # label whose queue moves (scripts/ci/nightly_build_runner.py, the picker the
+  # nightly-next app build uses). The routing order is Linux, then owned Macs,
+  # then Blacksmith macOS last (Leo, 2026-10-24), and GitHub-hosted macOS is
+  # never in it (tests/test_ci_no_github_hosted_macos.py).
+  pick-train-runner:
+    name: Pick the train compile's runner
+    if: github.repository == 'manaflow-ai/cmux' && inputs.mode == 'build' && startsWith(github.ref, 'refs/heads/nightly-train/')
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The routing App's key, as nightly.yml's pick-nightly-build-runner reads it.
+    environment: ci-routing-agent
+    timeout-minutes: 5
+    permissions:
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+      contents: read
+    outputs:
+      owned: ${{ steps.pick.outputs.owned }}
+      blacksmith: ${{ steps.pick.outputs.blacksmith }}
+      # The attempt the pick was made for: a re-run of the failed compile keeps
+      # this job and its outputs, so it reads `blacksmith` and leaves the owned
+      # label (GitHubBuilder in nightly_next_train_drive.py re-runs a refused one).
+      attempt: ${{ steps.pick.outputs.attempt }}
+    steps:
+      - name: Checkout the runner picker at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      # No dedicated builder (it keeps the nightly-next tip's warm state). An owned
+      # label is offered only while a runner carrying it is idle now; a busy fleet,
+      # unread runners or a failed step all leave `owned` empty.
+      - name: Pick an idle owned Mac, else a moving Blacksmith label
+        id: pick
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          OWNED_LABELS: ${{ format('{0} {1}', vars.NIGHTLY_NEXT_TRAIN_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py
+
+  build:
+    name: nightly-next train Release compile
+    needs: pick-train-runner
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && inputs.mode == 'build' && startsWith(github.ref, 'refs/heads/nightly-train/') }}
+    # An idle owned Mac on the pick's own attempt, else the moving Blacksmith label;
+    # a failed pick falls back to vars.MACOS_RUNNER_26, then Blacksmith macOS 26.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # The same one-architecture Release xcodebuild as cmux-next.yml's
+    # "cmux-next Release compile (Xcode 26)", on the candidate train commit.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Release compile
+        run: |
+          derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
+          scripts/cmux-next/check-release-compile.sh "$derived_data"

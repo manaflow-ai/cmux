@@ -11,7 +11,7 @@ type TestSql = ((strings: TemplateStringsArray, ...values: unknown[]) => Promise
 let sqlClient: TestSql | null = null;
 const cleanupRunIds: string[] = [];
 
-mock.module("../services/runs/cloudClient", () => ({
+mock.module("../services/runs/legacy/cloudClient", () => ({
   runCloudOrigin: () => "https://cmux-staging.vercel.app",
   runCloudClient: async () => {
     throw Object.assign(new Error("Run worker setup failed at session-create"), { stage: "session-create" });
@@ -58,7 +58,7 @@ describe("Run queue worker", () => {
       values (${attemptId}::uuid, ${runId}::uuid, 0, ${db.json({ id: "v0" })}, 'queued')
     `;
 
-    const { processRunQueue } = await import("../services/runs/runner");
+    const { processRunQueue } = await import("../services/runs/legacy/runner");
     const outcome = await processRunQueue({ runId });
     expect(outcome.results).toContain("failed");
 

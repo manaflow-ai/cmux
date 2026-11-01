@@ -580,6 +580,38 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func chiefReadsAreAccountWideButMutationsRequireMacWideTicket() throws {
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
+        let macWideTicket = try scopedAttachTicket(workspaceID: "")
+        let reads: [(method: String, params: [String: Any])] = [
+            ("chief.status", [:]),
+            ("chief.conversations", [:]),
+            ("chief.read", ["conversation": "chief-main"]),
+        ]
+        for entry in reads {
+            let request = MobileHostRPCRequest(id: entry.method, method: entry.method, params: entry.params, auth: nil)
+            #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: request) == nil)
+            #expect(MobileHostService.ticketAuthorizationError(ticket: macWideTicket, request: request) == nil)
+        }
+
+        let mutations: [(method: String, params: [String: Any])] = [
+            ("chief.open", [:]),
+            ("chief.send", ["text": "hello"]),
+            ("chief.mark_read", ["up_to_seq": 7]),
+            ("chief.stop", [:]),
+            ("chief.approve", ["choice": "Allow"]),
+            ("chief.answer", [:]),
+            ("chief.debug", ["action": "theme"]),
+        ]
+        for entry in mutations {
+            let request = MobileHostRPCRequest(id: entry.method, method: entry.method, params: entry.params, auth: nil)
+            #expect(
+                MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: request)?.code == "forbidden"
+            )
+            #expect(MobileHostService.ticketAuthorizationError(ticket: macWideTicket, request: request) == nil)
+        }
+    }
+
     private func scopedAttachTicket(workspaceID: String) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",

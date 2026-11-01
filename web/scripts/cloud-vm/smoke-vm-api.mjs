@@ -14,7 +14,7 @@ import {
 } from "./projects.mjs";
 import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--sweep-this-run] [--result-file <path>]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -60,6 +60,24 @@ const claudeUpstreamBody = claudeUpstreamJson
 const zeroToken = rest.includes("--zero-token");
 if (zeroToken && (!edgeCheck || claudeCheck)) {
   console.error("--zero-token requires --edge-check and excludes --claude-check");
+  process.exit(2);
+}
+// --sweep-this-run creates nothing: it deletes the smoke users (and their
+// VMs) this GitHub Actions run made, whatever their age. A workflow runs it in
+// an `if: always()` step, which GitHub runs after a cancel or timeout too, so
+// a run killed before its own cleanup still leaves no VM behind. Each run's
+// users carry its id in their address (runEmailTag), so a concurrent smoke or
+// canary is never touched.
+const sweepThisRun = rest.includes("--sweep-this-run");
+// `gh-<run id>-<attempt>` inside GitHub Actions; null anywhere else.
+const runEmailTag = (() => {
+  const runId = process.env.GITHUB_RUN_ID?.trim();
+  if (!runId || !/^\d+$/.test(runId)) return null;
+  const attempt = process.env.GITHUB_RUN_ATTEMPT?.trim();
+  return `gh-${runId}-${attempt && /^\d+$/.test(attempt) ? attempt : "1"}`;
+})();
+if (sweepThisRun && !runEmailTag) {
+  console.error("--sweep-this-run needs GITHUB_RUN_ID (it only runs inside GitHub Actions)");
   process.exit(2);
 }
 // --sweep-older-than-minutes deletes leftovers from earlier smoke runs that
@@ -218,7 +236,7 @@ async function sessionHeaders(stackUser, expiresInMillis) {
 }
 
 async function sweepLeftovers(app, emailPrefix, olderThanMinutes) {
-  const cutoff = Date.now() - olderThanMinutes * 60_000;
+  const cutoff = olderThanMinutes === 0 ? Infinity : Date.now() - olderThanMinutes * 60_000;
   const candidates = await app.listUsers({ query: emailPrefix, limit: 200 });
   const swept = { users: 0, vms: 0, kept: [] };
   for (const leftover of candidates) {
@@ -248,6 +266,27 @@ async function sweepLeftovers(app, emailPrefix, olderThanMinutes) {
   return swept;
 }
 
+// A cancelled CI run or a Ctrl-C: delete the VM this run created before
+// exiting. The finally below never runs on a signal. A SIGKILL is covered by
+// the workflow's always() --sweep-this-run step instead.
+let signalled = false;
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (signalled) return;
+    signalled = true;
+    console.error(`${signal}: cleaning up before exit`);
+    const exitCode = signal === "SIGINT" ? 130 : 143;
+    const pendingVm = vmId;
+    const cleanup = pendingVm && authHeaders
+      ? fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(pendingVm)}`, { method: "DELETE", headers: authHeaders }, 10_000)
+        .then((destroy) => console.error(`cleanup_on_signal_vm=${pendingVm} status=${destroy.status}`))
+      : Promise.resolve();
+    cleanup
+      .catch((error) => console.error(`cleanup_on_signal_failed vm=${pendingVm} error=${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => process.exit(exitCode));
+  });
+}
+
 try {
   const env = loadTargetEnv(project);
   requireEnvKeys(env, [
@@ -261,6 +300,16 @@ try {
 
   const app = new StackServerApp({ projectId, publishableClientKey, secretServerKey });
   const emailPrefix = `cmux-${project.stackLabel}-smoke+`;
+  if (sweepThisRun) {
+    stage = "sweep";
+    const own = await timed("sweep", () => sweepLeftovers(app, `${emailPrefix}${runEmailTag}-`, 0));
+    console.log(JSON.stringify({ ok: own.kept.length === 0, target, sweptThisRun: runEmailTag, swept: own }));
+    if (own.kept.length > 0) {
+      throw new Error(`could not delete the VMs of ${own.kept.length} smoke user(s) from this run: ${own.kept.join(", ")}`);
+    }
+    writeResultFile({ ok: true });
+    process.exit(0);
+  }
   const swept = sweepOlderThanMinutes === null
     ? null
     : await timed("sweep", () => sweepLeftovers(app, emailPrefix, sweepOlderThanMinutes));
@@ -269,7 +318,7 @@ try {
     throw new Error(`sweep could not delete the VMs of ${swept.kept.length} earlier smoke user(s): ${swept.kept.join(", ")}`);
   }
   stage = "auth";
-  const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
+  const suffix = `${runEmailTag ? `${runEmailTag}-` : ""}${Date.now()}-${randomBytes(3).toString("hex")}`;
   user = await app.createUser({
     primaryEmail: `${emailPrefix}${suffix}@manaflow.dev`,
     primaryEmailVerified: true,
@@ -539,8 +588,10 @@ try {
   process.exitCode = 1;
 } finally {
   // A create that failed before returning an id, or a VM that could not be
-  // deleted, may still exist; deleting its owner would orphan it.
-  if (user && keepUserForSweep && sweepOlderThanMinutes !== null) {
+  // deleted, may still exist; deleting its owner would orphan it where no
+  // sweep can find it. Keep the user, so the next --sweep-older-than-minutes
+  // run (the canary's) or this run's --sweep-this-run step deletes both.
+  if (user && keepUserForSweep) {
     console.error(`cleanup_kept_user_for_sweep=${user.id}`);
   } else if (user) {
     try {

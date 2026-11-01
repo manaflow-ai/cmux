@@ -457,6 +457,30 @@ The app-wide switch for `cmux agent message`. When `false`, sends fail with "Age
 
 Default: `true`. Toggle it from **Settings > Automation > Agent Messages**. To turn messages off for one agent or workspace instead, see [Turning messages off](agent-messages.md#turning-messages-off).
 
+## `chief`
+
+Settings for Chief, the Home agent.
+
+| Key | Values | Default | Description |
+|---|---|---|---|
+| `chief.enabled` | `true`, `false` | `true` | Show the Home row and Chief entry points. When `false`, the Home row, the **Open Chief** shortcut, the **View > Chief** menu item, and the Chief command palette entries are hidden. |
+| `chief.harness` | `claude`, `codex` | `claude` | The agent harness Chief runs on: Claude Code or Codex. |
+| `chief.model` | string | `""` | The model passed to the harness. Leave empty to use the harness default. |
+| `chief.effort` | string | `""` | The reasoning effort passed to the harness, such as `low`, `medium`, or `high`. Leave empty to use the harness default. |
+
+```json
+{
+  "chief": {
+    "enabled": true,
+    "harness": "codex",
+    "model": "",
+    "effort": "high"
+  }
+}
+```
+
+Change these from **Settings > Automation > Chief** too. Open Chief with `⌘⇧C` (`shortcuts.bindings.openChief`).
+
 ## `diffViewer.defaultLayout`
 
 Controls the initial layout for newly opened diff viewers.

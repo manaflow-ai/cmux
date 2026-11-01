@@ -25,7 +25,9 @@ struct GhosttyHostKeybindDefaultsTests {
             ("n", 45, command), ("t", 17, command), ("q", 12, command),
             (",", 43, command), ("\r", 36, command), ("p", 35, command | shift),
             ("[", 33, command | shift), ("]", 30, command | shift),
-            ("\t", 48, control), ("\t", 48, control | shift)
+            ("\t", 48, control), ("\t", 48, control | shift),
+            // Ghostty's undo is unsupported in cmux; Cmd+Z is line-editor undo.
+            ("z", 6, command)
         ]
         for (text, keyCode, modifiers) in defaults {
             #expect(!isBinding(config, text: text, keyCode: keyCode, modifiers: modifiers))
@@ -48,6 +50,7 @@ struct GhosttyHostKeybindDefaultsTests {
             keybind = ctrl+b>1=goto_tab:1
             keybind = super+1=goto_tab:1
             keybind = super+digit_1=goto_tab:1
+            keybind = super+z=text:\\x1a
             """
         contents.withCString { pointer in
             ghostty_config_load_string(config, pointer, UInt(contents.utf8.count), "/__cmux_test__/host-defaults.conf")
@@ -57,6 +60,8 @@ struct GhosttyHostKeybindDefaultsTests {
         #expect(ghostty_config_diagnostics_count(config) == 0)
         #expect(isBinding(config, text: "n", keyCode: 45, modifiers: GHOSTTY_MODS_SUPER.rawValue))
         #expect(isBinding(config, text: "b", keyCode: 11, modifiers: GHOSTTY_MODS_CTRL.rawValue))
+        // A user Cmd+Z binding takes over from line-editor undo.
+        #expect(isBinding(config, text: "z", keyCode: 6, modifiers: GHOSTTY_MODS_SUPER.rawValue))
         #expect(!isBinding(config, text: "1", keyCode: 18, modifiers: GHOSTTY_MODS_SUPER.rawValue))
         #expect(!isBinding(config, text: "", keyCode: 18, modifiers: GHOSTTY_MODS_SUPER.rawValue))
     }

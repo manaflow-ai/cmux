@@ -5,7 +5,7 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 // The socket face of the surface catalog: `surface.catalog`, `surface.project`,
-// `surface.new_terminal`, and the `vm.tree` / `vm.terminal_open` / `vm.terminal_new` /
+// `surface.new_terminal`, `surface.new_display`, and the `vm.tree` / `vm.terminal_open` / `vm.terminal_new` /
 // `vm.desktop_open` / `vm.port_open` / `vm.link_socket` verbs that are now thin wrappers
 // over the same catalog. Every entrypoint (sidebar, CLI, agents) opens a surface through
 // `SurfaceCatalog.project`, so "is it open?" and "where does it land?" have one answer.
@@ -27,6 +27,9 @@ extension TerminalController {
         )
     }
 
+    /// Handles the synchronous in-process surface socket adapter. Network socket
+    /// connections use the async display path below so cloud display creation
+    /// never parks a socket worker thread behind `v2VmCall`.
     nonisolated func socketWorkerSurfaceResponse(method: String, id: Any?, params: [String: Any]) -> String {
         switch method {
         case "surface.catalog":
@@ -114,10 +117,200 @@ extension TerminalController {
                 return await Self.markBackgroundOpen(payload, focus: focus)
             }
 
+        case "surface.new_display":
+            let options: SurfaceNewDisplayOptions
+            switch validateSurfaceNewDisplay(params, id: id) {
+            case .invalid(let response): return response
+            case .valid(let validated): options = validated
+            }
+            let destination = options.open ? surfaceNewDisplayDestination(params) : nil
+            if options.open, destination == nil { return surfaceNewDisplayWorkspaceError(id: id) }
+            return v2VmCall(
+                id: id,
+                timeoutSeconds: 240,
+                mapError: { $0 is SurfaceDisplayCreationBusy ? self.surfaceNewDisplayBusyError(id: id) : nil }
+            ) {
+                try await Self.surfaceNewDisplay(options, destination: destination)
+            }
+
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
     }
+
+    /// Handles `surface.new_display` on the suspendable socket connection task.
+    /// Only the adapter owns its deadline and error envelope; creation is shared.
+    nonisolated func socketWorkerSurfaceNewDisplayResponseAsync(_ request: ControlRequest) async -> String {
+        let params = request.params.mapValues(\.foundationObject)
+        let id = request.id?.foundationObject
+        let options: SurfaceNewDisplayOptions
+        switch validateSurfaceNewDisplay(params, id: id) {
+        case .invalid(let response): return response
+        case .valid(let validated): options = validated
+        }
+        do {
+            let destination: SurfaceDestination?
+            if options.open {
+                // Resolve both workspace and pane on the main actor. The socket
+                // task suspends while queued, and the legacy helpers run inline.
+                destination = try await v2MainAsync {
+                    self.surfaceNewDisplayDestination(request.params.mapValues(\.foundationObject))
+                }
+                if destination == nil { return surfaceNewDisplayWorkspaceError(id: id) }
+            } else {
+                destination = nil
+            }
+            return try await CloudRequestBudget.live.withBudget(seconds: 240) {
+                v2Ok(id: id, result: try await Self.surfaceNewDisplay(options, destination: destination))
+            }
+        } catch let timeout as SocketMainActorHopTimeout {
+            return await socketMainHopTimeoutResponse(
+                id: request.id, method: request.method, isV2: true, error: timeout
+            )
+        } catch is SurfaceDisplayCreationBusy {
+            return surfaceNewDisplayBusyError(id: id)
+        } catch is CancellationError {
+            return v2Error(
+                id: id,
+                code: "timeout",
+                message: String(
+                    localized: "socket.surface.newDisplay.timedOut",
+                    defaultValue: "Creating the cloud display timed out. Check the catalog before retrying."
+                )
+            )
+        } catch let error as SurfaceCatalogError {
+            let code = switch error {
+            case .nothingToOpen: "not_ready"
+            case .destinationNotFound: "not_found"
+            default: "vm_error"
+            }
+            return v2Error(id: id, code: code, message: error.localizedDescription)
+        } catch {
+            return v2Error(
+                id: id,
+                code: "vm_error",
+                message: String(
+                    localized: "socket.surface.newDisplay.failed",
+                    defaultValue: "Could not create the cloud display. Check the machine status and retry."
+                )
+            )
+        }
+    }
+
+    private struct SurfaceNewDisplayOptions: Sendable {
+        let machine: SurfaceMachineID
+        let open: Bool
+        let focus: Bool
+    }
+
+    private enum SurfaceNewDisplayValidation {
+        case valid(SurfaceNewDisplayOptions)
+        case invalid(String)
+    }
+
+    /// Keeps validation order, localized errors, and defaults identical across adapters.
+    private nonisolated func validateSurfaceNewDisplay(_ params: [String: Any], id: Any?) -> SurfaceNewDisplayValidation {
+        guard let machineRaw = Self.surfaceString(params["machine"]), !machineRaw.isEmpty else {
+            return .invalid(v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surface.newDisplay.machineRequired",
+                    defaultValue: "surface.new_display requires `machine` (a cloud machine id)."
+                )
+            ))
+        }
+        let machine = SurfaceMachineID(rawValue: machineRaw)
+        guard machine.cloudMachineID != nil else {
+            return .invalid(v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surface.newDisplay.cloudOnly",
+                    defaultValue: "surface.new_display requires a cloud machine id; local display creation is not supported."
+                )
+            ))
+        }
+        if let response = cloudDisabledSocketError(id: id) { return .invalid(response) }
+        return .valid(SurfaceNewDisplayOptions(
+            machine: machine,
+            open: Self.surfaceBool(params["open"]) ?? true,
+            focus: Self.surfaceBool(params["focus"]) ?? false
+        ))
+    }
+
+    /// Called inline by the legacy worker and inside one async main-actor hop by sockets.
+    private nonisolated func surfaceNewDisplayDestination(_ params: [String: Any]) -> SurfaceDestination? {
+        guard let workspaceID = surfaceTargetWorkspaceID(params, strictExplicit: true) else { return nil }
+        return Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
+    }
+
+    private nonisolated func surfaceNewDisplayWorkspaceError(id: Any?) -> String {
+        v2Error(
+            id: id,
+            code: "invalid_params",
+            message: String(
+                localized: "socket.surface.newDisplay.workspaceRequired",
+                defaultValue: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
+            )
+        )
+    }
+
+    private nonisolated func surfaceNewDisplayBusyError(id: Any?) -> String {
+        v2Error(
+            id: id,
+            code: "busy",
+            message: String(
+                localized: "socket.surface.newDisplay.busy",
+                defaultValue: "A display is already being created on this machine, or the machine changed. Wait for it to finish and retry."
+            )
+        )
+    }
+
+    /// One creation/projection action for both adapters. A failed projection retains
+    /// the created resource; transport cancellation still reaches the caller.
+    private nonisolated static func surfaceNewDisplay(
+        _ options: SurfaceNewDisplayOptions,
+        destination: SurfaceDestination?
+    ) async throws -> [String: Any] {
+        let catalog = await SurfaceCatalog.shared
+        guard try await surfaceProvider(for: options.machine, catalog: catalog) != nil else {
+            throw SurfaceCatalogError.noProvider(options.machine)
+        }
+        let resource: SurfaceResource
+        do {
+            resource = try await catalog.createDisplay(on: options.machine)
+        } catch is CancellationError where !Task.isCancelled {
+            throw SurfaceDisplayCreationBusy()
+        }
+        var payload = surfaceResourcePayload(resource, projections: [])
+        payload["resource"] = resource.id.rawValue
+        payload["open"] = options.open
+        if let destination {
+            do {
+                let opened = try await catalog.project(
+                    resource.id, into: destination, focus: options.focus, reuseExisting: false
+                )
+                payload = surfaceResourcePayload(resource, projections: [opened.projection])
+                payload["resource"] = resource.id.rawValue
+                payload.merge(surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
+            } catch {
+                if error is CancellationError, Task.isCancelled { throw error }
+                payload["open"] = false
+                payload["projection_failed"] = true
+                payload["projection_error"] = surfaceDisplayProjectionFailureMessage
+            }
+        }
+        return await markBackgroundOpen(payload, focus: options.focus)
+    }
+
+    /// The catalog can cancel creation while the request itself remains live.
+    private struct SurfaceDisplayCreationBusy: Error {}
+
+    private nonisolated static let surfaceDisplayProjectionFailureMessage = String(
+        localized: "socket.surface.newDisplay.projectionFailed",
+        defaultValue: "The display was created, but it could not be opened in the selected workspace. Retry with `cmux surface open <resource>`."
+    )
 
     // MARK: - vm.* wrappers (kept for existing callers; same catalog underneath)
 
@@ -532,30 +725,11 @@ extension TerminalController {
                 projections = try await catalog.projectGroup(group, into: destination, focus: focus)
                 workspaceID = destination.workspaceID
             } else {
-                // The machine screen's geometry, when the daemon can report it: the new
-                // local workspace then mirrors its splits, ratios and tabs (nil → grid).
-                let layout = await CloudWorkspaceLayoutTranslator.fetch(machine: machine, workspaceID: workspace.id, catalog: catalog)
-                let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-                    group,
-                    title: CloudTreeNodeActions.localWorkspaceTitle(
-                        hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot),
-                        group: group
-                    ),
-                    focus: focus,
-                    host: .app,
-                    layout: layout
+                let opened = try await Self.openRemoteWorkspaceAsNewLocalWorkspace(
+                    group, workspace: workspace, machine: machine, catalog: catalog, focus: focus
                 )
                 workspaceID = opened.workspaceID
                 projections = opened.projections
-                await catalog.bindCloudWorkspace(
-                    localWorkspaceID: opened.workspaceID,
-                    machine: machine,
-                    remoteWorkspaceID: workspace.id,
-                    generatedTitle: CloudTreeNodeActions.localWorkspaceTitle(
-                        hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot),
-                        group: group
-                    )
-                )
             }
             return await Self.markBackgroundOpen([
                 "machine": machine.rawValue,
@@ -568,6 +742,58 @@ extension TerminalController {
                 "here": destination != nil,
             ], focus: focus)
         }
+    }
+
+    /// A machine workspace as a new local workspace bound to it: one pane per
+    /// terminal and browser, mirroring the machine screen's layout when the
+    /// daemon reports one. The one path behind `cmux vm workspace open` and
+    /// the Chief's result card ("Open Workspace").
+    nonisolated static func openRemoteWorkspaceAsNewLocalWorkspace(
+        _ group: SurfaceResourceGroup,
+        workspace: SurfaceRemoteWorkspace,
+        machine: SurfaceMachineID,
+        catalog: SurfaceCatalog,
+        focus: Bool
+    ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        // The machine screen's geometry, when the daemon can report it: the new
+        // local workspace then mirrors its splits, ratios and tabs (nil → grid).
+        let layout = await CloudWorkspaceLayoutTranslator.fetch(machine: machine, workspaceID: workspace.id, catalog: catalog)
+        let title = await CloudTreeNodeActions.localWorkspaceTitle(
+            hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot),
+            group: group
+        )
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            group,
+            title: title,
+            focus: focus,
+            host: .app,
+            layout: layout
+        )
+        await catalog.bindCloudWorkspace(
+            localWorkspaceID: opened.workspaceID,
+            machine: machine,
+            remoteWorkspaceID: workspace.id,
+            generatedTitle: title
+        )
+        return opened
+    }
+
+    /// Opens machine workspace `selector` (`ws_…` or its name) on `machine` as
+    /// a new local workspace, resolved like the sidebar row (the Chief's
+    /// result card).
+    @discardableResult
+    nonisolated static func openRemoteWorkspace(
+        _ selector: String,
+        machine machineID: String,
+        focus: Bool
+    ) async throws -> UUID {
+        let machine = SurfaceMachineID(rawValue: machineID)
+        let catalog = await SurfaceCatalog.shared
+        let (workspace, _) = try await resolveRemoteWorkspaceForOpen(selector, machine: machine, catalog: catalog)
+        let group = try await catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        return try await openRemoteWorkspaceAsNewLocalWorkspace(
+            group, workspace: workspace, machine: machine, catalog: catalog, focus: focus
+        ).workspaceID
     }
 
     /// `vm.workspace_close {id, workspace_id}` → closes the cmux-tui workspace; its

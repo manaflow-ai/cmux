@@ -14,6 +14,31 @@
     "benefitSuperpowers": "規劃、TDD、子代理與審查"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 請求已延遲",
+      "message": "Cloud VM 配置暫時無法使用。",
+      "action": "請等待一分鐘，然後使用相同的冪等鍵重試。"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "快照請求需要重試鍵",
+      "message": "Cloud VM 快照需要冪等鍵。",
+      "action": "請使用不超過 128 個字元的固定 Idempotency-Key 重試。"
+    },
+    "snapshotInProgress": {
+      "title": "快照仍在進行中",
+      "message": "此 Cloud VM 上使用此冪等金鑰的快照仍在執行。",
+      "action": "請等待第一個快照完成，再使用相同的冪等金鑰重試。"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "快照重試金鑰已被使用",
+      "message": "此冪等金鑰已用於此 Cloud VM 上的另一個快照要求。",
+      "action": "對使用其他名稱的快照使用新的冪等金鑰。"
+    },
+    "snapshotQuota": {
+      "title": "已達快照上限",
+      "message": "此 Cloud VM 已達快照上限。",
+      "action": "請刪除一個現有快照，然後使用相同的冪等鍵重試。"
+    },
     "guestInstall": {
       "title": "Cloud VM 設定未完成",
       "reason": "Cloud VM 的來賓環境設定未完成。",
@@ -105,14 +130,14 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go 最多儲存兩台 VM，包括正在執行的 VM。",
+      "savedMessage": "Plus: 共可儲存 1 台 VM，包含已暫停的機器",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go 同時可執行一台 VM。",
+      "activeMessage": "Plus: 1 台 Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Go 本月的 40 VM 小時已用完。儲存的 VM 可在下一個計費週期開始後繼續使用。",
+      "hoursMessage": "Plus: 無每月時數上限",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan} 運算額度已用完",
@@ -132,7 +157,7 @@
       "action": "暫停或刪除一台 VM。"
     },
     "activeLimit": {
-      "counted": "目前計入：{machines}。已暫停的機器不計入。",
+      "counted": "目前計入：{machines}。已暫停的機器也計入上限。",
       "provisioning": "{name}（正在佈建）",
       "separator": "、"
     }
@@ -531,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -543,9 +568,10 @@
             "本機工作階段紀錄"
           ],
           "go": [
-            "1 台執行中的 Cloud VM",
-            "每月 40 VM 小時",
-            "2 台已儲存的 VM"
+            "共可儲存 1 台 VM，包含已暫停的機器",
+            "2–8 vCPU · 4–16 GiB 記憶體 · 16–128 GiB 磁碟",
+            "社群支援",
+            "無每月時數上限"
           ],
           "pro": [
             "在 Cloud VM 上執行雲端代理",
@@ -610,6 +636,12 @@
         "title": "透過 App Store 計費",
         "body": "你的方案是在 cmux iPhone App 中購買，由 Apple 計費。請在 App Store 訂閱中變更或取消。",
         "manage": "在 App Store 中管理"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "你的 Plus 方案將於 {date} 續訂。",
+        "pendingBody": "你的 Plus 方案將於 {date} 結束。",
+        "monthlyPrice": "${amount}/月"
       }
     },
     "mobileDevices": {
@@ -944,7 +976,7 @@
       },
       "plan": {
         "free": "免費",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2181,6 +2213,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "啟用後，按兩下窗格分隔線會將其所在列或欄的窗格調整為相同大小。其他列和欄維持原有大小。",
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
           "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "devWindowDisplay": "僅在 DEBUG 建置中開啟新視窗時使用的顯示器名稱。空值會使用系統預設值。",
@@ -2265,6 +2298,13 @@
               "enabled": "選取遠端 tmux 工作區後，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。"
             }
           }
+        },
+        "chief": {
+          "description": "Chief（首頁代理）：是否顯示，以及使用的執行框架、模型和推理強度。",
+          "enabled": "顯示首頁列和 Chief 入口。設為 false 時，會隱藏首頁列、打開 Chief 快捷鍵、選單項目和命令面板項目。",
+          "harness": "Chief 使用的代理執行框架：claude（Claude Code）或 codex（Codex）。",
+          "model": "傳遞給執行框架的模型。留空則使用執行框架的預設值。",
+          "effort": "傳遞給執行框架的推理強度，例如 low、medium 或 high。留空則使用執行框架的預設值。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2936,10 +2976,10 @@
       "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@cmux.com</link>。"
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "在 cmux 中執行持久的 Linux 雲端機器，即使闔上 Mac，程式設計代理仍會在雲端持續工作，並可從任何 Mac 重新連線。",
-      "intro": "cmux Cloud 為你提供雲端上的持久 Linux 機器，並以一般 cmux 工作區的形式開啟。關閉窗格、網路中斷或闔上筆電時，終端機都會繼續執行，因此程式設計代理可以持續工作，你也能從任何已登入的 Mac 重新連線。",
+      "title": "cmux Cloud 快速入門",
+      "metaTitle": "cmux Cloud 快速入門",
+      "metaDescription": "開始使用 cmux NEXT Cloud：登入、建立 Linux 機器、開啟終端機和桌面、暫停或恢復，以及刪除機器。",
+      "intro": "在 Linux Cloud 機器上執行工具，在 Mac 上使用應用程式。本指南使用已於 2026-10-29 驗證的 cmux NEXT 指令。舊版使用不同的 CLI。",
       "betaNote": "cmux Cloud 目前為搶先體驗階段，除非你的組織將其停用，否則皆可使用。若要使用，請啟用 Settings › Beta Features › Cloud Machines。",
       "whatTitle": "什麼是機器",
       "whatDesc": "機器是一台屬於你或你團隊的持久雲端電腦。它會保留檔案、已安裝的工具和執行中的終端機。請把它當成長期使用的機器，而不是用完即丟的資源：需要的工具只要安裝一次，之後隨時回來繼續使用。",
@@ -2965,12 +3005,27 @@
       "cliIntroDesc": "cmux vm 和 cmux cloud 是同一個指令。不帶子指令執行 cmux vm 會列出你的機器。每個子指令都有不需應用程式即可使用的 --help 頁面，cmux vm guide 會輸出完整的 Markdown 指南。為任何子指令加上 --json 即可取得機器可讀的輸出。",
       "baseTitle": "你的基礎機器",
       "baseDesc": "每個帳號都有一台釘選的基礎機器。cmux vm base 會開啟它，並在第一次使用時建立它。cmux vm base reset 會建立一台新的基礎機器並保留舊機器，因此不會意外遺失檔案。",
-      "nextTitle": "後續步驟",
+      "nextTitle": "cmux Cloud 快速入門",
       "nextMachines": "機器：規格、方案、調整規格、暫停、快照和刪除。",
       "nextWorkspaces": "工作區與代理：持久終端機、代理、通知以及預先安裝的內容。",
       "nextNetworking": "檔案與網路：上傳檔案、環境變數、連接埠、桌面和公開 URL。",
-      "nextCli": "Cloud CLI 參考：所有 cmux vm 子指令。",
-      "nextTroubleshooting": "安全性與疑難排解：存取機制以及常見錯誤的解決方法。"
+      "nextCli": "Cloud CLI 參考：NEXT 提供的動作、機密和交接指令。",
+      "nextTroubleshooting": "Cloud 疑難排解",
+      "nextIntro": "在 Linux Cloud 機器上執行工具，在 Mac 上使用應用程式。本指南使用已於 2026-10-29 驗證的 cmux NEXT 指令。舊版使用不同的 CLI。",
+      "nextSignIn": "1. 登入",
+      "nextSignInBody": "在 Mac 上保持 cmux NEXT 開啟。執行此指令，在瀏覽器中完成登入，然後查看機器清單。",
+      "nextCreate": "2. 建立機器",
+      "nextCreateBody": "medium 機器配備 4 個 CPU、8 GB 記憶體和 32 GB 磁碟，包含 claude、codex、gh、git、node、bun 和 python3。各工具的登入與 cmux 登入相互獨立。",
+      "nextPending": "建立作業可能在 30 秒後傳回 pending: true，並在背景繼續。再次建立前請先查看 list-machines。將傳回的 target（{machineTarget}）複製到下方指令中；即使只有一台機器，大多數機器指令也需要指定它。",
+      "nextTerminal": "3. 開啟終端機",
+      "nextTerminalBody": "使用 --focus 在視窗中顯示終端機。未指定時，工作區會在背景開啟。在此終端機中執行 gh auth login、複製儲存庫並啟動 claude 或 codex。使用 2026-10-29 檢查的映像檔建立的機器尚不支援原生代理聊天分頁。",
+      "nextDesktop": "4. 開啟桌面",
+      "nextDesktopBody": "這會在 noVNC 瀏覽器分頁中開啟機器桌面。指令會在頁面載入完成前傳回。",
+      "nextPause": "5. 暫停與恢復",
+      "nextPauseBody": "完成工作後請手動暫停機器；磁碟會保留。閒置時自動暫停尚無法使用。再次需要時恢復機器即可。",
+      "nextDelete": "6. 完成後刪除",
+      "nextDeleteBody": "刪除作業會移除機器及其所有內容。請先將需要保留的工作儲存到其他位置。指令會在刪除完成前傳回；之後請透過 list-machines 確認。",
+      "nextReference": "Cloud CLI 參考"
     },
     "cloudMachines": {
       "title": "雲端機器",
@@ -2994,9 +3049,9 @@
       "limitsTitle": "方案限制",
       "limitsDesc": "你的使用中機器共用同一個 vCPU 和記憶體資源池。你可以執行一台大機器，也可以執行幾台小機器。已暫停的機器不會占用資源池。磁碟按每台機器個別設定，不計入資源池。",
       "limitsFree": "免費帳號無法建立機器。",
-      "limitsPaid": "Pro 和 Founder's Edition 帳號最多可擁有 5 台使用中的機器，共用 20 個 vCPU 和 40 GB 記憶體。正在執行或正在啟動的機器即為使用中的機器。",
-      "limitsTeam": "Team 帳號每個付費席位最多可擁有 5 台使用中的機器。每個付費席位會為團隊資源池增加 20 個 vCPU 和 40 GB 記憶體。",
-      "limitsMax": "Max 帳號最多可擁有 5 台使用中的機器，共用 80 個 vCPU 和 160 GB 記憶體。單台 Max 機器最多可使用 64 GB 和 32 個 vCPU，包含 24 GB / 12 vCPU 與 32 GB / 16 vCPU 規格；Pro 和 Team 的上限為 16 GB 和 8 個 vCPU。",
+      "limitsPaid": "Pro 和 Founder's Edition 帳號最多可擁有 5 台機器（包含已暫停的機器），共用 20 個 vCPU 和 40 GB 記憶體。",
+      "limitsTeam": "Team 帳號每個付費席位最多可擁有 5 台機器（包含已暫停的機器）。每個付費席位會為團隊資源池增加 20 個 vCPU 和 40 GB 記憶體。",
+      "limitsMax": "Max 帳號最多可擁有 5 台機器（包含已暫停的機器），共用 80 個 vCPU 和 160 GB 記憶體。單台 Max 機器最多可使用 64 GB 和 32 個 vCPU，包含 24 GB / 12 vCPU 與 32 GB / 16 vCPU 規格；Pro 和 Team 的上限為 16 GB 和 8 個 vCPU。",
       "limitsPoolFull": "如果新建、恢復、擴充或分叉的機器會超出資源池，cmux 會拒絕該請求，並顯示資源池的已用量。暫停或刪除一台機器以釋出資源，或升級到 Max。",
       "limitsPricing": "目前的價格請參閱定價頁面。不依用量計費，也沒有超額費用。",
       "agentUpdatesTitle": "讓程式碼代理保持最新",
@@ -3006,7 +3061,7 @@
       "agentUpdatesToggle": "「新增機器」面板預設開啟此設定。若要為現有機器變更，請在機器上按右鍵並選擇「讓代理保持最新」，或執行 cmux vm agent-updates。除非傳入 --agent-updates latest，否則 cmux vm new 會保留映像檔中的版本。關閉更新後，已安裝的版本會保留。",
       "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有網路模式下都允許這些主機，包括「允許清單」和「不連網」，因此網路政策不會阻擋更新。",
       "resizeTitle": "調整規格",
-      "resizeDesc": "你可以在不遺失資料的情況下擴大機器。在機器上按右鍵並選擇 Resize machine，或使用 cmux vm resize。調整規格只能擴大機器。磁碟以 4 GB 為單位，在 Pro 和 Team 中最多擴充到 128 GB，在 Max 中最多擴充到 256 GB（Go 限制為 16 GB）。在 Pro 和 Team 中，記憶體最多 16 GB，CPU 最多 8 vCPU；在 Max 中，記憶體最多 64 GB，CPU 最多 32 vCPU。機器越大，占用的資源池越多。實際上限由你的方案決定。",
+      "resizeDesc": "你可以在不遺失資料的情況下擴大機器。在機器上按右鍵並選擇 Resize machine，或使用 cmux vm resize。調整規格只能擴大機器。磁碟以 4 GB 為單位，在 Pro 和 Team 中最多擴充到 128 GB，在 Max 中最多擴充到 256 GB（Plus 限制為 16 GB）。在 Pro 和 Team 中，記憶體最多 16 GB，CPU 最多 8 vCPU；在 Max 中，記憶體最多 64 GB，CPU 最多 32 vCPU。機器越大，占用的資源池越多。實際上限由你的方案決定。",
       "pauseTitle": "暫停與繼續",
       "pauseDesc": "cmux vm pause 會停止機器的運算資源。磁碟、工作區和終端機歷史記錄會保留，執行中的程序則會停止。cmux vm resume 會再次啟動機器。開啟已暫停的機器或在其上執行指令也會啟動它。",
       "pauseIdle": "機器閒置時不會自動暫停。機器會持續執行，直到你暫停或刪除它。",
@@ -3102,10 +3157,10 @@
       "customDomainDesc": "cmux cloud domains verify 會輸出需要新增的 DNS 記錄：用於驗證擁有權的 TXT 記錄、路由記錄以及憑證委派記錄。新增後再次執行 verify。驗證通過後，你可以在該網域或其下一層的子網域上發布。"
     },
     "cloudCli": {
-      "title": "Cloud CLI 參考",
-      "metaTitle": "cmux Cloud CLI 參考",
-      "metaDescription": "所有 cmux vm 和 cmux cloud 指令的參考：生命週期、工作區、檔案、環境變數、網域和 VPN。",
-      "intro": "cmux vm 和 cmux cloud 是同一個指令。CLI 會與執行中的 cmux 應用程式通訊，登入狀態由應用程式保存。為任何子指令加上 --json 即可取得機器可讀的輸出。每個子指令都有 --help 頁面。",
+      "title": "Cloud CLI 參考（NEXT）",
+      "metaTitle": "Cloud CLI 參考（NEXT）",
+      "metaDescription": "cmux NEXT Cloud 提供的動作快照，以及機密儲存和交接指令、明確指定機器目標的方法和目前映像檔限制。",
+      "intro": "以下是 cmux NEXT CLI 提供的 Cloud 動作。某個指令即使已提供，也可能無法在特定機器映像檔上使用。2026-10-29 檢查的映像檔尚不支援原生代理聊天分頁、開啟開發伺服器瀏覽器分頁、本機連接埠轉送、分叉機器或閒置時自動暫停。",
       "exitCodes": "結束代碼：成功為 0，發生錯誤為 1，未知指令為 2。cmux vm run 會傳回遠端指令的結束代碼。",
       "authTitle": "登入",
       "authDesc": "登入、查看帳號並選擇團隊。",
@@ -3129,7 +3184,19 @@
       "accountsDesc": "為團隊上傳代理帳號並檢查模型路由。",
       "preflightTitle": "腳本檢查清單",
       "preflightDesc": "在腳本建立或使用機器之前，請先執行以下唯讀檢查。它們會確認你已登入，顯示你的機器和方案限制，並顯示某個目錄使用的是哪台機器。",
-      "coderouterLink": "完整的 CodeRouter 指令參考"
+      "coderouterLink": "完整的 CodeRouter 指令參考",
+      "nextTitle": "Cloud CLI 參考（NEXT）",
+      "nextIntro": "以下是 cmux NEXT CLI 提供的 Cloud 動作。某個指令即使已提供，也可能無法在特定機器映像檔上使用。2026-10-29 檢查的映像檔尚不支援原生代理聊天分頁、開啟開發伺服器瀏覽器分頁、本機連接埠轉送、分叉機器或閒置時自動暫停。",
+      "nextTargets": "從 list-machines 複製 {machineTarget} 格式的 target，並在機器指令中明確傳入 --target，即使只有一台機器也一樣。使用 --help 查看指令語法，使用 cmux action describe 加上動作 ID 查看引數和傳回欄位。",
+      "nextCatalog": "提供的動作",
+      "nextCatalogBody": "此清單由 NEXT 動作目錄產生，不包含僅限 GUI 的動作。它列出可用的指令名稱，並不保證每台機器都支援這些指令。",
+      "nextCommand": "指令",
+      "nextAction": "動作 ID",
+      "nextSecrets": "此 Mac 上的機密資料",
+      "nextSecretsBody": "secret set 從隱藏輸入提示或 stdin 讀取值，並將其儲存在此 Mac 的鑰匙圈中。切勿將機密值放入指令引數。set 和 rm 接受 --repo OWNER/NAME；ls 列出已儲存的名稱和範圍。傳送機密資料前，必須已完成套用宣告了機密名稱的機器設定。在 2026-10-29 檢查的映像檔上，套用設定並傳送機密資料的完整流程尚未經過端對端驗證。",
+      "nextHandoff": "交接與移動聊天",
+      "nextHandoffBody": "hand-off-machine 傳回描述機器的文字，不會移動聊天。move 和 bring-back 在此 Mac 與 Cloud 機器之間移動聊天分頁。它們需要相容的聊天功能支援；請勿將其用作不支援代理聊天分頁的映像檔的替代方案，應改在遠端終端機中執行代理。",
+      "nextHelp": "快速入門與目前限制"
     },
     "cloudTroubleshooting": {
       "title": "Cloud 安全性與疑難排解",
@@ -3187,7 +3254,26 @@
       "errTransferDisabled": "你的組織已停用檔案傳輸",
       "fixTransferDisabled": "受管理的原則已關閉檔案傳輸。請聯絡你的管理員。",
       "supportTitle": "取得協助",
-      "supportDesc": "如果建立失敗，請使用通知中的 Copy Error，並在聯絡支援時附上錯誤訊息以及追蹤 ID（如有）。"
+      "supportDesc": "如果建立失敗，請使用通知中的 Copy Error，並在聯絡支援時附上錯誤訊息以及追蹤 ID（如有）。",
+      "nextTitle": "Cloud 疑難排解（NEXT）",
+      "nextIntro": "這些訊息於 2026-10-29 檢查。標為尚無法使用的功能不受當天映像檔所建立的機器支援。僅更新 Mac 應用程式不會更新 Cloud 機器上已安裝的軟體。",
+      "nextSymptom": "訊息或症狀",
+      "nextFix": "處理方式",
+      "nextPendingFix": "建立作業正在背景繼續。再次建立機器前請查看 list-machines。loaded: false 表示清單狀態仍未知，不代表帳號中沒有機器。",
+      "nextTargetFix": "從 list-machines 複製 target，並傳入 --target {machineTarget}，即使只有一台機器也一樣。",
+      "nextOpenFix": "open-machine 是僅限 GUI 的動作。若要透過 CLI 開啟並顯示終端機，請使用 new-terminal-on-machine，並指定機器 target 和 --focus。",
+      "nextAgentFix": "原生代理聊天分頁尚無法使用。請在機器上開啟終端機並執行 claude 或 codex。更換代理無法解決缺少聊天支援的問題。",
+      "nextBrowserFix": "開啟開發伺服器瀏覽器分頁尚無法使用。machine-link --port 會傳回連結，但透過該連結使用瀏覽器存取尚未驗證。僅傳回連結並不證明連接埠可連線。",
+      "nextPortFix": "透過此機器連結列出和轉送本機連接埠尚無法使用。machine-link 可以傳回連接埠連結，但不會建立 localhost 轉送，且瀏覽器能否連線尚未驗證。",
+      "nextForkFix": "此映像檔建立的機器尚不支援分叉。請建立新機器並在其中複製儲存庫；新機器不會複製原機器的檔案。",
+      "nextIdleFix": "閒置時自動暫停尚無法使用。完成工作後請手動暫停機器，需要時再恢復。閒置暫停設定目前僅接受 Off。",
+      "nextSecretsFix": "在 .cmux/machine.toml 中宣告機密名稱，透過 apply-machine-config 套用設定，並等待設定完成後再執行 deliver-secrets。透過 secret set NAME 的輸入提示或 stdin 儲存值。此傳送流程尚未在該映像檔上經過端對端驗證。",
+      "nextGithubFix": "在機器終端機中執行 gh auth login，並在那裡設定 Git 身分資訊。setup-github 需要 Mac 上已有 Git 身分資訊；驗證期間它傳回了此失敗，但未說明原因。",
+      "nextExecFix": "exec 適用於短指令，會在 25 秒後停止。建置、代理和長時間執行的伺服器請使用機器上的終端機。",
+      "nextSupport": "收集診斷資訊",
+      "nextSupportBody": "執行 diagnostics，回報問題時附上錯誤訊息和嘗試執行的操作。公開分享前請檢查輸出，移除帳號詳情、機器位址和其他私人資訊。",
+      "legacyTitle": "舊版：安全性與常見問題",
+      "legacyIntro": "以下指南保留供舊版 cmux 使用。其中的 cmux vm 和 cmux auth 範例不是 NEXT 指令。有關 NEXT 機器映像檔拒絕操作的情況及替代方案，請參閱上方章節。"
     },
     "ui": {
       "onThisPage": "本頁內容",
@@ -3430,6 +3516,15 @@
     "download": "下載 Mac 版 NIGHTLY",
     "warning": "每夜建置可能包含錯誤或不完整的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上回報，並切換回穩定版。"
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "下一代 cmux 應用程式的預覽版本",
+    "metaTitle": "cmux NEXT NIGHTLY — 預覽版本",
+    "metaDescription": "下載 cmux NEXT NIGHTLY，下一代 cmux 應用程式的預覽版，從最新提交自動建置。與 cmux 並行執行，擁有獨立的自動更新。",
+    "description": "cmux NEXT NIGHTLY 是下一版 cmux 的預覽版，從最新提交自動建置。它擁有獨立的 Bundle ID，因此可以與 cmux 及 cmux NIGHTLY 並行執行，互不衝突。需要搭載 Apple 晶片的 Mac。",
+    "download": "下載 Mac 版 NEXT NIGHTLY",
+    "warning": "NEXT NIGHTLY 版本可能包含錯誤或未完成的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 回報，並切換回穩定版。"
+  },
   "languageSwitcher": {
     "label": "語言"
   },
@@ -3443,6 +3538,7 @@
     "unsupportedParams": "此連結包含 cmux 將拒絕的不受支援的參數：{params}",
     "conflictingParams": "此連結包含不能一起使用的參數：{params}",
     "invalidParams": "此連結包含無效參數值：{params}",
+    "ignoredParams": "cmux 會忽略它不使用的參數：{params}。工作階段仍會開啟。",
     "fixParams": "修復 URL 參數，然後重新載入此頁面。",
     "examplePrefix": "參見",
     "exampleLink": "範例連結",
@@ -5296,7 +5392,18 @@
     "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
     "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
     "signedOutSignIn": "登入",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "go": {
+      "name": "Plus",
+      "cta": "取得 Plus",
+      "featuresLead": "包含：",
+      "features": [
+        "共可儲存 1 台 VM，包含已暫停的機器",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "社群支援",
+        "無每月時數上限"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",
@@ -5514,6 +5621,8 @@
     "errorInvalidCode": "驗證碼無效。請檢查電子郵件後再試一次。",
     "errorInvalidTotp": "雙重驗證碼無效。",
     "errorSignUpNotAllowed": "目前無法建立新帳號。",
+    "errorEmailUnverified": "此電子郵件已有帳號，但地址尚未驗證。請使用註冊時的方式登入，然後驗證電子郵件，即可使用登入驗證碼。",
+    "useEmailPasswordInstead": "使用電子郵件和密碼登入",
     "errorPasskey": "通行密鑰登入未完成。請再試一次或改用其他方式。",
     "errorGeneric": "發生問題，請再試一次。"
   },

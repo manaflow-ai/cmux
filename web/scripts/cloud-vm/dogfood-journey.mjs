@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { runAgentProbes } from "./dogfood-probes.mjs";
+import { parseRunFanout, runFanout } from "./run-fanout.mjs";
 import {
   loadTargetEnv,
   optionValue,
@@ -27,7 +28,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: dogfood-journey.mjs [web-dir] <staging|production> --cmux-tui <path> [--url https://preview.example] [--provider freestyle|default] [--skip-sleep] [--result-file <path>] [--screens-dir <path>]";
+const usage = "Usage: dogfood-journey.mjs [web-dir] <staging|production> --cmux-tui <path> [--url https://preview.example] [--provider freestyle|default] [--skip-sleep] [--run-fanout N] [--result-file <path>] [--screens-dir <path>]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const cmuxTui = optionValue(rest, "--cmux-tui");
@@ -38,6 +39,8 @@ if (!cmuxTui) {
 const provider = optionValue(rest, "--provider") ?? "default";
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const skipSleep = rest.includes("--skip-sleep");
+// --run-fanout N replaces the journey: N Runs at once from one account.
+const runFanoutCount = parseRunFanout(optionValue(rest, "--run-fanout"));
 const resultFile = optionValue(rest, "--result-file");
 const screensDir = optionValue(rest, "--screens-dir");
 const REQUEST_TIMEOUT_MS = 45_000;
@@ -488,6 +491,21 @@ try {
   if (!sourceCommit || !/^[0-9a-f]{40}$/i.test(sourceCommit)) throw new Error("GITHUB_SHA is required for Run dogfood");
   const setupManifestPath = path.join(webDir, "..", ".cmux", "setup.json");
   const setupManifestDigest = `sha256:${createHash("sha256").update(readFileSync(setupManifestPath)).digest("hex")}`;
+  if (runFanoutCount > 0) {
+    result.fanout = await timed("runFanout", () => runFanout({
+      api, now: () => performance.now(), sleep, count: runFanoutCount,
+      marker: `cmux-run-fanout-${suffix}`, sourceCommit, setupManifestDigest,
+    }));
+    const succeeded = result.fanout.outcomes.succeeded ?? 0;
+    const ok = succeeded === runFanoutCount;
+    const output = summary({ ok, ...(ok ? {} : { stage: "runFanout", error: `fan-out outcomes ${JSON.stringify(result.fanout.outcomes)}` }), ...result });
+    console.log(JSON.stringify(output, null, 2));
+    if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
+    clearTimeout(deadline);
+    // A cleanup error must not rewrite a fan-out receipt that is already out.
+    await cleanup().catch((error) => console.error(`cleanup_failed ${error?.message ?? error}`));
+    process.exit(ok ? 0 : 1);
+  }
   const runMarker = `cmux-run-dogfood-${suffix}`;
   const runSpec = {
     schema: "cmux.run/v1",

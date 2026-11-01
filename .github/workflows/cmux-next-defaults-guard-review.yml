@@ -1,0 +1,113 @@
+name: cmux-next defaults guard review
+
+# A review on a feat-cmux-next pull request re-runs its latest `defaults guard`
+# run (cmux-next-defaults-guard.yml, pull_request_target), which judges the
+# approval from the base's guard with the reviews as they are now. This file
+# decides nothing: a pull_request_review run uses the pull request's own copy
+# of its workflow, so the verdict never comes from here (scripts/ci/defaults_guard.py
+# lists an edit to this file as a default change). A fork's token is read-only:
+# its review leaves the check for a maintainer or the next push to re-run.
+# The review router posts its exact-head SHIP receipt as a normal PR comment,
+# so trusted receipt comments wake the same guard. The guard still validates
+# the reviewer, receipt and head before it can pass.
+on:
+  pull_request_review:
+    types: [submitted, dismissed, edited]
+  issue_comment:
+    types: [created, edited]
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-defaults-guard-review-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  rerun:
+    if: >-
+      ${{
+        (github.event_name == 'pull_request_review' &&
+          github.event.pull_request.base.ref == 'feat-cmux-next' &&
+          github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
+      }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted actions-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Resolve an exact-head SHIP receipt comment
+        id: receipt
+        if: ${{ github.event_name == 'issue_comment' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+          pr_json="$(gh api "repos/$REPO/pulls/$PR_NUMBER")"
+          base_ref="$(jq -r '.base.ref' <<<"$pr_json")"
+          head_repo="$(jq -r '.head.repo.full_name // empty' <<<"$pr_json")"
+          head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+          comment_json="$(gh api "repos/$REPO/issues/comments/$COMMENT_ID")"
+          association="$(jq -r '.author_association // empty' <<<"$comment_json")"
+          first_line="$(jq -r '.body // "" | split("\\n")[0]' <<<"$comment_json")"
+          receipt_re='^Review \([^)]*\): SHIP at ([0-9a-f]{40})$'
+          if [[ "$base_ref" != feat-cmux-next || "$head_repo" != "$REPO" ]]; then
+            echo "This is not a same-repository feat-cmux-next pull request."
+            exit 0
+          fi
+          if [[ ! "$association" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
+            echo "The comment author is not a trusted repository member."
+            exit 0
+          fi
+          if [[ ! "$first_line" =~ $receipt_re ]]; then
+            echo "The comment is not an exact-head SHIP receipt."
+            exit 0
+          fi
+          if [[ "${BASH_REMATCH[1]}" != "$head_sha" ]]; then
+            echo "The receipt names a stale head."
+            exit 0
+          fi
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Accept a pull-request review event
+        id: review
+        if: ${{ github.event_name == 'pull_request_review' }}
+        run: |
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Re-run the trusted defaults guard
+        if: ${{ steps.receipt.outputs.eligible == 'true' || steps.review.outputs.eligible == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.receipt.outputs.head_sha || steps.review.outputs.head_sha }}
+        run: |
+          error_file="$(mktemp)"
+          trap 'rm -f "$error_file"' EXIT
+          if ! run_id="$(gh api "repos/$REPO/actions/workflows/cmux-next-defaults-guard.yml/runs?event=pull_request_target&head_sha=$HEAD_SHA&per_page=20" \
+            --jq '.workflow_runs[0].id // empty' 2>"$error_file")"; then
+            if grep -Eq 'HTTP 404|404 Not Found' "$error_file"; then
+              echo "No defaults guard run on $HEAD_SHA yet; the runs endpoint returned 404."
+              exit 0
+            fi
+            cat "$error_file" >&2
+            exit 1
+          fi
+          if [[ -z "$run_id" ]]; then
+            echo "No defaults guard run on $HEAD_SHA yet; it reads the reviews when it runs."
+            exit 0
+          fi
+          run_status="$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status')"
+          if [[ "$run_status" != completed ]]; then
+            echo "Defaults guard run $run_id is still $run_status; a later receipt or push can retry it."
+            exit 0
+          fi
+          gh api -X POST "repos/$REPO/actions/runs/$run_id/rerun" >/dev/null
+          echo "Re-ran defaults guard run $run_id for $HEAD_SHA."

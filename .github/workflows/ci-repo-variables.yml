@@ -26,6 +26,11 @@ on:
       - scripts/ci/cloud_overflow_switch.py
       - scripts/ci/pr_runner_pool.py
       - scripts/ci/runner_label_policy.py
+      - scripts/ci/runs_on_values.py
+      - scripts/ci/signing_runner_variables.py
+      - scripts/ci/python-with-yaml.sh
+      - scripts/ci/runner_pools.py
+      - .github/runners.json
   workflow_dispatch:
 
 permissions:
@@ -39,7 +44,8 @@ jobs:
   check:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -49,16 +55,35 @@ jobs:
         with:
           persist-credentials: false
 
+      # Signing jobs on feat-cmux-next read runner variables too (scripts/ci/signing_runner_variables.py).
+      # Without this checkout the check fails closed: every runner variable must be ephemeral.
+      - name: Check out feat-cmux-next's workflows
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .signing-workflows/feat-cmux-next
+          sparse-checkout: .github/workflows
+          persist-credentials: false
+
       - name: Check the live values
         env:
+          SIGNING_WORKFLOW_DIRS: .signing-workflows/feat-cmux-next/.github/workflows
           CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
           # Present while the cloud overflow switch has Blacksmith overflow off.
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+          # Must not equal CI_SIDE_LANE_RUNNER: the daemon tests gate nightly-next promotion.
+          CI_NEXT_DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL }}
+          # cmux-tui-pin-* pushes' daemon tests (else CI_LIGHT_LANE_RUNNER): must equal
+          # neither CI_NEXT_DAEMON_POOL nor CI_SIDE_LANE_RUNNER.
+          CI_PIN_DAEMON_POOL: ${{ vars.CI_PIN_DAEMON_POOL }}
           CMUX_CI_RUNNER_VARIABLES: |
+            CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
-            CI_NIGHTLY_DECIDE_RUNNER=${{ vars.CI_NIGHTLY_DECIDE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
@@ -78,5 +103,97 @@ jobs:
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
             MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
-        run: python3 scripts/ci/check_repo_variables.py
+        run: bash scripts/ci/python-with-yaml.sh scripts/ci/check_repo_variables.py
+
+      # RUNNER_POOLS, the one routing source (scripts/ci/runner_pools.py): every pool set, each to
+      # one of its declared members. A missing pool fails every job that reads it. LINUX_RUNNER,
+      # which most Linux runs-on still read, must name a member of the linux pool unless the
+      # overflow switch's record is set (runner_pools.MIRRORS).
+      - name: Check the runner pools
+        if: ${{ !cancelled() }}
+        env:
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
+          CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+        run: python3 scripts/ci/runner_pools.py --check
+
+      # No runs-on waits on one machine through a variable's value
+      # (scripts/ci/runs_on_values.py). The workflow text passes
+      # `vars.X || <pool>` however X is set, and a set X never falls through,
+      # so this reads each runs-on of every branch below that runs workflows
+      # with the live values. Every variable a runs-on reads is passed by name
+      # (tests/test_ci_runs_on_values.py keeps the list complete for this tree;
+      # the script names any other branch's variable missing here).
+      - name: Check no runs-on waits on one machine
+        id: runs-on-values
+        if: ${{ !cancelled() }}
+        env:
+          # Branches whose workflows run: the default branch, the cmux NEXT
+          # branches, and rc/cnx-ios-builder (the iPhone INTERNAL builder runs
+          # its own frozen copy of ios-internal-nightly.yml).
+          ROUTE_BRANCHES: main feat-cmux-next nightly-next rc/cnx-ios-builder
+          CMUX_CI_RUNS_ON_VARIABLES: |
+            CI_CLOUD_OVERFLOW_SAVED=${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+            CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+            CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
+            CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_NEXT_DAEMON_POOL=${{ vars.CI_NEXT_DAEMON_POOL }}
+            CI_NEXT_PROMOTE_POOL=${{ vars.CI_NEXT_PROMOTE_POOL }}
+            CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
+            CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
+            CI_PERF_CRON_GATEWAY=${{ vars.CI_PERF_CRON_GATEWAY }}
+            CI_PIN_DAEMON_POOL=${{ vars.CI_PIN_DAEMON_POOL }}
+            CI_PR_POOL_OWNED=${{ vars.CI_PR_POOL_OWNED }}
+            CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
+            CI_SESSION_LABEL=${{ vars.CI_SESSION_LABEL }}
+            CI_SESSION_LANE_RUNNER=${{ vars.CI_SESSION_LANE_RUNNER }}
+            CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY=${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+            CI_TEST_COMPILE_GATEWAY=${{ vars.CI_TEST_COMPILE_GATEWAY }}
+            CI_TIP_TEST_COMPILE_GATEWAY=${{ vars.CI_TIP_TEST_COMPILE_GATEWAY }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
+            MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
+            MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+            MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
+            MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+            MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
+            MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
+            MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
+            RUNNER_POOLS=${{ vars.RUNNER_POOLS }}
+            WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
+        run: |
+          set -euo pipefail
+          trees=()
+          for branch in $ROUTE_BRANCHES; do
+            dir="$RUNNER_TEMP/runs-on-values/$branch"
+            mkdir -p "$dir"
+            if [ "refs/heads/$branch" = "$GITHUB_REF" ]; then
+              cp -R .github/workflows/. "$dir/"
+              trees+=("$branch=$dir")
+              continue
+            fi
+            # Exit 2 is "no such ref" (a retired branch runs nothing: drop it from ROUTE_BRANCHES);
+            # any other failure fails the step, so a branch is never skipped silently.
+            status=0
+            git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null || status=$?
+            if [ "$status" = 2 ]; then
+              echo "::notice title=runs-on value::$branch does not exist; nothing to check there"
+              continue
+            elif [ "$status" != 0 ]; then
+              echo "::error title=runs-on value::could not read $branch from origin (git ls-remote exit $status)"
+              exit 1
+            else
+              git fetch --quiet --no-tags --depth=1 origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+              git archive "refs/remotes/origin/$branch" .github/workflows | tar -x -C "$dir" --strip-components=2
+            fi
+            trees+=("$branch=$dir")
+          done
+          python3 scripts/ci/runs_on_values.py "${trees[@]}"

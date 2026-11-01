@@ -49,6 +49,8 @@ extension ClosedItemHistoryStore {
             return String(localized: "account.signIn.workspace.title", defaultValue: "Sign In")
         case .cloudVPNSetup:
             return String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
+        case .chief:
+            return ChiefStrings.chiefName
         }
     }
 }

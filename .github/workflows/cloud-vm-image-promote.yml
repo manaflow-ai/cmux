@@ -1,0 +1,47 @@
+name: Cloud VM image promote
+
+# The implementation lives on feat-cmux-next (plans/cmux-next/release-rails.md
+# "Promote from CI"). GitHub dispatches only a workflow the default branch
+# registers, so this inert copy lets a lane promote a smoked VM image snapshot
+# to the dev channel on the cmux-next dev Freestyle account (environment
+# cmux-next-vm-image-dev, which allows only feat-cmux-next):
+#
+#   gh workflow run cloud-vm-image-promote.yml -R manaflow-ai/cmux \
+#     --ref feat-cmux-next -f channel=dev -f snapshot=<sh-id> -f bake_run=<run id>
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel to promote to (dev only for now)
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+      snapshot:
+        description: Snapshot id to promote (sh-...); empty to only delete
+        required: false
+        default: ""
+        type: string
+      bake_run:
+        description: The cloud-vm-image-bake.yml run (keep_snapshot) whose channel-dev.json records the snapshot
+        required: false
+        default: ""
+        type: string
+      delete_snapshot:
+        description: Optional spare snapshot id (sh-...) to delete; refused when a channel file or wrangler.jsonc references it
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - run: echo "Cloud VM image promote is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

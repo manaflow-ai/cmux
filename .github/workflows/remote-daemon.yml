@@ -92,9 +92,46 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: setup-go
         with:
           go-version: '1.26.x'
           cache: false
+      # Go module and build caches through actions/cache (Blacksmith serves it on its
+      # runners), in place of setup-go's own cache, which saves on every event. Restored
+      # on every run; saved only by a successful push or dispatch on main or
+      # feat-cmux-next of manaflow-ai/cmux, never a pull request or a fork. The key is
+      # the OS, arch, exact Go, ISO week and daemon/remote/go.sum, never github.sha:
+      # the first trusted run for a key seeds an immutable entry, later runs build on it
+      # incrementally (the race-instrumented standard library and the dependencies
+      # compile once), and the week rolls it so the daemon's own packages stay current.
+      # An owned mini (a glaeda runner) skips both: it keeps ~/go/pkg/mod and its Go
+      # build cache between jobs, and untarring over Go's read-only module tree fails
+      # there (see cmux-tui.yml).
+      - name: Go cache key
+        id: go-cache
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        run: |
+          set -euo pipefail
+          {
+            echo "week=$(date -u +%G-W%V)"
+            echo "gomodcache=$(GOTOOLCHAIN=local go env GOMODCACHE)"
+            echo "gocache=$(GOTOOLCHAIN=local go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Restore Go module and build caches
+        id: go-cache-restore
+        # The cache is only a speed-up: a restore or save failure leaves the tests
+        # running on cold caches and never changes the job's result.
+        continue-on-error: true
+        if: ${{ steps.go-cache.outcome == 'success' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.gomodcache }}
+            ${{ steps.go-cache.outputs.gocache }}
+          key: remote-daemon-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ steps.go-cache.outputs.week }}-${{ hashFiles('daemon/remote/go.sum') }}
+          restore-keys: |
+            remote-daemon-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ steps.go-cache.outputs.week }}-
+            remote-daemon-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-
       - name: Verify complete release assets
         run: node scripts/release_asset_guard.test.js
       - name: Reject broken app bundles and daemon artifacts
@@ -103,6 +140,15 @@ jobs:
         run: python3 tests/test_remote_daemon_release_assets.py
       - name: Test daemon behavior with the race detector
         run: go -C daemon/remote test -race ./...
+      - name: Save Go module and build caches
+        continue-on-error: true
+        if: ${{ success() && github.repository == 'manaflow-ai/cmux' && steps.go-cache-restore.outcome == 'success' && steps.go-cache-restore.outputs.cache-hit != 'true' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next"]'), github.ref) }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.gomodcache }}
+            ${{ steps.go-cache.outputs.gocache }}
+          key: remote-daemon-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ steps.go-cache.outputs.week }}-${{ hashFiles('daemon/remote/go.sum') }}
 
   remote-daemon-macos-tests:
     # Direct pushes/manual runs retain their full coverage; PR callers can
@@ -121,10 +167,46 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: setup-go
         with:
           go-version: '1.26.x'
           cache: false
+      # The same Go caches as remote-daemon-tests (see there), keyed per OS and arch.
+      - name: Go cache key
+        id: go-cache
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        run: |
+          set -euo pipefail
+          {
+            echo "week=$(date -u +%G-W%V)"
+            echo "gomodcache=$(GOTOOLCHAIN=local go env GOMODCACHE)"
+            echo "gocache=$(GOTOOLCHAIN=local go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Restore Go module and build caches
+        id: go-cache-restore
+        # The cache is only a speed-up: a restore or save failure leaves the tests
+        # running on cold caches and never changes the job's result.
+        continue-on-error: true
+        if: ${{ steps.go-cache.outcome == 'success' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.gomodcache }}
+            ${{ steps.go-cache.outputs.gocache }}
+          key: remote-daemon-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ steps.go-cache.outputs.week }}-${{ hashFiles('daemon/remote/go.sum') }}
+          restore-keys: |
+            remote-daemon-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ steps.go-cache.outputs.week }}-
+            remote-daemon-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-
       - name: Test native macOS daemon behavior
         run: go -C daemon/remote test ./...
       - name: Test native macOS daemon behavior with the race detector
         run: go -C daemon/remote test -race ./...
+      - name: Save Go module and build caches
+        continue-on-error: true
+        if: ${{ success() && github.repository == 'manaflow-ai/cmux' && steps.go-cache-restore.outcome == 'success' && steps.go-cache-restore.outputs.cache-hit != 'true' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next"]'), github.ref) }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.gomodcache }}
+            ${{ steps.go-cache.outputs.gocache }}
+          key: remote-daemon-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ steps.go-cache.outputs.week }}-${{ hashFiles('daemon/remote/go.sum') }}

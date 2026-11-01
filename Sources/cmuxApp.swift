@@ -40,6 +40,8 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @AppStorage(SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.userDefaultsKey)
     private var remoteTmuxNewWorkspaceOnHostEnabled = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.defaultValue
+    @AppStorage(ChiefCatalogSection().enabled.userDefaultsKey)
+    private var chiefEnabled = ChiefCatalogSection().enabled.defaultValue
     @State private var aboutWindowController: AboutWindowController?
     @State private var browserFocusModeMenuRevision = 0
     @State private var browserAvailabilityMenuRevision = 0
@@ -135,7 +137,7 @@ struct cmuxApp: App {
             StartupBreadcrumbLog.append("app.init.blockUntaggedDebugLaunch")
             Self.terminateForMissingLaunchTag()
         }
-
+        Self.removeInheritedClaudeNodeOptionsPreload()
         Self.configureGhosttyEnvironment()
         StartupBreadcrumbLog.append("app.init.ghosttyEnvironment.configured")
         let computerUsePaths = ComputerUseRuntimePaths()
@@ -1320,6 +1322,12 @@ struct cmuxApp: App {
 
             splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
                 showNotificationsPopover()
+            }
+
+            if chiefEnabled {
+                splitCommandButton(title: String(localized: "menu.view.chief", defaultValue: "Chief"), shortcut: menuShortcut(for: .openChief)) {
+                    AppDelegate.shared?.openChiefHome(toggle: true, source: "menu.view.chief")
+                }
             }
         }
     }

@@ -3834,7 +3834,9 @@ import Testing
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-bare-open-\(UUID().uuidString)", isDirectory: true)
-        let workingDirectory = root.appendingPathComponent("cmux-bare-directory-fixture", isDirectory: true)
+        // Not a cmux command name: `project` became one (`cmux project open`), and a
+        // bare relative path only opens when it does not collide with a command.
+        let workingDirectory = root.appendingPathComponent("my-checkout", isDirectory: true)
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -3861,7 +3863,7 @@ import Testing
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["cmux-bare-directory-fixture"],
+            arguments: ["my-checkout"],
             environment: environment,
             currentDirectoryURL: root
         )

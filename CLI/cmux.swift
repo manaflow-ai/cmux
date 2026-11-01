@@ -288,6 +288,11 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
+    /// Whether the last Stop reported a session cron or scheduled wakeup. The
+    /// app settles a pane whose background tasks ended only when this is
+    /// recorded false: a pending cron leaves nothing in the transcript or
+    /// process tree to show whether it still waits.
+    var hadSessionCronsAtStop: Bool?
     /// Unsandboxed Cursor shell calls that cmux asked Cursor to gate. The
     /// after/failure hooks do not carry a native approval decision, so the
     /// command identity is the only safe completion correlation available.
@@ -1443,6 +1448,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSessionCronsAtStop: Bool? = nil,
         title: String? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
@@ -1502,6 +1508,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                hadSessionCronsAtStop: hadSessionCronsAtStop,
                 title: title,
                 now: now
             )
@@ -1623,6 +1630,7 @@ final class ClaudeHookSessionStore {
                     superseded.lastNotificationStatus = nil
                     superseded.runtimeStatus = .idle
                     superseded.hadPendingBackgroundWorkAtStop = nil
+                    superseded.hadSessionCronsAtStop = nil
                     superseded.updatedAt = now
                     state.sessions[supersededSessionId] = superseded
                     if ownsTargetSurface,
@@ -1674,6 +1682,7 @@ final class ClaudeHookSessionStore {
             record.lastNotificationStatus = nil
             record.runtimeStatus = .idle
             record.hadPendingBackgroundWorkAtStop = nil
+            record.hadSessionCronsAtStop = nil
             state.sessions[normalizedSessionId] = record
 
             for (workspaceId, activeSession) in state.activeSessionsByWorkspace
@@ -2059,6 +2068,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSessionCronsAtStop: Bool? = nil,
         title: String? = nil,
         now: TimeInterval
     ) {
@@ -2179,6 +2189,9 @@ final class ClaudeHookSessionStore {
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
+        }
+        if let hadSessionCronsAtStop {
+            record.hadSessionCronsAtStop = hadSessionCronsAtStop
         }
         record.updatedAt = now
     }
@@ -2949,12 +2962,6 @@ final class ClaudeHookSessionStore {
     }
 }
 
-private let agentHookWrapperProcessNames: Set<String> = [
-    "sh",
-    "bash",
-    "zsh",
-    "env"
-]
 
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
@@ -6440,7 +6447,9 @@ struct CMUXCLI {
         if passesThroughProviderArguments {
             presentationOptions = (false, nil, rawCommandArgs)
         } else {
-            let parsed = try CmuxCLIArgumentParser().parse(rawCommandArgs)
+            let parsed = try CmuxCLIArgumentParser().parse(
+                rawCommandArgs, optionsWithOptionalValues: command == "surface" ? ["--focus"] : []
+            )
             presentationOptions = (parsed.jsonOutput, parsed.idFormat, parsed.remaining)
         }
         if presentationOptions.jsonOutput {
@@ -6517,6 +6526,7 @@ struct CMUXCLI {
         if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "chief", !chiefCommandNeedsSocket(commandArgs) { try runChiefCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv, bundleIdentifier: cliBundleIdentifier); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "glaeda" { try runGlaedaCommand(commandArgs: commandArgs); return }
@@ -8530,6 +8540,15 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowId
+            )
+
+        case "chief":
+            try runChiefSocketCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId,
+                environment: processEnv
             )
 
         case "comments":
@@ -11557,7 +11576,7 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowOverride
             )
-        case "ls", "list", "tree", "catalog", "open", "project", "new-terminal", "new":
+        case "ls", "list", "tree", "catalog", "open", "project", "new-terminal", "new", "new-display":
             // The surface catalog: terminals, screens and browsers on This Mac and every
             // cloud machine, and one open path for all of them (`surface.project`).
             try runSurfaceCatalogCommand(
@@ -13099,8 +13118,8 @@ struct CMUXCLI {
             method = "canvas.set_viewport"
         case "new-pane":
             if let type = optionValue(rest, name: "--type")?.lowercased() {
-                guard ["terminal", "browser", "simulator"].contains(type) else {
-                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]"))
+                guard ["terminal", "browser", "simulator", "chief"].contains(type) else {
+                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator|chief]"))
                 }
                 params["type"] = type
             }
@@ -21110,6 +21129,8 @@ struct CMUXCLI {
             return Self.remotesUsage
         case "todo":
             return Self.todoUsage
+        case "chief":
+            return Self.chiefUsage
         case "comments":
             return Self.commentsUsage
         case "review":
@@ -21164,7 +21185,7 @@ struct CMUXCLI {
               set-viewport --x <n> --y <n> [--zoom <n>]
                                             Center the viewport on a canvas point
                                             (optionally set magnification)
-              new-pane [--type terminal|browser|simulator]
+              new-pane [--type terminal|browser|simulator|chief]
                                             Create a new free-floating canvas pane
               join <surface> <target>       Move a surface into the pane hosting target (tab)
               break <surface>               Tear a surface out of its multi-tab pane
@@ -21625,8 +21646,10 @@ struct CMUXCLI {
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
-                   cmux hooks <agent> install [--yes|-y] (opencode supports --project)
-                   cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
+                   cmux hooks setup kiro --global [--yes|-y]
+                   cmux hooks uninstall kiro --global
+                   cmux hooks <agent> install [--yes|-y]
+                   cmux hooks <agent> uninstall [--yes|-y]
                    cmux hooks <agent> <event> [flags]
                    cmux hooks feed --source <agent> [--event <event>]
 
@@ -21652,7 +21675,10 @@ struct CMUXCLI {
               ~/.campfire/agent/extensions/cmux-campfire-session.ts
               ~/.config/amp/plugins/cmux-session.ts
               ~/.kiro/agents/cmux.json
+              ~/.kiro/hooks/cmux.json (kiro --global)
               See docs/agent-hooks.md for the full integration matrix.
+
+            \(Self.kiroGlobalHelpSummary)
 
             Examples:
               cmux hooks setup
@@ -21662,6 +21688,7 @@ struct CMUXCLI {
               cmux hooks uninstall rovo
               cmux hooks codex install
               cmux hooks opencode install --project
+              cmux hooks setup kiro --global
               cmux hooks uninstall
             """
         case "themes":
@@ -22534,7 +22561,8 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser|simulator> Pane type (default: terminal)
+              --type <terminal|browser|simulator|chief>
+                                                  Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --placement <workspace|dock>        Target container (default: workspace).
                                                   dock splits the right-sidebar Dock.
@@ -22549,6 +22577,7 @@ struct CMUXCLI {
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
               cmux new-pane --type simulator --direction right
+              cmux new-pane --type chief --direction right
               cmux new-pane --type browser --placement dock --url https://example.com
             """
         case "new-surface":
@@ -22558,7 +22587,8 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
+              --type <terminal|browser|simulator|agent-session|chief>
+                                          Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -22670,6 +22700,7 @@ struct CMUXCLI {
             Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
                    cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus|--no-focus]
                    cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [-- <command...>]
+                   cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]
                    cmux surface resume set [flags] -- <argv...>
                    cmux surface resume set [flags] --shell <command>
                    cmux surface resume show [--json] [flags]
@@ -22681,13 +22712,15 @@ struct CMUXCLI {
                    cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]
                    cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]
 
-            ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
+            ls / open / new-terminal / new-display: the surface catalog. Terminals, VNC screens and browsers
             on This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,
             e.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,
             vivid-newt/browser/port:3000); panes project them. `open` reuses the pane already
             showing a resource unless --new; --pane with a side splits that pane on that side,
             --tab adds a tab to it. A local terminal moves to the destination (it is shown once).
             `new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).
+            `new-display` creates a new VNC display on a cloud machine and opens it in the
+            selected workspace unless `--no-open` is passed.
             `cmux vm tree` prints the same catalog.
 
             resume: attach restart command metadata to a terminal surface.
@@ -23538,6 +23571,10 @@ struct CMUXCLI {
         }
         if command == "agent", let text = Self.agentSubcommandHelp(commandArgs.first) {
             print(text)
+            return true
+        }
+        if command == "chief", commandArgs.first?.lowercased() == "dispatch" {
+            print(Self.chiefDispatchUsage)
             return true
         }
         guard let text = subcommandUsage(command) else { return false }
@@ -26995,14 +27032,33 @@ struct CMUXCLI {
                 (key: "CMUX_CLAUDE_TEAMS_TMUX_SHIM", value: shimDirectory.appendingPathComponent("tmux").path),
             ]
         )
+        configureClaudeNodeOptionsRestore(processEnvironment: processEnvironment)
+    }
+
+    /// Prepends the restore preload to the caller's own NODE_OPTIONS. A preload
+    /// inherited from an earlier cmux Claude launch is dropped first: it can point
+    /// at a file that no longer exists, which makes every Node process fail (#22274).
+    private func configureClaudeNodeOptionsRestore(processEnvironment: [String: String]) {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: processEnvironment)
+        let existingNodeOptions: String?
+        if let repairedNodeOptions = repair["NODE_OPTIONS"] {
+            existingNodeOptions = repairedNodeOptions
+        } else {
+            existingNodeOptions = processEnvironment["NODE_OPTIONS"]
+        }
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
+            if let existingNodeOptions {
+                setenv("NODE_OPTIONS", existingNodeOptions, 1)
+            } else {
+                unsetenv("NODE_OPTIONS")
+            }
             return
         }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
+        if let existingNodeOptions {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existingNodeOptions), 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -27010,7 +27066,7 @@ struct CMUXCLI {
         setenv(
             "NODE_OPTIONS",
             mergedNodeOptions(
-                existing: processEnvironment["NODE_OPTIONS"],
+                existing: existingNodeOptions,
                 restoreModulePath: restoreModuleURL.path
             ),
             1
@@ -29613,26 +29669,7 @@ struct CMUXCLI {
         )
         clearInheritedClaudeLaunchEnvironment()
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
-        guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-            return
-        }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
-        } else {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-        }
-        setenv(
-            "NODE_OPTIONS",
-            mergedNodeOptions(
-                existing: processEnvironment["NODE_OPTIONS"],
-                restoreModulePath: restoreModuleURL.path
-            ),
-            1
-        )
+        configureClaudeNodeOptionsRestore(processEnvironment: processEnvironment)
     }
 
     private func runOMC(
@@ -31637,6 +31674,9 @@ struct CMUXCLI {
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
+                        // A payload that does not report crons may still have
+                        // one, so the drain check must not settle it.
+                        hadSessionCronsAtStop: hasClaudeSessionCrons(parsedInput) ?? true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -35088,36 +35128,6 @@ struct CMUXCLI {
     /// first so it silently succeeds even when cmux is not installed
     /// (e.g. user opened codex in a non-cmux terminal).
 
-    // MARK: - Agent PID inference
-
-    private func agentPIDFromHookEnvironment(agentName: String, env: [String: String]) -> Int? {
-        let envKey = Self.agentHookPIDEnvironmentVariable(agentName: agentName)
-        guard let raw = env[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = Int(raw),
-              pid > 0 else {
-            return nil
-        }
-        return pid
-    }
-
-    func inferredAgentPID() -> Int? {
-        var candidate = getppid()
-        var remainingWrapperSkips = 8
-
-        while candidate > 1, remainingWrapperSkips > 0 {
-            guard let processName = processName(for: candidate) else { break }
-            if !agentHookWrapperProcessNames.contains(processName) {
-                break
-            }
-            let next = parentPID(of: candidate)
-            guard next > 1, next != candidate else { break }
-            candidate = next
-            remainingWrapperSkips -= 1
-        }
-
-        return candidate > 1 ? Int(candidate) : nil
-    }
-
     func claudeAgentPID(from env: [String: String]) -> Int? {
         guard let raw = env["CMUX_CLAUDE_PID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -35277,7 +35287,7 @@ struct CMUXCLI {
         return Int64(info.kp_eproc.e_tdev)
     }
 
-    private func parentPID(of pid: pid_t) -> pid_t {
+    func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.size
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
@@ -35287,7 +35297,7 @@ struct CMUXCLI {
         return info.kp_eproc.e_ppid
     }
 
-    private func processName(for pid: pid_t) -> String? {
+    func processName(for pid: pid_t) -> String? {
         let process = Process()
         let stdout = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -35298,21 +35308,21 @@ struct CMUXCLI {
         do {
             try cliRunProcess(process)
         } catch {
-            return nil
+            return libprocProcessName(for: pid)
         }
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
+        guard process.terminationStatus == 0 else { return libprocProcessName(for: pid) }
 
         let data = stdout.fileHandleForReading.readDataToEndOfFileOrEmpty()
         guard let output = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !output.isEmpty else {
-            return nil
+            return libprocProcessName(for: pid)
         }
         return URL(fileURLWithPath: output).lastPathComponent.lowercased()
     }
 
-    private func processArguments(for pid: pid_t) -> [String]? {
+    func processArguments(for pid: pid_t) -> [String]? {
         var argMax: Int32 = 0
         var argMaxSize = MemoryLayout<Int32>.size
         var argMaxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
@@ -37870,6 +37880,9 @@ export default {
         if let note = def.postInstallNote {
             print(note)
         }
+        if def.name == "kiro", Self.kiroGlobalHooksInstalled(def) {
+            print(Self.kiroBothInstallsNote)
+        }
 
         try pruneLegacyGrokHookFileIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
 
@@ -38620,9 +38633,13 @@ export default {
         // only infer a PID from the live process tree when replay is live.
         let liveProcessIdentityAllowed = !relayOrigin && !routeWasSnapshotted
         let requireLiveProcessForSessionChecks = !relayOrigin
-        let observedPID = agentPIDFromHookEnvironment(agentName: def.name, env: env)
+        let observedPID = agentPIDFromHookEnvironment(agentName: def.name, env: env).map {
+            def.name == "kiro" && liveProcessIdentityAllowed ? (kiroCLIAncestorPID() ?? $0) : $0
+        }
         let inferredPID = observedPID
-            ?? (liveProcessIdentityAllowed ? inferredAgentPID() : nil)
+            ?? (liveProcessIdentityAllowed
+                ? inferredAgentPID().map { def.name == "kiro" ? (kiroCLIAncestorPID() ?? $0) : $0 }
+                : nil)
         func liveAgentPID(_ pid: Int?) -> Int? {
             liveProcessIdentityAllowed ? pid : nil
         }
@@ -45679,6 +45696,13 @@ export default {
     }
 
     private func installHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
+        if arguments.contains("--global") {
+            guard def.name == "kiro" else {
+                throw CLIError(message: Self.kiroGlobalRequiresKiroMessage)
+            }
+            try installKiroGlobalHooks(def)
+            return
+        }
         if def.name == "opencode" {
             let projectLocal = arguments.contains("--project")
             if projectLocal {
@@ -45694,6 +45718,13 @@ export default {
     }
 
     private func uninstallHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
+        if arguments.contains("--global") {
+            guard def.name == "kiro" else {
+                throw CLIError(message: Self.kiroGlobalRequiresKiroMessage)
+            }
+            try uninstallKiroGlobalHooks(def)
+            return
+        }
         if def.name == "opencode" {
             let projectLocal = arguments.contains("--project")
             if projectLocal {
@@ -45760,8 +45791,8 @@ export default {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
-            if def.name == "codex",
-               try runAgentInboxHookIfMatched(agent: "codex", commandArgs: rest, client: client) {
+            if def.name == "codex" || def.name == "kiro",
+               try runAgentInboxHookIfMatched(agent: def.name, commandArgs: rest, client: client) {
                 return
             }
             do {
@@ -45788,6 +45819,8 @@ export default {
         var flagAgent: String?
         var positionalAgent: String?
         var uninstall = false
+        /// Kiro only: target the Kiro CLI V3 global hooks file.
+        var global = false
     }
 
     /// Parses setup/uninstall arguments, rejecting anything it doesn't know
@@ -45821,6 +45854,8 @@ export default {
                 continue
             case "--uninstall":
                 parsed.uninstall = true
+            case "--global":
+                parsed.global = true
             default:
                 if arg.hasPrefix("--agent=") {
                     try setFlagAgent(String(arg.dropFirst("--agent=".count)))
@@ -45868,6 +45903,10 @@ export default {
         } else {
             agentFilterDef = nil
         }
+        if arguments.global, agentFilterDef?.name != "kiro" {
+            throw CLIError(message: Self.kiroGlobalRequiresKiroMessage)
+        }
+        let agentArguments = arguments.global ? ["--global"] : []
         let isUninstall = uninstall || arguments.uninstall
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
@@ -45911,9 +45950,9 @@ export default {
             }
             print("  \(def.name):")
             if isUninstall {
-                try uninstallHooksForAgent(def, arguments: [])
+                try uninstallHooksForAgent(def, arguments: agentArguments)
             } else {
-                try installHooksForAgent(def, arguments: [])
+                try installHooksForAgent(def, arguments: agentArguments)
             }
             count += 1
             print("")

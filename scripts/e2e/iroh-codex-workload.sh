@@ -230,8 +230,13 @@ done
 echo "Codex workload completed: $COUNT sessions plus two supporting workspaces, model=$MODEL"
 if [[ -n "$SHUTDOWN_FILE" ]]; then
   printf '{"event":"waiting_for_shutdown","observed_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
-  while [[ ! -e "$SHUTDOWN_FILE" ]]; do
-    sleep 1
-  done
+  # The shutdown file is a FIFO the gate holds open: this read blocks until the
+  # gate writes a line, with no polling (a TERM from the gate's cleanup still
+  # ends it through the trap above).
+  [[ -p "$SHUTDOWN_FILE" ]] || {
+    echo "error: CMUX_CODEX_SHUTDOWN_FILE must be a FIFO: $SHUTDOWN_FILE" >&2
+    exit 2
+  }
+  read -r _ < "$SHUTDOWN_FILE"
   printf '{"event":"shutdown_requested","observed_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
 fi

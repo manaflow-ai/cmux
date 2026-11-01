@@ -38,6 +38,31 @@ class Refused(RuntimeError):
     """Evidence is insufficient to merge."""
 
 
+class RateLimited(Refused):
+    """A GitHub read hit the API rate limit; the message says when it resets."""
+
+
+def _rate_limit_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gh_rate_limit", Path(__file__).with_name("gh_rate_limit.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def json_documents(text: str) -> list:
+    """Every JSON document in TEXT, in order (gh --paginate prints pages back to back)."""
+    decoder = json.JSONDecoder()
+    documents, index = [], 0
+    while True:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            return documents
+        document, index = decoder.raw_decode(text, index)
+        documents.append(document)
+
+
 class GitHub:
     def run(self, args: list[str]) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
@@ -55,18 +80,52 @@ class GitHub:
             output.seek(0)
             errors.seek(0)
             if process.returncode:
-                raise Refused("GitHub evidence request failed: " + errors.read(2000).decode(errors="replace"))
+                message = errors.read(2000).decode(errors="replace")
+                rate = _rate_limit_module()
+                if rate.is_rate_limited(message):
+                    # Every later read would fail the same way: stop now and say when it resets.
+                    raise RateLimited(f"GitHub rate-limited `gh {args[0]}` ({message.strip()[:200]}); "
+                                      + rate.describe(rate.read_limits(), after_limit=True))
+                raise Refused("GitHub evidence request failed: " + message)
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False):
-        args = ["api", route]
-        if paginate:
-            args.extend(["--paginate", "--slurp"])
-        return json.loads(self.run(args))
+        if not paginate:
+            return json.loads(self.run(["api", route]))
+        # No --slurp: gh before 2.48 (Ubuntu 24.04 ships 2.45) rejects it. --paginate alone
+        # prints one JSON document per page (array pages may arrive joined into one array).
+        return json_documents(self.run(["api", route, "--paginate"]))
 
     def log(self, repo: str, job: dict) -> str:
-        return self.run(["run", "view", str(job["run_id"]), "--repo", repo,
-                         "--job", str(job["id"]), "--log"])
+        try:
+            log = self.run(["run", "view", str(job["run_id"]), "--repo", repo,
+                            "--job", str(job["id"]), "--log"])
+        except RateLimited:
+            raise
+        except Refused as error:
+            # A job that finished while its run goes on: gh serves no run log until the whole run
+            # completes (2026-10-24: the base tip's checks job, its run still compiling).
+            if "still in progress" not in str(error):
+                raise
+            log = ""
+        if log.strip():
+            return log
+        # gh 2.45 prints nothing here for today's log archives. The job's raw log has no step
+        # names; base_red_excuse.step_lines splits a log under UNKNOWN STEP by its `Run` groups.
+        raw = self.raw_log(repo, job)
+        return "".join(f"{job.get('name', '')}\tUNKNOWN STEP\t{line}\n" for line in raw.splitlines())
+
+    def raw_log(self, repo: str, job: dict) -> str:
+        route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
+        try:
+            # gh 2.70+ refuses to print a log's colour codes without this flag; older gh lacks it.
+            return self.run(["api", route, "--allow-escape-sequences"])
+        except RateLimited:
+            raise
+        except Refused as error:
+            if "unknown flag" not in str(error):
+                raise
+        return self.run(["api", route])
 
 
 def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
@@ -289,6 +348,9 @@ def main(argv: list[str] | None = None) -> int:
         strategy = "--merge" if args.merge else "--rebase" if args.rebase else "--squash"
         github.run(["pr", "merge", str(number), "--repo", repo, "--match-head-commit", posted["head"]["sha"], strategy])
         return 0
+    except RateLimited as error:
+        print(f"rate-limited: {error}\nrefusing to merge {args.ref}; rerun after the reset", file=sys.stderr)
+        return 3
     except (Refused, json.JSONDecodeError, KeyError) as error:
         print(f"not green: {error}\nrefusing to merge {args.ref}; wait with: glaeda-gh wait pr {args.ref}", file=sys.stderr)
         return 1

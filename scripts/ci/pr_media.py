@@ -384,6 +384,14 @@ def plan(repository: str) -> int:
         write_outputs({"tours": "[]", "run": "[]"})
         print("Fork pull requests get no media.", flush=True)
         return 0
+    if run_id and pull.get("draft"):
+        # A draft gets no tours from its CI runs: each tour is a macOS run and
+        # spends the GITHUB_TOKEN budget every workflow shares (2026-10-26). A
+        # dispatch (`gh workflow run pr-media.yml -f pr=<n>`) still tours a draft.
+        write_outputs({"tours": "[]", "run": "[]"})
+        print(f"#{pr} is a draft; its next CI run after it is marked ready makes media "
+              f"(or dispatch pr-media.yml with pr={pr}).", flush=True)
+        return 0
     head_sha = pull["head"]["sha"]
     if run_id and head_sha != run["head_sha"]:
         write_outputs({"tours": "[]", "run": "[]"})
@@ -771,13 +779,14 @@ def uploader():
 def upload(tool, repository: str, path: str, local: Path, message: str, attempts: int = 4,
            sleep: Callable[[float], None] = time.sleep) -> None:
     """put_file, retried: publish jobs of several PRs and people's uploads move
-    the media branch at once, so a lost race or a 5xx is routine."""
+    the media branch at once, so a lost race or a 5xx is routine. A privacy
+    refusal is not retried: the same file is refused every time."""
     for attempt in range(attempts):
         try:
             tool.put_file(repository, MEDIA_BRANCH, path, local, message)
             return
-        except tool.MediaError:
-            if attempt == attempts - 1:
+        except tool.MediaError as error:
+            if isinstance(error, getattr(tool, "PrivacyError", ())) or attempt == attempts - 1:
                 raise
             sleep(3 + 4 * attempt)
 

@@ -122,6 +122,7 @@ struct WorkspaceCanvasHostView: View {
         case .mobilePairing: return "iphone"
         case .accountSignIn: return "person.crop.circle"
         case .cloudVPNSetup: return "network"
+        case .chief: return ChiefPanel.iconSystemName
         }
     }
 

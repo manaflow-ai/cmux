@@ -33,6 +33,16 @@ on:
         required: false
         default: false
         type: boolean
+      run_fanout:
+        description: Instead of the journey, create this many Runs at once (each a small codex task) and time them
+        required: false
+        default: "0"
+        type: choice
+        options:
+          - "0"
+          - "1"
+          - "5"
+          - "20"
 
 permissions:
   contents: read
@@ -43,7 +53,7 @@ concurrency:
 
 jobs:
   journey:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     environment: cloud-vm-${{ inputs.target || 'staging' }}
     defaults:
@@ -122,6 +132,7 @@ jobs:
         env:
           TARGET: ${{ inputs.target || 'staging' }}
           SKIP_SLEEP: ${{ inputs.skip_sleep || false }}
+          RUN_FANOUT: ${{ inputs.run_fanout || '0' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dogfood/screens"
@@ -129,6 +140,7 @@ jobs:
             --result-file "$RUNNER_TEMP/dogfood/result.json"
             --screens-dir "$RUNNER_TEMP/dogfood/screens")
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
+          if [ "$RUN_FANOUT" != "0" ]; then args+=(--run-fanout "$RUN_FANOUT"); fi
           bun run cloud-vm:dogfood -- "${args[@]}"
 
       - name: Summary
@@ -150,6 +162,8 @@ jobs:
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
             jq -r 'if .statusAfterPauseLinkDown then "Pause status series (link down): " + ([.statusAfterPauseLinkDown[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
+            jq -r 'if .fanout then "Run fan-out: \(.fanout.count) Runs (account VM cap \(.fanout.maxActiveVms)), outcomes \(.fanout.outcomes | tojson), agent replies \(.fanout.agentReplies), wall \(.fanout.wallMs)ms" else empty end' "$result"
+            jq -r 'if .fanout then (.fanout.stats | to_entries[] | "- \(.key): \(.value | tojson)") else empty end' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"
           } >> "$GITHUB_STEP_SUMMARY"
 

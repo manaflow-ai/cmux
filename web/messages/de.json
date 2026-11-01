@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planung, TDD, Subagenten und Review"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud-VM-Anfrage verzögert",
+      "message": "Die Zuweisung einer Cloud-VM ist vorübergehend nicht verfügbar.",
+      "action": "Warte eine Minute und versuche es dann mit demselben Idempotenzschlüssel erneut."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot-Anfrage benötigt einen Wiederholungsschlüssel",
+      "message": "Cloud-VM-Snapshots benötigen einen Idempotenzschlüssel.",
+      "action": "Versuche es mit einem festen Idempotency-Key mit höchstens 128 Zeichen erneut."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot wird noch erstellt",
+      "message": "Ein Snapshot mit diesem Idempotenzschlüssel wird für diese Cloud-VM noch erstellt.",
+      "action": "Warte, bis der erste Snapshot fertig ist, und versuche es dann mit demselben Idempotenzschlüssel erneut."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot-Wiederholungsschlüssel bereits verwendet",
+      "message": "Dieser Idempotenzschlüssel wurde bereits für eine andere Snapshot-Anfrage dieser Cloud-VM verwendet.",
+      "action": "Verwende für einen Snapshot mit einem anderen Namen einen neuen Idempotenzschlüssel."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot-Limit erreicht",
+      "message": "Diese Cloud-VM hat ihr Snapshot-Limit erreicht.",
+      "action": "Lösche einen vorhandenen Snapshot und versuche es dann mit demselben Idempotenzschlüssel erneut."
+    },
     "guestInstall": {
       "title": "Cloud-VM-Einrichtung nicht abgeschlossen",
       "reason": "Die Gast-Einrichtung der Cloud-VM wurde nicht abgeschlossen.",
@@ -105,14 +130,14 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go umfasst zwei gespeicherte VMs einschließlich der laufenden VM.",
+      "savedMessage": "Plus: Insgesamt 1 gespeicherte VM, auch im pausierten Zustand",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go umfasst eine gleichzeitig laufende VM.",
+      "activeMessage": "Plus: 1 Cloud-VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Die 40 VM-Stunden für diesen Monat sind aufgebraucht. Gespeicherte VMs können im nächsten Abrechnungszeitraum wieder genutzt werden.",
+      "hoursMessage": "Plus: Keine monatliche Stundenbegrenzung",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan}-Rechenkontingent aufgebraucht",
@@ -132,7 +157,7 @@
       "action": "Pausieren oder löschen Sie eine VM."
     },
     "activeLimit": {
-      "counted": "Derzeit gezählt: {machines}. Pausierte Maschinen zählen nicht.",
+      "counted": "Aktuell gezählt: {machines}. Pausierte Maschinen zählen zum Limit.",
       "provisioning": "{name} (wird bereitgestellt)",
       "separator": ", "
     }
@@ -531,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -543,9 +568,10 @@
             "Lokaler Sitzungsverlauf"
           ],
           "go": [
-            "1 aktive Cloud VM",
-            "40 VM-Stunden pro Monat",
-            "2 gespeicherte VMs"
+            "Insgesamt 1 gespeicherte VM, auch im pausierten Zustand",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB Speicher",
+            "Community-Support",
+            "Keine monatliche Stundenbegrenzung"
           ],
           "pro": [
             "Cloud-Agenten auf Cloud VMs",
@@ -610,6 +636,12 @@
         "title": "Abrechnung über den App Store",
         "body": "Dein Tarif wurde in der cmux iPhone-App gekauft und wird von Apple abgerechnet. Ändere oder kündige ihn in deinen App Store-Abonnements.",
         "manage": "Im App Store verwalten"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Dein Plus-Tarif verlängert sich am {date}.",
+        "pendingBody": "Dein Plus-Tarif endet am {date}.",
+        "monthlyPrice": "${amount}/Monat"
       }
     },
     "mobileDevices": {
@@ -944,7 +976,7 @@
       },
       "plan": {
         "free": "Kostenlos",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2181,6 +2213,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Wenn aktiviert, gleicht ein Doppelklick auf eine Trennlinie die Größen der Bereiche in ihrer Zeile oder Spalte an. Andere Zeilen und Spalten behalten ihre Größen.",
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nur in DEBUG-Builds verwendeter Anzeigename beim Öffnen neuer Fenster. Ein leerer Wert verwendet die Systemeinstellung.",
@@ -2265,6 +2298,13 @@
               "enabled": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dem Host dieses Arbeitsbereichs."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, der Home-Agent: ob er angezeigt wird und welches Harness, Modell und welchen Aufwand er verwendet.",
+          "enabled": "Zeigt die Home-Zeile und die Chief-Einstiegspunkte. Bei false werden die Home-Zeile, der Kurzbefehl „Chief öffnen“, der Menüeintrag und die Befehlspaletten-Einträge ausgeblendet.",
+          "harness": "Agent-Harness, auf dem Chief läuft: claude (Claude Code) oder codex (Codex).",
+          "model": "An das Harness übergebenes Modell. Leer lassen, um den Standard des Harness zu verwenden.",
+          "effort": "An das Harness übergebener Denkaufwand, z. B. low, medium oder high. Leer lassen, um den Standard des Harness zu verwenden."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2937,10 +2977,10 @@
       "enterpriseDesc": "Für ein selbst gehostetes oder air-gapped Deployment wende dich an <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "Betreibe dauerhafte Linux-Cloud-Maschinen aus cmux heraus, damit deine Coding-Agenten weiterarbeiten, auch wenn du deinen Mac zuklappst.",
-      "intro": "cmux Cloud gibt dir dauerhafte Linux-Maschinen in der Cloud, die sich als normale cmux-Workspaces öffnen. Terminals laufen weiter, wenn du ein Pane schließt, die Netzwerkverbindung verlierst oder deinen Laptop zuklappst. So arbeiten Coding-Agenten weiter, und du kannst dich von jedem angemeldeten Mac aus wieder verbinden.",
+      "title": "Schnellstart für cmux Cloud",
+      "metaTitle": "Schnellstart für cmux Cloud",
+      "metaDescription": "Mit cmux NEXT Cloud starten: anmelden, eine Linux-Maschine erstellen, Terminal und Desktop öffnen, pausieren, fortsetzen und löschen.",
+      "intro": "Führe deine Werkzeuge auf einer Linux-Cloud-Maschine aus und nutze deinen Mac für die App. Diese Anleitung verwendet Befehle von cmux NEXT, die am 2026-10-29 überprüft wurden. Ältere Versionen verwenden eine andere CLI.",
       "betaNote": "cmux Cloud ist im Early Access und verfügbar, sofern deine Organisation es nicht deaktiviert. Aktiviere zur Nutzung Settings › Beta Features › Cloud Machines.",
       "whatTitle": "Was eine Maschine ist",
       "whatDesc": "Eine Maschine ist ein dauerhafter Cloud-Computer, der dir oder deinem Team gehört. Sie behält ihre Dateien, installierten Tools und laufenden Terminals. Behandle sie wie ein Haustier, nicht wie Herdenvieh: Du installierst einmal, was du brauchst, und kommst später darauf zurück.",
@@ -2966,12 +3006,27 @@
       "cliIntroDesc": "cmux vm und cmux cloud sind derselbe Befehl. Führe cmux vm ohne Verb aus, um deine Maschinen aufzulisten. Jedes Verb hat eine --help-Seite, die ohne die App funktioniert, und cmux vm guide gibt eine vollständige Markdown-Anleitung aus. Füge --json zu einem beliebigen Verb hinzu, um maschinenlesbare Ausgabe zu erhalten.",
       "baseTitle": "Deine Basismaschine",
       "baseDesc": "Jedes Konto hat eine angeheftete Basismaschine. cmux vm base öffnet sie und erstellt sie beim ersten Mal. cmux vm base reset erstellt eine neue Basismaschine und behält die alte, damit du nicht versehentlich Dateien verlierst.",
-      "nextTitle": "Nächste Schritte",
+      "nextTitle": "Schnellstart für cmux Cloud",
       "nextMachines": "Maschinen: Größen, Pläne, Vergrößern, Pausieren, Snapshots und Löschen.",
       "nextWorkspaces": "Workspaces und Agenten: dauerhafte Terminals, Agenten, Benachrichtigungen und vorinstallierte Software.",
       "nextNetworking": "Dateien und Netzwerk: Dateien hochladen, Umgebungsvariablen, Ports, Desktop und öffentliche URLs.",
-      "nextCli": "Cloud-CLI-Referenz: jedes cmux vm-Verb.",
-      "nextTroubleshooting": "Sicherheit und Fehlerbehebung: wie der Zugriff funktioniert und wie du häufige Fehler behebst."
+      "nextCli": "Cloud-CLI-Referenz: angebotene NEXT-Aktionen, Secrets und Übergabebefehle.",
+      "nextTroubleshooting": "Cloud-Fehlerbehebung",
+      "nextIntro": "Führe deine Werkzeuge auf einer Linux-Cloud-Maschine aus und nutze deinen Mac für die App. Diese Anleitung verwendet Befehle von cmux NEXT, die am 2026-10-29 überprüft wurden. Ältere Versionen verwenden eine andere CLI.",
+      "nextSignIn": "1. Anmelden",
+      "nextSignInBody": "Lass cmux NEXT auf deinem Mac geöffnet. Führe diesen Befehl aus, schließe die Anmeldung im Browser ab und prüfe dann die Maschinenliste.",
+      "nextCreate": "2. Eine Maschine erstellen",
+      "nextCreateBody": "Eine medium-Maschine hat 4 CPUs, 8 GB Arbeitsspeicher und eine 32-GB-Festplatte. claude, codex, gh, git, node, bun und python3 sind enthalten. Die Anmeldung bei diesen Werkzeugen ist von der Anmeldung bei cmux getrennt.",
+      "nextPending": "Die Erstellung kann nach 30 Sekunden pending: true zurückgeben und im Hintergrund fortfahren. Prüfe list-machines, bevor du eine weitere Maschine erstellst. Kopiere das zurückgegebene Ziel ({machineTarget}) in die folgenden Befehle; die meisten Maschinenbefehle benötigen es auch dann, wenn du nur eine Maschine hast.",
+      "nextTerminal": "3. Ein Terminal öffnen",
+      "nextTerminalBody": "Verwende --focus, um das Terminal in deinem Fenster anzuzeigen. Ohne diese Option öffnet sich der Arbeitsbereich im Hintergrund. Führe gh auth login aus, klone dein Repository und starte claude oder codex in diesem Terminal. Native Agent-Chat-Tabs sind auf Maschinen aus dem am 2026-10-29 überprüften Image noch nicht verfügbar.",
+      "nextDesktop": "4. Den Desktop öffnen",
+      "nextDesktopBody": "Dadurch wird der Desktop der Maschine in einem noVNC-Browser-Tab geöffnet. Der Befehl kehrt zurück, bevor die Seite vollständig geladen ist.",
+      "nextPause": "5. Pausieren und fortsetzen",
+      "nextPauseBody": "Pausiere die Maschine selbst, wenn du fertig bist; ihre Festplatte bleibt erhalten. Automatisches Pausieren bei Inaktivität ist noch nicht verfügbar. Setze die Maschine fort, wenn du sie wieder brauchst.",
+      "nextDelete": "6. Nach Abschluss löschen",
+      "nextDeleteBody": "Beim Löschen werden die Maschine und alle darauf gespeicherten Daten entfernt. Sichere benötigte Arbeit vorher an einem anderen Ort. Der Befehl kehrt zurück, bevor das Löschen abgeschlossen ist; prüfe anschließend list-machines.",
+      "nextReference": "Cloud-CLI-Referenz"
     },
     "cloudMachines": {
       "title": "Cloud-Maschinen",
@@ -2995,9 +3050,9 @@
       "limitsTitle": "Planlimits",
       "limitsDesc": "Deine aktiven Maschinen teilen sich einen Pool aus vCPUs und Arbeitsspeicher. Betreibe eine große Maschine oder mehrere kleine. Pausierte Maschinen belegen den Pool nicht. Die Festplatte gilt pro Maschine und gehört nicht zum Pool.",
       "limitsFree": "Kostenlose Konten können keine Maschinen erstellen.",
-      "limitsPaid": "Pro- und Founder's-Edition-Konten können bis zu 5 aktive Maschinen haben, die sich 20 vCPUs und 40 GB Arbeitsspeicher teilen. Eine Maschine ist aktiv, solange sie läuft oder startet.",
-      "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 aktive Maschinen haben. Jeder bezahlte Platz fügt dem Pool des Teams 20 vCPUs und 40 GB Arbeitsspeicher hinzu.",
-      "limitsMax": "Max-Konten können bis zu 5 aktive Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine Max-Maschine kann bis zu 64 GB und 32 vCPUs nutzen, einschließlich der Größen 24 GB / 12 vCPU und 32 GB / 16 vCPU; Pro und Team enden bei 16 GB und 8 vCPUs.",
+      "limitsPaid": "Pro- und Founder's-Edition-Konten können bis zu 5 Maschinen einschließlich pausierter Maschinen haben, die sich 20 vCPUs und 40 GB Arbeitsspeicher teilen.",
+      "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 Maschinen einschließlich pausierter Maschinen haben. Jeder bezahlte Platz fügt dem Pool des Teams 20 vCPUs und 40 GB Arbeitsspeicher hinzu.",
+      "limitsMax": "Max-Konten können bis zu 5 Maschinen einschließlich pausierter Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine Max-Maschine kann bis zu 64 GB und 32 vCPUs nutzen, einschließlich der Größen 24 GB / 12 vCPU und 32 GB / 16 vCPU; Pro und Team enden bei 16 GB und 8 vCPUs.",
       "limitsPoolFull": "Würde eine neue, fortgesetzte, vergrößerte oder geforkte Maschine den Pool überschreiten, lehnt cmux die Anfrage ab und zeigt, wie viel vom Pool belegt ist. Pausiere oder lösche eine Maschine, um Ressourcen freizugeben, oder führe ein Upgrade auf Max durch.",
       "limitsPricing": "Aktuelle Preise findest du auf der Preisseite. Es gibt keine nutzungsbasierte Abrechnung und keine Überschreitungsgebühren.",
       "agentUpdatesTitle": "Coding-Agents aktuell halten",
@@ -3007,7 +3062,7 @@
       "agentUpdatesToggle": "Im Dialog Neue Maschine ist diese Einstellung standardmäßig aktiv. Um sie für eine bestehende Maschine zu ändern, klicke mit der rechten Maustaste auf die Maschine und wähle Agents aktuell halten, oder führe cmux vm agent-updates aus. cmux vm new behält die Versionen des Images, außer du übergibst --agent-updates latest. Wenn du Updates ausschaltest, bleiben die installierten Versionen erhalten.",
       "agentUpdatesNetwork": "Updates nutzen nur github.com, api.github.com, objects.githubusercontent.com und release-assets.githubusercontent.com. cmux erlaubt diese Hosts in jedem Netzwerkmodus, auch bei Zulassungsliste und Kein Internet, daher blockiert eine Netzwerkrichtlinie Updates nie.",
       "resizeTitle": "Größe ändern",
-      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 128 GB bei Pro und Team oder 256 GB bei Max (Go ist auf 16 GB begrenzt). Arbeitsspeicher und CPU wachsen bei Pro und Team bis 16 GB und 8 vCPU, bei Max bis 64 GB und 32 vCPU. Eine größere Maschine belegt mehr von deinem Pool. Das tatsächliche Maximum legt dein Plan fest.",
+      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 128 GB bei Pro und Team oder 256 GB bei Max (Plus ist auf 128 GB begrenzt). Arbeitsspeicher und CPU wachsen bei Pro und Team bis 16 GB und 8 vCPU, bei Max bis 64 GB und 32 vCPU. Eine größere Maschine belegt mehr von deinem Pool. Das tatsächliche Maximum legt dein Plan fest.",
       "pauseTitle": "Pausieren und fortsetzen",
       "pauseDesc": "cmux vm pause stoppt die Rechenleistung der Maschine. Festplatte, Workspaces und Terminalverlauf bleiben erhalten. Laufende Prozesse werden beendet. cmux vm resume startet die Maschine wieder. Auch das Öffnen einer pausierten Maschine oder das Ausführen eines Befehls darauf startet sie.",
       "pauseIdle": "Maschinen pausieren nicht von selbst, wenn sie im Leerlauf sind. Eine Maschine läuft weiter, bis du sie pausierst oder löschst.",
@@ -3103,10 +3158,10 @@
       "customDomainDesc": "cmux cloud domains verify gibt die DNS-Einträge aus, die du hinzufügen musst: einen TXT-Eintrag für den Eigentumsnachweis, die Routing-Einträge und die Zertifikatsdelegation. Füge sie hinzu und führe verify erneut aus. Nach der Verifizierung kannst du auf der Domain oder auf einer Subdomain eine Ebene darunter veröffentlichen."
     },
     "cloudCli": {
-      "title": "Cloud-CLI-Referenz",
-      "metaTitle": "cmux Cloud-CLI-Referenz",
-      "metaDescription": "Referenz für alle Befehle von cmux vm und cmux cloud: Lebenszyklus, Workspaces, Dateien, Umgebung, Domains und VPN.",
-      "intro": "cmux vm und cmux cloud sind derselbe Befehl. Die CLI kommuniziert mit der laufenden cmux-App, die deine Anmeldung verwaltet. Füge --json zu einem beliebigen Verb hinzu, um maschinenlesbare Ausgabe zu erhalten. Jedes Verb hat eine --help-Seite.",
+      "title": "Cloud-CLI-Referenz (NEXT)",
+      "metaTitle": "Cloud-CLI-Referenz (NEXT)",
+      "metaDescription": "Übersicht der angebotenen cmux NEXT Cloud-Aktionen: Secrets, Übergabebefehle, explizite Maschinenziele und aktuelle Image-Einschränkungen.",
+      "intro": "Dies sind die Cloud-Aktionen, die die CLI von cmux NEXT anbietet. Ein angebotener Befehl kann auf einem bestimmten Maschinen-Image dennoch nicht verfügbar sein. Das am 2026-10-29 überprüfte Image unterstützt noch keine nativen Agent-Chat-Tabs, Browser-Tabs für Entwicklungsserver, lokale Portweiterleitungen, Forks oder automatisches Pausieren bei Inaktivität.",
       "exitCodes": "Exit-Codes: 0 bei Erfolg, 1 bei einem Fehler und 2 bei einem unbekannten Befehl. cmux vm run gibt den Remote-Exit-Code zurück.",
       "authTitle": "Anmelden",
       "authDesc": "Melde dich an, prüfe dein Konto und wähle ein Team.",
@@ -3130,7 +3185,19 @@
       "accountsDesc": "Lade Agentenkonten für dein Team hoch und prüfe das Modell-Routing.",
       "preflightTitle": "Checkliste für Skripte",
       "preflightDesc": "Bevor ein Skript Maschinen erstellt oder nutzt, führe diese schreibgeschützten Prüfungen aus. Sie bestätigen, dass du angemeldet bist, zeigen deine Maschinen und Planlimits und zeigen, welche Maschine ein Verzeichnis verwendet.",
-      "coderouterLink": "Vollständige CodeRouter-Befehlsreferenz"
+      "coderouterLink": "Vollständige CodeRouter-Befehlsreferenz",
+      "nextTitle": "Cloud-CLI-Referenz (NEXT)",
+      "nextIntro": "Dies sind die Cloud-Aktionen, die die CLI von cmux NEXT anbietet. Ein angebotener Befehl kann auf einem bestimmten Maschinen-Image dennoch nicht verfügbar sein. Das am 2026-10-29 überprüfte Image unterstützt noch keine nativen Agent-Chat-Tabs, Browser-Tabs für Entwicklungsserver, lokale Portweiterleitungen, Forks oder automatisches Pausieren bei Inaktivität.",
+      "nextTargets": "Kopiere das Ziel {machineTarget} aus list-machines und übergib --target bei Maschinenbefehlen ausdrücklich, auch wenn du nur eine Maschine hast. Verwende --help für die Befehlssyntax und cmux action describe mit der Aktions-ID für Argumente und Rückgabefelder.",
+      "nextCatalog": "Angebotene Aktionen",
+      "nextCatalogBody": "Diese Liste wird aus dem NEXT-Aktionskatalog generiert und enthält keine reinen GUI-Aktionen. Sie nennt verfügbare Befehlsnamen, garantiert aber nicht, dass jede Maschine sie unterstützt.",
+      "nextCommand": "Befehl",
+      "nextAction": "Aktions-ID",
+      "nextSecrets": "Secrets auf diesem Mac",
+      "nextSecretsBody": "secret set liest den Wert über eine Eingabeaufforderung mit verdeckter Eingabe oder stdin und speichert ihn im Schlüsselbund dieses Macs. Übergib Secret-Werte niemals als Befehlsargumente. set und rm akzeptieren --repo OWNER/NAME; ls listet gespeicherte Namen und Geltungsbereiche auf. Für die Übertragung ist eine fertig angewendete Maschinenkonfiguration erforderlich, die die Secret-Namen deklariert. Das Anwenden einer Konfiguration und die Übertragung von Secrets wurden auf dem am 2026-10-29 überprüften Image noch nicht vollständig von Anfang bis Ende geprüft.",
+      "nextHandoff": "Übergabe und Verschieben von Chats",
+      "nextHandoffBody": "hand-off-machine gibt Text über eine Maschine zurück; es verschiebt keinen Chat. move und bring-back verschieben Chat-Tabs zwischen diesem Mac und einer Cloud-Maschine. Dafür ist kompatible Chat-Unterstützung erforderlich; verwende sie nicht als Umgehung für ein Image ohne Agent-Chat-Tabs. Führe den Agenten stattdessen in einem Remote-Terminal aus.",
+      "nextHelp": "Schnellstart und aktuelle Einschränkungen"
     },
     "cloudTroubleshooting": {
       "title": "Cloud-Sicherheit und Fehlerbehebung",
@@ -3188,7 +3255,26 @@
       "errTransferDisabled": "Die Dateiübertragung wurde von deiner Organisation deaktiviert",
       "fixTransferDisabled": "Eine verwaltete Richtlinie deaktiviert die Dateiübertragung. Wende dich an deinen Administrator.",
       "supportTitle": "Hilfe erhalten",
-      "supportDesc": "Schlägt eine Erstellung fehl, nutze Copy Error in der Benachrichtigung und füge den Fehler, gegebenenfalls mit der Trace-ID, bei, wenn du den Support kontaktierst."
+      "supportDesc": "Schlägt eine Erstellung fehl, nutze Copy Error in der Benachrichtigung und füge den Fehler, gegebenenfalls mit der Trace-ID, bei, wenn du den Support kontaktierst.",
+      "nextTitle": "Cloud-Fehlerbehebung (NEXT)",
+      "nextIntro": "Diese Meldungen wurden am 2026-10-29 überprüft. Als noch nicht verfügbar gekennzeichnete Funktionen werden auf Maschinen aus dem Image dieses Tages nicht unterstützt. Ein Update der Mac-App allein aktualisiert keine Software, die bereits auf einer Cloud-Maschine installiert ist.",
+      "nextSymptom": "Meldung oder Symptom",
+      "nextFix": "Was zu tun ist",
+      "nextPendingFix": "Die Erstellung läuft im Hintergrund weiter. Prüfe list-machines, bevor du eine weitere Maschine erstellst. Bei einer Liste mit loaded: false ist der Inhalt noch unbekannt; sie bedeutet nicht, dass das Konto leer ist.",
+      "nextTargetFix": "Kopiere target aus list-machines und übergib --target {machineTarget}, auch wenn du nur eine Maschine hast.",
+      "nextOpenFix": "open-machine ist eine reine GUI-Aktion. Um über die CLI ein Terminal zu öffnen und anzuzeigen, verwende new-terminal-on-machine mit dem Maschinenziel und --focus.",
+      "nextAgentFix": "Native Agent-Chat-Tabs sind noch nicht verfügbar. Öffne ein Terminal auf der Maschine und führe dort claude oder codex aus. Eine andere Agentenauswahl behebt die fehlende Chat-Unterstützung nicht.",
+      "nextBrowserFix": "Das Öffnen eines Browser-Tabs für einen Entwicklungsserver ist noch nicht verfügbar. machine-link --port gibt einen Link zurück, aber der Browserzugriff über diesen Link wurde nicht überprüft. Ein zurückgegebener Link allein beweist nicht, dass der Port erreichbar ist.",
+      "nextPortFix": "Das Auflisten und Weiterleiten lokaler Ports ist über diese Maschinenverbindung noch nicht verfügbar. machine-link kann einen Port-Link zurückgeben; es erstellt keine localhost-Weiterleitung, und die Erreichbarkeit im Browser wurde nicht überprüft.",
+      "nextForkFix": "Forks sind auf Maschinen aus diesem Image noch nicht verfügbar. Erstelle eine neue Maschine und klone dort dein Repository; eine neue Maschine kopiert keine Dateien der ursprünglichen Maschine.",
+      "nextIdleFix": "Automatisches Pausieren bei Inaktivität ist noch nicht verfügbar. Pausiere die Maschine selbst, wenn du fertig bist, und setze sie bei Bedarf fort. Off ist die einzige akzeptierte Einstellung für das Pausieren bei Inaktivität.",
+      "nextSecretsFix": "Deklariere Secret-Namen in .cmux/machine.toml, wende die Konfiguration mit apply-machine-config an und warte, bis die Einrichtung abgeschlossen ist, bevor du deliver-secrets ausführst. Speichere Werte mit secret set NAME über dessen Eingabeaufforderung oder stdin. Dieser Übertragungsablauf wurde auf diesem Image noch nicht vollständig von Anfang bis Ende überprüft.",
+      "nextGithubFix": "Führe gh auth login im Terminal der Maschine aus und konfiguriere dort deine Git-Identität. setup-github benötigt eine Git-Identität auf dem Mac; bei der Überprüfung gab es diesen Fehler ohne Begründung zurück.",
+      "nextExecFix": "exec ist für kurze Befehle gedacht und stoppt nach 25 Sekunden. Verwende für Builds, Agenten und lang laufende Server ein Terminal auf der Maschine.",
+      "nextSupport": "Diagnosedaten sammeln",
+      "nextSupportBody": "Führe diagnostics aus und gib beim Melden eines Problems die Fehlermeldung und dein Vorhaben an. Prüfe die Ausgabe, bevor du sie öffentlich teilst; entferne Kontodetails, Maschinenadressen und andere private Informationen.",
+      "legacyTitle": "Ältere Versionen: Sicherheit und häufige Probleme",
+      "legacyIntro": "Die folgenden Hinweise bleiben für ältere cmux-Versionen erhalten. Ihre Beispiele mit cmux vm und cmux auth sind keine NEXT-Befehle. Ablehnungen durch Maschinen-Images und Lösungen für NEXT findest du im Abschnitt oben."
     },
     "ui": {
       "onThisPage": "Auf dieser Seite",
@@ -3431,6 +3517,15 @@
     "download": "NIGHTLY für Mac herunterladen",
     "warning": "Nightly Builds können Fehler oder unfertige Funktionen enthalten. Falls Probleme auftreten, melden Sie diese auf <githubLink>GitHub</githubLink> oder in <discordLink>#nightly-bugs auf Discord</discordLink> und wechseln Sie zur stabilen Version."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Vorschau-Builds der nächsten cmux-App",
+    "metaTitle": "cmux NEXT NIGHTLY — Vorschau-Builds",
+    "metaDescription": "Laden Sie cmux NEXT NIGHTLY herunter, eine Vorschau der nächsten cmux-App, automatisch aus dem neuesten Commit erstellt. Läuft neben cmux mit eigenen Auto-Updates.",
+    "description": "cmux NEXT NIGHTLY ist eine Vorschau der nächsten cmux-Version und wird automatisch aus dem neuesten Commit erstellt. Es hat eine eigene Bundle-ID und läuft daher ohne Konflikte neben cmux und cmux NIGHTLY. Erfordert einen Mac mit Apple Silicon.",
+    "download": "NEXT NIGHTLY für Mac herunterladen",
+    "warning": "NEXT NIGHTLY Builds können Fehler oder unfertige Funktionen enthalten. Falls Probleme auftreten, melden Sie diese auf <githubLink>GitHub</githubLink> oder in <discordLink>#nightly-bugs auf Discord</discordLink> und wechseln Sie zur stabilen Version."
+  },
   "languageSwitcher": {
     "label": "Sprache"
   },
@@ -3444,6 +3539,7 @@
     "unsupportedParams": "Dieser Link enthält nicht unterstützte Parameter, die cmux ablehnt: {params}",
     "conflictingParams": "Dieser Link enthält Parameter, die nicht zusammen verwendet werden können: {params}",
     "invalidParams": "Dieser Link enthält ungültige Parameterwerte: {params}",
+    "ignoredParams": "cmux ignoriert Parameter, die es nicht verwendet: {params}. Die Sitzung wird dennoch geöffnet.",
     "fixParams": "Korrigieren Sie die URL-Parameter und laden Sie dann diese Seite neu.",
     "examplePrefix": "Siehe eine",
     "exampleLink": "Beispiellink",
@@ -5297,7 +5393,18 @@
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
     "signedOutSignIn": "Anmelden",
-    "manageInAppStore": "Im App Store verwalten"
+    "manageInAppStore": "Im App Store verwalten",
+    "go": {
+      "name": "Plus",
+      "cta": "Plus wählen",
+      "featuresLead": "Enthalten:",
+      "features": [
+        "Insgesamt 1 gespeicherte VM, auch im pausierten Zustand",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Community-Support",
+        "Keine monatliche Stundenbegrenzung"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",
@@ -5515,6 +5622,8 @@
     "errorInvalidCode": "Dieser Code ist ungültig. Prüfe deine E-Mails und versuche es erneut.",
     "errorInvalidTotp": "Dieser Zwei-Faktor-Code ist ungültig.",
     "errorSignUpNotAllowed": "Neue Konten können derzeit nicht erstellt werden.",
+    "errorEmailUnverified": "Für diese E-Mail-Adresse gibt es bereits ein Konto, aber die Adresse ist noch nicht bestätigt. Melde dich so an, wie du dich registriert hast, und bestätige dann deine E-Mail-Adresse, um Anmeldecodes zu nutzen.",
+    "useEmailPasswordInstead": "Mit E-Mail und Passwort anmelden",
     "errorPasskey": "Die Passkey-Anmeldung wurde nicht abgeschlossen. Versuche es erneut oder nutze eine andere Methode.",
     "errorGeneric": "Etwas ist schiefgelaufen. Versuche es erneut."
   },

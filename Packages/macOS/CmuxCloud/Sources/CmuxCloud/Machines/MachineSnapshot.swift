@@ -19,6 +19,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         resourceReservation: CloudVMResourceReservation? = nil,
         resourcePoolClaim: CloudVMResourceReservation? = nil,
         usesResourcePool: Bool = true,
+        occupiesMachineSlot: Bool = true,
         usage: MachineUsageSnapshot? = nil,
         privateAddress: String? = nil,
         isPinned: Bool = false
@@ -38,6 +39,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.resourceReservation = resourceReservation
         self.resourcePoolClaim = resourcePoolClaim
         self.usesResourcePool = usesResourcePool
+        self.occupiesMachineSlot = occupiesMachineSlot
         self.usage = usage
         self.privateAddress = privateAddress
         self.isPinned = isPinned
@@ -96,6 +98,8 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// Whether the list status says this machine currently draws from the
     /// shared pool. Paused/stopped machines must fit as a new allocation when
     /// a resize wakes them.
+    /// Saved machines retain a quota slot while paused.
+    public var occupiesMachineSlot: Bool
     public var usesResourcePool: Bool
     /// Coderouter spend over the usage window; nil until the team usage
     /// payload names this machine (and nil forever on backends without it).

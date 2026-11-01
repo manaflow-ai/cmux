@@ -1,9 +1,9 @@
 public import Foundation
 
-/// Persists bounded user-owned identity recovery records by workspace identity.
+/// Persists bounded identity recovery records by workspace identity.
 ///
 /// The session snapshot remains the baseline. This journal records immediate
-/// user mutations so a quit before the next autosave cannot lose a rename,
+/// title and color mutations so a quit before the next autosave cannot lose a rename,
 /// recolor, or explicit clear.
 @MainActor
 public struct WorkspaceCustomizationStore {
@@ -65,16 +65,22 @@ public struct WorkspaceCustomizationStore {
         })
     }
 
-    /// Records the latest explicit workspace-title mutation.
+    /// Records the latest landed workspace-title mutation.
     ///
     /// - Parameters:
     ///   - title: The title to record, or `nil` to record an explicit clear.
+    ///   - source: The source of the landed title write.
     ///   - stableId: The stable workspace identity.
-    public func setCustomTitle(_ title: String?, for stableId: UUID) {
+    public func setCustomTitle(
+        _ title: String?,
+        source: WorkspaceCustomization.TitleSource = .user,
+        for stableId: UUID
+    ) {
         let field = normalizedField(title)
         updateCustomization(for: stableId) { current in
             WorkspaceCustomization(
                 customTitle: field,
+                customTitleSource: source,
                 customColor: current?.customColor ?? .absent
             )
         }
@@ -101,9 +107,19 @@ public struct WorkspaceCustomizationStore {
         updateCustomizations(forKeys: keys) { current in
             WorkspaceCustomization(
                 customTitle: current?.customTitle ?? .absent,
+                customTitleSource: current?.customTitleSource,
                 customColor: field
             )
         }
+    }
+
+    /// Removes recovery data after a workspace has been closed.
+    ///
+    /// - Parameter stableId: The stable workspace identity to forget.
+    public func removeCustomization(for stableId: UUID) {
+        var snapshot = loadSnapshot()
+        guard snapshot.entries.removeValue(forKey: stableId.uuidString) != nil else { return }
+        persist(snapshot)
     }
 
     /// Promotes unambiguous legacy directory records, then removes all v1 data.
@@ -135,6 +151,7 @@ public struct WorkspaceCustomizationStore {
                     customTitle: current?.customTitle == .absent || current == nil
                         ? self.migratedField(customization.customTitle)
                         : current?.customTitle ?? .absent,
+                    customTitleSource: current?.customTitleSource,
                     customColor: current?.customColor == .absent || current == nil
                         ? self.migratedField(customization.customColor)
                         : current?.customColor ?? .absent

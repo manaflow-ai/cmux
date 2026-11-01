@@ -12,8 +12,13 @@ name: CI failure attribution
 #                      re-run (attempt 3 goes to Blacksmith, which ends it)
 #   green              that comment, if any, says it passes now; a green run
 #                      whose macOS jobs never ran says that instead
-#   requested          CI started on a new head: a comment about an older
-#                      head says "pending" (metadata only, no log is read)
+#
+# One run per CI completion. It no longer also starts on `requested` (CI
+# starting): that doubled the runs, about 200 an hour on 2026-10-26, while
+# the installation's GITHUB_TOKEN budget ran out. A comment about an older
+# head is rewritten to "pending" when the newer head's run completes instead.
+# vars.CI_QUOTA_HOLD=1 pauses the report while that budget is reserved for the
+# nightly (tests/test_ci_quota_hold_gate.py); the next completion reports.
 #
 # A PR's code never runs here: main's script reads the run's job logs and
 # annotations as data. Everything is event driven: nothing polls.
@@ -21,7 +26,7 @@ name: CI failure attribution
 on:
   workflow_run:
     workflows: ["CI"]
-    types: [completed, requested]
+    types: [completed]
 
 env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
@@ -32,16 +37,13 @@ concurrency:
   # One report at a time per branch, never cancelled halfway (between the
   # re-run and the comment that says so). A report takes seconds, and one for
   # a head the pull request has moved past only marks the comment pending.
-  # `requested` gets its own group: GitHub keeps one pending run per group, and
-  # a start (a label, a push) must never replace a pending completed report,
-  # whose machine re-run would be lost.
-  group: ci-failure-attribution-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}${{ github.event.action == 'requested' && '-requested' || '' }}
+  group: ci-failure-attribution-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:
   attribute:
     name: Attribute
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && (github.event.action == 'requested' || contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion)) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token; the re-run must follow CI within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     permissions:
@@ -68,6 +70,33 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
+      # Reads (jobs, logs, the pull request, its comments and files) draw on the
+      # manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN budget every
+      # workflow shares (it ran out on 2026-10-21). Writes stay on GH_TOKEN: the
+      # re-run must come from github-actions[bot] (ci-macos.yml routes attempt 3
+      # by its triggering actor) and pr_status finds the comment by its author.
+      # Check-run annotations need `checks`, which the App lacks: GH_TOKEN reads
+      # them (guard_attribution.GitHub).
+      # Only when the cmux-bot mint gave nothing: READ_TOKEN below prefers cmux-bot's
+      # token, so a glaeda-route token minted beside it went unused and its mint
+      # still spent the shared glaeda-route installation budget on every CI run.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && steps.cmux-bot-token.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
       - name: Checkout main's classifier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -75,7 +104,33 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
 
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/attribute/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Attribute failures and re-run machine failures
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
         run: python3 scripts/ci/classify_failures.py act
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/attribute/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'

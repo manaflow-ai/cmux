@@ -168,6 +168,31 @@
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM リクエストが遅延しています",
+      "message": "Cloud VM の割り当てを一時的に利用できません。",
+      "action": "1 分待ってから、同じ冪等キーで再試行してください。"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "スナップショットリクエストには再試行キーが必要です",
+      "message": "Cloud VM のスナップショットには冪等キーが必要です。",
+      "action": "128 文字以内の固定した Idempotency-Key を指定して再試行してください。"
+    },
+    "snapshotInProgress": {
+      "title": "スナップショットを処理中です",
+      "message": "この Cloud VM では、この冪等キーのスナップショットがまだ実行中です。",
+      "action": "最初のスナップショットが完了するまで待ってから、同じ冪等キーで再試行してください。"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "スナップショットの再試行キーは使用済みです",
+      "message": "この冪等キーは、この Cloud VM の別のスナップショットリクエストですでに使用されています。",
+      "action": "別の名前のスナップショットには、新しい冪等キーを使用してください。"
+    },
+    "snapshotQuota": {
+      "title": "スナップショットの上限に達しました",
+      "message": "この Cloud VM はスナップショットの上限に達しています。",
+      "action": "既存のスナップショットを削除してから、同じ冪等キーで再試行してください。"
+    },
     "guestInstall": {
       "title": "Cloud VM のセットアップを完了できませんでした",
       "reason": "Cloud VM のゲストセットアップが完了しませんでした。",
@@ -272,14 +297,14 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go では実行中の VM を含めて 2 台まで保存できます。",
+      "savedMessage": "Plus: 一時停止中も含めて保存できる VM は合計 1 台",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go では同時に 1 台の VM を実行できます。",
+      "activeMessage": "Plus: Cloud VM 1 台",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Go の今月の 40 VM 時間を使い切りました。保存済み VM は次の請求期間から再び利用できます。",
+      "hoursMessage": "Plus: 月間の時間上限なし",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan} のコンピュート枠を使い切りました",
@@ -299,7 +324,7 @@
       "action": "VM を一時停止または削除してください。"
     },
     "activeLimit": {
-      "counted": "現在カウント中: {machines}。一時停止中のマシンはカウントされません。",
+      "counted": "カウント対象: {machines}。一時停止中のマシンも上限に含まれます。",
       "provisioning": "{name}（プロビジョニング中）",
       "separator": "、"
     }
@@ -749,9 +774,9 @@
         "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
       "go": {
-        "name": "cmux Go",
-        "activeBody": "Go プランは有効です。次回更新日は {date} です。",
-        "pendingBody": "Go プランは {date} に終了します。",
+        "name": "cmux Plus",
+        "activeBody": "Plus プランの次回更新日は {date} です。",
+        "pendingBody": "Plus プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月"
       },
       "team": {
@@ -844,7 +869,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -856,9 +881,10 @@
             "ローカルのセッション履歴"
           ],
           "go": [
-            "稼働中の Cloud VM 1 台",
-            "毎月 40 VM 時間",
-            "保存できる VM 2 台"
+            "一時停止中も含めて保存できる VM は合計 1 台",
+            "16 GiB RAM / 8 vCPU",
+            "コミュニティサポート",
+            "月間の時間上限なし"
           ],
           "pro": [
             "Cloud VM 上のクラウドエージェント",
@@ -1302,7 +1328,7 @@
       },
       "plan": {
         "free": "無料",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -1807,14 +1833,14 @@
       ]
     },
     "go": {
-      "name": "Go",
-      "cta": "Go を入手",
-      "featuresLead": "集中作業向けの小さな Cloud VM:",
+      "name": "Plus",
+      "cta": "Plus を入手",
+      "featuresLead": "含まれるもの:",
       "features": [
-        "アクティブな Cloud VM 1 台",
-        "2 vCPU、4 GiB RAM、16 GiB ディスク",
-        "実行中の VM を含めて合計 2 台の VM を保存",
-        "毎月 40 VM 時間を含み、上限で VM は一時停止します"
+        "一時停止中も含めて保存できる VM は合計 1 台",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB ディスク",
+        "コミュニティサポート",
+        "月間の時間上限なし"
       ]
     },
     "pro": {
@@ -1944,7 +1970,7 @@
           "go": "true"
         },
         {
-          "label": "同時 Cloud VM 数",
+          "label": "保存済み Cloud VM 数（一時停止中を含む）",
           "free": "false",
           "pro": "5",
           "max": "5",
@@ -1959,7 +1985,7 @@
           "max": "80 vCPU と 160 GB RAM（共有）",
           "team": "有料シートごとに 20 vCPU と 40 GB RAM（チーム全体で共有）",
           "enterprise": "カスタム",
-          "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
+          "go": "16 GiB RAM / 8 vCPU"
         },
         {
           "label": "最大の Cloud VM",
@@ -1968,7 +1994,7 @@
           "max": "64 GB RAM / 32 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU を含む）",
           "team": "16 GB RAM / 8 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要）",
           "enterprise": "カスタム",
-          "go": "4 GiB RAM"
+          "go": "16 GiB RAM / 8 vCPU"
         },
         {
           "label": "ワークスペース",
@@ -3352,6 +3378,7 @@
           "tabBarVisibility": "ペインがタブバーを描画するタイミングを決めます。\"always\" はタブが 1 つだけのペインでも描画し、\"multiple-tabs\" はペインのタブが 1 つの間は隠し、2 つ目のタブが開かれた時点で描画します。ミニマルモード (app.minimalMode) では常に描画されます。最上部のペインのタブバーがウインドウのタイトルバーを兼ねているためです。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
           "globalFontMagnification": "cmux が自前で描画するすべての要素（ターミナルのテキスト、タブのタイトル、サイドバー、設定、オーバーレイ、ウィンドウの枠）の表示倍率をパーセントで指定します。ブラウザサーフェス内の Web ページは独自のサイズを保ちます。",
+          "equalizeSplitsOnDividerDoubleClick": "有効にすると、区切り線をダブルクリックしたときに、その行または列のペインが同じサイズになります。他の行や列のサイズは変わりません。",
           "paneResizeStepPixels": "ペインのリサイズショートカットを1回押すごとに移動するピクセル数。範囲は 1～200、既定値は 20 です。変更はすぐに適用されます。"
         },
         "terminal": {
@@ -3452,6 +3479,13 @@
               "enabled": "リモート tmux ワークスペースを選択している場合、「新規ワークスペース」はそのワークスペースのホストで tmux セッションを開始します。"
             }
           }
+        },
+        "chief": {
+          "description": "ホームエージェントのChief：表示するかどうかと、使用するハーネス、モデル、エフォート。",
+          "enabled": "ホーム行とChiefの入口を表示します。falseにすると、ホーム行、Chiefを開くショートカット、メニュー項目、コマンドパレットの項目が非表示になります。",
+          "harness": "Chiefが動作するエージェントハーネス：claude（Claude Code）またはcodex（Codex）。",
+          "model": "ハーネスに渡すモデル。空欄にするとハーネスの既定値を使用します。",
+          "effort": "ハーネスに渡す推論エフォート（low、medium、highなど）。空欄にするとハーネスの既定値を使用します。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -4395,10 +4429,10 @@
       "blogCta": "ワークフローと導入背景は<link>タスクマネージャの機能紹介</link>をご覧ください。"
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "cmuxから永続的なLinuxクラウドマシンを実行。Macを閉じてもコーディングエージェントは作業を続けます。",
-      "intro": "cmux Cloudは、通常のcmuxワークスペースとして開ける永続的なLinuxマシンをクラウド上に提供します。ペインを閉じても、ネットワークが切れても、ノートパソコンを閉じてもターミナルは動き続けるため、コーディングエージェントは作業を続けられ、サインイン済みのどのMacからでも再接続できます。",
+      "title": "cmux Cloud クイックスタート",
+      "metaTitle": "cmux Cloud クイックスタート",
+      "metaDescription": "cmux NEXT Cloud を始めるには、サインインして Linux マシンを作成し、ターミナルとデスクトップを開き、一時停止・再開・削除します。",
+      "intro": "Linux の Cloud マシンでツールを実行し、Mac ではアプリを使います。このガイドでは、2026-10-29 に検証した cmux NEXT のコマンドを使用します。以前のリリースでは CLI が異なります。",
       "betaNote": "cmux Cloudは早期アクセス中で、組織によって無効化されていない限り利用できます。利用するには、設定 › ベータ機能 › クラウドマシン をオンにしてください。",
       "whatTitle": "マシンとは",
       "whatDesc": "マシンは、あなたまたはチームに属する永続的なクラウドコンピュータです。ファイル、インストール済みのツール、実行中のターミナルを保持します。使い捨てではなく長く使うものとして扱ってください。必要なものを一度インストールし、後で戻ってきて使います。",
@@ -4424,12 +4458,27 @@
       "cliIntroDesc": "cmux vm と cmux cloud は同じコマンドです。動詞なしで cmux vm を実行するとマシンの一覧が表示されます。すべての動詞にアプリなしで使える --help ページがあり、cmux vm guide は完全なMarkdownガイドを出力します。どの動詞にも --json を付けると機械可読な出力になります。",
       "baseTitle": "ベースマシン",
       "baseDesc": "各アカウントにはピン留めされたベースマシンが1台あります。cmux vm base はそれを開き、初回は作成します。cmux vm base reset は新しいベースマシンを作成し、古いマシンも残すため、誤ってファイルを失うことはありません。",
-      "nextTitle": "次のステップ",
+      "nextTitle": "cmux Cloud クイックスタート",
       "nextMachines": "マシン：サイズ、プラン、サイズ変更、一時停止、スナップショット、削除。",
       "nextWorkspaces": "ワークスペースとエージェント：永続的なターミナル、エージェント、通知、インストール済みのツール。",
       "nextNetworking": "ファイルとネットワーク：ファイルのアップロード、環境変数、ポート、デスクトップ、公開URL。",
-      "nextCli": "Cloud CLIリファレンス：cmux vm のすべての動詞。",
-      "nextTroubleshooting": "セキュリティとトラブルシューティング：アクセスの仕組みと、よくあるエラーの対処法。"
+      "nextCli": "Cloud CLI リファレンス：NEXT が提供するアクション、シークレット、引き継ぎのコマンド。",
+      "nextTroubleshooting": "Cloud のトラブルシューティング",
+      "nextIntro": "Linux の Cloud マシンでツールを実行し、Mac ではアプリを使います。このガイドでは、2026-10-29 に検証した cmux NEXT のコマンドを使用します。以前のリリースでは CLI が異なります。",
+      "nextSignIn": "1. サインインする",
+      "nextSignInBody": "Mac で cmux NEXT を開いたままにします。このコマンドを実行し、ブラウザでサインインを完了してから、マシン一覧を確認します。",
+      "nextCreate": "2. マシンを作成する",
+      "nextCreateBody": "medium マシンには CPU 4 個、メモリ 8 GB、ディスク 32 GB があり、claude、codex、gh、git、node、bun、python3 が含まれます。各ツールへのサインインは cmux へのサインインとは別です。",
+      "nextPending": "作成処理は 30 秒後に pending: true を返し、バックグラウンドで続くことがあります。別のマシンを作成する前に list-machines を確認してください。返された target（{machineTarget}）を以下のコマンドにコピーします。ほとんどのマシンコマンドでは、マシンが 1 台だけでも指定が必要です。",
+      "nextTerminal": "3. ターミナルを開く",
+      "nextTerminalBody": "ウインドウにターミナルを表示するには --focus を指定します。指定しない場合、ワークスペースはバックグラウンドで開きます。このターミナルで gh auth login を実行し、リポジトリをクローンして、claude または codex を起動します。2026-10-29 に確認したイメージから作成したマシンでは、ネイティブのエージェントチャットタブはまだ利用できません。",
+      "nextDesktop": "4. デスクトップを開く",
+      "nextDesktopBody": "マシンのデスクトップが noVNC のブラウザタブで開きます。コマンドはページの読み込みが完了する前に戻ります。",
+      "nextPause": "5. 一時停止と再開",
+      "nextPauseBody": "作業を終えたらマシンを手動で一時停止してください。ディスクは保持されます。アイドル時の自動一時停止はまだ利用できません。再び必要になったら再開します。",
+      "nextDelete": "6. 作業を終えたら削除する",
+      "nextDeleteBody": "削除するとマシンとその中のすべてが失われます。必要な作業内容は先に別の場所に保存してください。コマンドは削除の完了前に戻るため、その後 list-machines で確認します。",
+      "nextReference": "Cloud CLI リファレンス"
     },
     "cloudMachines": {
       "title": "クラウドマシン",
@@ -4453,9 +4502,9 @@
       "limitsTitle": "プランの上限",
       "limitsDesc": "アクティブなマシンは、vCPUとメモリの1つのプールを共有します。大きなマシン1台でも、小さなマシン数台でも使えます。一時停止中のマシンはプールを使いません。ディスクはマシンごとに設定され、プールには含まれません。",
       "limitsFree": "無料アカウントではマシンを作成できません。",
-      "limitsPaid": "ProおよびFounder's Editionアカウントでは、20 vCPUと40 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
-      "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大5台まで持てます。有料シート1つごとに、チームのプールに20 vCPUと40 GBのメモリが追加されます。",
-      "limitsMax": "Maxアカウントでは、80 vCPUと160 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。Maxの1台のマシンは最大64 GB、32 vCPUまで使え、24 GB / 12 vCPUと32 GB / 16 vCPUのサイズも含まれます。ProとTeamは16 GB、8 vCPUまでです。",
+      "limitsPaid": "ProおよびFounder's Editionアカウントでは、20 vCPUと40 GBのメモリを共有する一時停止中も含むマシンを最大5台まで持てます。",
+      "limitsTeam": "Teamアカウントでは、有料シート1つにつき一時停止中も含むマシンを最大5台まで持てます。有料シート1つごとに、チームのプールに20 vCPUと40 GBのメモリが追加されます。",
+      "limitsMax": "Maxアカウントでは、80 vCPUと160 GBのメモリを共有する一時停止中も含むマシンを最大5台まで持てます。Maxの1台のマシンは最大64 GB、32 vCPUまで使え、24 GB / 12 vCPUと32 GB / 16 vCPUのサイズも含まれます。ProとTeamは16 GB、8 vCPUまでです。",
       "limitsPoolFull": "新規作成、再開、サイズ変更、フォークでプールを超える場合、cmuxはリクエストを拒否し、プールの使用量を表示します。マシンを一時停止または削除してリソースを空けるか、Maxにアップグレードしてください。",
       "limitsOversize": "プランの上限より大きいマシンはロックされます。一覧表示と削除はできますが、アップグレードするまで開く、コマンドを実行する、再開する、サイズを変更することはできません。",
       "limitsPricing": "現在の価格は料金ページを参照してください。従量課金や超過料金はありません。",
@@ -4466,7 +4515,7 @@
       "agentUpdatesToggle": "「新しいマシン」シートではこの設定がデフォルトでオンです。既存のマシンで変更するには、マシンを右クリックして「エージェントを最新に保つ」を選ぶか、cmux vm agent-updates を実行します。cmux vm new は --agent-updates latest を指定しない限りイメージのバージョンを保持します。更新をオフにしても、インストール済みのバージョンはそのまま残ります。",
       "agentUpdatesNetwork": "更新が使うのは github.com, api.github.com, objects.githubusercontent.com、release-assets.githubusercontent.com だけです。cmux は「許可リスト」や「インターネットなし」を含むすべてのネットワークモードでこれらのホストを許可するため、ネットワークポリシーが更新を妨げることはありません。",
       "resizeTitle": "サイズ変更",
-      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で、ProとTeamでは最大128 GB、Maxでは256 GBまで拡大できます（Goは16 GBまで）。メモリとCPUは、ProとTeamでは最大16 GB、8 vCPU、Maxでは最大64 GB、32 vCPUまで拡大できます。大きなマシンほどプールを多く使います。実際の上限はプランによって決まります。",
+      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で、ProとTeamでは最大128 GB、Maxでは256 GBまで拡大できます（Plusは16 GBまで）。メモリとCPUは、ProとTeamでは最大16 GB、8 vCPU、Maxでは最大64 GB、32 vCPUまで拡大できます。大きなマシンほどプールを多く使います。実際の上限はプランによって決まります。",
       "pauseTitle": "一時停止と再開",
       "pauseDesc": "cmux vm pause はマシンのコンピュートを停止します。ディスク、ワークスペース、ターミナルの履歴は残りますが、実行中のプロセスは停止します。cmux vm resume でマシンを再び起動します。一時停止中のマシンを開いたり、そのマシンでコマンドを実行したりしても起動します。",
       "pauseIdle": "アイドル状態でもマシンは自動では一時停止しません。一時停止するか削除するまで動き続けます。",
@@ -4562,10 +4611,10 @@
       "customDomainDesc": "cmux cloud domains verify は追加すべきDNSレコードを出力します。所有権確認用のTXTレコード、ルーティング用のレコード、証明書の委任です。これらを追加してから、もう一度 verify を実行します。検証後は、そのドメインまたはその1階層下のサブドメインで公開できます。"
     },
     "cloudCli": {
-      "title": "Cloud CLIリファレンス",
-      "metaTitle": "cmux Cloud CLIリファレンス",
-      "metaDescription": "cmux vm と cmux cloud の全コマンドのリファレンス。ライフサイクル、ワークスペース、ファイル、環境、ドメイン、VPN。",
-      "intro": "cmux vm と cmux cloud は同じコマンドです。CLIは実行中のcmuxアプリと通信し、サインイン情報はアプリが保持します。どの動詞にも --json を付けると機械可読な出力になります。すべての動詞に --help ページがあります。",
+      "title": "Cloud CLI リファレンス（NEXT）",
+      "metaTitle": "Cloud CLI リファレンス（NEXT）",
+      "metaDescription": "cmux NEXT Cloud が提供するアクションの一覧、シークレット保存と引き継ぎのコマンド、マシンの明示的な指定方法、現在のイメージの制限。",
+      "intro": "cmux NEXT CLI が提供する Cloud アクションの一覧です。提供されているコマンドでも、特定のマシンイメージでは利用できない場合があります。2026-10-29 に確認したイメージは、ネイティブのエージェントチャットタブ、開発サーバーのブラウザタブを開く操作、ローカルポート転送、フォーク、アイドル時の自動一時停止にまだ対応していません。",
       "exitCodes": "終了コード：成功時は0、エラー時は1、不明なコマンドは2です。cmux vm run はリモートの終了コードを返します。",
       "authTitle": "サインイン",
       "authDesc": "サインイン、アカウントの確認、チームの選択を行います。",
@@ -4589,7 +4638,19 @@
       "accountsDesc": "チーム用のエージェントアカウントをアップロードし、モデルルーティングを確認します。",
       "preflightTitle": "スクリプト用チェックリスト",
       "preflightDesc": "スクリプトでマシンを作成または使用する前に、次の読み取り専用のチェックを実行してください。サインイン済みであることを確認し、マシンとプランの上限、ディレクトリがどのマシンを使うかを表示します。",
-      "coderouterLink": "CodeRouterの全コマンドリファレンス"
+      "coderouterLink": "CodeRouterの全コマンドリファレンス",
+      "nextTitle": "Cloud CLI リファレンス（NEXT）",
+      "nextIntro": "cmux NEXT CLI が提供する Cloud アクションの一覧です。提供されているコマンドでも、特定のマシンイメージでは利用できない場合があります。2026-10-29 に確認したイメージは、ネイティブのエージェントチャットタブ、開発サーバーのブラウザタブを開く操作、ローカルポート転送、フォーク、アイドル時の自動一時停止にまだ対応していません。",
+      "nextTargets": "list-machines から {machineTarget} の target をコピーし、マシンが 1 台だけでもマシンコマンドには --target を明示的に指定してください。コマンドの構文は --help で、引数と戻り値のフィールドはアクション ID を指定した cmux action describe で確認できます。",
+      "nextCatalog": "提供されているアクション",
+      "nextCatalogBody": "この一覧は NEXT のアクションカタログから生成され、GUI 専用のアクションは含みません。利用可能なコマンド名を示すものであり、すべてのマシンでの対応を保証するものではありません。",
+      "nextCommand": "コマンド",
+      "nextAction": "アクション ID",
+      "nextSecrets": "この Mac のシークレット",
+      "nextSecretsBody": "secret set は非表示の入力プロンプトまたは stdin から値を読み取り、この Mac のキーチェーンに保存します。シークレットの値をコマンド引数に含めないでください。set と rm は --repo OWNER/NAME を受け付け、ls は保存された名前とスコープを一覧表示します。配信には、シークレット名を宣言したマシン設定の適用が完了している必要があります。2026-10-29 に確認したイメージでは、設定の適用からシークレットの配信までの一連の流れはまだ検証されていません。",
+      "nextHandoff": "引き継ぎとチャットの移動",
+      "nextHandoffBody": "hand-off-machine はマシンの情報をテキストで返すだけで、チャットを移動しません。move と bring-back は、この Mac と Cloud マシンの間でチャットタブを移動します。互換性のあるチャット機能が必要です。エージェントチャットタブに対応していないイメージの回避策として使用せず、リモートターミナルでエージェントを実行してください。",
+      "nextHelp": "クイックスタートと現在の制限"
     },
     "cloudTroubleshooting": {
       "title": "Cloudのセキュリティとトラブルシューティング",
@@ -4647,7 +4708,26 @@
       "errTransferDisabled": "ファイル転送は組織によって無効にされています",
       "fixTransferDisabled": "管理ポリシーでファイル転送がオフになっています。管理者に問い合わせてください。",
       "supportTitle": "サポート",
-      "supportDesc": "作成に失敗した場合は、通知の「エラーをコピー」を使い、トレースIDがあればそれも含めてサポートに連絡してください。"
+      "supportDesc": "作成に失敗した場合は、通知の「エラーをコピー」を使い、トレースIDがあればそれも含めてサポートに連絡してください。",
+      "nextTitle": "Cloud のトラブルシューティング（NEXT）",
+      "nextIntro": "これらのメッセージは 2026-10-29 に確認したものです。「まだ利用できません」と記載された機能は、当日のイメージから作成したマシンでは対応していません。Mac アプリを更新するだけでは、Cloud マシンにインストール済みのソフトウェアは更新されません。",
+      "nextSymptom": "メッセージまたは症状",
+      "nextFix": "対処方法",
+      "nextPendingFix": "作成処理はバックグラウンドで続いています。別のマシンを作成する前に list-machines を確認してください。loaded: false の一覧はまだ状態が不明であり、アカウントが空という意味ではありません。",
+      "nextTargetFix": "list-machines から target をコピーし、マシンが 1 台だけでも --target {machineTarget} を指定してください。",
+      "nextOpenFix": "open-machine は GUI 専用のアクションです。CLI からターミナルを開いて表示するには、new-terminal-on-machine にマシンの target と --focus を指定します。",
+      "nextAgentFix": "ネイティブのエージェントチャットタブはまだ利用できません。マシンでターミナルを開き、そこで claude または codex を実行してください。エージェントの選択を変えても、チャット機能が未対応であることは解決しません。",
+      "nextBrowserFix": "開発サーバーのブラウザタブを開く操作はまだ利用できません。machine-link --port はリンクを返しますが、そのリンク経由のブラウザアクセスは検証されていません。リンクが返っただけでは、ポートに到達できるとは限りません。",
+      "nextPortFix": "このマシンリンク経由でのローカルポート一覧と転送はまだ利用できません。machine-link はポートのリンクを返せますが、localhost への転送は作成しません。ブラウザからの到達性も検証されていません。",
+      "nextForkFix": "このイメージから作成したマシンでは、フォークはまだ利用できません。新しいマシンを作成し、そこでリポジトリをクローンしてください。新しいマシンには元のマシンのファイルはコピーされません。",
+      "nextIdleFix": "アイドル時の自動一時停止はまだ利用できません。作業を終えたら手動で一時停止し、必要になったら再開してください。アイドル時の一時停止設定で受け付けられるのは Off のみです。",
+      "nextSecretsFix": ".cmux/machine.toml でシークレット名を宣言し、apply-machine-config で設定を適用して、セットアップが完了してから deliver-secrets を実行してください。値は secret set NAME のプロンプトまたは stdin から保存します。このイメージでは、配信までの一連の流れはまだ検証されていません。",
+      "nextGithubFix": "マシンのターミナルで gh auth login を実行し、そこで Git のユーザー情報を設定してください。setup-github には Mac 側の Git ユーザー情報が必要です。検証時には理由を示さずにこのエラーを返しました。",
+      "nextExecFix": "exec は短いコマンド用で、25 秒後に停止します。ビルド、エージェント、長時間実行するサーバーには、マシン上のターミナルを使用してください。",
+      "nextSupport": "診断情報を収集する",
+      "nextSupportBody": "diagnostics を実行し、問題を報告する際にはエラーメッセージと実行しようとしていた操作を添えてください。公開する前に出力を確認し、アカウント情報、マシンのアドレス、その他の非公開情報を削除してください。",
+      "legacyTitle": "以前のリリース：セキュリティとよくある問題",
+      "legacyIntro": "以下の案内は、以前の cmux リリース向けに残しています。ここにある cmux vm と cmux auth の例は NEXT のコマンドではありません。NEXT のマシンイメージによる操作の拒否と回避策については、上のセクションを参照してください。"
     },
     "ui": {
       "onThisPage": "このページの内容",
@@ -4940,6 +5020,15 @@
     "download": "Mac版 NIGHTLYをダウンロード",
     "warning": "ナイトリービルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "次期cmuxアプリのプレビュービルド",
+    "metaTitle": "cmux NEXT NIGHTLY — プレビュービルド",
+    "metaDescription": "cmux NEXT NIGHTLYをダウンロード。次期cmuxアプリの最新コミットから自動ビルドされるプレビュー版。cmuxと並行して動作し、独自の自動アップデート機能付き。",
+    "description": "cmux NEXT NIGHTLYは次期バージョンのcmuxのプレビュー版で、最新コミットから自動ビルドされます。独自のバンドルIDを持つため、cmuxやcmux NIGHTLYと競合せず並行して動作します。Appleシリコン搭載のMacが必要です。",
+    "download": "Mac版 NEXT NIGHTLYをダウンロード",
+    "warning": "NEXT NIGHTLYビルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
+  },
   "languageSwitcher": {
     "label": "言語"
   },
@@ -4953,6 +5042,7 @@
     "unsupportedParams": "このリンクには、cmux が拒否するサポートされていないパラメータが含まれています: {params}",
     "conflictingParams": "このリンクには、一緒に使用できないパラメータが含まれています: {params}",
     "invalidParams": "このリンクには無効なパラメータ値が含まれています: {params}",
+    "ignoredParams": "cmux は使用しないパラメータを無視します: {params}。セッションはそのまま開きます。",
     "fixParams": "URL パラメータを修正して、このページを再読み込みします。",
     "examplePrefix": "を参照してください。",
     "exampleLink": "リンク例",
@@ -7308,6 +7398,8 @@
     "errorInvalidCode": "このコードは無効です。メールを確認してもう一度お試しください。",
     "errorInvalidTotp": "この 2 要素認証コードは無効です。",
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
+    "errorEmailUnverified": "このメールアドレスにはすでにアカウントがありますが、アドレスがまだ確認されていません。登録したときの方法でサインインしてから、メールアドレスを確認するとサインインコードを使えるようになります。",
+    "useEmailPasswordInstead": "メールとパスワードでサインイン",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
     "errorGeneric": "問題が発生しました。もう一度お試しください。"
   },

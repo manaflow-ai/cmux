@@ -1,0 +1,648 @@
+#if os(macOS)
+import AppKit
+import CmuxConversationGeometry
+import CmuxConversationCore
+
+/// One visual row of the macOS transcript.
+enum MacConversationRow: Hashable {
+    case conversationStart
+    case loadingOlder
+    case timestamp(id: String, date: Date)
+    /// Boxed: rows are copied and compared over the whole transcript on every
+    /// update, and a boxed payload copies as one reference.
+    indirect case message(MacMessageRowModel)
+    case typing(participantIDs: [String])
+    /// A centered system line in a message's place ("You unsent a message").
+    case notice(ConversationNotice)
+    /// "Send Later <time> Edit" above a scheduled message.
+    case sendLaterHeader(rowID: String, date: Date, failed: Bool)
+    /// A group change ("Lawrence Chen named the conversation …"): centered,
+    /// the actor's name emphasized, wrapping when long.
+    case systemEvent(id: String, text: ConversationSystemText)
+    /// "<Name> has notifications silenced" under the newest message, with
+    /// Notify Anyway while my newest message was delivered quietly.
+    case unavailability(name: String, notifyAnywayMessageID: String?)
+
+    var id: String {
+        switch self {
+        case .conversationStart: return "start"
+        case .loadingOlder: return "loading"
+        case let .timestamp(id, _): return id
+        case let .message(model): return model.rowID
+        case .typing: return "typing"
+        case let .notice(notice): return notice.id
+        case let .sendLaterHeader(rowID, _, _): return "sl:\(rowID)"
+        case let .systemEvent(id, _): return id
+        case .unavailability: return "unavailability"
+        }
+    }
+
+    var isMessage: Bool {
+        if case .message = self { return true }
+        return false
+    }
+}
+
+struct MacReplyQuote: Hashable {
+    var text: String
+    var isOutgoing: Bool
+    var senderInitials: String
+    var senderColorHex: String?
+    /// The quoted message's first image, shown as a thumbnail in the pill.
+    var thumbnail: ConversationAttachment? = nil
+}
+
+enum MacMessageFooter: Hashable {
+    case none
+    case status(String)
+    case notDelivered
+}
+
+struct MacMessageRowModel: Hashable {
+    var rowID: String
+    var message: ConversationMessage
+    var isOutgoing: Bool
+    var isGroup: Bool
+    var senderName: String?
+    var senderInitials: String
+    var senderColorHex: String?
+    var showsSenderName: Bool
+    var showsAvatar: Bool
+    var showsTail: Bool
+    var isFirstInRun: Bool
+    var footer: MacMessageFooter
+    var replyQuote: MacReplyQuote?
+    var isEmojiOnly: Bool
+    var reactionKinds: [ConversationReaction]
+    var hasMyReaction: Bool
+    var myReactions: Set<ConversationReaction> = []
+    /// Mentions of this participant are highlighted in incoming bubbles.
+    var meID: String? = nil
+    /// Rich link card and the text left beside it, when the message has one.
+    var linkSplit: ConversationLinkSplit? = nil
+
+    /// Text bubble content: the message text, minus a URL shown as a card.
+    var bodyText: String { linkSplit?.bodyText ?? message.text }
+    /// Set for poll messages (see MacConversationPolls.swift).
+    var poll: MacPollRowModel? = nil
+    /// "Show Original" / "View Translation" and friends under a translated bubble.
+    var translation: ConversationTranslationCaption? = nil
+}
+
+/// Builds rows from store state with the shared Messages grouping rules.
+@MainActor
+enum MacConversationRowBuilder {
+    static func rows(store: ConversationStore) -> [MacConversationRow] {
+        guard let info = store.info else { return [] }
+        var rows: [MacConversationRow] = []
+        rows.reserveCapacity(store.messages.count + 4)
+        if store.older == .exhausted {
+            rows.append(.conversationStart)
+        } else if store.hasLoadedNewest {
+            // Messages keeps its load-more spinner at the top for as long as
+            // older history exists; reaching it is what loads the next page.
+            rows.append(.loadingOlder)
+        }
+        rows += messageRows(
+            store.messages, info: info, meID: store.meID, typingParticipantIDs: store.typingParticipantIDs,
+            quote: { store.message(id: $0) }, translations: store.translations
+        ).map { MacPollRowModel.attach(to: $0, store: store) }
+        // The Focus notice ends the transcript, above typing and Send Later rows.
+        if let silenced = info.silencedRecipient {
+            let name = silenced.name.split(separator: " ").first.map(String.init) ?? silenced.name
+            rows.insert(.unavailability(name: name, notifyAnywayMessageID: store.notifyAnywayMessage?.id), at: typingSlot(in: rows))
+        }
+        if !store.typingParticipantIDs.isEmpty {
+            // Scheduled (Send Later) messages trail everything, typing included.
+            rows.insert(.typing(participantIDs: store.typingParticipantIDs), at: typingSlot(in: rows))
+        }
+        return rows
+    }
+
+    /// Where the typing indicator goes: after the transcript, above any
+    /// Send Later rows.
+    static func typingSlot(in rows: [MacConversationRow]) -> Int {
+        rows.firstIndex { if case .sendLaterHeader = $0 { return true } else { return false } } ?? rows.count
+    }
+
+    /// A thread as Messages shows it in reply focus: the root and its replies
+    /// as ordinary rows (names, avatars, timestamps), without quotes, reply
+    /// counts or delivery footers.
+    static func threadRows(rootID: String, store: ConversationStore) -> [MacConversationRow] {
+        guard let info = store.info else { return [] }
+        let thread = store.messages.filter { $0.id == rootID || $0.replyToID == rootID }.map { message -> ConversationMessage in
+            var plain = message
+            plain.replyToID = nil
+            plain.replyCount = 0
+            return plain
+        }
+        var rows = messageRows(thread, info: info, meID: store.meID, typingParticipantIDs: [], quote: { _ in nil }, footers: false, translations: store.translations)
+            .map { MacPollRowModel.attach(to: $0, store: store) }
+        // The thread always opens with the root's timestamp.
+        if let first = thread.first, rows.first.map({ if case .timestamp = $0 { return false } else { return true } }) ?? false {
+            rows.insert(.timestamp(id: "ts:\(first.rowID)", date: first.sentAt), at: 0)
+        }
+        return rows
+    }
+
+    private static func messageRows(
+        _ messages: [ConversationMessage], info: ConversationInfo, meID: String?, typingParticipantIDs: [String],
+        quote quoted: (String) -> ConversationMessage?, footers: Bool = true,
+        translations: ConversationTranslations? = nil
+    ) -> [MacConversationRow] {
+        var rows: [MacConversationRow] = []
+        let isGroup = info.kind == .group
+        let plan = ConversationRunPlan(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs)
+        for (index, original) in messages.enumerated() {
+            let entry = plan.entries[index]
+            // A translated bubble draws the translation; everything else keys
+            // off the original message.
+            let translation = translations?.presentation(for: original)
+            var message = original
+            if let translation {
+                // Mentions and formatting index the original text, so the
+                // translation draws plain.
+                message.text = translation.text
+                message.mentions = []
+                message.textRuns = []
+            }
+            if entry.showsTimestamp {
+                rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
+            }
+            if message.isUnsent {
+                // Its own id, so the bubble row leaves and the notice arrives.
+                rows.append(.notice(unsentNotice(message, meID: meID, info: info)))
+                continue
+            }
+            if let status = ConversationStatusStrings.text(for: message, meID: meID, info: info) {
+                rows.append(.systemEvent(id: "system:\(message.rowID)", text: status))
+                continue
+            }
+            if message.isScheduled, let scheduledAt = message.scheduledAt {
+                rows.append(.sendLaterHeader(rowID: message.rowID, date: scheduledAt, failed: message.delivery?.isFailed == true))
+            }
+            let isOutgoing = message.senderID == meID
+            let sender = info.participant(message.senderID)
+            let quote = message.replyToID.flatMap(quoted).map {
+                MacReplyQuote(
+                    text: $0.text.isEmpty ? ($0.audioAttachment != nil ? MacAudioStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text,
+                    isOutgoing: $0.senderID == meID,
+                    senderInitials: info.participant($0.senderID)?.initials ?? "",
+                    senderColorHex: info.participant($0.senderID)?.colorHex,
+                    thumbnail: $0.attachments.first { $0.kind == .image }
+                )
+            }
+            rows.append(.message(MacMessageRowModel(
+                rowID: message.rowID,
+                message: message,
+                isOutgoing: isOutgoing,
+                isGroup: isGroup,
+                senderName: sender?.name,
+                senderInitials: sender?.initials ?? "",
+                senderColorHex: sender?.colorHex,
+                showsSenderName: isGroup && !isOutgoing && (entry.isFirstInRun || quote != nil),
+                showsAvatar: isGroup && !isOutgoing && entry.isLastInRun,
+                showsTail: entry.isLastInRun || quote != nil,
+                isFirstInRun: entry.isFirstInRun,
+                footer: footers ? footer(entry.status, isGroup: isGroup) : .none,
+                replyQuote: quote,
+                isEmojiOnly: message.attachments.isEmpty && message.linkPreview == nil && isEmojiOnly(message.text),
+                reactionKinds: message.reactions.reduce(into: []) { kinds, mark in
+                    if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
+                },
+                hasMyReaction: message.reactions.contains { $0.participantID == meID },
+                myReactions: Set(message.reactions.filter { $0.participantID == meID }.map(\.reaction)),
+                meID: meID,
+                linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview),
+                translation: translation?.caption
+            )))
+        }
+        return rows
+    }
+
+    static func unsentNotice(_ message: ConversationMessage, meID: String?, info: ConversationInfo) -> ConversationNotice {
+        let id = "unsent:\(message.rowID)"
+        if message.senderID == meID {
+            if message.unsendFailed {
+                return ConversationNotice(
+                    id: id, messageID: message.id,
+                    template: String(localized: "conversation.unsent.status.failed", defaultValue: "#You# unsent a message. %@", bundle: .module),
+                    failure: String(localized: "conversation.unsent.notUnsent", defaultValue: "(!) Not Unsent", bundle: .module)
+                )
+            }
+            return ConversationNotice(
+                id: id, messageID: message.id,
+                template: String(localized: "conversation.unsent.status.mine", defaultValue: "#You# unsent a message", bundle: .module)
+            )
+        }
+        return ConversationNotice(
+            id: id, messageID: message.id,
+            template: String(localized: "conversation.unsent.status.other", defaultValue: "#%@# unsent a message", bundle: .module),
+            argument: firstName(message.senderID, info: info)
+        )
+    }
+
+    /// The conversation list's preview line for an unsent last message.
+    static func unsentPreview(_ message: ConversationMessage, meID: String?, info: ConversationInfo) -> String {
+        if message.senderID == meID {
+            return String(localized: "conversation.unsent.mine", defaultValue: "You unsent a message", bundle: .module)
+        }
+        return String(format: String(localized: "conversation.unsent.other", defaultValue: "%@ unsent a message", bundle: .module), firstName(message.senderID, info: info))
+    }
+
+    private static func firstName(_ participantID: String, info: ConversationInfo) -> String {
+        info.participant(participantID)?.name.split(separator: " ").first.map(String.init) ?? ""
+    }
+
+    private static func footer(_ status: ConversationRunPlan.Status, isGroup: Bool) -> MacMessageFooter {
+        switch status {
+        case .none: return .none
+        case .notDelivered: return .notDelivered
+        case .deliveredQuietly: return .status(ConversationStatusStrings.deliveredQuietly)
+        case .delivered:
+            return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
+        case let .read(date):
+            guard !isGroup else {
+                return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
+            }
+            guard let date else {
+                return .status(String(localized: "conversation.status.read", defaultValue: "Read", bundle: .module))
+            }
+            return .status(String(
+                format: String(localized: "conversation.status.readAt", defaultValue: "Read %@", bundle: .module),
+                date.formatted(date: .omitted, time: .shortened)
+            ))
+        }
+    }
+
+    static func isEmojiOnly(_ text: String) -> Bool {
+        guard ConversationTextScan.mayBeEmojiOnly(text) else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 3 else { return false }
+        return trimmed.allSatisfy { character in
+            character.unicodeScalars.contains { $0.properties.isEmojiPresentation }
+                || (character.unicodeScalars.first?.properties.isEmoji == true && character.unicodeScalars.count > 1)
+        }
+    }
+}
+
+/// Frames for one message row in a flipped row view.
+struct MacMessageLayout {
+    var height: CGFloat
+    var senderNameFrame: CGRect?
+    var quoteFrame: CGRect?
+    var quoteTextFrame: CGRect?
+    var quoteAvatarFrame: CGRect?
+    var quoteThumbFrame: CGRect?
+    var threadPath: CGPath?
+    var imageFrames: [CGRect]
+    var bubbleFrame: CGRect?
+    var textFrame: CGRect?
+    var emojiFrame: CGRect?
+    var avatarFrame: CGRect?
+    var reactionAnchor: CGPoint?
+    var editedFrame: CGRect?
+    var repliesFrame: CGRect?
+    var footerFrame: CGRect?
+    var failedBadgeFrame: CGRect?
+    /// "Replay" under a message sent with an effect.
+    var replayFrame: CGRect? = nil
+    var contentFrame: CGRect
+    /// Audio messages: the play/waveform/duration row inside the bubble.
+    var audioFrame: CGRect? = nil
+    /// Audio messages: "Expires in 2m  Keep" (or "Kept") under the bubble.
+    var audioExpiryFrame: CGRect? = nil
+    /// Rich link balloon (body only; the tail drops below) and its inner layout.
+    var linkCardFrame: CGRect? = nil
+    var linkCard: ConversationLinkCardLayout? = nil
+    /// The card is the last balloon, so it (not the text bubble) carries the tail.
+    var linkCardIsLast = false
+    /// Poll card, its "Add Choice" stamp and its "Poll vote failed." line.
+    var poll: MacPollCellLayout? = nil
+    /// The translation caption ("Show Original") under a translated bubble.
+    var translationFrame: CGRect? = nil
+}
+
+@MainActor
+final class MacMessageLayoutCache {
+    private var layouts: [String: (MacMessageRowModel, CGFloat, MacMessageLayout)] = [:]
+    private var texts: [String: (String, Bool, [ConversationMention], [ConversationTextRun], NSAttributedString)] = [:]
+
+    func layout(_ model: MacMessageRowModel, width: CGFloat) -> MacMessageLayout {
+        if let (cachedModel, cachedWidth, layout) = layouts[model.rowID], cachedModel == model, cachedWidth == width {
+            return layout
+        }
+        let layout = MacMessageLayout.compute(model, width: width, text: text(model))
+        layouts[model.rowID] = (model, width, layout)
+        return layout
+    }
+
+    func text(_ model: MacMessageRowModel) -> NSAttributedString {
+        // Audio bubbles show the transcript; a link card takes its URL out of
+        // the text bubble, so mentions and formatting (ranges over the whole
+        // `text`) are re-based onto what the bubble shows.
+        let isAudio = model.message.audioAttachment != nil
+        let body = isAudio ? model.message.macBodyText : model.bodyText
+        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
+        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
+        if let (text, outgoing, cachedMentions, cachedRuns, value) = texts[model.rowID], text == body, outgoing == model.isOutgoing,
+           cachedMentions == mentions, cachedRuns == runs {
+            return value
+        }
+        let value = MacMessageLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
+        texts[model.rowID] = (body, model.isOutgoing, mentions, runs, value)
+        return value
+    }
+
+    /// Drops entries for rows that left the transcript (a trimmed or rebased
+    /// window), so the cache tracks the loaded window instead of the session.
+    func forget(rowIDs: some Sequence<String>) {
+        for rowID in rowIDs {
+            layouts[rowID] = nil
+            texts[rowID] = nil
+        }
+    }
+
+    func invalidate() {
+        layouts.removeAll()
+        texts.removeAll()
+    }
+}
+
+extension NSAttributedString.Key {
+    static let macConversationLink = NSAttributedString.Key("cmuxMacConversationLink")
+}
+
+extension MacMessageLayout {
+    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: ConversationDataDetection.types)
+
+    static func attributedBody(
+        _ text: String,
+        outgoing: Bool,
+        mentions: [ConversationMention] = [],
+        meID: String? = nil,
+        runs: [ConversationTextRun] = []
+    ) -> NSAttributedString {
+        let t = MacConversationTheme.self
+        let result = NSMutableAttributedString(string: text, attributes: [
+            .font: t.bodyFont,
+            .foregroundColor: outgoing ? t.outgoingText : t.incomingText,
+            .paragraphStyle: t.bodyParagraph,
+        ])
+        if !runs.isEmpty {
+            ConversationRichText.apply(runs, to: result)
+            ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: t.bodyFont, lineHeight: t.lineHeight)
+        }
+        linkDetector?.enumerateMatches(in: text, range: NSRange(text.startIndex..., in: text)) { match, _, _ in
+            guard let match else { return }
+            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+            if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.macConversationLink, value: url, range: match.range) }
+        }
+        MacMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: t.bodyFont)
+        return result
+    }
+
+    static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
+        let rect = text.boundingRect(
+            with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        return CGSize(width: ceil(rect.width), height: ceil(rect.height))
+    }
+
+    static func compute(_ model: MacMessageRowModel, width: CGFloat, text: NSAttributedString) -> MacMessageLayout {
+        if model.poll != nil { return computePoll(model, width: width) }
+        let t = MacConversationTheme.self
+        let margin = t.sideMargin
+        let avatarColumn = model.isGroup ? t.avatarSize + t.avatarGap : 0
+        let incomingLeading = margin + avatarColumn
+        let isFailed = model.footer == .notDelivered
+        let outgoingTrailing = width - t.outgoingMargin - (isFailed ? 26 : 0)
+        let available = model.isOutgoing ? width : width - avatarColumn
+        let maxBubble = min(t.maxBubbleWidth, floor((available - 2 * margin) * t.maxBubbleWidthFraction))
+
+        func bubbleRect(bodyWidth w: CGFloat, y: CGFloat, height h: CGFloat) -> CGRect {
+            model.isOutgoing
+                ? CGRect(x: outgoingTrailing - w, y: y, width: w + t.tailWidth, height: h)
+                : CGRect(x: incomingLeading - t.tailWidth, y: y, width: w + t.tailWidth, height: h)
+        }
+
+        var y: CGFloat = 0
+        var quoteFrame: CGRect?
+        var quoteTextFrame: CGRect?
+        var quoteThumbFrame: CGRect?
+        if let quote = model.replyQuote {
+            // Measured against Messages: 10 pt text on a 13 pt pitch, up to two
+            // lines, 8 pt side and 7 pt vertical insets in an outlined pill.
+            let thumb: CGFloat = quote.thumbnail == nil ? 0 : 28
+            let thumbGap: CGFloat = thumb > 0 ? 6 : 0
+            let quoteText = NSAttributedString(string: quote.text, attributes: MacConversationTheme.quoteAttributes)
+            let size = measure(quoteText, maxWidth: maxBubble - 16 - thumb - thumbGap)
+            let textHeight = min(size.height, MacConversationTheme.quoteLineHeight * 2)
+            let bodyWidth = min(maxBubble, size.width + 16 + thumb + thumbGap)
+            let h = max(textHeight, thumb) + 14
+            let frame = quote.isOutgoing
+                ? CGRect(x: width - t.outgoingMargin - bodyWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
+                : CGRect(x: incomingLeading - t.tailWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
+            quoteFrame = frame
+            let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
+            if thumb > 0 { quoteThumbFrame = CGRect(x: bodyMinX + 7, y: y + 7, width: thumb, height: thumb) }
+            quoteTextFrame = CGRect(x: bodyMinX + 8 + thumb + thumbGap, y: y + 7 + (max(textHeight, thumb) - textHeight) / 2, width: bodyWidth - 16 - thumb - thumbGap, height: textHeight)
+            y += h + 4
+        }
+
+        var senderNameFrame: CGRect?
+        if model.showsSenderName, model.senderName != nil {
+            senderNameFrame = CGRect(x: incomingLeading + t.senderNameInset, y: y, width: maxBubble, height: 13)
+            y += 14
+        }
+
+        if !model.reactionKinds.isEmpty { y += 14 }
+
+        var imageFrames: [CGRect] = []
+        for attachment in model.message.macImageAttachments {
+            var w = min(t.maxImageWidth, floor(available * 0.55))
+            var h = w / CGFloat(attachment.aspectRatio)
+            if h > t.maxImageHeight {
+                h = t.maxImageHeight
+                w = max(90, h * CGFloat(attachment.aspectRatio))
+            }
+            imageFrames.append(bubbleRect(bodyWidth: round(w), y: y, height: round(h)))
+            y += round(h) + t.groupedSpacing
+        }
+        if !imageFrames.isEmpty, model.message.text.isEmpty { y -= t.groupedSpacing }
+
+        var linkCardFrame: CGRect?
+        var linkCard: ConversationLinkCardLayout?
+        let bodyText = model.bodyText
+        /// Messages' rich link width on macOS: CKUIBehaviorMac previewMaxWidth 300.
+        func placeLinkCard() {
+            guard let split = model.linkSplit, let preview = model.message.linkPreview else { return }
+            let card = MacLinkPreviewView.layout(for: preview, maxWidth: min(300, maxBubble))
+            if split.cardFirst == false, !bodyText.isEmpty { y += t.groupedSpacing }
+            linkCard = card
+            linkCardFrame = bubbleRect(bodyWidth: card.size.width, y: y, height: card.size.height)
+            y += card.size.height
+            if split.cardFirst, !bodyText.isEmpty { y += t.groupedSpacing }
+        }
+        if model.linkSplit?.cardFirst == true { placeLinkCard() }
+
+        var bubbleFrame: CGRect?
+        var textFrame: CGRect?
+        var emojiFrame: CGRect?
+        var audioFrame: CGRect?
+        if let audio = model.message.audioAttachment?.audio {
+            let audioLayout = MacAudioBubbleLayout.compute(audio: audio, text: text, maxBubble: maxBubble)
+            let frame = bubbleRect(bodyWidth: audioLayout.bodyWidth, y: y, height: audioLayout.height)
+            bubbleFrame = frame
+            let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
+            audioFrame = CGRect(x: bodyMinX, y: y, width: audioLayout.bodyWidth, height: MacAudioBubbleLayout.rowHeight)
+            textFrame = audioLayout.transcript?.offsetBy(dx: bodyMinX, dy: y)
+            y += audioLayout.height
+        } else if model.isEmojiOnly {
+            let emoji = NSAttributedString(string: model.message.text, attributes: [.font: NSFont.systemFont(ofSize: t.emojiOnlyFontSize(count: model.message.text.filter { !$0.isWhitespace }.count))])
+            var size = measure(emoji, maxWidth: maxBubble)
+            size.width += 6
+            size.height += 4
+            emojiFrame = CGRect(
+                x: model.isOutgoing ? outgoingTrailing - size.width : incomingLeading,
+                y: y, width: size.width, height: size.height
+            )
+            y += size.height
+        } else if !bodyText.isEmpty {
+            let size = measure(text, maxWidth: maxBubble - 2 * t.bubbleHorizontalPadding)
+            let textHeight = max(size.height, t.lineHeight)
+            let bodyWidth = max(size.width + 2 * t.bubbleHorizontalPadding, t.lineHeight + 2 * t.bubbleVerticalPadding)
+            let h = textHeight + 2 * t.bubbleVerticalPadding
+            let frame = bubbleRect(bodyWidth: bodyWidth, y: y, height: h)
+            bubbleFrame = frame
+            let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
+            textFrame = CGRect(x: bodyMinX + (bodyWidth - size.width) / 2, y: y + t.bubbleVerticalPadding - t.bubbleTextLift, width: size.width + 1, height: textHeight)
+            y += h
+        }
+        if model.linkSplit?.cardFirst == false { placeLinkCard() }
+        let linkCardIsLast = linkCardFrame != nil && (model.linkSplit?.cardFirst == false || bubbleFrame == nil)
+
+        let primary = (linkCardIsLast ? linkCardFrame : nil) ?? bubbleFrame ?? emojiFrame ?? imageFrames.last ?? CGRect(x: incomingLeading, y: y, width: 40, height: 1)
+        let first = imageFrames.first ?? (model.linkSplit?.cardFirst == true ? linkCardFrame : nil) ?? bubbleFrame ?? linkCardFrame ?? emojiFrame ?? primary
+        var firstBody = first
+        if bubbleFrame != nil || linkCardFrame != nil || !imageFrames.isEmpty {
+            firstBody.size.width -= t.tailWidth
+            if !model.isOutgoing { firstBody.origin.x += t.tailWidth }
+        }
+        let reactionAnchor: CGPoint? = model.reactionKinds.isEmpty ? nil
+            : (model.isOutgoing ? CGPoint(x: firstBody.minX, y: firstBody.minY) : CGPoint(x: firstBody.maxX, y: firstBody.minY))
+
+        // The avatar's bottom lines up with the bottom of the tail.
+        let tailBottom = primary.maxY + (model.showsTail && (bubbleFrame != nil || linkCardFrame != nil) ? t.tailDrop : 0)
+        let avatarFrame: CGRect? = model.showsAvatar
+            ? CGRect(x: margin, y: tailBottom - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
+            : nil
+        let failedBadgeFrame: CGRect? = isFailed
+            ? CGRect(x: width - t.outgoingMargin - 18, y: primary.midY - 9, width: 18, height: 18)
+            : nil
+
+        let bodyTrailing = model.isOutgoing ? outgoingTrailing : primary.maxX
+        let bodyLeading = model.isOutgoing ? primary.minX : incomingLeading
+        func footerRect(_ y: CGFloat) -> CGRect {
+            model.isOutgoing
+                ? CGRect(x: margin, y: y, width: bodyTrailing - 5 - margin, height: 14)
+                : CGRect(x: bodyLeading + 5, y: y, width: width - bodyLeading - 5 - margin, height: 14)
+        }
+        let tailExtra: CGFloat = model.showsTail && (bubbleFrame != nil || linkCardFrame != nil) ? t.tailDrop : 0
+        y = max(y, primary.maxY + tailExtra)
+        var editedFrame: CGRect?
+        var repliesFrame: CGRect?
+        var footerFrame: CGRect?
+        var audioExpiryFrame: CGRect?
+        if let audio = model.message.audioAttachment?.audio, audio.expiresAt != nil || audio.isKept {
+            audioExpiryFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
+        var replayFrame: CGRect?
+        if model.message.effect?.isReplayable == true, bubbleFrame != nil || emojiFrame != nil {
+            replayFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
+        var translationFrame: CGRect?
+        if model.translation != nil {
+            translationFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
+        if model.message.editedAt != nil {
+            editedFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
+        if model.message.replyCount > 0 {
+            repliesFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
+        if model.footer != .none {
+            footerFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
+
+        // Messages: the quoted message's sender gets a tiny avatar beside the
+        // quote, and the thread line drops from under it, curving into the reply.
+        var threadPath: CGPath?
+        var quoteAvatarFrame: CGRect?
+        if let quoteFrame, let quote = model.replyQuote {
+            let tiny: CGFloat = 16
+            // Groups thread through the avatar column; 1:1 chats have none, so
+            // the line runs just outside the bubbles' leading edge.
+            // A reply to your own message threads down the trailing side.
+            let trailingThread = quote.isOutgoing && model.isOutgoing
+            let column = trailingThread
+                ? width - t.outgoingMargin + 8
+                : model.isGroup ? margin + t.avatarSize / 2 : max(4, incomingLeading - 8)
+            if !quote.isOutgoing, model.isGroup {
+                quoteAvatarFrame = CGRect(x: column - tiny / 2, y: quoteFrame.maxY - tiny + 3, width: tiny, height: tiny)
+            }
+            let startY = (quoteAvatarFrame?.maxY ?? quoteFrame.midY) + 4
+            let endY = model.isOutgoing ? primary.maxY : (avatarFrame?.minY ?? primary.maxY) - 4
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: column, y: startY))
+            if trailingThread {
+                path.addLine(to: CGPoint(x: column, y: max(startY + 6, primary.minY - 4)))
+            } else if model.isOutgoing {
+                path.addLine(to: CGPoint(x: column, y: max(startY + 10, endY - 10)))
+                path.addQuadCurve(to: CGPoint(x: column + 12, y: max(startY + 20, endY)), control: CGPoint(x: column, y: max(startY + 20, endY)))
+            } else {
+                path.addLine(to: CGPoint(x: column, y: max(startY + 6, endY)))
+            }
+            threadPath = path
+        }
+
+        var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
+        if let linkCardFrame { content = content.union(linkCardFrame) }
+        if content.isNull { content = primary }
+        return MacMessageLayout(
+            height: ceil(y),
+            senderNameFrame: senderNameFrame,
+            quoteFrame: quoteFrame,
+            quoteTextFrame: quoteTextFrame,
+            quoteAvatarFrame: quoteAvatarFrame,
+            quoteThumbFrame: quoteThumbFrame,
+            threadPath: threadPath,
+            imageFrames: imageFrames,
+            bubbleFrame: bubbleFrame,
+            textFrame: textFrame,
+            emojiFrame: emojiFrame,
+            avatarFrame: avatarFrame,
+            reactionAnchor: reactionAnchor,
+            editedFrame: editedFrame,
+            repliesFrame: repliesFrame,
+            footerFrame: footerFrame,
+            failedBadgeFrame: failedBadgeFrame,
+            replayFrame: replayFrame,
+            contentFrame: content,
+            audioFrame: audioFrame,
+            audioExpiryFrame: audioExpiryFrame,
+            linkCardFrame: linkCardFrame,
+            linkCard: linkCard,
+            linkCardIsLast: linkCardIsLast,
+            translationFrame: translationFrame
+        )
+    }
+}
+#endif

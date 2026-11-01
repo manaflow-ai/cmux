@@ -14,6 +14,31 @@
     "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 요청이 지연되었습니다",
+      "message": "Cloud VM 할당을 일시적으로 사용할 수 없습니다.",
+      "action": "1분 후 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "스냅샷 요청에 재시도 키가 필요합니다",
+      "message": "Cloud VM 스냅샷에는 멱등성 키가 필요합니다.",
+      "action": "128자 이하의 고정된 Idempotency-Key로 다시 시도하세요."
+    },
+    "snapshotInProgress": {
+      "title": "스냅샷이 아직 진행 중입니다",
+      "message": "이 Cloud VM에서 이 멱등성 키를 사용하는 스냅샷이 아직 실행 중입니다.",
+      "action": "첫 번째 스냅샷이 완료될 때까지 기다린 다음 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "스냅샷 재시도 키가 이미 사용되었습니다",
+      "message": "이 멱등성 키는 이 Cloud VM의 다른 스냅샷 요청에 이미 사용되었습니다.",
+      "action": "다른 이름의 스냅샷에는 새 멱등성 키를 사용하세요."
+    },
+    "snapshotQuota": {
+      "title": "스냅샷 한도에 도달했습니다",
+      "message": "이 Cloud VM이 스냅샷 한도에 도달했습니다.",
+      "action": "기존 스냅샷을 삭제한 다음 같은 멱등성 키로 다시 시도하세요."
+    },
     "guestInstall": {
       "title": "Cloud VM 설정이 완료되지 않았습니다",
       "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",
@@ -105,14 +130,14 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go에는 실행 중인 VM을 포함하여 저장된 VM 두 대가 포함됩니다.",
+      "savedMessage": "Plus: 일시 정지된 머신을 포함하여 총 1대의 VM 저장",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go는 한 번에 VM 한 대를 실행할 수 있습니다.",
+      "activeMessage": "Plus: Cloud VM 1대",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "이번 달 Go의 VM 사용 시간 40시간을 모두 사용했습니다. 저장된 VM은 다음 결제 기간에 다시 사용할 수 있습니다.",
+      "hoursMessage": "Plus: 월간 시간 제한 없음",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan} 컴퓨팅 한도를 모두 사용했습니다",
@@ -132,7 +157,7 @@
       "action": "VM을 일시 중지하거나 삭제하세요."
     },
     "activeLimit": {
-      "counted": "현재 집계 중: {machines}. 일시 중지된 머신은 집계되지 않습니다.",
+      "counted": "현재 포함: {machines}. 일시 중지된 머신도 한도에 포함됩니다.",
       "provisioning": "{name} (프로비저닝 중)",
       "separator": ", "
     }
@@ -531,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -543,9 +568,10 @@
             "로컬 세션 기록"
           ],
           "go": [
-            "실행 중인 Cloud VM 1대",
-            "매월 40 VM 시간",
-            "저장된 VM 2대"
+            "일시 정지된 머신을 포함하여 총 1대의 VM 저장",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB 디스크",
+            "커뮤니티 지원",
+            "월간 시간 제한 없음"
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
@@ -610,6 +636,12 @@
         "title": "App Store를 통해 결제됨",
         "body": "이 플랜은 cmux iPhone 앱에서 구입했으며 Apple이 청구합니다. App Store 구독에서 변경하거나 취소하세요.",
         "manage": "App Store에서 관리"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Plus 요금제는 {date}에 갱신됩니다.",
+        "pendingBody": "Plus 요금제는 {date}에 종료됩니다.",
+        "monthlyPrice": "${amount}/월"
       }
     },
     "mobileDevices": {
@@ -944,7 +976,7 @@
       },
       "plan": {
         "free": "무료",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2181,6 +2213,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "활성화하면 분할 구분선을 두 번 클릭할 때 해당 행이나 열의 창이 같은 크기로 조정됩니다. 다른 행과 열의 크기는 유지됩니다.",
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
           "windowTitleTemplate": "선택적 NSWindow 제목 템플릿입니다. 비워 두면 현재 디렉터리 대체 동작을 포함해 cmux의 기존 기본 제목 동작을 유지합니다. 지원되는 자리표시자: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "새 창을 열 때 DEBUG 빌드에서만 사용하는 디스플레이 이름입니다. 빈 값은 시스템 기본값을 사용합니다.",
@@ -2265,6 +2298,13 @@
               "enabled": "원격 tmux 작업 공간을 선택하면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다."
             }
           }
+        },
+        "chief": {
+          "description": "홈 에이전트 Chief: 표시 여부와 사용할 하네스, 모델, 추론 강도.",
+          "enabled": "홈 행과 Chief 진입점을 표시합니다. false이면 홈 행, Chief 열기 단축키, 메뉴 항목, 명령 팔레트 항목이 숨겨집니다.",
+          "harness": "Chief가 실행되는 에이전트 하네스: claude(Claude Code) 또는 codex(Codex).",
+          "model": "하네스에 전달할 모델. 비워 두면 하네스 기본값을 사용합니다.",
+          "effort": "하네스에 전달할 추론 강도(예: low, medium, high). 비워 두면 하네스 기본값을 사용합니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2934,10 +2974,10 @@
       "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@cmux.com</link>으로 문의하세요."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "cmux에서 영구적인 Linux 클라우드 머신을 실행하고, Mac을 닫은 뒤에도 코딩 에이전트가 계속 작업하게 하세요.",
-      "intro": "cmux Cloud는 일반 cmux 워크스페이스로 열리는 영구적인 Linux 머신을 클라우드에서 제공합니다. 패널을 닫거나, 네트워크가 끊기거나, 노트북을 닫아도 터미널은 계속 실행되므로 코딩 에이전트는 작업을 이어가고, 로그인된 어떤 Mac에서든 다시 연결할 수 있습니다.",
+      "title": "cmux Cloud 빠른 시작",
+      "metaTitle": "cmux Cloud 빠른 시작",
+      "metaDescription": "cmux NEXT Cloud 시작: 로그인, Linux 머신 생성, 터미널과 데스크톱 열기, 일시 중지 또는 재개, 삭제 방법을 알아보세요.",
+      "intro": "Linux Cloud 머신에서 도구를 실행하고 Mac에서는 앱을 사용하세요. 이 가이드는 2026-10-29에 검증한 cmux NEXT 명령을 사용합니다. 이전 릴리스는 다른 CLI를 사용합니다.",
       "betaNote": "cmux Cloud는 얼리 액세스 단계이며 조직에서 비활성화하지 않은 경우 사용할 수 있습니다. 사용하려면 Settings › Beta Features › Cloud Machines를 켜세요.",
       "whatTitle": "머신이란",
       "whatDesc": "머신은 사용자 또는 팀에 속한 영구적인 클라우드 컴퓨터입니다. 파일, 설치한 도구, 실행 중인 터미널을 그대로 유지합니다. 쓰고 버리는 자원이 아니라 오래 쓰는 컴퓨터로 다루세요. 필요한 것을 한 번 설치하고 나중에 다시 돌아와 사용합니다.",
@@ -2963,12 +3003,27 @@
       "cliIntroDesc": "cmux vm과 cmux cloud는 같은 명령입니다. 하위 명령 없이 cmux vm을 실행하면 머신 목록이 표시됩니다. 모든 하위 명령에는 앱 없이도 볼 수 있는 --help 페이지가 있으며, cmux vm guide는 전체 Markdown 가이드를 출력합니다. 어떤 하위 명령에든 --json을 붙이면 기계가 읽을 수 있는 출력을 얻습니다.",
       "baseTitle": "기본 머신",
       "baseDesc": "각 계정에는 고정된 기본 머신이 한 대 있습니다. cmux vm base는 이 머신을 열고, 처음 실행할 때 만듭니다. cmux vm base reset은 새 기본 머신을 만들고 이전 머신도 유지하므로 실수로 파일을 잃지 않습니다.",
-      "nextTitle": "다음 단계",
+      "nextTitle": "cmux Cloud 빠른 시작",
       "nextMachines": "머신: 크기, 플랜, 크기 조정, 일시 중지, 스냅샷, 삭제.",
       "nextWorkspaces": "워크스페이스와 에이전트: 영구 터미널, 에이전트, 알림, 설치된 도구.",
       "nextNetworking": "파일과 네트워킹: 파일 업로드, 환경 변수, 포트, 데스크톱, 공개 URL.",
-      "nextCli": "Cloud CLI 레퍼런스: 모든 cmux vm 하위 명령.",
-      "nextTroubleshooting": "보안 및 문제 해결: 접근 방식과 흔한 오류 해결 방법."
+      "nextCli": "Cloud CLI 참조: NEXT에서 제공하는 작업, 시크릿 및 인계 명령.",
+      "nextTroubleshooting": "Cloud 문제 해결",
+      "nextIntro": "Linux Cloud 머신에서 도구를 실행하고 Mac에서는 앱을 사용하세요. 이 가이드는 2026-10-29에 검증한 cmux NEXT 명령을 사용합니다. 이전 릴리스는 다른 CLI를 사용합니다.",
+      "nextSignIn": "1. 로그인",
+      "nextSignInBody": "Mac에서 cmux NEXT를 열어 둡니다. 이 명령을 실행하고 브라우저에서 로그인을 완료한 다음 머신 목록을 확인하세요.",
+      "nextCreate": "2. 머신 만들기",
+      "nextCreateBody": "medium 머신에는 CPU 4개, 메모리 8 GB, 디스크 32 GB가 있으며 claude, codex, gh, git, node, bun, python3이 포함됩니다. 도구 로그인은 cmux 로그인과 별개입니다.",
+      "nextPending": "생성 작업은 30초 후 pending: true를 반환하고 백그라운드에서 계속될 수 있습니다. 다른 머신을 만들기 전에 list-machines를 확인하세요. 반환된 target({machineTarget})을 아래 명령에 복사하세요. 대부분의 머신 명령은 머신이 하나뿐이어도 이 값이 필요합니다.",
+      "nextTerminal": "3. 터미널 열기",
+      "nextTerminalBody": "창에 터미널을 표시하려면 --focus를 사용하세요. 지정하지 않으면 워크스페이스가 백그라운드에서 열립니다. 이 터미널에서 gh auth login을 실행하고 저장소를 복제한 다음 claude 또는 codex를 실행하세요. 2026-10-29에 확인한 이미지로 만든 머신에서는 네이티브 에이전트 채팅 탭을 아직 사용할 수 없습니다.",
+      "nextDesktop": "4. 데스크톱 열기",
+      "nextDesktopBody": "머신의 데스크톱이 noVNC 브라우저 탭에서 열립니다. 명령은 페이지 로딩이 끝나기 전에 반환됩니다.",
+      "nextPause": "5. 일시 중지 및 재개",
+      "nextPauseBody": "작업을 마치면 머신을 직접 일시 중지하세요. 디스크는 유지됩니다. 유휴 상태의 자동 일시 중지는 아직 사용할 수 없습니다. 다시 필요할 때 재개하세요.",
+      "nextDelete": "6. 작업을 마치면 삭제",
+      "nextDeleteBody": "삭제하면 머신과 그 안의 모든 내용이 제거됩니다. 필요한 작업은 먼저 다른 곳에 저장하세요. 명령은 삭제가 끝나기 전에 반환되므로 이후 list-machines로 확인하세요.",
+      "nextReference": "Cloud CLI 참조"
     },
     "cloudMachines": {
       "title": "클라우드 머신",
@@ -2992,9 +3047,9 @@
       "limitsTitle": "플랜 한도",
       "limitsDesc": "활성 머신은 하나의 vCPU 및 메모리 풀을 공유합니다. 큰 머신 한 대를 실행하거나 작은 머신 여러 대를 실행할 수 있습니다. 일시 중지된 머신은 풀을 사용하지 않습니다. 디스크는 머신마다 따로 정해지며 풀에 포함되지 않습니다.",
       "limitsFree": "무료 계정은 머신을 만들 수 없습니다.",
-      "limitsPaid": "Pro 및 Founder's Edition 계정은 vCPU 20개와 40 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
-      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 5대까지 가질 수 있습니다. 유료 시트 하나마다 팀 풀에 vCPU 20개와 40 GB 메모리가 추가됩니다.",
-      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. Max 머신 한 대는 64 GB와 vCPU 32개까지 사용할 수 있으며, 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기도 포함됩니다. Pro와 Team은 16 GB와 vCPU 8개까지입니다.",
+      "limitsPaid": "Pro 및 Founder's Edition 계정은 vCPU 20개와 40 GB 메모리를 공유하는 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다.",
+      "limitsTeam": "Team 계정은 유료 시트 하나당 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다. 유료 시트 하나마다 팀 풀에 vCPU 20개와 40 GB 메모리가 추가됩니다.",
+      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다. Max 머신 한 대는 64 GB와 vCPU 32개까지 사용할 수 있으며, 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기도 포함됩니다. Pro와 Team은 16 GB와 vCPU 8개까지입니다.",
       "limitsPoolFull": "새로 만들거나, 재개하거나, 크기를 늘리거나, 포크한 머신이 풀을 넘게 되면 cmux는 요청을 거부하고 풀 사용량을 보여 줍니다. 머신을 일시 중지하거나 삭제해 리소스를 확보하거나 Max로 업그레이드하세요.",
       "limitsPricing": "현재 가격은 가격 페이지를 확인하세요. 사용량 기반 과금이나 초과 요금은 없습니다.",
       "agentUpdatesTitle": "코딩 에이전트를 최신 상태로 유지",
@@ -3004,7 +3059,7 @@
       "agentUpdatesToggle": "새 머신 시트에서는 이 설정이 기본으로 켜져 있습니다. 기존 머신에서 바꾸려면 머신을 오른쪽 클릭하고 에이전트를 최신 상태로 유지를 선택하거나 cmux vm agent-updates를 실행하세요. cmux vm new는 --agent-updates latest를 전달하지 않으면 이미지의 버전을 유지합니다. 업데이트를 끄면 이미 설치된 버전이 유지됩니다.",
       "agentUpdatesNetwork": "업데이트는 github.com, api.github.com, objects.githubusercontent.com, release-assets.githubusercontent.com만 사용합니다. cmux는 허용 목록과 인터넷 없음을 포함한 모든 네트워크 모드에서 이 호스트를 허용하므로, 네트워크 정책이 업데이트를 막지 않습니다.",
       "resizeTitle": "크기 조정",
-      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 Pro와 Team에서 4 GB 단위로 최대 128 GB, Max에서 최대 256 GB까지 늘릴 수 있습니다(Go는 16 GB로 제한됩니다). 메모리와 CPU는 Pro와 Team에서 최대 16 GB와 8 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
+      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 Pro와 Team에서 4 GB 단위로 최대 128 GB, Max에서 최대 256 GB까지 늘릴 수 있습니다(Plus는 128 GB로 제한됩니다). 메모리와 CPU는 Pro와 Team에서 최대 16 GB와 8 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
       "pauseTitle": "일시 중지와 재개",
       "pauseDesc": "cmux vm pause는 머신의 컴퓨팅을 중지합니다. 디스크, 워크스페이스, 터미널 기록은 유지되고, 실행 중인 프로세스는 중지됩니다. cmux vm resume은 머신을 다시 시작합니다. 일시 중지된 머신을 열거나 그 머신에서 명령을 실행해도 머신이 시작됩니다.",
       "pauseIdle": "머신은 유휴 상태여도 스스로 일시 중지되지 않습니다. 일시 중지하거나 삭제할 때까지 계속 실행됩니다.",
@@ -3100,10 +3155,10 @@
       "customDomainDesc": "cmux cloud domains verify는 추가해야 할 DNS 레코드를 출력합니다. 소유권 확인용 TXT 레코드, 라우팅 레코드, 인증서 위임 레코드입니다. 레코드를 추가한 뒤 verify를 다시 실행하세요. 확인이 끝나면 해당 도메인이나 그 한 단계 아래 하위 도메인에 공개할 수 있습니다."
     },
     "cloudCli": {
-      "title": "Cloud CLI 레퍼런스",
-      "metaTitle": "cmux Cloud CLI 레퍼런스",
-      "metaDescription": "모든 cmux vm 및 cmux cloud 명령 레퍼런스: 수명 주기, 워크스페이스, 파일, 환경, 도메인, VPN.",
-      "intro": "cmux vm과 cmux cloud는 같은 명령입니다. CLI는 실행 중인 cmux 앱과 통신하며, 로그인 정보는 앱이 보관합니다. 어떤 하위 명령에든 --json을 붙이면 기계가 읽을 수 있는 출력을 얻습니다. 모든 하위 명령에는 --help 페이지가 있습니다.",
+      "title": "Cloud CLI 참조(NEXT)",
+      "metaTitle": "Cloud CLI 참조(NEXT)",
+      "metaDescription": "cmux NEXT Cloud에서 제공하는 작업 목록, 시크릿 저장과 인계 명령, 명시적인 머신 대상 지정 및 현재 이미지 제한 사항.",
+      "intro": "cmux NEXT CLI에서 제공하는 Cloud 작업입니다. 제공되는 명령도 특정 머신 이미지에서는 사용할 수 없을 수 있습니다. 2026-10-29에 확인한 이미지는 네이티브 에이전트 채팅 탭, 개발 서버 브라우저 탭 열기, 로컬 포트 포워딩, 포크, 유휴 상태의 자동 일시 중지를 아직 지원하지 않습니다.",
       "exitCodes": "종료 코드: 성공 시 0, 오류 시 1, 알 수 없는 명령은 2입니다. cmux vm run은 원격 종료 코드를 반환합니다.",
       "authTitle": "로그인",
       "authDesc": "로그인하고, 계정을 확인하고, 팀을 선택합니다.",
@@ -3127,7 +3182,19 @@
       "accountsDesc": "팀용 에이전트 계정을 업로드하고 모델 라우팅을 확인합니다.",
       "preflightTitle": "스크립트 체크리스트",
       "preflightDesc": "스크립트가 머신을 만들거나 사용하기 전에 다음 읽기 전용 확인을 실행하세요. 로그인 여부를 확인하고, 머신과 플랜 한도를 보여주며, 디렉터리가 어떤 머신을 사용하는지 보여줍니다.",
-      "coderouterLink": "CodeRouter 전체 명령 레퍼런스"
+      "coderouterLink": "CodeRouter 전체 명령 레퍼런스",
+      "nextTitle": "Cloud CLI 참조(NEXT)",
+      "nextIntro": "cmux NEXT CLI에서 제공하는 Cloud 작업입니다. 제공되는 명령도 특정 머신 이미지에서는 사용할 수 없을 수 있습니다. 2026-10-29에 확인한 이미지는 네이티브 에이전트 채팅 탭, 개발 서버 브라우저 탭 열기, 로컬 포트 포워딩, 포크, 유휴 상태의 자동 일시 중지를 아직 지원하지 않습니다.",
+      "nextTargets": "list-machines에서 {machineTarget} 형식의 target을 복사하고, 머신이 하나뿐이어도 머신 명령에 --target을 명시적으로 전달하세요. 명령 구문은 --help로 확인하고, 인수와 반환 필드는 작업 ID를 지정한 cmux action describe로 확인하세요.",
+      "nextCatalog": "제공되는 작업",
+      "nextCatalogBody": "이 목록은 NEXT 작업 카탈로그에서 생성되며 GUI 전용 작업은 제외됩니다. 사용 가능한 명령 이름을 나열한 것이며, 모든 머신이 이를 지원한다는 보장은 아닙니다.",
+      "nextCommand": "명령",
+      "nextAction": "작업 ID",
+      "nextSecrets": "이 Mac의 시크릿",
+      "nextSecretsBody": "secret set은 입력 내용이 표시되지 않는 프롬프트 또는 stdin에서 값을 읽어 이 Mac의 키체인에 저장합니다. 시크릿 값을 명령 인수에 넣지 마세요. set과 rm은 --repo OWNER/NAME을 받으며, ls는 저장된 이름과 범위를 나열합니다. 전달하려면 시크릿 이름을 선언한 머신 설정의 적용이 완료되어야 합니다. 2026-10-29에 확인한 이미지에서는 설정 적용부터 시크릿 전달까지 전체 과정이 아직 검증되지 않았습니다.",
+      "nextHandoff": "인계와 채팅 이동",
+      "nextHandoffBody": "hand-off-machine은 머신에 대한 텍스트를 반환하며 채팅을 이동하지 않습니다. move와 bring-back은 이 Mac과 Cloud 머신 사이에서 채팅 탭을 이동합니다. 호환되는 채팅 지원이 필요하므로 에이전트 채팅 탭이 없는 이미지의 우회 방법으로 사용하지 마세요. 대신 원격 터미널에서 에이전트를 실행하세요.",
+      "nextHelp": "빠른 시작과 현재 제한 사항"
     },
     "cloudTroubleshooting": {
       "title": "Cloud 보안 및 문제 해결",
@@ -3185,7 +3252,26 @@
       "errTransferDisabled": "조직에서 파일 전송을 비활성화함",
       "fixTransferDisabled": "관리 정책이 파일 전송을 끄고 있습니다. 관리자에게 문의하세요.",
       "supportTitle": "도움 받기",
-      "supportDesc": "생성에 실패하면 알림의 Copy Error를 사용하고, 추적 ID가 있으면 함께 포함해 지원팀에 문의하세요."
+      "supportDesc": "생성에 실패하면 알림의 Copy Error를 사용하고, 추적 ID가 있으면 함께 포함해 지원팀에 문의하세요.",
+      "nextTitle": "Cloud 문제 해결(NEXT)",
+      "nextIntro": "이 메시지는 2026-10-29에 확인했습니다. 아직 사용할 수 없다고 표시한 기능은 해당 날짜의 이미지로 만든 머신에서 지원하지 않습니다. Mac 앱만 업데이트해도 Cloud 머신에 이미 설치된 소프트웨어는 업데이트되지 않습니다.",
+      "nextSymptom": "메시지 또는 증상",
+      "nextFix": "해결 방법",
+      "nextPendingFix": "생성 작업은 백그라운드에서 계속됩니다. 다른 머신을 만들기 전에 list-machines를 확인하세요. loaded: false인 목록은 아직 상태를 알 수 없다는 뜻이며, 계정이 비어 있다는 뜻이 아닙니다.",
+      "nextTargetFix": "list-machines에서 target을 복사하고 머신이 하나뿐이어도 --target {machineTarget}를 전달하세요.",
+      "nextOpenFix": "open-machine은 GUI 전용 작업입니다. CLI에서 터미널을 열어 표시하려면 new-terminal-on-machine에 머신 target과 --focus를 지정하세요.",
+      "nextAgentFix": "네이티브 에이전트 채팅 탭은 아직 사용할 수 없습니다. 머신에서 터미널을 열고 claude 또는 codex를 실행하세요. 에이전트를 바꿔도 채팅 지원이 없는 문제는 해결되지 않습니다.",
+      "nextBrowserFix": "개발 서버 브라우저 탭 열기는 아직 사용할 수 없습니다. machine-link --port는 링크를 반환하지만 해당 링크를 통한 브라우저 접근은 검증되지 않았습니다. 링크가 반환되었다고 해서 포트에 접근할 수 있다는 뜻은 아닙니다.",
+      "nextPortFix": "이 머신 링크를 통한 로컬 포트 목록 조회와 포워딩은 아직 사용할 수 없습니다. machine-link는 포트 링크를 반환할 수 있지만 localhost 포워딩을 만들지는 않으며, 브라우저에서의 접근 가능 여부는 검증되지 않았습니다.",
+      "nextForkFix": "이 이미지로 만든 머신에서는 포크를 아직 사용할 수 없습니다. 새 머신을 만들고 그곳에서 저장소를 복제하세요. 새 머신에는 원래 머신의 파일이 복사되지 않습니다.",
+      "nextIdleFix": "유휴 상태의 자동 일시 중지는 아직 사용할 수 없습니다. 작업을 마치면 직접 일시 중지하고 필요할 때 재개하세요. 유휴 일시 중지 설정은 Off만 허용됩니다.",
+      "nextSecretsFix": ".cmux/machine.toml에 시크릿 이름을 선언하고 apply-machine-config로 설정을 적용한 뒤, 설정 완료를 기다리고 deliver-secrets를 실행하세요. secret set NAME의 프롬프트 또는 stdin으로 값을 저장하세요. 이 전달 과정은 해당 이미지에서 아직 전체 검증을 거치지 않았습니다.",
+      "nextGithubFix": "머신의 터미널에서 gh auth login을 실행하고 그곳에서 Git 사용자 정보를 설정하세요. setup-github에는 Mac의 Git 사용자 정보가 필요합니다. 검증 중에는 이유를 표시하지 않고 이 오류를 반환했습니다.",
+      "nextExecFix": "exec는 짧은 명령용이며 25초 후 중지됩니다. 빌드, 에이전트, 오래 실행되는 서버에는 머신의 터미널을 사용하세요.",
+      "nextSupport": "진단 정보 수집",
+      "nextSupportBody": "diagnostics를 실행하고 문제를 보고할 때 오류 메시지와 시도한 작업을 함께 적으세요. 공개하기 전에 출력을 검토하고 계정 정보, 머신 주소 및 기타 비공개 정보를 제거하세요.",
+      "legacyTitle": "이전 릴리스: 보안 및 일반적인 문제",
+      "legacyIntro": "다음 안내는 이전 cmux 릴리스를 위해 유지됩니다. 여기에 있는 cmux vm 및 cmux auth 예시는 NEXT 명령이 아닙니다. NEXT 머신 이미지에서 작업이 거부되는 경우와 해결 방법은 위 섹션을 참고하세요."
     },
     "ui": {
       "onThisPage": "이 페이지 내용",
@@ -3428,6 +3514,15 @@
     "download": "Mac용 NIGHTLY 다운로드",
     "warning": "나이틀리 빌드에는 버그나 미완성 기능이 포함될 수 있습니다. 문제가 발생하면 <githubLink>GitHub</githubLink> 또는 <discordLink>Discord의 #nightly-bugs</discordLink>에서 보고하고 안정 버전으로 전환하세요."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "차세대 cmux 앱의 미리보기 빌드",
+    "metaTitle": "cmux NEXT NIGHTLY — 미리보기 빌드",
+    "metaDescription": "cmux NEXT NIGHTLY를 다운로드하세요. 최신 커밋에서 자동으로 빌드되는 차세대 cmux 앱의 미리보기입니다. cmux와 함께 실행되며 자체 자동 업데이트를 지원합니다.",
+    "description": "cmux NEXT NIGHTLY는 다음 버전 cmux의 미리보기로, 최신 커밋에서 자동으로 빌드됩니다. 자체 번들 ID를 사용하므로 cmux 및 cmux NIGHTLY와 충돌 없이 함께 실행됩니다. Apple 실리콘이 탑재된 Mac이 필요합니다.",
+    "download": "Mac용 NEXT NIGHTLY 다운로드",
+    "warning": "NEXT NIGHTLY 빌드에는 버그나 미완성 기능이 포함될 수 있습니다. 문제가 발생하면 <githubLink>GitHub</githubLink> 또는 <discordLink>Discord의 #nightly-bugs</discordLink>에 보고하고 안정 버전으로 전환하세요."
+  },
   "languageSwitcher": {
     "label": "언어"
   },
@@ -3441,6 +3536,7 @@
     "unsupportedParams": "이 링크에는 cmux에서 거부할 지원되지 않는 매개변수가 포함되어 있습니다: {params}",
     "conflictingParams": "이 링크에는 함께 사용할 수 없는 매개변수가 포함되어 있습니다: {params}",
     "invalidParams": "이 링크에는 잘못된 매개변수 값이 포함되어 있습니다: {params}",
+    "ignoredParams": "cmux는 사용하지 않는 매개변수를 무시합니다: {params}. 세션은 그대로 열립니다.",
     "fixParams": "URL 매개변수를 수정한 후 이 페이지를 새로고침하세요.",
     "examplePrefix": "참조",
     "exampleLink": "예시 링크",
@@ -5294,7 +5390,18 @@
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
     "signedOutSignIn": "로그인",
-    "manageInAppStore": "App Store에서 관리"
+    "manageInAppStore": "App Store에서 관리",
+    "go": {
+      "name": "Plus",
+      "cta": "Plus 이용하기",
+      "featuresLead": "포함 사항:",
+      "features": [
+        "일시 정지된 머신을 포함하여 총 1대의 VM 저장",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "커뮤니티 지원",
+        "월간 시간 제한 없음"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",
@@ -5512,6 +5619,8 @@
     "errorInvalidCode": "유효하지 않은 코드입니다. 이메일을 확인하고 다시 시도하세요.",
     "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
     "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
+    "errorEmailUnverified": "이 이메일에는 이미 계정이 있지만 주소가 아직 인증되지 않았습니다. 가입할 때 사용한 방법으로 로그인한 다음 이메일을 인증하면 로그인 코드를 사용할 수 있습니다.",
+    "useEmailPasswordInstead": "이메일과 비밀번호로 로그인",
     "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
     "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
   },

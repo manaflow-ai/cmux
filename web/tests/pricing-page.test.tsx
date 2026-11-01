@@ -122,7 +122,7 @@ describe("localized pricing page", () => {
       const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
       expect(html).toContain("Get Pro");
       expect(html).toContain("Get Max");
-      expect(html).not.toContain("Get Go");
+      expect(html).not.toContain("Get Plus");
       expect(html).not.toContain("$10");
       expect(html).toContain("25% repeat(5,15%)");
     } finally {
@@ -208,10 +208,10 @@ describe("localized pricing page", () => {
     });
     expect(
       enMessages.pricing.compare.rows.find(
-        (row) => row.label === "Concurrent Cloud VMs",
+        (row) => row.label === "Saved Cloud VMs, including paused machines",
       ),
     ).toEqual({
-      label: "Concurrent Cloud VMs",
+      label: "Saved Cloud VMs, including paused machines",
       go: "1",
       free: "false",
       pro: "5",
@@ -279,6 +279,9 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$60/user/mo");
+    expect(html).toMatch(/>\$50</);
+    expect(html).not.toMatch(/>\$40</);
+    expect(html).not.toMatch(/plan%253Dpro[^"]*interval%253Dyear/);
     expect(html).toContain('href="/handler/sign-in?after_auth_return_to=');
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
@@ -318,8 +321,11 @@ describe("localized pricing page", () => {
     expect(html).toContain("$160");
     expect(html).toContain("Yearly");
     expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
-    expect(html).toContain("Get Go");
-    expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
+    expect(html).toContain("Get Plus");
+    expect(html).toContain("$15");
+    expect(html).toContain("No monthly hour cap");
+    expect(html).toContain("1 saved VM total, including paused machines");
+    expect(html).toContain("2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("Largest Cloud VM");
@@ -429,6 +435,60 @@ describe("localized pricing page", () => {
     expect(html).toContain("Manage billing");
   });
 
+  describe("Plus card for every visitor", () => {
+    async function plusCardFor(setup: () => void) {
+      stackConfigured = true;
+      setup();
+      const html = await renderSettled(
+        await PricingPage({ params: Promise.resolve({ locale: "en" }) }),
+      );
+      const cards = plusCards(html);
+      expect(cards.length).toBeGreaterThan(0);
+      return { html, card: cards[cards.length - 1] };
+    }
+    const freeUser = () => {
+      currentUser = { ...proUser, id: "user-free", clientReadOnlyMetadata: {} };
+    };
+
+    test("a signed-out visitor gets Plus with sign-in before checkout", async () => {
+      const { card } = await plusCardFor(() => { currentUser = null; });
+      expect(card).toContain("$15");
+      expect(card).toMatch(/href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dgo[^"]*"[^>]*><span>Get Plus/);
+      expect(card).not.toContain("Current plan");
+    });
+
+    test("a Free user gets Plus checkout", async () => {
+      const { card } = await plusCardFor(freeUser);
+      expect(card).toContain("$15");
+      expect(card).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=go[^"]*"[^>]*><span>Get Plus/);
+      expect(card).not.toContain("Current plan");
+    });
+
+    test("a Plus subscriber keeps Current plan on the Plus card", async () => {
+      const { card } = await plusCardFor(() => {
+        stripeSubscriptionRows = [{ id: "sub_go", plan: "go" }];
+      });
+      expect(card).toContain("Current plan");
+      expect(card).not.toContain("Get Plus");
+    });
+
+    for (const plan of ["pro", "max"] as const) {
+      test(`a ${plan} subscriber sees the same Plus card as a Free user`, async () => {
+        const { card: freeCard } = await plusCardFor(freeUser);
+        const { html, card } = await plusCardFor(() => {
+          currentUser = proUser;
+          stripeSubscriptionRows = [{ id: `sub_${plan}`, plan }];
+        });
+        // The personalized cards rendered: the subscriber's own plan is current.
+        expect(html).toContain("Current plan");
+        expect(card).toBe(freeCard);
+        expect(card).toContain("Get Plus");
+        expect(card).not.toContain("Current plan");
+        expect(html).toContain("25% repeat(6,12.5%)");
+      });
+    }
+  });
+
   test("renders monthly offers for an old annual link", async () => {
     const element = await PricingPage({
       params: Promise.resolve({ locale: "en" }),
@@ -503,6 +563,15 @@ describe("localized pricing page", () => {
     expect(html).toContain('hidden=""');
   });
 });
+
+/** Each Plus plan card in render order; the last is the personalized one. */
+function plusCards(html: string): string[] {
+  const cardStart = '<div class="relative flex h-full min-w-0 flex-col';
+  const cards = html.split(cardStart).slice(1).map((rest) => cardStart + rest);
+  return cards
+    .filter((card) => card.includes(">Plus</h2>"))
+    .map((card) => card.slice(0, card.indexOf("</section>") === -1 ? undefined : card.indexOf("</section>")));
+}
 
 function translator(namespace?: string) {
   const root = namespace ? valueAtPath(enMessages, namespace) : enMessages;

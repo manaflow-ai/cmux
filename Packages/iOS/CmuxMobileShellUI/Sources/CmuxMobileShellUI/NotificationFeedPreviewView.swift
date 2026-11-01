@@ -129,6 +129,7 @@ public struct NotificationFeedPreviewView: View {
             WorkspaceRootToolbarContent(
                 openSettings: {},
                 openDevices: {},
+                openChief: nil,
                 title: L10n.string(
                     "mobile.workspaces.macPicker.allConnections",
                     defaultValue: "All Computers"

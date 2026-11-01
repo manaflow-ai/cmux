@@ -21,10 +21,13 @@ image, so lower `--gif-fps` or `--gif-width` if the tool refuses one; replacing
 evidence already uploaded for that PR needs `--force`.
 
 **Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert.
-Before merging, wait for the checks that judge the change (macOS compile
-admission plus the app-host suites CI selected for it) and skip slow unrelated
-lanes. If you merge without them, say on the PR what was not verified; the merge
-receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`. A
+Look at the checks that judge the change (macOS compile admission plus the
+app-host suites CI selected for it) and skip slow unrelated lanes. Only a red the
+PR causes holds the merge; base reds, flakes and pending checks don't. If you
+merge before the judging checks finish, say on the PR what was not verified; the
+merge receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`.
+`gh-merge-green` still waits for the checks it requires; never get around it
+with `--override` or the API merge path. A
 main-regression comment on your PR (`main_regression_attribution.py`) is a
 fix-forward ask.
 
@@ -34,25 +37,28 @@ Before merging, confirm they are of the head you merge and look at each frame
 critically; a blank or wrong frame, or no tour that reaches the change, is a
 finding to fix, not a pass.
 
-**Approval.** The main agent owns dogfood, approval, mergeability and every
-pushed fix. Merging app, runtime or UI changes requires the user's explicit
-approval after dogfood, or a direct merge directive that names the merge action
-(`merge`, `merge it`, `auto-merge`; `finish`, `lgtm` and `ship it` are not).
+**When to merge.** The main agent owns dogfood, mergeability, the merge and
+every pushed fix. A PR merges when an independent review subagent passes it and
+it causes no red of its own. Don't wait for a person, for app, runtime and UI
+changes too. Ship risky user-visible behavior behind a setting or Debug toggle,
+and fix a bad default in the next nightly. Merge freezes still hold.
+
+**Red base.** A base that doesn't compile, or CI that's red on every PR, is
+priority zero. Fix it directly in its own PR instead of noting it and leaving it
+for an owner.
 
 **Scope verification to the feature.** Local-backend builds can dogfood desktop
 state, menus, and release-note rendering without a shared Cloud backend. Require
 live authentication or transport only when the assertion depends on it. Record
 the exact head, tag/artifact and exercised states; a build or an empty capture is
-not an interaction result. Agents may perform this verification. Honor existing
-user authorization and explicit delegations without inventing a second manual
-signoff; report an agent verdict as such, never as human approval. A coordinator
-acknowledgement is required only for an actual shared landing resource or freeze,
-not simply for a reviewed fork branch.
+not an interaction result. Agents perform this verification; report an agent
+verdict as such, never as a human's. A coordinator acknowledgement is required
+only for an actual shared landing resource or freeze, not simply for a reviewed
+fork branch.
 
 **Re-dogfood.** If a fix changes runtime behavior mid-dogfood, rebuild the tag
-and re-notify, since the earlier verdict covers only the build the user tested.
-After a merge directive, re-dogfood (rebuild the tag and re-notify with the
-checklist) when a later fix changes user-visible behavior beyond what was
+and re-notify, since the earlier verdict covers only the build that was tested.
+Re-dogfood when a later fix changes user-visible behavior beyond what was
 dogfooded; skip it for internal, test-only or tightly scoped fixes. Either way,
-say on the PR which you did and why.
+say on the PR which you did and why. Re-dogfooding doesn't hold the merge.
 

@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import importlib.util
 import json
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,6 +117,178 @@ class PickRuleTests(unittest.TestCase):
         self.assertEqual(choice.retry_label, picker.BLACKSMITH[2])
 
 
+class NeverQueueBehindBlacksmithTests(unittest.TestCase):
+    """Minis first; Blacksmith only while a label has a free, moving slot; else the fleet's queue.
+
+    2026-10-20: blacksmith-12vcpu-macos-26 (5 runners) queued 5+ hours, about 95 PRs behind 318 runs.
+    """
+
+    FULL = (pool(picker.BLACKSMITH[0], 5, 5, 1), pool(picker.BLACKSMITH[1], 10, 10, 0),
+            pool(picker.BLACKSMITH[2], 10, 10, 5))
+
+    def state(self, blacksmith, **kwargs):
+        defaults = dict(jobs=2, owned=(pool("glaeda-std-xcode-26.6", 8, running=8, free=0, queued=1),
+                                       pool("glaeda-light-xcode-26.6", 4, free=1, queued=1)),
+                        blacksmith=blacksmith, owned_enabled=True, wait_on_owned=True)
+        defaults.update(kwargs)
+        return picker.State(**defaults)
+
+    def test_a_full_fleet_and_full_blacksmith_wait_on_the_owned_label(self):
+        choice = picker.pick(self.state(self.FULL))
+        self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
+        self.assertTrue(choice.owned)
+        # retry_runner stays Blacksmith: ci-macos.yml sends it the jobs the minis cannot run.
+        self.assertTrue(choice.retry_label.startswith("blacksmith-"))
+        self.assertTrue(picker.write_outputs(choice, 2)["retry_runner"].startswith("blacksmith-"))
+
+    def test_a_free_blacksmith_slot_still_takes_the_overflow(self):
+        free = (pool(picker.BLACKSMITH[0], 5, 3), *self.FULL[1:])
+        self.assertEqual(picker.pick(self.state(free)).label, picker.BLACKSMITH[0])
+
+    def test_an_owned_pick_retries_on_a_free_blacksmith_label_first(self):
+        state = self.state((self.FULL[0], pool(picker.BLACKSMITH[1], 10, 2), self.FULL[2]),
+                           owned=(pool("glaeda-std-xcode-26.6", 8, free=4),))
+        self.assertEqual(picker.pick(state).retry_label, picker.BLACKSMITH[1])
+
+    def test_an_old_queued_macos_26_job_with_nothing_starting_waits_on_the_fleet(self):
+        """DEV publish 40454509260: the oldest macOS 26 job had waited past BLACKSMITH_STALL_MINUTES with
+        runners busy, so the label is no room; a wait_on_owned pick waits on the fleet."""
+        snapshot = {"generated_at": "2000-01-01T00:00:00Z", "pools": {
+            picker.BLACKSMITH[1]: {"queued": 4, "running": 3, "oldest_queued_minutes": 11}}}
+        with mock.patch.object(picker, "snapshot_age", return_value=0.0):
+            base = picker.state_from(jobs=2, env={}, fork=False, runners=None, snapshot=snapshot,
+                                     fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        mac26 = next(p for p in base.blacksmith if p.label == picker.BLACKSMITH[1])
+        self.assertTrue(mac26.stalled)
+        self.assertEqual(mac26.unreserved_available, 0)
+        state = self.state((mac26,))
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
+        self.assertTrue(choice.owned)
+        # A young queue on a label with room still takes Blacksmith.
+        young = dataclasses.replace(mac26, stalled=False, waited=picker.BLACKSMITH_STALL_MINUTES - 1)
+        self.assertEqual(picker.pick(self.state((young,))).label, picker.BLACKSMITH[1])
+
+    def test_a_stalled_macos_26_label_beside_a_free_macos_15_slot_picks_macos_15(self):
+        """2026-10-27 06:13Z: macOS 26 queued 50 min with nothing starting and a macOS 15 slot free."""
+        pools = {picker.BLACKSMITH[0]: {"queued": 3, "running": 4, "oldest_queued_minutes": 50},
+                 picker.BLACKSMITH[1]: {"queued": 3, "running": 4, "oldest_queued_minutes": 50},
+                 picker.BLACKSMITH[2]: {"queued": 0, "running": 1}}
+        with mock.patch.object(picker, "snapshot_age", return_value=0.0):
+            state = picker.state_from(jobs=1, env={}, fork=False, runners=None, fallback=picker.BLACKSMITH[1],
+                                      snapshot={"generated_at": "2000-01-01T00:00:00Z", "pools": pools},
+                                      owned_enabled=False)
+        self.assertEqual(picker.pick(state).label, picker.BLACKSMITH[2])
+        self.assertEqual(picker.BLACKSMITH_STALL_MINUTES, 10)
+        self.assertFalse(picker.blacksmith_stalled(2, picker.BLACKSMITH_STALL_MINUTES - 1))
+        self.assertTrue(picker.blacksmith_stalled(2, picker.BLACKSMITH_STALL_MINUTES))
+
+    def test_a_stalled_blacksmith_label_has_no_free_slot(self):
+        stalled = dataclasses.replace(pool(picker.BLACKSMITH[1], 10, 0, 3), stalled=True)
+        choice = picker.pick(self.state((self.FULL[0], stalled, self.FULL[2])))
+        self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
+        self.assertTrue(picker.stalled(queued=2, running=4, oldest_queued_minutes=picker.STALL_MINUTES))
+        self.assertTrue(picker.stalled(queued=1, running=0, oldest_queued_minutes=picker.IDLE_STALL_MINUTES))
+        self.assertTrue(picker.stalled(queued=1, running=3, oldest_queued_minutes=6, age=4))
+        self.assertFalse(picker.stalled(queued=1, running=3, oldest_queued_minutes=9))
+        self.assertFalse(picker.stalled(queued=0, running=0, oldest_queued_minutes=90))
+
+    def test_the_snapshot_marks_a_stalled_label(self):
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, fallback=picker.BLACKSMITH[1],
+                                  owned_enabled=False, snapshot={"generated_at": "", "pools": {
+                                      picker.BLACKSMITH[1]: {"queued": 2, "running": 0, "oldest_queued_minutes": 9}}})
+        by_label = {item.label: item for item in state.blacksmith}
+        self.assertTrue(by_label[picker.BLACKSMITH[1]].stalled)
+        self.assertFalse(by_label[picker.BLACKSMITH[0]].stalled)
+
+    def test_only_a_rescued_head_waits_on_the_fleet(self):
+        # A trusted fork (CI_PR_POOL_FORK_ALLOWED) may take a free mini, but owned_pool_rescue never
+        # rescues a fork head, and the bot's re-run already waited once: both keep the old rule.
+        choice = picker.pick(self.state(self.FULL, wait_on_owned=False))
+        self.assertEqual(choice.label, picker.BLACKSMITH[1])
+        self.assertFalse(choice.owned)
+        repo = "manaflow-ai/cmux"
+        self.assertTrue(picker.wait_on_owned({}, head=repo, repository=repo))
+        self.assertTrue(picker.wait_on_owned({"GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "lawrencecchen"},
+                                             head=repo, repository=repo))
+        self.assertFalse(picker.wait_on_owned({}, head="teamleaderleo/cmux", repository=repo))
+        self.assertFalse(picker.wait_on_owned({"GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"},
+                                              head=repo, repository=repo))
+        self.assertFalse(picker.wait_on_owned({}, head="", repository=""))
+
+    def test_main_passes_the_wait_gate_for_a_trusted_fork(self):
+        seen = {}
+        original = picker.observe
+        picker.observe = lambda **kwargs: seen.update(kwargs) or picker.State(jobs=0)
+        try:
+            picker.main([], {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "HEAD_REPO": "teamleaderleo/cmux",
+                             "CI_PR_POOL_FORK_ALLOWED": "1", "RUN_JOBS": "2"})
+        finally:
+            picker.observe = original
+        self.assertEqual((seen["fork"], seen["wait_owned"]), (False, False))
+
+    def test_a_pool_with_no_online_runner_is_no_queue_to_wait_in(self):
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 0, free=0),
+                                             pool("glaeda-light-xcode-26.6", 4, free=0, queued=2)))
+        self.assertEqual(picker.pick(state).label, "glaeda-light-xcode-26.6")
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 0, free=0),))
+        self.assertFalse(picker.pick(state).owned)
+
+    def test_the_wait_takes_the_shortest_queue_for_its_size(self):
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 8, free=0, queued=16),
+                                             pool("glaeda-light-xcode-26.6", 4, free=0, queued=2)))
+        self.assertEqual(picker.pick(state).label, "glaeda-light-xcode-26.6")
+        # A tie keeps owned order (std before light).
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 8, free=0, queued=4),
+                                             pool("glaeda-light-xcode-26.6", 4, free=0, queued=2)))
+        self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+
+    def test_the_wait_ranks_by_measured_turnover_not_queue_per_runner(self):
+        # A busy 4-runner light pool with 12 queued (3 a runner) against a busy 30-runner std pool with
+        # 108 (3.6 a runner): queued / capacity picked light, where the run starts 46.3 min out (four
+        # 11.58 min turnovers) against std's 30.0 (four of 7.51).
+        light = pool("glaeda-light-xcode-26.6", 4, running=4, free=0, queued=12)
+        std = pool("glaeda-std-xcode-26.6", 30, running=30, free=0, queued=108)
+        self.assertLess(light.queued / light.capacity, std.queued / std.capacity)
+        self.assertAlmostEqual(picker.expected_wait_minutes(light, 2), 4 * 11.58)
+        self.assertAlmostEqual(picker.expected_wait_minutes(std, 2), 4 * 7.51)
+        self.assertEqual(picker.pick(self.state(self.FULL, owned=(std, light))).label, "glaeda-std-xcode-26.6")
+
+    def test_a_pool_smaller_than_the_run_waits_a_turnover_per_extra_wave(self):
+        # One online runner, nothing queued: the second job starts one turnover after the first.
+        tiny = pool("glaeda-light-xcode-26.6", 1, free=1)
+        self.assertEqual(picker.expected_wait_minutes(tiny, 1), 0)
+        self.assertAlmostEqual(picker.expected_wait_minutes(tiny, 2), 11.58)
+        # Idle runners take the queue ahead first; a busy pool's job waits one turnover, the slowest
+        # measured one for a class with no figure.
+        self.assertEqual(picker.expected_wait_minutes(pool("glaeda-std-xcode-26.6", 8, running=4, queued=2), 2), 0)
+        self.assertEqual(picker.expected_wait_minutes(pool("glaeda-xl-xcode-26.6", 1, running=1), 1),
+                         max(picker.TURNOVER_MINUTES.values()))
+
+    def test_turnover_is_the_measured_fixture(self):
+        # TURNOVER_MINUTES is derived, never typed: total runner minutes over jobs per pool class.
+        data = json.loads((ROOT / "tests/fixtures/owned-pool-turnover/2026-10-20-to-26.json").read_text())
+        totals: dict[str, list[float]] = {}
+        for row in data["jobs"]:
+            total = totals.setdefault(row["pool"], [0, 0.0])
+            total[0] += row["n"]
+            total[1] += row["runner_minutes"]
+        self.assertEqual(set(totals), set(picker.TURNOVER_MINUTES))
+        for klass, (jobs, minutes) in totals.items():
+            with self.subTest(klass=klass):
+                self.assertEqual(round(minutes / jobs, 2), picker.TURNOVER_MINUTES[klass])
+        self.assertEqual({klass: jobs for klass, (jobs, _) in totals.items()}, {"std": 20003, "light": 1360})
+
+    def test_without_an_owned_pool_to_wait_on_the_rule_is_unchanged(self):
+        # A fork, owned pools off or an unread runner list has no fleet queue to wait on.
+        for state in (self.state(self.FULL, fork=True), self.state(self.FULL, owned_enabled=False),
+                      self.state(self.FULL, owned=())):
+            with self.subTest(state=state):
+                choice = picker.pick(state)
+                self.assertEqual(choice.label, picker.BLACKSMITH[1])
+                self.assertFalse(choice.owned)
+
+
 LIGHT = "glaeda-light-xcode-26.6"
 STD = "glaeda-std-xcode-26.6"
 OWNED_ENV = {
@@ -194,6 +368,9 @@ class LiveRunnerReadTests(unittest.TestCase):
         asked = []
 
         class Paged(picker.LiveState):
+            def _group_runners(self):
+                raise RuntimeError("group unread")
+
             def _get(self, path):
                 asked.append(path)
                 page = int(path.rsplit("page=", 1)[1]) if "&page=" in path else 1
@@ -346,11 +523,71 @@ class OwnedQueueTests(unittest.TestCase):
 
 
 class LiveReaderTests(unittest.TestCase):
+    def test_the_minis_come_from_their_runner_group_not_the_org_pages(self):
+        """2,862 org runners on 2026-10-27: the org pages held no mini, so every owned pool read offline."""
+        minis = [{"id": index, "status": "online", "busy": False,
+                  "labels": [{"name": "glaeda-std-xcode-26.6"}]} for index in range(3)]
+
+        class Grouped(picker.LiveState):
+            def _group_runners(self):
+                return minis
+
+            def _get(self, path):
+                raise AssertionError(f"read the org-wide pages: {path}")
+
+        self.assertEqual(Grouped("token", "manaflow-ai/cmux").runners(), minis)
+        self.assertIn("runner-groups", (ROOT / "scripts/ci/pr_runner_pool.py").read_text())
+
+    def test_a_mini_past_page_ten_of_the_org_list_is_still_read(self):
+        """More than MAX_RUNNER_PAGES * 100 org runners, the minis only in the glaeda-minis group:
+        the minis are still read, and an owned pick takes them (2026-10-27, 2,862 org runners)."""
+        org = [runner(f"blacksmith-{index}", ["blacksmith-6vcpu-macos-26"], busy=True)
+               for index in range(picker.MAX_RUNNER_PAGES * 100 + 400)]
+        minis = [std_runner(index, busy=False) for index in range(6)]
+        for index, item in enumerate(org + minis):
+            item["id"] = index
+        org_tail = org + minis  # the org-wide list holds the minis only past page MAX_RUNNER_PAGES
+
+        def page_of(items, path):
+            page = int(path.rsplit("page=", 1)[1]) if "page=" in path else 1
+            return {"runners": items[(page - 1) * 100: page * 100]}
+
+        def group_api(_self, path):
+            if "/runner-groups?" in path:
+                return {"runner_groups": [{"id": 7, "name": "glaeda-minis"}]}
+            if "/runner-groups/7/runners" in path:
+                return page_of(minis, path)
+            if path.startswith("/repos/"):
+                return {"runners": []}
+            raise AssertionError(path)
+
+        class Live(picker.LiveState):
+            def _get(self, path):
+                return page_of(org_tail, path)
+
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import pr_runner_pool
+
+        with mock.patch.object(pr_runner_pool.GitHub, "get_api", group_api):
+            read = Live("token", "manaflow-ai/cmux").runners()
+        self.assertEqual({item["name"] for item in read}, {item["name"] for item in minis})
+        # The old org-wide read stops at MAX_RUNNER_PAGES and never sees a mini.
+        with mock.patch.object(pr_runner_pool.GitHub, "get_api", side_effect=RuntimeError("no group")):
+            fallback = Live("token", "manaflow-ai/cmux").runners()
+        self.assertEqual(len(fallback), picker.MAX_RUNNER_PAGES * 100)
+        self.assertFalse(any(item["name"].startswith("std-") for item in fallback))
+        # observe() over the group read: the owned pool is online and picked.
+        self.assertEqual(picker.pick(observed(read, {}, jobs=1)).label, STD)
+        self.assertFalse(picker.pick(observed(fallback, {}, jobs=1)).owned)
+
     def test_live_reader_reads_the_org_runners_once(self):
         class Fake(picker.LiveState):
             def __init__(self):
                 super().__init__("token", "manaflow-ai/cmux")
                 self.paths = []
+
+            def _group_runners(self):
+                raise RuntimeError("group unread")
 
             def _get(self, path):
                 self.paths.append(path)
@@ -455,6 +692,93 @@ class LiveReaderTests(unittest.TestCase):
         untrusted = dataclasses.replace(trusted, fork=True)
         self.assertTrue(picker.pick(trusted).owned)
         self.assertFalse(picker.pick(untrusted).owned)
+
+class DeadLabelTests(unittest.TestCase):
+    """A label that ran nothing and started no job for an hour is dead (blacksmith_dead()), not free: on 2026-10-30
+    blacksmith-12vcpu-macos-26 started nothing for about a day, and with its queue cleared the stall rule alone
+    read its five slots free."""
+
+    LARGE, SMALL = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+
+    def snap(self, *, started: bool = True) -> dict:
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        stamp = (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        out = {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+               "pools": {self.LARGE: {"queued": 0, "running": 0}, self.SMALL: {"queued": 0, "running": 5}}}
+        if started:
+            out["label_started"] = {self.SMALL: stamp}
+        return out
+
+    def state(self, snapshot: dict):
+        return picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snapshot,
+                                 fallback=self.SMALL, owned_enabled=False)
+
+    def test_a_dead_macos_26_label_with_its_queue_cleared_has_no_free_slot(self):
+        state = self.state(self.snap())
+        self.assertTrue({item.label: item for item in state.blacksmith}[self.LARGE].stalled)
+        self.assertNotEqual(picker.pick(state).label, self.LARGE)
+
+    def test_with_every_label_full_the_least_loaded_pick_is_never_the_dead_one(self):
+        snap = self.snap()
+        snap["pools"][self.SMALL] = {"queued": 30, "running": 10}
+        snap["pools"][picker.BLACKSMITH[2]] = {"queued": 30, "running": 10}
+        state = self.state(snap)
+        self.assertEqual(picker.pick(state).label, self.SMALL)
+
+    def test_no_start_evidence_or_every_label_dead_changes_nothing(self):
+        older = self.state(self.snap(started=False))
+        self.assertFalse({item.label: item for item in older.blacksmith}[self.LARGE].stalled)
+        both = self.snap()
+        both["pools"][self.SMALL]["running"] = 0
+        both["label_started"] = {}
+        self.assertEqual(picker.dead_macos_26(both), set())
+        self.assertEqual(picker.dead_macos_26(dict(self.snap(), truncated=True)), set())
+
+
+class EveryMacos26LabelDeadTests(unittest.TestCase):
+    """With both Blacksmith macOS 26 labels dead, a --wait-owned pick waits on the owned fleet. Until 2026-10-31
+    state_from() dropped the evidence when it named both (dead_macos_26()), so a cleared 6 vCPU queue read as free
+    slots: DEV publisher run 41250674182 put verify and tip-dmg-build on blacksmith-6vcpu-macos-26, which started
+    nothing, while the std minis were online."""
+
+    LARGE, SMALL = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+
+    def busy_fleet(self, snapshot: dict, env: dict | None = None):
+        runners = [std_runner(i, busy=True) for i in range(4)]
+        state = picker.state_from(jobs=2, env=env or OWNED_ENV, fork=False, runners=runners, snapshot=snapshot,
+                                  fallback=self.SMALL, owned_enabled=True)
+        # The DEV publisher's --blacksmith-labels: only the macOS 26 labels its jobs run on.
+        return dataclasses.replace(state, wait_on_owned=True, blacksmith=state.blacksmith[:2])
+
+    def snap(self, *, small_started_minutes: int) -> dict:
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        started = generated - dt.timedelta(minutes=small_started_minutes)
+        return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "pools": {self.LARGE: {"queued": 0, "running": 0}, self.SMALL: {"queued": 0, "running": 0}},
+                "label_started": {self.SMALL: started.strftime("%Y-%m-%dT%H:%M:%SZ")}}
+
+    def test_both_dead_in_the_snapshot_waits_on_the_owned_fleet(self):
+        state = self.busy_fleet(self.snap(small_started_minutes=70))
+        self.assertTrue(all(item.stalled for item in state.blacksmith[:2]))
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, STD)
+        self.assertTrue(choice.owned)
+
+    def test_runner_pools_dead_marks_count_too(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        mark = (now - dt.timedelta(minutes=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        env = {**OWNED_ENV, "RUNNER_POOLS": json.dumps({"_dead": {self.LARGE: mark, self.SMALL: mark}})}
+        # The snapshot alone shows 6 vCPU alive (a start a minute ago).
+        state = self.busy_fleet(self.snap(small_started_minutes=1), env)
+        self.assertEqual(picker.pick(state).label, STD)
+        # An old mark proves nothing: 6 vCPU, alive in the snapshot, takes the run.
+        old = (now - dt.timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        env = {**OWNED_ENV, "RUNNER_POOLS": json.dumps({"_dead": {self.LARGE: old, self.SMALL: old}})}
+        self.assertEqual(picker.pick(self.busy_fleet(self.snap(small_started_minutes=1), env)).label, self.SMALL)
+
+    def test_a_live_label_still_takes_the_overflow(self):
+        self.assertEqual(picker.pick(self.busy_fleet(self.snap(small_started_minutes=1))).label, self.SMALL)
+
 
 if __name__ == "__main__":
     unittest.main()

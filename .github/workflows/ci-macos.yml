@@ -224,7 +224,7 @@ jobs:
     # no gap to take the pinned runner first. Any failure outputs "" and
     # admission keeps pr_admission_runner on attempt 1, its label after.
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (startsWith(inputs.pr_root_runner, 'glaeda-root-') || startsWith(inputs.pr_root_runner, 'glaeda-aws-root-')) && contains(inputs.pr_owned_jobs, ' admission ') && (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -1742,7 +1742,7 @@ jobs:
     needs:
       - macos-compile-admission
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -4781,8 +4781,14 @@ jobs:
 
   macos-status:
     name: macOS status
+    # The placement jobs are here only so the gate verdict can read the `if:`
+    # of the jobs that need them. They are best effort (a 3-minute timeout or
+    # a lost runner can end them cancelled or failed), so the verdict step
+    # names them --context-only and never judges their own result.
     needs:
+      - admission-placement
       - macos-compile-admission
+      - late-placement
       - app-host-unit-tests
       - cli-product-tests
       - cli-regressions
@@ -4796,6 +4802,35 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
+      # An absent signal must never read green. The steps below allow a
+      # `skipped` need, which is right only when that job's routing turned it
+      # off. This asks each skipped job's own `if:` whether it was selected,
+      # with the same needs, variables, inputs and event fields that decided
+      # it, and fails when a selected job never ran (scripts/ci/gate_verdict.py;
+      # tests/test_ci_gate_absent_signal.py walks the needs graph).
+      - name: Check out the gate verdict
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/gate_verdict.py
+            .github/workflows/ci-macos.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Every selected job reported
+        env:
+          GATE_NEEDS: ${{ toJSON(needs) }}
+          GATE_VARS: ${{ toJSON(vars) }}
+          GATE_INPUTS: ${{ toJSON(inputs) }}
+          GATE_GITHUB: >-
+            {"event_name": ${{ toJSON(github.event_name) }},
+            "repository": ${{ toJSON(github.repository) }},
+            "repository_owner": ${{ toJSON(github.repository_owner) }},
+            "run_attempt": ${{ toJSON(github.run_attempt) }},
+            "triggering_actor": ${{ toJSON(github.triggering_actor) }},
+            "event": {"pull_request": {"head": {"repo": {"full_name": ${{ toJSON(github.event.pull_request.head.repo.full_name) }}}}}}}
+        run: python3 scripts/ci/gate_verdict.py --workflow .github/workflows/ci-macos.yml --gate macos-status --context-only admission-placement,late-placement
+
       # Compile-avoidance shadow (RFC #15391, Work 3). The package lane
       # classifies the pull request's package edits; when every edited
       # package kept its interface and the package tests passed, the app

@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planlægning, TDD, underagenter og gennemgang"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM-anmodning forsinket",
+      "message": "Tildeling af en Cloud VM er midlertidigt utilgængelig.",
+      "action": "Vent et minut, og prøv derefter igen med den samme idempotensnøgle."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot-anmodningen kræver en genforsøgsnøgle",
+      "message": "Cloud VM-snapshots kræver en idempotensnøgle.",
+      "action": "Prøv igen med en fast Idempotency-Key på højst 128 tegn."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot er stadig i gang",
+      "message": "Et snapshot med denne idempotensnøgle kører stadig for denne Cloud VM.",
+      "action": "Vent på, at det første snapshot bliver færdigt, og prøv derefter igen med samme idempotensnøgle."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot-nøglen er allerede brugt",
+      "message": "Denne idempotensnøgle er allerede brugt til en anden snapshot-anmodning på denne Cloud VM.",
+      "action": "Brug en ny idempotensnøgle til et snapshot med et andet navn."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot-grænsen er nået",
+      "message": "Denne Cloud VM har nået sin snapshot-grænse.",
+      "action": "Slet et eksisterende snapshot, og prøv derefter igen med den samme idempotensnøgle."
+    },
     "guestInstall": {
       "title": "Opsætning af Cloud VM blev ikke fuldført",
       "reason": "Gæsteopsætningen af Cloud VM blev ikke fuldført.",
@@ -105,14 +130,14 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go omfatter to gemte VM’er, inklusive den kørende VM.",
+      "savedMessage": "Plus: I alt 1 gemt VM, også når den er på pause",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go omfatter én kørende VM ad gangen.",
+      "activeMessage": "Plus: 1 Cloud-VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Go har brugt sine 40 VM-timer denne måned. Gemte VM’er kan bruges igen i næste faktureringsperiode.",
+      "hoursMessage": "Plus: Ingen månedlig timegrænse",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go understøtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan}-regnekvote brugt op",
@@ -132,7 +157,7 @@
       "action": "Sæt en VM på pause, eller slet den."
     },
     "activeLimit": {
-      "counted": "Tælles nu: {machines}. Pausede maskiner tælles ikke med.",
+      "counted": "Medregnet nu: {machines}. Maskiner på pause tæller med i grænsen.",
       "provisioning": "{name} (klargøres)",
       "separator": ", "
     }
@@ -531,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -543,9 +568,10 @@
             "Lokal sessionshistorik"
           ],
           "go": [
-            "1 aktiv Cloud VM",
-            "40 VM-timer om måneden",
-            "2 gemte VM'er"
+            "I alt 1 gemt VM, også når den er på pause",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+            "Support fra fællesskabet",
+            "Ingen månedlig timegrænse"
           ],
           "pro": [
             "Cloud-agenter på Cloud VMs",
@@ -610,6 +636,12 @@
         "title": "Faktureret via App Store",
         "body": "Din plan blev købt i cmux-appen til iPhone og faktureres af Apple. Skift eller opsig den under dine App Store-abonnementer.",
         "manage": "Administrer i App Store"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Dit Plus-abonnement fornyes den {date}.",
+        "pendingBody": "Dit Plus-abonnement slutter den {date}.",
+        "monthlyPrice": "${amount}/md."
       }
     },
     "mobileDevices": {
@@ -944,7 +976,7 @@
       },
       "plan": {
         "free": "Gratis",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -1699,7 +1731,7 @@
         "p2": "Alle arbejder forskelligt. Nogle projekter er spredt over flere git-repoer. Nogle beholder mange checkouts af det samme repo (min medstifter har kloner med navnene cmux0 til cmux40, af grunde jeg stadig ikke forstår). Nogle bruger SSH og fjernudvikling som standard.",
         "p3": "cmux er bare terminaler og browsere med en CLI til at styre dem. Med nogle få bash-scripts kan du håndtere worktrees, jonglere med flere checkouts eller åbne fjernsessioner og indrette dit arbejdsområde, som det passer dig.",
         "p4": "cmux bør tilpasse sig din arbejdsgang i stedet for at tvinge en ned over dig. Vi vil have, at cmux føles som et hjem.",
-        "p5": "<link>cmux-home</link> er ét eksempel på det. Det er en lille Rust-TUI, der starter Claude- og Codex-arbejdsområder og holder øje med deres status i realtid, bygget helt på cmux-primitiver. Starteren bruger kommandoskabeloner, så du kan indsætte dine egne scripts til at oprette worktrees, vælge et checkout eller logge ind via SSH på en VM. Fork den, og gør den til din."
+        "p5": "<link>cmux-home</link> er ét eksempel på det. Det er en lille Rust-TUI, der starter Claude- og Codex-arbejdsområder og holder øje med deres status i realtid, bygget helt på cmux-primitiver. Plusen bruger kommandoskabeloner, så du kan indsætte dine egne scripts til at oprette worktrees, vælge et checkout eller logge ind via SSH på en VM. Fork den, og gør den til din."
       },
       "claudeCodeBestWorktreeManager": {
         "title": "Claude Code er den bedste worktree-manager",
@@ -1967,7 +1999,7 @@
       "socketParams": "Parametre",
       "socketMeaning": "Hvad den gør",
       "methodSessions": "Returnerer de tmux-sessioner, der findes på værten.",
-      "methodAttach": "Starter en kontrolklient på én session. Med create oprettes en manglende session først.",
+      "methodAttach": "Plus en kontrolklient på én session. Med create oprettes en manglende session først.",
       "methodDetach": "Stopper kontrolklienten og lader fjernsessionen køre videre.",
       "methodState": "Diagnostisk øjebliksbillede af det, kontrolklienten ser lige nu.",
       "socketSafetyDesc": "For at forhindre injektion af SSH-indstillinger afvises en vært eller identitetsfil, der begynder med en bindestreg, så snart anmodningen modtages.",
@@ -2181,6 +2213,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Når dette er aktiveret, gør et dobbeltklik på en skillelinje panelerne i dens række eller kolonne lige store. Andre rækker og kolonner beholder deres størrelser.",
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
           "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Skærmnavn, der kun bruges i DEBUG-builds, når nye vinduer åbnes. En tom værdi bruger systemets standard.",
@@ -2265,6 +2298,13 @@
               "enabled": "Når et eksternt tmux-arbejdsområde er valgt, starter “Nyt arbejdsområde” en tmux-session på arbejdsområdets vært."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Hjem-agenten: om den vises, og hvilken harness, model og indsats den bruger.",
+          "enabled": "Vis Hjem-rækken og Chief-indgange. Når false, skjules Hjem-rækken, genvejen Åbn Chief, menupunktet og kommandopalettens poster.",
+          "harness": "Agent-harness, som Chief kører på: claude (Claude Code) eller codex (Codex).",
+          "model": "Model, der sendes til harnessen. Lad stå tom for at bruge harnessens standard.",
+          "effort": "Ræsonneringsindsats, der sendes til harnessen, f.eks. low, medium eller high. Lad stå tom for at bruge harnessens standard."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2934,10 +2974,10 @@
       "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "Kør vedvarende Linux-maskiner i skyen fra cmux, og lad dine kodningsagenter arbejde videre, efter du har lukket din Mac.",
-      "intro": "cmux Cloud giver dig vedvarende Linux-maskiner i skyen, som åbnes som almindelige cmux-arbejdsområder. Terminalerne kører videre, når du lukker en rude, mister netværket eller lukker din bærbare, så kodningsagenter kan arbejde videre, og du kan genoprette forbindelsen fra enhver Mac, der er logget ind.",
+      "title": "Kom hurtigt i gang med cmux Cloud",
+      "metaTitle": "Kom hurtigt i gang med cmux Cloud",
+      "metaDescription": "Kom i gang med cmux NEXT Cloud: log ind, opret en Linux-maskine, åbn terminal og skrivebord, sæt på pause, genoptag og slet maskinen.",
+      "intro": "Kør dine værktøjer på en Linux-maskine i Cloud, og brug din Mac til appen. Denne vejledning bruger cmux NEXT-kommandoer, som blev kontrolleret den 2026-10-29. Ældre versioner bruger en anden CLI.",
       "betaNote": "cmux Cloud er i early access og er tilgængelig, medmindre din organisation deaktiverer det. Slå Settings › Beta Features › Cloud Machines til for at bruge det.",
       "whatTitle": "Hvad en maskine er",
       "whatDesc": "En maskine er en vedvarende computer i skyen, som tilhører dig eller dit team. Den beholder sine filer, installerede værktøjer og kørende terminaler. Behandl den som et kæledyr, ikke som kvæg: du installerer det, du har brug for, én gang og vender tilbage til den senere.",
@@ -2963,12 +3003,27 @@
       "cliIntroDesc": "cmux vm og cmux cloud er den samme kommando. Kør cmux vm uden verbum for at se dine maskiner. Hvert verbum har en --help-side, der virker uden appen, og cmux vm guide udskriver en komplet guide i Markdown. Tilføj --json til ethvert verbum for maskinlæsbart output.",
       "baseTitle": "Din basismaskine",
       "baseDesc": "Hver konto har én fastgjort basismaskine. cmux vm base åbner den og opretter den første gang. cmux vm base reset opretter en ny basismaskine og beholder den gamle, så du ikke mister filer ved et uheld.",
-      "nextTitle": "Næste trin",
+      "nextTitle": "Kom hurtigt i gang med cmux Cloud",
       "nextMachines": "Maskiner: størrelser, abonnementer, størrelsesændring, pause, snapshots og sletning.",
       "nextWorkspaces": "Arbejdsområder og agenter: holdbare terminaler, agenter, notifikationer og hvad der er installeret.",
       "nextNetworking": "Filer og netværk: upload af filer, miljøvariabler, porte, skrivebord og offentlige URL'er.",
-      "nextCli": "Cloud CLI-reference: alle cmux vm-verber.",
-      "nextTroubleshooting": "Sikkerhed og fejlfinding: hvordan adgang fungerer, og hvordan du løser almindelige fejl."
+      "nextCli": "Cloud-CLI-reference: tilbudte NEXT-handlinger, hemmeligheder og overdragelseskommandoer.",
+      "nextTroubleshooting": "Fejlfinding i Cloud",
+      "nextIntro": "Kør dine værktøjer på en Linux-maskine i Cloud, og brug din Mac til appen. Denne vejledning bruger cmux NEXT-kommandoer, som blev kontrolleret den 2026-10-29. Ældre versioner bruger en anden CLI.",
+      "nextSignIn": "1. Log ind",
+      "nextSignInBody": "Hold cmux NEXT åben på din Mac. Kør denne kommando, gennemfør login i browseren, og kontrollér derefter maskinlisten.",
+      "nextCreate": "2. Opret en maskine",
+      "nextCreateBody": "En medium-maskine har 4 CPU’er, 8 GB hukommelse og en disk på 32 GB. Den indeholder claude, codex, gh, git, node, bun og python3. Login i værktøjerne er adskilt fra login i cmux.",
+      "nextPending": "Oprettelsen kan returnere pending: true efter 30 sekunder og fortsætte i baggrunden. Kontrollér list-machines, før du opretter en til. Kopiér den returnerede destination ({machineTarget}) ind i kommandoerne nedenfor; de fleste maskinkommandoer kræver den, selv når du kun har én maskine.",
+      "nextTerminal": "3. Åbn en terminal",
+      "nextTerminalBody": "Brug --focus til at vise terminalen i dit vindue. Uden denne indstilling åbnes arbejdsområdet i baggrunden. Kør gh auth login, klon dit repository, og start claude eller codex i denne terminal. Integrerede agentchatfaner er endnu ikke tilgængelige på maskiner fra det image, der blev kontrolleret den 2026-10-29.",
+      "nextDesktop": "4. Åbn skrivebordet",
+      "nextDesktopBody": "Dette åbner maskinens skrivebord i en noVNC-browserfane. Kommandoen returnerer, før siden er færdig med at indlæse.",
+      "nextPause": "5. Sæt på pause, og genoptag",
+      "nextPauseBody": "Sæt selv maskinen på pause, når du er færdig; disken bevares. Automatisk pause ved inaktivitet er endnu ikke tilgængelig. Genoptag maskinen, når du har brug for den igen.",
+      "nextDelete": "6. Slet, når du er færdig",
+      "nextDeleteBody": "Sletning fjerner maskinen og alt på den. Gem først det arbejde, du har brug for, et andet sted. Kommandoen returnerer, før sletningen er færdig; kontrollér list-machines bagefter.",
+      "nextReference": "Cloud-CLI-reference"
     },
     "cloudMachines": {
       "title": "Cloud-maskiner",
@@ -2992,9 +3047,9 @@
       "limitsTitle": "Abonnementsgrænser",
       "limitsDesc": "Dine aktive maskiner deler én pulje af vCPU'er og hukommelse. Kør én stor maskine eller flere små. Maskiner på pause bruger ikke af puljen. Disken fastsættes pr. maskine og indgår ikke i puljen.",
       "limitsFree": "Gratis konti kan ikke oprette maskiner.",
-      "limitsPaid": "Pro- og Founder's Edition-konti kan have op til 5 aktive maskiner, der deler 20 vCPU'er og 40 GB hukommelse. En maskine er aktiv, mens den kører eller starter.",
-      "limitsTeam": "Teamkonti kan have op til 5 aktive maskiner pr. betalt plads. Hver betalt plads lægger 20 vCPU'er og 40 GB hukommelse til teamets pulje.",
-      "limitsMax": "Max-konti kan have op til 5 aktive maskiner, der deler 80 vCPU'er og 160 GB hukommelse. Én Max-maskine kan bruge op til 64 GB og 32 vCPU'er, inklusive størrelserne 24 GB / 12 vCPU'er og 32 GB / 16 vCPU'er; Pro og Team stopper ved 16 GB og 8 vCPU'er.",
+      "limitsPaid": "Pro- og Founder's Edition-konti kan have op til 5 maskiner, inklusive maskiner på pause, der deler 20 vCPU'er og 40 GB hukommelse.",
+      "limitsTeam": "Teamkonti kan have op til 5 maskiner, inklusive maskiner på pause pr. betalt plads. Hver betalt plads lægger 20 vCPU'er og 40 GB hukommelse til teamets pulje.",
+      "limitsMax": "Max-konti kan have op til 5 maskiner, inklusive maskiner på pause, der deler 80 vCPU'er og 160 GB hukommelse. Én Max-maskine kan bruge op til 64 GB og 32 vCPU'er, inklusive størrelserne 24 GB / 12 vCPU'er og 32 GB / 16 vCPU'er; Pro og Team stopper ved 16 GB og 8 vCPU'er.",
       "limitsPoolFull": "Hvis en ny, genoptaget, forstørret eller forket maskine ville overskride puljen, afviser cmux anmodningen og viser, hvor meget af puljen der er i brug. Sæt en maskine på pause, eller slet den for at frigøre ressourcer, eller opgrader til Max.",
       "limitsPricing": "Se prissiden for aktuelle priser. Der er ingen forbrugsmåling og ingen fakturering for overforbrug.",
       "agentUpdatesTitle": "Hold kodeagenter opdateret",
@@ -3004,7 +3059,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette til som standard. For at ændre det på en eksisterende maskine skal du højreklikke på maskinen og vælge Keep Agents Up to Date eller køre cmux vm agent-updates. cmux vm new beholder billedets versioner, medmindre du angiver --agent-updates latest. Når du slår opdateringer fra, beholdes de versioner, der allerede er installeret.",
       "agentUpdatesNetwork": "Opdateringer bruger kun github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillader disse værter i alle netværkstilstande, også Allowlist og No internet, så en netværkspolitik blokerer aldrig opdateringer.",
       "resizeTitle": "Ændr størrelse",
-      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 128 GB på Pro og Team eller 256 GB på Max (Go er begrænset til 16 GB). Hukommelsen vokser op til 16 GB og CPU op til 8 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
+      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 128 GB på Pro og Team eller 256 GB på Max (Plus er begrænset til 128 GB). Hukommelsen vokser op til 16 GB og CPU op til 8 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
       "pauseTitle": "Pause og genoptagelse",
       "pauseDesc": "cmux vm pause stopper maskinens beregning. Disken, arbejdsområderne og terminalhistorikken bevares. Kørende processer stopper. cmux vm resume starter maskinen igen. Hvis du åbner en maskine på pause eller kører en kommando på den, starter den også.",
       "pauseIdle": "Maskiner sættes ikke på pause af sig selv, når de er inaktive. En maskine kører, indtil du sætter den på pause eller sletter den.",
@@ -3100,10 +3155,10 @@
       "customDomainDesc": "cmux cloud domains verify udskriver de DNS-poster, du skal tilføje: en TXT-post for ejerskab, routingposterne og certifikatdelegeringen. Tilføj dem, og kør verify igen. Efter verificeringen kan du udgive på domænet eller på et underdomæne ét niveau under det."
     },
     "cloudCli": {
-      "title": "Cloud CLI-reference",
-      "metaTitle": "cmux Cloud CLI-reference",
-      "metaDescription": "Reference til alle cmux vm- og cmux cloud-kommandoer: livsforløb, arbejdsområder, filer, miljø, domæner og VPN.",
-      "intro": "cmux vm og cmux cloud er den samme kommando. CLI'en taler med den kørende cmux-app, som holder dit login. Tilføj --json til ethvert verbum for maskinlæsbart output. Hvert verbum har en --help-side.",
+      "title": "Cloud-CLI-reference (NEXT)",
+      "metaTitle": "Cloud-CLI-reference (NEXT)",
+      "metaDescription": "Oversigt over tilbudte cmux NEXT Cloud-handlinger, hemmeligheder, overdragelseskommandoer, eksplicitte maskinmål og aktuelle imagebegrænsninger.",
+      "intro": "Dette er de Cloud-handlinger, som cmux NEXT CLI tilbyder. En tilbudt kommando kan stadig være utilgængelig på et bestemt maskinimage. Det image, der blev kontrolleret den 2026-10-29, understøtter endnu ikke integrerede agentchatfaner, åbning af browserfaner til udviklingsservere, lokal portvideresendelse, forks eller automatisk pause ved inaktivitet.",
       "exitCodes": "Exitkoder: 0 ved succes, 1 ved fejl og 2 for en ukendt kommando. cmux vm run returnerer den eksterne exitkode.",
       "authTitle": "Log ind",
       "authDesc": "Log ind, tjek din konto, og vælg et team.",
@@ -3127,7 +3182,19 @@
       "accountsDesc": "Upload agentkonti til dit team, og tjek modelrouting.",
       "preflightTitle": "Tjekliste til scripts",
       "preflightDesc": "Før et script opretter eller bruger maskiner, skal du køre disse skrivebeskyttede kontroller. De bekræfter, at du er logget ind, viser dine maskiner og abonnementsgrænser og viser, hvilken maskine en mappe bruger.",
-      "coderouterLink": "Fuld CodeRouter-kommandoreference"
+      "coderouterLink": "Fuld CodeRouter-kommandoreference",
+      "nextTitle": "Cloud-CLI-reference (NEXT)",
+      "nextIntro": "Dette er de Cloud-handlinger, som cmux NEXT CLI tilbyder. En tilbudt kommando kan stadig være utilgængelig på et bestemt maskinimage. Det image, der blev kontrolleret den 2026-10-29, understøtter endnu ikke integrerede agentchatfaner, åbning af browserfaner til udviklingsservere, lokal portvideresendelse, forks eller automatisk pause ved inaktivitet.",
+      "nextTargets": "Kopiér destinationen {machineTarget} fra list-machines, og angiv --target udtrykkeligt ved maskinkommandoer, også hvis du kun har én maskine. Brug --help til kommandosyntaks og cmux action describe med handlingens ID til argumenter og returnerede felter.",
+      "nextCatalog": "Tilbudte handlinger",
+      "nextCatalogBody": "Denne liste genereres fra NEXT-handlingskataloget og udelader handlinger, der kun findes i den grafiske brugerflade. Den viser tilgængelige kommandonavne uden at garantere, at alle maskiner understøtter dem.",
+      "nextCommand": "Kommando",
+      "nextAction": "Handlings-ID",
+      "nextSecrets": "Hemmeligheder på denne Mac",
+      "nextSecretsBody": "secret set læser værdien via en prompt med skjult indtastning eller stdin og gemmer den i denne Macs nøglering. Angiv aldrig en hemmelig værdi i kommandoargumenter. set og rm accepterer --repo OWNER/NAME; ls viser gemte navne og anvendelsesområder. Overførsel kræver en færdiganvendt maskinkonfiguration, der angiver hemmelighedernes navne. Anvendelse af en konfiguration og overførsel af hemmeligheder er endnu ikke kontrolleret fra ende til anden på det image, der blev kontrolleret den 2026-10-29.",
+      "nextHandoff": "Overdragelse og flytning af chats",
+      "nextHandoffBody": "hand-off-machine returnerer tekst om en maskine; den flytter ikke en chat. move og bring-back flytter chatfaner mellem denne Mac og en Cloud-maskine. De kræver kompatibel chatunderstøttelse; brug dem ikke som en omvej for et image uden agentchatfaner. Kør i stedet agenten i en fjernterminal.",
+      "nextHelp": "Kom hurtigt i gang og aktuelle begrænsninger"
     },
     "cloudTroubleshooting": {
       "title": "Cloud-sikkerhed og fejlfinding",
@@ -3185,7 +3252,26 @@
       "errTransferDisabled": "Filoverførsel er slået fra af din organisation",
       "fixTransferDisabled": "En administreret politik slår filoverførsel fra. Spørg din administrator.",
       "supportTitle": "Få hjælp",
-      "supportDesc": "Hvis en oprettelse mislykkes, skal du bruge Copy Error i notifikationen og medtage fejlen, sammen med trace-ID'et hvis der er et, når du kontakter support."
+      "supportDesc": "Hvis en oprettelse mislykkes, skal du bruge Copy Error i notifikationen og medtage fejlen, sammen med trace-ID'et hvis der er et, når du kontakter support.",
+      "nextTitle": "Fejlfinding i Cloud (NEXT)",
+      "nextIntro": "Disse meddelelser blev kontrolleret den 2026-10-29. Funktioner markeret som endnu ikke tilgængelige understøttes ikke på maskiner fra den dags image. En opdatering af Mac-appen alene opdaterer ikke software, der allerede er installeret på en Cloud-maskine.",
+      "nextSymptom": "Meddelelse eller symptom",
+      "nextFix": "Hvad du skal gøre",
+      "nextPendingFix": "Oprettelsen fortsætter i baggrunden. Kontrollér list-machines, før du opretter en anden maskine. En liste med loaded: false er stadig ukendt; den betyder ikke, at kontoen er tom.",
+      "nextTargetFix": "Kopiér target fra list-machines, og angiv --target {machineTarget}, selv hvis du kun har én maskine.",
+      "nextOpenFix": "open-machine er en handling, der kun findes i den grafiske brugerflade. For at åbne og vise en terminal fra CLI’en skal du bruge new-terminal-on-machine med maskinens destination og --focus.",
+      "nextAgentFix": "Integrerede agentchatfaner er endnu ikke tilgængelige. Åbn en terminal på maskinen, og kør claude eller codex der. Valg af en anden agent løser ikke den manglende chatunderstøttelse.",
+      "nextBrowserFix": "Åbning af en browserfane til en udviklingsserver er endnu ikke tilgængelig. machine-link --port returnerer et link, men browseradgang via det link blev ikke kontrolleret. Et returneret link beviser ikke i sig selv, at porten kan nås.",
+      "nextPortFix": "Visning og videresendelse af lokale porte er endnu ikke tilgængelig via denne maskinforbindelse. machine-link kan returnere et portlink; den opretter ikke en localhost-videresendelse, og tilgængelighed i browseren blev ikke kontrolleret.",
+      "nextForkFix": "Forks er endnu ikke tilgængelige på maskiner fra dette image. Opret en ny maskine, og klon dit repository der; en ny maskine kopierer ikke den oprindelige maskines filer.",
+      "nextIdleFix": "Automatisk pause ved inaktivitet er endnu ikke tilgængelig. Sæt selv maskinen på pause, når du er færdig, og genoptag den efter behov. Off er den eneste accepterede indstilling for pause ved inaktivitet.",
+      "nextSecretsFix": "Angiv hemmelighedernes navne i .cmux/machine.toml, anvend konfigurationen med apply-machine-config, og vent på, at opsætningen er færdig, før du kører deliver-secrets. Gem værdier med secret set NAME via prompten eller stdin. Dette overførselsforløb er endnu ikke kontrolleret fra ende til anden på dette image.",
+      "nextGithubFix": "Kør gh auth login i maskinens terminal, og konfigurér din Git-identitet der. setup-github kræver en Git-identitet på Mac’en; under kontrollen returnerede den denne fejl uden en begrundelse.",
+      "nextExecFix": "exec er til korte kommandoer og stopper efter 25 sekunder. Brug en terminal på maskinen til builds, agenter og servere, der kører i længere tid.",
+      "nextSupport": "Indsaml diagnostik",
+      "nextSupportBody": "Kør diagnostics, og medtag fejlmeddelelsen og det, du forsøgte at gøre, når du rapporterer et problem. Gennemgå outputtet, før du deler det offentligt; fjern kontooplysninger, maskinadresser og andre private oplysninger.",
+      "legacyTitle": "Tidligere versioner: sikkerhed og almindelige problemer",
+      "legacyIntro": "Følgende vejledning er bevaret til tidligere cmux-versioner. Dens eksempler med cmux vm og cmux auth er ikke NEXT-kommandoer. Brug afsnittet ovenfor til handlinger, der afvises af NEXT-maskinimages, og mulige løsninger."
     },
     "ui": {
       "onThisPage": "På denne side",
@@ -3428,6 +3514,15 @@
     "download": "Download NIGHTLY til Mac",
     "warning": "Nightly builds kan indeholde fejl eller ufærdige funktioner. Hvis noget går galt, rapportér det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink> og skift tilbage til den stabile version."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Forhåndsversioner af den næste cmux-app",
+    "metaTitle": "cmux NEXT NIGHTLY — Forhåndsversioner",
+    "metaDescription": "Download cmux NEXT NIGHTLY, en forhåndsvisning af den næste cmux-app, bygget automatisk fra det seneste commit. Kører ved siden af cmux med egne automatiske opdateringer.",
+    "description": "cmux NEXT NIGHTLY er en forhåndsvisning af den næste version af cmux, bygget automatisk fra det seneste commit. Den har sit eget bundle-ID, så den kører ved siden af cmux og cmux NIGHTLY uden konflikter. Kræver en Mac med Apple silicon.",
+    "download": "Download NEXT NIGHTLY til Mac",
+    "warning": "NEXT NIGHTLY-builds kan indeholde fejl eller ufærdige funktioner. Hvis noget går i stykker, så rapportér det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink>, og skift tilbage til den stabile version."
+  },
   "languageSwitcher": {
     "label": "Sprog"
   },
@@ -3441,6 +3536,7 @@
     "unsupportedParams": "Dette link indeholder ikke-understøttede parametre, cmux vil afvise: {params}",
     "conflictingParams": "Dette link indeholder parametre, der ikke kan bruges sammen: {params}",
     "invalidParams": "Dette link indeholder ugyldige parameterværdier: {params}",
+    "ignoredParams": "cmux ignorerer parametre, som den ikke bruger: {params}. Sessionen åbnes alligevel.",
     "fixParams": "Ret URL-parametrene, og genindlæs derefter denne side.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel link",
@@ -5294,7 +5390,18 @@
     "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
     "signedOutNotice": "Du er ikke logget ind. Log ind for at se dit nuværende abonnement eller gendanne et tidligere køb.",
     "signedOutSignIn": "Log ind",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "go": {
+      "name": "Plus",
+      "cta": "Vælg Plus",
+      "featuresLead": "Indeholder:",
+      "features": [
+        "I alt 1 gemt VM, også når den er på pause",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Support fra fællesskabet",
+        "Ingen månedlig timegrænse"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",
@@ -5512,6 +5619,8 @@
     "errorInvalidCode": "Koden er ikke gyldig. Tjek din e-mail, og prøv igen.",
     "errorInvalidTotp": "Totrinskoden er ikke gyldig.",
     "errorSignUpNotAllowed": "Der kan ikke oprettes nye konti lige nu.",
+    "errorEmailUnverified": "Denne e-mail har allerede en konto, men adressen er ikke bekræftet endnu. Log ind på den måde, du oprettede kontoen, og bekræft derefter din e-mail for at bruge loginkoder.",
+    "useEmailPasswordInstead": "Log ind med e-mail og adgangskode",
     "errorPasskey": "Login med adgangsnøgle blev ikke fuldført. Prøv igen, eller brug en anden metode.",
     "errorGeneric": "Noget gik galt. Prøv igen."
   },

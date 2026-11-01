@@ -433,11 +433,35 @@ final class MobileHostService {
 
     private let defaults: UserDefaults
     private let runtimeOverride: (any MobileHostPairingRuntime)?
+    private var chiefEnabledSnapshot: Bool
+    private var chiefSettingsObserver: NSObjectProtocol?
     private var pairingRuntime: any MobileHostPairingRuntime { runtimeOverride ?? MobileHostIrxRuntime.shared }
 
     init(defaults: UserDefaults = .standard, runtime: (any MobileHostPairingRuntime)? = nil) {
         self.defaults = defaults
         runtimeOverride = runtime
+        chiefEnabledSnapshot = ChiefSettings.isEnabled(in: defaults)
+        chiefSettingsObserver = nil
+        chiefSettingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.publishChiefCapabilityChangeIfNeeded()
+            }
+        }
+    }
+
+    private func publishChiefCapabilityChangeIfNeeded() {
+        let enabled = ChiefSettings.isEnabled(in: defaults)
+        guard enabled != chiefEnabledSnapshot else { return }
+        chiefEnabledSnapshot = enabled
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        // A connected phone otherwise keeps the capability snapshot it got at
+        // connect time. Invalidate that snapshot over the existing event
+        // stream so it can re-read `mobile.host.status` immediately.
+        Self.emitEvent(topic: "mobile.host.capabilities.changed", payload: [:])
     }
 
     /// Inject the auth dependency. Call once at the composition root.

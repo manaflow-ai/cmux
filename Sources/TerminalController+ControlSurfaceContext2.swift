@@ -203,6 +203,14 @@ extension TerminalController {
                 focus: focus,
                 initialDividerPosition: dividerPosition
             )?.id
+        } else if panelType == .chief {
+            newId = ws.newChiefSplit(
+                from: targetSurfaceId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
+                initialDividerPosition: dividerPosition
+            )?.id
         } else {
             switch ws.newTerminalSplitOutcome(
                 from: targetSurfaceId,
@@ -545,6 +553,11 @@ extension TerminalController {
             )?.id
         } else if panelType == .simulator {
             newPanelId = ws.newSimulatorSurface(
+                inPane: paneId,
+                focus: focus
+            )?.id
+        } else if panelType == .chief {
+            newPanelId = ws.newChiefSurface(
                 inPane: paneId,
                 focus: focus
             )?.id

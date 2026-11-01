@@ -1,5 +1,5 @@
 #!/bin/bash
-# gh-merge-green REPO#PR [--full] [--wait SECONDS] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]
+# gh-merge-green REPO#PR [--full] [--wait SECONDS] [--dry-run] [--sha SHA] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]
 # gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Optional helper: merges only when the PR head's checks are green.
 # Into feat-cmux-next it applies a FAST gate by default (scripts/ci/merge_fast_gate.py):
@@ -9,7 +9,9 @@
 # full-gate lane (ci-status, Release compile, swift test). It also checks conflict markers and freezes. The full suites run after
 # the merge; the culprit bot and the base sheriff revert or fix forward.
 # --full keeps the wait for every check (main, classic), as does every base other than
-# feat-cmux-next. One `gh-merge-green:` line at exit says what was checked and how long it waited.
+# feat-cmux-next. Every feat-cmux-next merge, on either gate, also needs an independent review's SHIP
+# receipt for the exact head (scripts/ci/review_receipt.py), which nothing waives.
+# One `gh-merge-green:` line at exit says what was checked and how long it waited.
 set -Eeuo pipefail
 
 repair_note='see cmuxterm-hq REPAIR.md#merging'
@@ -19,30 +21,68 @@ print_repair() {
   printf 'fix: %s\n%s\n' "$1" "$repair_note" >&2
 }
 
+# bash 3.2 (macOS /bin/bash) runs the ERR trap inside $(...) even under `if !`;
+# a subshell only hands its status back, and the caller decides what it means.
+# (2026-10-19: every refusal that went through base_red_excuse.py printed this
+# trap's generic line first.) In the main shell an unexpected failure names itself.
 on_error() {
-  local status=$?
+  local status="$1" line="$2" command="$3"
+  [ "${BASH_SUBSHELL:-0}" -gt 0 ] && exit "$status"
   if [ "$refusal_reported" -eq 0 ]; then
+    refusal_reported=1
+    printf 'not green: an unexpected command failed (exit %s) at gh-merge-green line %s: %s\n' "$status" "$line" "$command" >&2
     print_repair "inspect the failed GitHub query or command, then retry after it is healthy"
   fi
   exit "$status"
 }
 
+install_error_trap() {
+  trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+}
+
 refuse() {
   refusal_reported=1
   printf '%s\n' "$1" >&2
+  rate_limit_caused
   print_repair "$2"
   exit 1
 }
 
-trap on_error ERR
+# A fallback answered for a rate-limited read: that hit cost nothing, so a later red is a red.
+fallback_answered() {
+  [ -z "${rate_limit_seen:-}" ] || : >"$rate_limit_seen"
+}
+
+# A refusal after a read GitHub rate-limited (gh() below noted it, even where the caller
+# discarded its stderr) is the rate limit's: say so, with the reset time, and exit 75.
+rate_limit_caused() {
+  if [ -n "${rate_limit_seen:-}" ] && [ -s "$rate_limit_seen" ]; then
+    refuse_rate_limited "GitHub rate-limited $(sort -u "$rate_limit_seen" | paste -sd ';' - | sed 's/;/, /g'), so the refusal above may be the rate limit's"
+  fi
+}
+
+# Details first, then the one-line reason, so `| tail -5` still shows the reason.
+refuse_with_details() {
+  refusal_reported=1
+  [ -n "$2" ] && printf '%s\n' "$2" | sed 's/^/  /' >&2
+  printf '%s\n' "$1" >&2
+  rate_limit_caused
+  print_repair "$3"
+  exit 1
+}
+
+install_error_trap
 
 case "${1:-}" in
   -h|--help)
     printf '%s\n' \
-      'usage: gh-merge-green OWNER/REPO#PR [--full] [--wait SECONDS] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
+      'usage: gh-merge-green OWNER/REPO#PR [--full] [--wait SECONDS] [--dry-run] [--sha SHA] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
       '       gh-merge-green --revert OWNER/REPO#PR' \
       'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
       'Into feat-cmux-next it waits only for the fast gate (scripts/ci/merge_fast_gate.py); --full waits for every check.' \
+      '--dry-run runs every gate, then posts and merges nothing.' \
+      '--sha SHA (or --match-head-commit SHA) refuses unless SHA is the current head.' \
+      'gh pr merge flags passed on: --squash --merge --rebase --delete-branch --subject --body --body-file --author-email --auto --disable-auto --admin' \
       "$repair_note"
     exit 0
     ;;
@@ -78,12 +118,15 @@ maybe_update_checkout() {
   if ! checkout_root=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null); then
     return 0
   fi
-  if ! status=$(git -C "$checkout_root" status --porcelain --untracked-files=all 2>/dev/null); then
+  # Only tracked edits block the update. An untracked file (Spotlight's .metadata_never_index
+  # stalled cosmic-gray's checkout for 14 h) can't be lost: the fast-forward below refuses one
+  # it would overwrite.
+  if ! status=$(git -C "$checkout_root" status --porcelain --untracked-files=no 2>/dev/null); then
     warn_checkout "cannot inspect helper checkout $checkout_root; not auto-updating"
     return 0
   fi
   if [ -n "$status" ]; then
-    warn_checkout "helper checkout $checkout_root is dirty; not auto-updating (commit or stash its changes)"
+    warn_checkout "helper checkout $checkout_root is dirty (tracked files changed); not auto-updating (commit or stash its changes)"
     return 0
   fi
   if ! branch=$(git -C "$checkout_root" branch --show-current 2>/dev/null) || [ "$branch" != main ]; then
@@ -150,6 +193,27 @@ print_summary() {
     "${gate_checked:-nothing reported}" $((waited_seconds / 60)) $((waited_seconds % 60)) "$took" >&2
 }
 trap print_summary EXIT
+
+# Every gh call notes a rate-limited response in $rate_limit_seen, even one whose caller
+# discards stderr and takes a fallback: a spent REST pool otherwise reads as "the base's
+# paths filter is unreadable", and the fast gate then waited out --wait for routing that
+# never comes (2026-10-20: GraphQL and REST both spent, refused about 30 minutes later).
+rate_limit_seen=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-rate.XXXXXX")
+tmp_files+=("$rate_limit_seen")
+# By path: bash 3.2 runs the ERR trap for a failing `command gh` even under `||`.
+gh_bin=$(type -P gh || true)
+gh_bin=${gh_bin:-/nonexistent/gh}
+gh() {
+  local errors status=0
+  errors=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-gh.XXXXXX")
+  "$gh_bin" "$@" 2>"$errors" || status=$?
+  if [ "$status" -ne 0 ] && graphql_quota_error "$errors"; then
+    printf 'gh %s %s\n' "${1:-}" "${2:-}" >>"$rate_limit_seen"
+  fi
+  cat "$errors" >&2
+  rm -f "$errors"
+  return "$status"
+}
 trap 'outcome="stopped by SIGINT (check the PR)"; exit 130' INT
 trap 'outcome="stopped by SIGTERM (check the PR)"; exit 143' TERM
 
@@ -160,6 +224,8 @@ full=0
 wait_seconds=2400
 override_reason=''
 trust_fork_head=''
+expected_head=''
+dry_run=0
 args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -168,6 +234,42 @@ while [ "$#" -gt 0 ]; do
       ;;
     --full)
       full=1
+      ;;
+    --dry-run)
+      dry_run=1
+      ;;
+    --sha|--match-head-commit|--sha=*|--match-head-commit=*)
+      # The helper always pins gh pr merge to the head it checked; a caller's
+      # SHA is an assertion about that head (cmuxterm-hq#2554 passed --sha, which
+      # reached gh pr merge after every gate and died in its usage text).
+      case "$1" in
+        *=*) value="${1#*=}" ;;
+        *)
+          [ "$#" -ge 2 ] || refuse \
+            "not green: $1 requires the head commit SHA" \
+            "pass $1 followed by the head SHA you reviewed"
+          value="$2"
+          shift
+          ;;
+      esac
+      value=$(tr '[:upper:]' '[:lower:]' <<<"$value")
+      [[ "$value" =~ ^[0-9a-f]{7,40}$ ]] || refuse \
+        "not green: '$value' is not a commit SHA" \
+        'pass the head commit SHA (7 to 40 hex characters)'
+      expected_head="$value"
+      ;;
+    -s|--squash|-m|--merge|-r|--rebase|-d|--delete-branch|--auto|--disable-auto|--admin)
+      args+=("$1")
+      ;;
+    -t|--subject|-b|--body|-F|--body-file|-A|--author-email)
+      [ "$#" -ge 2 ] || refuse \
+        "not green: $1 requires a value" \
+        "pass $1 followed by its value, or drop it"
+      args+=("$1" "$2")
+      shift
+      ;;
+    --subject=*|--body=*|--body-file=*|--author-email=*)
+      args+=("$1")
       ;;
     --wait)
       [ "$#" -ge 2 ] && [[ "$2" =~ ^[0-9]+$ ]] || refuse \
@@ -203,7 +305,11 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     *)
-      args+=("$1")
+      # Checked before any GitHub query: gh pr merge would otherwise refuse
+      # only after every gate ran, its usage text burying the reason.
+      refuse \
+        "not green: unknown option '$1' for $ref; nothing was checked or merged" \
+        'drop it; gh-merge-green --help lists its options and the gh pr merge flags it passes on'
       ;;
   esac
   shift
@@ -237,6 +343,20 @@ graphql_quota_error() {
   grep -Eiq '(^|[^[:alnum:]])(api[[:space:]]+rate[[:space:]]+limit[[:space:]]+exceeded|secondary[[:space:]]+rate[[:space:]]+limit|rate[[:space:]]+limit[[:space:]]+exceeded|graphql[^[:cntrl:]]*(api[[:space:]]+rate[[:space:]]+limit|secondary[[:space:]]+rate[[:space:]]+limit|quota))([^[:alnum:]]|$)' "$1"
 }
 
+# A GitHub read that hit the API rate limit refuses at once, with each pool's reset time
+# (scripts/ci/gh_rate_limit.py; `gh api rate_limit` costs no quota), and exits 75, not 1:
+# a rate limit is not a red, and the caller retries after the reset (2026-10-20: GraphQL
+# and its REST fallback were both spent and the refusal came about 30 minutes later).
+refuse_rate_limited() {
+  local limits
+  limits=$(python3 "$script_dir/ci/gh_rate_limit.py" --after-limit 2>/dev/null) || limits='the reset time is unknown'
+  outcome='refused (GitHub rate limit)'
+  refusal_reported=1
+  printf 'rate-limited: %s; %s\n' "$1" "$limits" >&2
+  print_repair 'wait for the reset above, then rerun the same command; nothing was merged'
+  exit 75
+}
+
 rest_pull_request_metadata() {
   local raw
   raw=$(gh api "repos/$repo/pulls/$num") || return 1
@@ -247,6 +367,10 @@ graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
 if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository,title,body 2>"$graphql_error_file"); then
   if graphql_quota_error "$graphql_error_file"; then
     if ! pr_json=$(rest_pull_request_metadata 2>"$graphql_error_file"); then
+      if graphql_quota_error "$graphql_error_file"; then
+        rm -f "$graphql_error_file"
+        refuse_rate_limited "GraphQL and its REST fallback are both rate-limited reading $ref"
+      fi
       rm -f "$graphql_error_file"
       refuse \
         "not green: GraphQL metadata was rate-limited and REST metadata failed for $ref" \
@@ -260,6 +384,8 @@ if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,la
   fi
 fi
 rm -f "$graphql_error_file"
+# A rate-limited metadata read was handled above (its REST fallback answered).
+: >"$rate_limit_seen"
 if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
   refuse \
     "not green: GitHub returned invalid metadata for $ref" \
@@ -292,6 +418,11 @@ if [ -z "$sha" ] || [ -z "$base" ]; then
     "not green: GitHub metadata for $ref has no head SHA or base branch" \
     'refresh the pull request metadata and retry'
 fi
+if [ -n "$expected_head" ] && [ "${sha#"$expected_head"}" = "$sha" ]; then
+  refuse \
+    "not green: $ref head is $sha, not the expected $expected_head; nothing was checked or merged" \
+    'review the current head, then retry with its SHA'
+fi
 if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
   refuse \
     'exploration PR, needs a decision from Leo or the team before merging.' \
@@ -317,6 +448,52 @@ if [ "$fast" -eq 1 ] && jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/n
     "not merged: $ref is from an untrusted fork; the fast gate does not merge unreviewed fork code" \
     "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
 fi
+# Before any gate reads or waits: a spent REST pool fails every check-run, file and log read
+# below, and the fast gate polls GraphQL. Refuse now with the reset time rather than after a
+# chain of fallbacks. An unreadable rate_limit counts as not spent.
+if [ "$(python3 "$script_dir/ci/gh_rate_limit.py" --exhausted core 2>/dev/null || true)" = spent ]; then
+  refuse_rate_limited "GitHub's REST quota is spent, and every gate reads check runs through it"
+fi
+if [ "$fast" -eq 1 ] && [ "$(python3 "$script_dir/ci/gh_rate_limit.py" --exhausted graphql 2>/dev/null || true)" = spent ]; then
+  refuse_rate_limited "GitHub's GraphQL quota is spent, and the fast gate polls the pull request through it"
+fi
+# Into feat-cmux-next a head merges only with an independent review's SHIP receipt for that
+# exact commit (scripts/ci/review_receipt.py), the rule next-autoland applies: cmux#22899 merged
+# before its re-review, which then found cmux#22988 (2026-10-21). Like a red risk evidence,
+# nothing waives a missing receipt, --override included. It is read before the gate waits and
+# again before the merge, ahead of any merge-override comment, so a BLOCK posted during the
+# wait stops it. Pass `final` for that second read.
+review_receipt_gate() {
+  local receipt_args=("$repo" "$num" "$sha") receipt_out receipt_err receipt_status=0 fixture
+  # Tests hand the checker a recorded read. GH_MERGE_GREEN_TEST left set in a real shell
+  # without the fixture refuses, rather than reading as no reviews.
+  if [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
+    if [ -z "${GH_MERGE_GREEN_REVIEWS:-}" ]; then
+      refuse \
+        "not merged: review receipt unknown for $ref (GH_MERGE_GREEN_TEST is set without GH_MERGE_GREEN_REVIEWS)" \
+        'unset GH_MERGE_GREEN_TEST for a real merge; tests set the reviews fixture'
+    fi
+    fixture=$GH_MERGE_GREEN_REVIEWS
+    # A test's reviews may change while the gate waits: the second read takes the _FINAL fixture.
+    [ "${1:-}" != final ] || fixture=${GH_MERGE_GREEN_REVIEWS_FINAL:-$GH_MERGE_GREEN_REVIEWS}
+    receipt_args+=(--pr-file "$fixture")
+  fi
+  receipt_err=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-receipt.XXXXXX")
+  tmp_files+=("$receipt_err")
+  receipt_out=$(python3 "$script_dir/ci/review_receipt.py" "${receipt_args[@]}" 2>"$receipt_err") || receipt_status=$?
+  if [ "$receipt_status" -eq 3 ]; then
+    refuse_rate_limited "reading the reviews of $ref: $(sed 's/^rate-limited: //' "$receipt_err")"
+  fi
+  if [ "$receipt_status" -ne 0 ]; then
+    refuse \
+      "not merged: $ref: $(cat "$receipt_err")" \
+      'get an independent review of the exact head and post its receipt (after a base merge, of the new head); --override cannot waive the review receipt'
+  fi
+  printf 'note: review receipt on %s: %s\n' "$sha" "${receipt_out#receipt=}" >&2
+}
+if [ "$base" = feat-cmux-next ]; then
+  review_receipt_gate
+fi
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
   if [ ! -f "$validator" ]; then
@@ -338,7 +515,12 @@ if [ "$fix" -eq 1 ]; then
       'set CMUX_REPO_ROOT to a cmux checkout containing scripts/ci/main_fix_evidence.py'
   fi
   gate_checked='main-fix compile and test evidence'
-  if ! python3 "$validator" "$ref" "$@"; then
+  check_only=()
+  [ "$dry_run" -eq 0 ] || check_only=(--check-only)
+  validator_status=0
+  python3 "$validator" "$ref" "${check_only[@]+"${check_only[@]}"}" "$@" || validator_status=$?
+  if [ "$validator_status" -ne 0 ]; then
+    [ "$validator_status" -eq 3 ] && refuse_rate_limited "--main-fix evidence for $ref (its reason is printed above)"
     refuse \
       "not green: --main-fix evidence refused $ref" \
       'read the validator evidence and repair the failing or missing exact-head checks'
@@ -416,8 +598,9 @@ graphql_workflow_response() {
   if [ -z "$text" ]; then
     return 1
   fi
-  workflow_response=$(jq -n --arg text "$text" '{content:($text|@base64),encoding:"base64"}') || return 2
+  workflow_response=$(printf '%s' "$text" | jq -Rs '{content:(.|@base64),encoding:"base64"}') || return 2
   echo "note: used GraphQL fallback to inspect $base:.github/workflows/$file" >&2
+  fallback_answered
   return 0
 }
 graphql_check_runs_response() {
@@ -461,7 +644,7 @@ workflow_on_base() {
   trap - ERR
   response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null)
   status=$?
-  trap on_error ERR
+  install_error_trap
   if [ "$status" -eq 0 ]; then
     workflow_response="$response"
     return 0
@@ -530,6 +713,7 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
       refuse "not green: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry the exact-head check'
     fi
     echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+    fallback_answered
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
     needs_app_compile=1
@@ -542,6 +726,7 @@ if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100"
       'restore GitHub API access or GraphQL access, then retry the exact-head check'
   fi
   echo "note: used GraphQL fallback to inspect check runs for $sha" >&2
+  fallback_answered
 fi
 if ! runs=$(jq -r '
   (map(.check_runs) | add)
@@ -708,7 +893,7 @@ fi
 
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
-  for required in "${must[@]}"; do
+  for required in "${must[@]+"${must[@]}"}"; do
     [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
@@ -732,6 +917,7 @@ if [ "$has_ci" -eq 0 ]; then
       refuse "not green: cannot read status contexts for $sha" 'restore GitHub API access or GraphQL access, then retry'
     fi
     echo "note: used GraphQL fallback to inspect legacy status contexts for $sha" >&2
+    fallback_answered
   fi
   if ! statuses=$(jq -r '
     (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
@@ -846,19 +1032,26 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
   done
   excuse_errors=$(mktemp)
   tmp_files+=("$excuse_errors")
-  if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
-      "${excuse_args[@]}" 2>"$excuse_errors"); then
-    why=$(cat "$excuse_errors")
+  excuse_status=0
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" --pull "$num" \
+      "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
+  if [ "$excuse_status" -ne 0 ]; then
+    why=$(sed 's/^not excused: //' "$excuse_errors")
     rm -f "$excuse_errors"
-    refuse \
-      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (${why:-the base comparison failed})" \
+    [ "$excuse_status" -eq 3 ] && refuse_rate_limited "comparing $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') with $base: ${why#rate-limited: }"
+    refuse_with_details \
+      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (what it was compared with is listed above)" \
+      "${why:-the base comparison failed without saying why}" \
       "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
   fi
   rm -f "$excuse_errors"
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
-if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]:-every reported check} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+if [ -n "$failing" ]; then
+  echo "note: other failing checks on $sha (${must[*]:-every reported check} decides):" >&2
+  printf '%s\n' "$failing" | sed 's/^/  /' >&2
+fi
 gate_checked="${must[*]:-every reported check}"
 }
 
@@ -874,6 +1067,7 @@ fast_gate() {
         'restore GitHub API access or GraphQL access, then retry the exact-head check'
     fi
     echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+    fallback_answered
   fi
   # The gate keys on job names, so it reads the workflows that name them on the exact
   # head and refuses when one is gone. An unreadable one refuses (fail closed).
@@ -908,16 +1102,29 @@ fast_gate() {
   files_list=$(mktemp)
   tmp_files+=("$files_list")
   printf '%s\n' "$files" >"$files_list"
+  # A read above was rate-limited and fell back: the wait would poll a spent quota, or wait
+  # for routing a misread paths filter promised. Refuse now with the reset time.
+  if [ -s "$rate_limit_seen" ]; then
+    refuse_rate_limited "GitHub rate-limited $(sort -u "$rate_limit_seen" | paste -sd ';' - | sed 's/;/, /g') before the fast gate's wait"
+  fi
   gate_waiting_since=$(date +%s)
-  if ! gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
+  local gate_status=0 still_waiting
+  gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
       --next-workflow "$workflow_dir/cmux-next.yml" --ci-workflow "$workflow_dir/ci.yml" \
       --web-workflow "$workflow_dir/ci-web.yml" --files-from "$files_list" \
-      "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err"); then
+      "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err") || gate_status=$?
+  if [ "$gate_status" -ne 0 ]; then
+    # The summary line says how long the gate really waited and, when --wait ran out, on what
+    # (2026-10-20: "nothing reported; waited 0m00s, 898s in all" with a lane still QUEUED).
+    waited_seconds=$(( $(date +%s) - gate_waiting_since ))
     gate_waiting_since=''
+    still_waiting=$(sed -n 's/^waiting=//p' <<<"$gate_out" | paste -sd ';' - | sed 's/;/, /g')
+    [ -z "$still_waiting" ] || gate_checked="--wait ran out with $still_waiting not done"
     rm -rf "$workflow_dir"
     local why
     why=$(cat "$gate_err")
     rm -f "$gate_err"
+    [ "$gate_status" -eq 3 ] && refuse_rate_limited "the fast gate's poll: ${why#rate-limited: }"
     refuse \
       "not green: fast gate on $sha: ${why:-merge_fast_gate.py failed}" \
       'wait for the named lane on the exact head (or pass --wait with more seconds), then retry'
@@ -941,17 +1148,54 @@ fast_gate() {
   while IFS= read -r name; do excuse_args+=(--check "$name"); done <<<"$reds"
   excuse_errors=$(mktemp)
   tmp_files+=("$excuse_errors")
-  if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
-      "${excuse_args[@]}" 2>"$excuse_errors"); then
+  local excuse_status=0
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" --pull "$num" \
+      "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
+  if [ "$excuse_status" -ne 0 ]; then
     local why
-    why=$(cat "$excuse_errors")
+    why=$(sed 's/^not excused: //' "$excuse_errors")
     rm -f "$excuse_errors"
-    refuse \
-      "not green: $(paste -sd ';' - <<<"$reds" | sed 's/;/; /g') red on $sha, not excused by $base (${why:-the base comparison failed})" \
+    [ "$excuse_status" -eq 3 ] && refuse_rate_limited "comparing $(paste -sd ';' - <<<"$reds" | sed 's/;/, /g') with $base: ${why#rate-limited: }"
+    refuse_with_details \
+      "not green: $(paste -sd ';' - <<<"$reds" | sed 's/;/; /g') red on $sha, not excused by $base (what it was compared with is listed above)" \
+      "${why:-the base comparison failed without saying why}" \
       "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
   fi
   rm -f "$excuse_errors"
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
+}
+
+# The check-path gate (scripts/ci/merge_check_paths.py), into feat-cmux-next: when a
+# check path (the base's scripts/ci/check-paths.txt) changed after the PR's
+# cmux-next/fast-gates base, it dispatches the fast gates against the current tip and
+# waits for a fresh success. 2026-10-21: #22967, #22975 and #23094 merged after a
+# new check landed, never ran it, and turned it red on the base.
+check_paths_gate() {
+  local out err status=0 why check_only=()
+  [ "$dry_run" -eq 0 ] || check_only=(--check-only)
+  err=$(mktemp)
+  tmp_files+=("$err")
+  # Its wait (a rerun, up to 900s) adds to the fast gate's in the summary, and in a SIGTERM's.
+  gate_waiting_since=$(( $(date +%s) - waited_seconds ))
+  out=$(python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --base "$base" \
+      --interval "${GH_MERGE_GREEN_CHECK_PATHS_INTERVAL:-20}" "${check_only[@]+"${check_only[@]}"}" 2>"$err") || status=$?
+  waited_seconds=$(( $(date +%s) - gate_waiting_since ))
+  gate_waiting_since=''
+  sed -n '/^note: /p' "$err" >&2
+  if [ "$status" -ne 0 ]; then
+    why=$(sed '/^note: /d' "$err")
+    rm -f "$err"
+    [ "$status" -eq 3 ] && refuse_rate_limited "the check-path gate: ${why#rate-limited: }"
+    if [ -n "$override_reason" ]; then
+      printf 'note: --override waives the check-path gate on %s: %s\n' "$sha" "${why:-merge_check_paths.py failed}" >&2
+      return 0
+    fi
+    refuse \
+      "not green: check-path gate on $sha: ${why:-merge_check_paths.py failed}" \
+      'fix what the fast gates found on the current tip (their run is linked above), or retry once they report'
+  fi
+  rm -f "$err"
+  gate_checked="${gate_checked:+$gate_checked, }$(sed -n 's/^checked=//p' <<<"$out")"
 }
 
 if [ "$fast" -eq 1 ]; then
@@ -959,11 +1203,16 @@ if [ "$fast" -eq 1 ]; then
 else
   full_gate
 fi
+# gate_mode, not $fix: full_gate reuses `fix` for a refusal's advice.
+if [ "$base" = feat-cmux-next ] && [ "$gate_mode" != main-fix ]; then
+  check_paths_gate
+fi
 if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty' 2>/dev/null); then
   if ! patches=$(git_patches); then
     refuse "not green: cannot read the diff for $ref" 'restore GitHub API access or provide a verified cmux checkout for Git fallback'
   fi
   echo "note: used verified Git fallback to inspect the diff for $ref" >&2
+  fallback_answered
 fi
 if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
   refuse \
@@ -980,6 +1229,7 @@ if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q 
     refuse "not merged: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry'
   fi
   echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+  fallback_answered
 fi
 freeze_args=(check --repo "$repo" --pr "$num" --base "$base")
 # Tests hand the checker recorded issues and events. GH_MERGE_GREEN_TEST left set
@@ -1188,6 +1438,15 @@ elif [ "$fast" -eq 1 ]; then
     merged_head_checks 1
   fi
 fi
+[ "$base" != feat-cmux-next ] || review_receipt_gate final
+if [ "$dry_run" -eq 1 ]; then
+  printf 'dry-run: every gate passes for %s at %s; would run: gh pr merge %s --repo %s --match-head-commit %s%s\n' \
+    "$ref" "$sha" "$num" "$repo" "$sha" "$(printf ' %q' "$@")"
+  [ -z "$trust_fork_head" ] || echo "dry-run: would first comment merge-source-trust for $trust_fork_head" >&2
+  [ -z "$override_reason" ] || echo "dry-run: would first comment merge-override: $override_reason" >&2
+  outcome='dry-run passed'
+  exit 0
+fi
 if [ -n "$trust_fork_head" ]; then
   trust_scope='local merged-tree checks; normal CI, freeze, and merged-tree gates apply'
   [ "$fast" -eq 1 ] && trust_scope='the fast gate; its lanes, freezes and conflict markers apply, and the full suites run after the merge'
@@ -1212,6 +1471,8 @@ fi
 graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
 if ! current=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,state 2>"$graphql_error_file"); then
   if graphql_quota_error "$graphql_error_file"; then
+    # Handled here: only the REST fallback's own rate limit (gh() records it) makes this a rate limit.
+    fallback_answered
     if ! current_raw=$(gh api "repos/$repo/pulls/$num" 2>"$graphql_error_file") || \
        ! current=$(jq -c '{headRefOid:(.head.sha // ""),baseRefName:(.base.ref // ""),state:(.state // "")}' <<<"$current_raw"); then
       rm -f "$graphql_error_file"
@@ -1275,6 +1536,8 @@ rest_merge_method() {
 merge_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
 if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@" 2>"$merge_error_file"; then
   if graphql_quota_error "$merge_error_file"; then
+    # Handled here: only the REST merge's own rate limit (gh() records it) makes this a rate limit.
+    fallback_answered
     if ! merge_method=$(rest_merge_method "$@" --match-head-commit "$sha"); then
       rm -f "$merge_error_file"
       refuse \
@@ -1292,10 +1555,11 @@ if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@" 2>"$merge
   else
     merge_error=$(cat "$merge_error_file")
     rm -f "$merge_error_file"
-    [ -n "$merge_error" ] && printf '%s\n' "$merge_error" >&2
-    refuse \
-      "not green: GitHub refused to merge $ref" \
-      'read the GitHub refusal, repair the named issue, and retry the exact head'
+    merge_reason=$(grep -v '^[[:space:]]*$' <<<"$merge_error" | head -n 1 || true)
+    refuse_with_details \
+      "not merged: gh pr merge refused $ref at $sha: ${merge_reason:-no error text}" \
+      "$merge_error" \
+      'repair what gh pr merge names, then retry the exact head'
   fi
 fi
 rm -f "$merge_error_file"

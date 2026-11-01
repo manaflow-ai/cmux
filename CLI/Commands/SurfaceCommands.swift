@@ -142,7 +142,7 @@ struct DragSurfaceToSplitCommand: SharedLegacyFacadeCommand {
 }
 
 /// `surface` is a namespace, not a leaf: `runSurfaceCommand` dispatches `ls`,
-/// `open`, `new-terminal` into the surface catalog and `resume` into the restart
+/// `open`, `new-terminal`, `new-display` into the surface catalog and `resume` into the restart
 /// metadata commands, and rejects a bare `cmux surface`. Declaring it as a single
 /// unrecognized-argument sink meant `cmux surface <TAB>` offered nothing and the
 /// options below (which really belong to `resume set`) were offered everywhere.
@@ -159,6 +159,7 @@ struct SurfaceCommand: SharedLegacyFacadeCommand {
             SurfaceListCommand.self,
             SurfaceOpenCommand.self,
             SurfaceNewTerminalCommand.self,
+            SurfaceNewDisplayCommand.self,
             SurfaceResumeGroupCommand.self,
             SurfaceSizeCommand.self,
             SurfaceParticipantsCommand.self,
@@ -239,6 +240,28 @@ struct SurfaceNewTerminalCommand: SharedLegacyFacadeCommand {
         commandName: "new-terminal",
         helpNames: [],
         aliases: ["new"]
+    )
+}
+
+/// Creates a cloud VNC display and optionally projects it into a workspace.
+struct SurfaceNewDisplayCommand: SharedLegacyFacadeCommand {
+    @Flag(name: .customLong("json")) var json = false
+    @Option(name: .customLong("machine"), completion: vmCompletion) var machine: String?
+    @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
+    /// Bare `--focus`, `--focus true|false` and `--no-focus` all parse
+    /// (`openFocusFlag`), so a bare `--focus` must not expect a value.
+    @Option(
+        name: .customLong("focus"),
+        defaultAsFlag: "true",
+        parsing: .next,
+        completion: .list(["true", "false"])
+    ) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
+    @Flag(name: .customLong("no-open")) var noOpen = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(
+        commandName: "new-display",
+        helpNames: []
     )
 }
 

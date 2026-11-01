@@ -14,7 +14,9 @@ import {
   ACCOUNT_HISTORY_KEY,
   PENDING_OAUTH_KEY,
   accountInitials,
+  authErrorHref,
   demoteRememberedMethod,
+  emailCodeRefusal,
   forgetAccount,
   handlerHref,
   isReturningFromOAuth,
@@ -30,6 +32,7 @@ import {
   signInEntry,
   signInIsForApp,
   signUpPendingHref,
+  type EmailCodeRefusal,
   type RememberedAccount,
 } from "./sign-in-entry";
 import { SignInSpinner } from "./sign-in-spinner";
@@ -85,6 +88,8 @@ export type CmuxSignInMessages = {
   errorInvalidCode: string;
   errorInvalidTotp: string;
   errorSignUpNotAllowed: string;
+  errorEmailUnverified: string;
+  useEmailPasswordInstead: string;
   errorPasskey: string;
   errorGeneric: string;
 };
@@ -129,7 +134,7 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
 
   // Always in this slot (null when signed out), so the screen next to it
   // keeps its state when a switch signs the browser in.
-  const remember = user ? <RememberThisAccount user={user} /> : null;
+  const remember = user ? <RememberThisAccount user={user} returningFromOAuth={isReturningFromOAuth(params)} /> : null;
 
   if (switching || (entry === "choose-account" && !inlineSignIn)) {
     return (
@@ -563,21 +568,27 @@ function AccountLabel({ account }: { account: AccountView }) {
  * Adds the signed-in account to this browser's list (an external store, not
  * React state) and keeps its session, so a later switch away and back needs
  * no new sign-in. Its sign-in method is looked up afterwards so the redirect
- * never waits on it.
+ * never waits on it; back from a provider, that provider is the method.
  */
-function RememberThisAccount({ user }: { user: CurrentUser }) {
+function RememberThisAccount({ user, returningFromOAuth }: { user: CurrentUser; returningFromOAuth: boolean }) {
   const { id, primaryEmail: email, displayName, profileImageUrl, isRestricted } = user;
   useEffect(() => {
     // An account still finishing onboarding has no session worth keeping.
     if (!isRestricted) void saveCurrentSession();
   }, [id, isRestricted]);
   useEffect(() => {
-    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, hasPassword: user.hasPassword })));
+    const usedProvider = returningFromOAuth ? readLastUsedProvider() : null;
+    const startedAt = Date.now();
+    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod: returningFromOAuth ? usedProvider : null, hasPassword: user.hasPassword }, startedAt)));
     writePendingOAuth(null);
     let cancelled = false;
     user.listOAuthProviders().then((linked) => {
       if (cancelled) return;
-      const signInMethod = rememberedMethodFor({ hasPassword: user.hasPassword, linked, preference: PROVIDER_PREFERENCE });
+      // Another tab can finish this account while this lookup is pending. Do
+      // not let this stale result overwrite its newer provider choice.
+      const current = readHistory().find((entry) => entry.id === id);
+      if (!current || current.lastSeenAt !== startedAt) return;
+      const signInMethod = rememberedMethodFor({ linked, preference: PROVIDER_PREFERENCE, usedProvider });
       writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod, hasPassword: user.hasPassword })));
     }).catch(() => {
       // Without the method the account still lists; picking it opens the form.
@@ -585,7 +596,7 @@ function RememberThisAccount({ user }: { user: CurrentUser }) {
     return () => {
       cancelled = true;
     };
-  }, [user, id, email, displayName, profileImageUrl]);
+  }, [user, id, email, displayName, profileImageUrl, returningFromOAuth]);
   return null;
 }
 
@@ -764,7 +775,9 @@ function useInIframe(): boolean {
 
 function readLastUsedProvider(): string | null {
   try {
-    return window.localStorage.getItem(LAST_USED_KEY);
+    // OAuth returns to the tab that started it; keep this marker tab-local so
+    // another tab cannot overwrite the provider for this callback.
+    return window.sessionStorage.getItem(LAST_USED_KEY);
   } catch {
     return null;
   }
@@ -902,7 +915,9 @@ function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride, l
  */
 function startOAuth(app: ReturnType<typeof useHexclaveApp>, provider: string, loginHint: string | null = null): Promise<void> {
   try {
-    window.localStorage.setItem(LAST_USED_KEY, provider);
+    // The callback reads this marker after returning to this tab. A shared
+    // localStorage key lets another OAuth tab win the race.
+    window.sessionStorage.setItem(LAST_USED_KEY, provider);
   } catch {
     // The "last used" hint is a convenience only.
   }
@@ -956,6 +971,7 @@ function PasskeyButton({ messages }: { messages: CmuxSignInMessages }) {
 
 // MARK: Email: code and password
 
+/** The emailed code and email-and-password methods, as tabs when both are enabled; both share one email. */
 function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEnabled, prefillEmail, startWithPassword }: {
   mode: Mode;
   messages: CmuxSignInMessages;
@@ -971,12 +987,22 @@ function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEn
     (startWithPassword && credentialEnabled) || !magicLinkEnabled ? "password" : "code",
   );
   const [email, setEmail] = useState(prefillEmail ?? "");
+  // The code was refused for an unverified account: its password form opens
+  // on the password, the email kept. Once only: picking a tab by hand clears it.
+  const [switchedToPassword, setSwitchedToPassword] = useState(false);
+  /** Opens email and password after the code was refused; absent when that form can't sign in. */
+  const openPassword = mode === "sign-in" && credentialEnabled
+    ? () => {
+      setSwitchedToPassword(true);
+      setMethod("password");
+    }
+    : undefined;
 
   const form = (shown: "code" | "password") =>
     shown === "code" ? (
-      <EmailCode messages={messages} email={email} onEmailChange={setEmail} />
+      <EmailCode messages={messages} email={email} onEmailChange={setEmail} onUsePassword={openPassword} />
     ) : mode === "sign-in" ? (
-      <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null} />
+      <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null || switchedToPassword} />
     ) : (
       <PasswordSignUp messages={messages} email={email} onEmailChange={setEmail} />
     );
@@ -984,7 +1010,14 @@ function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEn
 
   // Both enabled: the hosted screen's segmented control, the code first.
   return (
-    <Tabs.Root value={method} onValueChange={(value) => setMethod(value === "password" ? "password" : "code")} className="grid gap-2">
+    <Tabs.Root
+      value={method}
+      onValueChange={(value) => {
+        setSwitchedToPassword(false);
+        setMethod(value === "password" ? "password" : "code");
+      }}
+      className="grid gap-2"
+    >
       <Tabs.List className="grid grid-cols-2 border border-border p-0.5">
         <Tabs.Tab value="code" className={segmentClass}>{messages.emailCodeTab}</Tabs.Tab>
         <Tabs.Tab value="password" className={segmentClass}>{messages.emailPasswordTab}</Tabs.Tab>
@@ -1051,15 +1084,26 @@ function TextField({ label, error, disabled, className = inputClass, onChange, .
   );
 }
 
-function EmailCode({ messages, email, onEmailChange }: {
+/** Sends a one-time code to the email, then takes the code; a refusal says why. */
+function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
   messages: CmuxSignInMessages;
   email: string;
   onEmailChange: (value: string) => void;
+  /** Opens email and password with this email; absent when that form can't sign in. */
+  onUsePassword?: () => void;
 }) {
   const app = useHexclaveApp();
   const [step, setStep] = useState<EmailStep>({ kind: "enter" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState(false);
+
+  /** A refusal was for the address as it was; editing it clears the refusal. */
+  function changeEmail(value: string) {
+    setError(null);
+    setUnverified(false);
+    onEmailChange(value);
+  }
 
   async function send(event?: FormEvent) {
     event?.preventDefault();
@@ -1069,6 +1113,7 @@ function EmailCode({ messages, email, onEmailChange }: {
     }
     setBusy(true);
     setError(null);
+    setUnverified(false);
     try {
       const result = await app.sendMagicLinkEmail(email.trim());
       if (result.status === "error") {
@@ -1078,8 +1123,10 @@ function EmailCode({ messages, email, onEmailChange }: {
       }
       setStep({ kind: "code", email: email.trim(), nonce: result.data.nonce });
     } catch (caught) {
-      setError(KnownErrors.SignUpNotEnabled.isInstance(caught) ? messages.errorSignUpNotAllowed : messages.errorGeneric);
-      if (!KnownErrors.SignUpNotEnabled.isInstance(caught)) console.error("[cmux sign-in] sending the code failed", caught);
+      const refusal = emailCodeRefusal(caught);
+      setUnverified(refusal === "unverified-account");
+      setError(emailCodeRefusalMessage[refusal](messages));
+      if (refusal === "generic") console.error("[cmux sign-in] sending the code failed", caught);
     } finally {
       setBusy(false);
     }
@@ -1098,13 +1145,24 @@ function EmailCode({ messages, email, onEmailChange }: {
   }
   return (
     <form className="grid gap-2" noValidate aria-busy={busy} onSubmit={send}>
-      <EmailField messages={messages} value={email} onChange={onEmailChange} error={error} disabled={busy} />
+      <EmailField messages={messages} value={email} onChange={changeEmail} error={error} disabled={busy} />
       <Button type="submit" focusableWhenDisabled className={primaryButtonClass} disabled={busy}>
         <BusyLabel busy={busy}>{messages.continueWithEmail}</BusyLabel>
       </Button>
+      {unverified && onUsePassword && (
+        <Button type="button" className={`justify-self-start text-sm ${linkClass}`} onClick={onUsePassword}>
+          {messages.useEmailPasswordInstead}
+        </Button>
+      )}
     </form>
   );
 }
+
+const emailCodeRefusalMessage: Record<EmailCodeRefusal, (messages: CmuxSignInMessages) => string> = {
+  "unverified-account": (messages) => messages.errorEmailUnverified,
+  "sign-up-disabled": (messages) => messages.errorSignUpNotAllowed,
+  generic: (messages) => messages.errorGeneric,
+};
 
 function CodeEntry({ messages, email, nonce, onBack, onResend }: {
   messages: CmuxSignInMessages;
@@ -1438,7 +1496,7 @@ export function CmuxOAuthCallback({ messages }: { messages: CmuxSignInMessages }
         }
         const code = KnownErrors.ContactChannelAlreadyUsedForAuthBySomeoneElse.isInstance(caught) ? "email-unverified" : null;
         if (!code) console.error("[cmux sign-in] OAuth callback failed", caught);
-        window.location.replace(code ? `/handler/auth-error?code=${code}` : "/handler/auth-error");
+        window.location.replace(authErrorHref(code, new URLSearchParams(window.location.search)));
       });
   }, [app]);
 

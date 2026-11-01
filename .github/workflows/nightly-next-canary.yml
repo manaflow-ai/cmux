@@ -1,22 +1,30 @@
 name: nightly-next canary
 
 # The post-publication canary of cmux NEXT (docs/ci/nightly-next-canary.md).
-# Every 15 minutes it reads the cmux NEXT feed and, for a build it has not
+# Every 5 minutes it reads the cmux NEXT feed and, for a build it has not
 # checked yet, downloads that exact DMG from the feed, checks Gatekeeper and
 # the notary tickets, and runs the canary on the app inside it on a CI Mac:
 # a visible window, a New Tab, an agent session that answers a prompt, and no
 # crash in the first minute (scripts/smoke-signed-app-cli.sh --canary, from
 # the build's own commit). It covers either nightly-next writer, Mac or Linux.
 #
-# Repository variable NIGHTLY_NEXT_CANARY: unset or `report` opens or comments
-# on one `nightly-next canary failed` issue; `enforce` also pulls the build
-# off the feed (nightly-next-rollback.yml, bad_build = the build that failed);
-# `off` skips the canary. A schedule runs only from the default branch, so
-# this file lives on main. A pull request that changes the canary runs it on
+# Repository variable NIGHTLY_NEXT_CANARY, resolved by
+# scripts/ci/nightly_next_canary_mode.py (the same resolver as nightly.yml's
+# pre-publication canary): `report` opens or comments on one `nightly-next
+# canary failed` issue; `enforce` also pulls the build off the feed
+# (nightly-next-rollback.yml, bad_build = the build that failed), which then
+# starts the fix-forward; `off` skips the canary. Unset or `auto` reports until
+# NIGHTLY_NEXT_CANARY_ENFORCE_AFTER (default in the script, one week of report
+# mode) and enforces after it, unless the canary failed a build in that week.
+# A schedule runs only from the default branch, so this file lives on main. A pull request that changes the canary runs it on
 # the newest feed build with the pull request's own harness and pulls nothing.
 on:
   schedule:
-    - cron: "3,18,33,48 * * * *"
+    # Every 5 minutes, off the hour: a build reaches Nightly only after a
+    # scheduled pass, so the tick adds to every Nightly's age
+    # (tests/test_nightly_next_canary_cadence.py). A tick with no new build
+    # stops in the Linux pick job.
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
   workflow_dispatch:
     inputs:
       build:
@@ -29,30 +37,57 @@ on:
       - .github/workflows/nightly-next-canary.yml
       - scripts/smoke-signed-app-cli.sh
       - scripts/cmux-next/signed-app-canary-checks.py
+      - scripts/ci/nightly_next_canary_mode.py
 
 permissions: {}
 
+# A dispatch for one build has its own group, so the next scheduled tick never
+# replaces it; schedule ticks read the feed when they start, so one waiting
+# tick does the work of any it replaced.
 concurrency:
-  group: nightly-next-canary-${{ github.event.pull_request.number || 'feed' }}
+  group: nightly-next-canary-${{ github.event.pull_request.number || inputs.build != '' && format('build-{0}', inputs.build) || 'feed' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  # The canary's runner picker (scripts/ci/nightly_build_runner.py) lives on feat-cmux-next, like the launch smoke's
+  # placement tooling; a pull request into feat-cmux-next tests its own head.
+  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.sha || 'feat-cmux-next' }}
   # Bumping it canaries every feed build again.
   CANARY_CACHE_PREFIX: nightly-next-canary-v1-
 
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
+      issues: read # the report week of the auto flip
     outputs:
       build: ${{ steps.feed.outputs.build }}
       url: ${{ steps.feed.outputs.url }}
       length: ${{ steps.feed.outputs.length }}
       checked: ${{ steps.seen.outputs.cache-hit }}
+      mode: ${{ steps.mode.outputs.mode }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/nightly_next_canary_mode.py
+          sparse-checkout-cone-mode: false
+
+      # report, enforce or off; the one-week auto flip reads the canary issue.
+      - name: Resolve the canary mode
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_NEXT_CANARY: ${{ vars.NIGHTLY_NEXT_CANARY }}
+          NIGHTLY_NEXT_CANARY_ENFORCE_AFTER: ${{ vars.NIGHTLY_NEXT_CANARY_ENFORCE_AFTER }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/nightly_next_canary_mode.py resolve | tee -a "$GITHUB_OUTPUT"
+
       - name: Read the feed
         id: feed
         env:
@@ -74,8 +109,11 @@ jobs:
           if not items:
               sys.exit(f"no feed item {'for build ' + wanted if wanted else 'with a DMG'}")
           build, url, length = max(items)
-          if not url.startswith("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"):
-              sys.exit(f"{url} is not a nightly-next release asset")
+          # Since #25656 the feed's enclosures point at its own R2 origin; the GitHub
+          # release copy follows later. Both are ours; Gatekeeper and the tickets below check the DMG.
+          if not url.startswith(("https://files-next.cmux.com/nightly-next/next/",
+                                 "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/")):
+              sys.exit(f"{url} is neither the cmux NEXT feed's R2 origin nor a nightly-next release asset")
           print(f"build={build}\nurl={url}\nlength={length}")
           PY
           cat "$GITHUB_OUTPUT"
@@ -91,12 +129,75 @@ jobs:
           key: ${{ env.CANARY_CACHE_PREFIX }}${{ steps.feed.outputs.build }}
           lookup-only: true
 
+  # The canary's route, picked on Linux right before it queues (scripts/ci/nightly_build_runner.py, the picker the
+  # nightly-next app build and the train compile use): an owned label while a runner carrying it is idle now, the
+  # nightly slot first (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER: glaeda's one runner per mini that takes only nightly jobs
+  # and listens on a full mini; its hook ranks main's canary as a nightly job), then the side label; else the
+  # Blacksmith macOS 26 label whose queue moves. So the canary never waits on a label with no idle runner: on
+  # 2026-10-29 the canary of build 4095550219401 (run 40959228667) sat on the side label from 21:46Z behind 43 PR
+  # jobs with no side job running. A busy fleet, unread runners or a failed pick leave `owned` empty.
+  pick-canary-runner:
+    name: Pick the canary's runner
+    needs: pick
+    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' && github.event_name != 'pull_request'
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The routing App's read-only key, in the environment the launch smoke's and the train's pickers use.
+    environment: ci-routing-agent
+    timeout-minutes: 5
+    permissions:
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+      contents: read
+    outputs:
+      owned: ${{ steps.place.outputs.owned }}
+      blacksmith: ${{ steps.place.outputs.blacksmith }}
+      # The attempt the pick was made for: a re-run of the canary alone keeps this job's outputs, so it reads
+      # `blacksmith` and leaves the owned label it was refused on or stuck at.
+      attempt: ${{ steps.place.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Pick an idle owned Mac, else a moving Blacksmith label
+        id: place
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          # The job never runs for a pull request or outside manaflow-ai; the owner and fork branches keep the
+          # routing guards' shape.
+          OWNED_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 }}
+        run: python3 scripts/ci/nightly_build_runner.py
+
   canary:
     name: canary ${{ needs.pick.outputs.build }}
-    needs: pick
-    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
-    # No secrets: this job runs the published app.
-    runs-on: macos-26
+    needs: [pick, pick-canary-runner]
+    if: ${{ !cancelled() && needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' }}
+    # No secrets: this job runs the published app. A schedule or dispatch takes the pick: on the pick's own attempt
+    # its idle owned Mac (the nightly slot, else the side label), else the moving Blacksmith label; a re-run reads
+    # the moving Blacksmith label. A same-repository pull request keeps the side label on attempt 1. A failed pick
+    # falls back to vars.MACOS_RUNNER_26, then Blacksmith macOS 26. A refused owned job is re-run by
+    # owned_pool_rescue.SIDE_WORKFLOW_PATHS. Never a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.event_name != 'pull_request' && needs.pick-canary-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-canary-runner.outputs.owned || github.event_name != 'pull_request' && needs.pick-canary-runner.outputs.blacksmith || vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'pull_request' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -141,7 +242,15 @@ jobs:
           spctl -a -vv --type execute "$app"
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
           [ "$version" = "$BUILD" ] || { echo "the DMG holds build $version, the feed says $BUILD" >&2; exit 1; }
-          echo "app=$app" >> "$GITHUB_OUTPUT"
+          # Run what a person runs: the app copied out of the DMG. Launched from the read-only,
+          # compressed mount, a cold start pages the bundle through hdiutil: the control socket
+          # took over 45 s to appear on hosted runners, and every good build failed (#22648).
+          installed="$RUNNER_TEMP/canary-app/$(basename "$app")"
+          mkdir -p "$RUNNER_TEMP/canary-app"
+          ditto "$app" "$installed"
+          codesign --verify --deep --strict "$installed"
+          spctl -a -vv --type execute "$installed"
+          echo "app=$installed" >> "$GITHUB_OUTPUT"
           echo "commit=$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "$app/Contents/Info.plist")" >> "$GITHUB_OUTPUT"
 
       # The harness runs from the build's own commit, so it speaks that
@@ -202,35 +311,94 @@ jobs:
             hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
           fi
 
-      - name: Record the verdict
-        if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict != '' || steps.broken.outputs.verdict != '')
+  # The durable verdict (nightly-next-verdict.yml writes verdicts/<build>.json
+  # next to the cmux NEXT appcast in R2). The train's base is the newest feed
+  # build whose verdict is `pass`; the Actions cache above only marks a build
+  # checked, and it expires.
+  verdict:
+    # The name carries the verdict: nightly-next-verdict.yml accepts a pass
+    # only from a run with a `verdict pass <build>` job (a skip also leaves the
+    # canary job green).
+    name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}
+    needs: [pick, canary]
+    if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    env:
+      BUILD: ${{ needs.pick.outputs.build }}
+    permissions:
+      actions: write # dispatch nightly-next-verdict.yml
+    steps:
+      - name: Write the verdict to R2
         env:
-          VERDICT: ${{ steps.run.outputs.verdict || steps.broken.outputs.verdict }}
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.pick.outputs.build }}
+          VERDICT: ${{ needs.canary.outputs.verdict }}
         run: |
-          mkdir -p canary-verdict
-          echo "$VERDICT" > canary-verdict/verdict
+          set -euo pipefail
+          # A canary's checked marker is durable only after this dispatch is
+          # accepted. GitHub occasionally answers 403/429 when the Actions
+          # installation quota is exhausted; retry those transient responses
+          # without turning a permission or workflow error into a retry storm.
+          request=(workflow run nightly-next-verdict.yml -R "$GITHUB_REPOSITORY" --ref nightly-next
+            -f build="$BUILD" -f verdict="$VERDICT" -f canary_run="$GITHUB_RUN_ID")
+          for attempt in 1 2 3; do
+            error="$(mktemp)"
+            if gh "${request[@]}" >"$error" 2>&1; then
+              rm -f "$error"
+              echo "requested the $VERDICT verdict of build $BUILD (attempt $attempt)"
+              exit 0
+            else
+              rc=$?
+            fi
+            output="$(cat "$error")"
+            rm -f "$error"
+            printf '%s\n' "$output" >&2
+            if ! grep -Eiq 'HTTP (403|429)|API rate limit exceeded|secondary rate limit|rate limit' <<<"$output"; then
+              echo "::error title=nightly-next verdict::dispatch failed with a non-retryable error"
+              exit "$rc"
+            fi
+            if (( attempt < 3 )); then
+              delay=$((attempt * 15))
+              echo "::warning title=nightly-next verdict::dispatch was rate limited; retrying in ${delay}s (attempt $((attempt + 1))/3)"
+              sleep "$delay"
+            fi
+          done
+          echo "::error title=nightly-next verdict::could not dispatch nightly-next-verdict.yml after three rate-limit retries; build $BUILD remains unchecked"
+          exit 1
 
-      - name: Save the verdict
-        if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict != '' || steps.broken.outputs.verdict != '')
+      # Do not mark the build checked before the durable verdict dispatch. A
+      # 403/429 therefore remains eligible on the next scheduled tick.
+      - name: Record the checked verdict
+        if: success()
+        env:
+          VERDICT: ${{ needs.canary.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          mkdir -p canary-verdict
+          printf '%s\n' "$VERDICT" > canary-verdict/verdict
+
+      - name: Save the checked marker
+        if: success()
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: canary-verdict
-          key: ${{ env.CANARY_CACHE_PREFIX }}${{ env.BUILD }}
+          key: ${{ env.CANARY_CACHE_PREFIX }}${{ needs.pick.outputs.build }}
 
-  # A failed canary: report it, and with NIGHTLY_NEXT_CANARY=enforce pull the
-  # build. A pull request's run only tests the harness and does neither.
+  # A failed canary: report it, and in enforce mode pull the build. A pull
+  # request's run only tests the harness and does neither.
   failed:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-rollback.yml
       issues: write # the nightly-next canary failed issue
     steps:
-      - name: Pull the build off the feed (NIGHTLY_NEXT_CANARY=enforce)
+      - name: Pull the build off the feed (enforce mode)
         id: pull
-        if: vars.NIGHTLY_NEXT_CANARY == 'enforce'
+        if: needs.pick.outputs.mode == 'enforce'
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ needs.pick.outputs.build }}
@@ -248,7 +416,7 @@ jobs:
         env:
           BUILD: ${{ needs.pick.outputs.build }}
           PULL: ${{ steps.pull.outcome }}
-          MODE: ${{ vars.NIGHTLY_NEXT_CANARY || 'report' }}
+          MODE: ${{ needs.pick.outputs.mode || 'report' }}
         with:
           script: |
             const title = 'nightly-next canary failed';
@@ -258,7 +426,7 @@ jobs:
               ? 'The pull of this build off the feed was requested (nightly-next-rollback.yml).'
               : process.env.PULL === 'failure'
                 ? `Requesting the pull FAILED, so the build is still on the feed. Pull it: ${pull}`
-                : `NIGHTLY_NEXT_CANARY is \`${process.env.MODE}\`, so the build stays on the feed. Pull it: ${pull}`;
+                : `The canary is in \`${process.env.MODE}\` mode, so the build stays on the feed. Pull it: ${pull}`;
             const body = `cmux NEXT build ${process.env.BUILD} failed the canary twice: ${run}\n\n${action}`;
             const open = await github.paginate(github.rest.issues.listForRepo, { ...context.repo, state: 'open', per_page: 100, creator: 'github-actions[bot]' });
             const issue = open.find(i => i.title === title && !i.pull_request);

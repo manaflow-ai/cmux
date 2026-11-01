@@ -62,3 +62,77 @@ export async function resolveVmGuestKind(
   if (!teamId) return null;
   return vmGuestKindFromMembers(row, await dependencies.listMembers(teamId));
 }
+
+/**
+ * The facts vmKindForCaller reads besides the row. `chatGranted`: the caller
+ * holds a chat grant on this machine (cloud_vm_chat_grants), read for this
+ * attach; false or absent when it was not read or the read failed.
+ */
+export type VmKindForCallerOptions = { readonly chatGranted?: boolean };
+
+/**
+ * The kind the attach endpoint tells the signed-in caller (`vmKind`). The Mac
+ * app gives up the local sandbox for its own session only on `owner`: the
+ * caller created the machine and still belongs to its owner team, regardless
+ * of that team's member count. Personal-account machines need no team lookup.
+ *
+ * A teammate the creator or a team admin shared the machine's chats with
+ * (Leo, 2026-10-31: "we can't simply block always") is `owner` too, while the
+ * grant stands and they are still on the member list. A grant never counts on
+ * a personal-account machine (cmux-platform machineAccess `start_chat`).
+ *
+ * A different caller, a missing team, a creator who left the team, or a member
+ * list that was not read, failed or timed out gets `team`. A row with no usable
+ * billing owner is null. Ids compare exactly. Computed per request, never stored.
+ * This caller-specific answer does not change teammates' existing access or
+ * the guest-wide kind returned by resolveVmGuestKind.
+ */
+export function vmKindForCaller(
+  row: VmGuestKindRow,
+  callerUserId: string,
+  members?: VmTeamMemberLookup,
+  options: VmKindForCallerOptions = {},
+): VmGuestKind | null {
+  if (!row.ownerTeamId.trim()) return null;
+  if (callerUserId === "") return "team";
+  // Exact ids, no trimming: a padded id is not the caller.
+  if (row.userId !== callerUserId) {
+    return options.chatGranted === true && vmAcceptsChatGrants(row)
+      && members !== undefined && callerIsMember(members, callerUserId) ? "owner" : "team";
+  }
+  if (row.ownerTeamId === callerUserId) return "owner";
+  return members !== undefined && callerIsMember(members, callerUserId) ? "owner" : "team";
+}
+
+/**
+ * True when vmKindForCaller's answer depends on the owner team's member list:
+ * a machine the caller created on a Stack team, or one shared with the caller.
+ * Every other row is answered without asking Stack.
+ */
+export function vmKindForCallerNeedsMembers(
+  row: VmGuestKindRow,
+  callerUserId: string,
+  options: VmKindForCallerOptions = {},
+): boolean {
+  if (row.ownerTeamId.trim() === "" || callerUserId === "") return false;
+  if (row.userId !== callerUserId) return options.chatGranted === true && vmAcceptsChatGrants(row);
+  return row.ownerTeamId !== callerUserId;
+}
+
+/** True when a chat grant could make `callerUserId` this machine's `owner`, so it is worth reading. */
+export function vmKindForCallerMayUseChatGrant(row: VmGuestKindRow, callerUserId: string): boolean {
+  return callerUserId !== "" && row.userId !== callerUserId && vmAcceptsChatGrants(row);
+}
+
+/**
+ * True for a machine whose chats can be shared: one on a Stack team. A
+ * personal-account machine (or a row with no billing owner) never is.
+ */
+export function vmAcceptsChatGrants(row: VmGuestKindRow): boolean {
+  return row.ownerTeamId.trim() !== "" && !vmIsOnPersonalAccount(row);
+}
+
+function callerIsMember(lookup: VmTeamMemberLookup, callerUserId: string): boolean {
+  if ("error" in lookup || lookup.memberIds === null) return false;
+  return lookup.memberIds.includes(callerUserId);
+}

@@ -1,4 +1,5 @@
 import { compileNetworkPolicy, storedNetworkPolicy, type NetworkPolicy, type NetworkRulePlan } from "./networkPolicy";
+import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { createHash, randomUUID } from "node:crypto";
 import {
   applyVmResourceUsage,
@@ -17,7 +18,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions, type ProviderCustomer } from "./drivers/types";
 import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
@@ -96,7 +97,6 @@ import {
   VmSnapshotNotFoundError,
   VmSnapshotInProgressError,
   VmSnapshotIdempotencyConflictError,
-  VmUsageLimitExceededError,
   VmPlanBudgetExceededError,
   VmGoShapeError,
   VM_MODEL_PLANE_FAILURE_CODES,
@@ -119,13 +119,12 @@ import {
   vmFreeAccessWindowDays,
   type VmResourcePoolPolicy,
 } from "./entitlements";
-import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./planUsage";
-import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
+import { GO_PAUSE_INTENT_KEY } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
-import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderMachineGone, isProviderNotFoundError } from "./providerErrors";
 import { withVmReadDeadline, type VmReadDeadline } from "./routeDeadline";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
@@ -161,8 +160,25 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
+import { scheduleGuestVmKindRecord } from "./guestVmKind";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
+import { vmKindForCaller, vmKindForCallerMayUseChatGrant, vmKindForCallerNeedsMembers } from "./vmKind";
+import {
+  VM_API_ACTIVITY_MIN_INTERVAL_MS,
+  VM_IDLE_PAUSE_MINUTES_KEY,
+  vmIdlePauseMinutesFromRow,
+  vmIdlePauseDiagnosticsFromRow,
+  type VmIdlePauseDiagnostics,
+  vmIdleEpochFromRow,
+  vmLastApiActivityFromRow,
+  vmPauseIntentEpochFromRow,
+  vmPauseCauseFromRow,
+  vmPauseReasonFromRow,
+  hasOutstandingPauseIntent,
+  type VmIdlePauseMinutes,
+  type VmPauseReason,
+} from "./idlePause";
 
 export {
   homeVolumeNameForUser,
@@ -237,6 +253,11 @@ export type VmEntry = {
   readonly cmuxTuiContract: string | null;
   /** Coding agents: "image" keeps the baked pins, "latest" updates them on attach. */
   readonly agentUpdates: VmAgentUpdatesSetting;
+  /** Minutes without activity before the machine pauses by itself; 0 is Off (services/vms/idlePause.ts). */
+  readonly idlePauseMinutes: VmIdlePauseMinutes;
+  readonly idlePause: VmIdlePauseDiagnostics;
+  /** Why a paused machine is paused: "idle" (auto-pause) or "user"; null when running or unknown. */
+  readonly pauseReason: VmPauseReason | null;
   /**
    * The machine's recorded share of the shared vCPU/memory pool, or null for a
    * legacy row without a valid reservation marker (the pool conservatively
@@ -416,6 +437,10 @@ export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean
   return !isProviderId(row.provider);
 }
 
+export function countSavedUserVms(userId: string, billingTeamId?: string | null) {
+  return Effect.flatMap(VmRepository, (repo) => repo.countSavedUserVms(userId, billingTeamId));
+}
+
 export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -444,7 +469,7 @@ export function getVm(input: {
 
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
-        isProviderNotFoundError(err)
+        isProviderMachineGone(err)
           ? Effect.succeed("destroyed" as const)
           : Effect.fail(err),
       ),
@@ -1094,11 +1119,13 @@ function requestedCreateVcpus(input: { imageSize?: { cpu: number }; resourceRese
   return vcpus > 0 ? vcpus : null;
 }
 
-const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;
-/** Enforce Go's fixed machine shape when a Go allocation is requested. */
+/** Plus shares Pro's per-machine sizes and resize ceilings. */
 function requireGoShape(planId: string | null | undefined, shape: VmResourceReservation | null) {
-  return planId === "go" && (!shape || shape.vcpus !== GO_VM_RESERVATION.vcpus || shape.memoryMb !== GO_VM_RESERVATION.memoryMb || shape.diskMb !== GO_VM_RESERVATION.diskMb)
-    ? Effect.fail(new VmGoShapeError()) : Effect.void;
+  if (planId !== "go" || !shape) return Effect.void;
+  return requireMemoryPlan(planId, shape.memoryMb, shape.vcpus).pipe(
+    Effect.andThen(shape.diskMb > maxDiskMbForPlan(planId)
+      ? Effect.fail(new VmGoShapeError()) : Effect.void),
+  );
 }
 
 const MB_PER_GB = 1024;
@@ -1162,7 +1189,7 @@ function requestedCreateDiskMb(input: Pick<Parameters<typeof createVm>[0], "imag
   return (input.resourceReservation ?? vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })).diskMb;
 }
 
-/** Read and reserve the caller's remaining Go runtime allowance; check the Pro and Max allowances. */
+/** Check Plus machine limits and any enabled Pro or Max allowances. */
 function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation" | "memoryMb">) {
   return Effect.gen(function* () {
     if (isBudgetPlanId(input.billingPlanId)) {
@@ -1173,16 +1200,8 @@ function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingP
       yield* requireGoShape("go", input.resourceReservation ?? (input.imageSize ? {
         vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
       } : null));
-      const usage = yield* Effect.tryPromise({
-        try: () => getGoVmUsage(input.userId),
-        catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }),
-      });
-      if (usage && usage.remainingSeconds <= 0) {
-        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
-      }
-      if (!usage) return yield* Effect.fail(new VmBillingError({ operation: "go_runtime", cause: "Go subscription is not active" }));
-      return usage.remainingSeconds;
     }
+    return undefined;
   });
 }
 
@@ -1237,6 +1256,11 @@ type CreateVmInput = {
   readonly networkPolicy?: NetworkPolicy;
   /** "latest" opts the machine into coding-agent updates on attach; absent keeps the image's pins. */
   readonly agentUpdates?: VmAgentUpdatesSetting;
+  /**
+   * The machine's own idle auto-pause (0 is Off), stored on the row by its insert: a same-key
+   * retry answers the first create's row and never changes it. Absent: the default applies.
+   */
+  readonly idlePauseMinutes?: VmIdlePauseMinutes;
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
@@ -1251,9 +1275,7 @@ type CreateVmInput = {
 
 /** Build the repository reservation and entitlement inputs for a new VM row. */
 function createVmBeginInput(input: CreateVmInput): CreateVmInput & Pick<Parameters<VmRepositoryShape["beginCreate"]>[0], "resourcePool" | "resourcePoolPhase" | "planMaxMemoryMb" | "planMaxVcpus"> {
-  const resourceReservation = input.resourceReservation ?? (input.billingPlanId === "go"
-    ? GO_VM_RESERVATION
-    : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize }));
+  const resourceReservation = input.resourceReservation ?? vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize });
   return {
     ...input,
     // Reserve the logical CPU and memory profile when memoryMb is present,
@@ -1407,6 +1429,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        customer: vmProviderCustomer(create.vm) ?? undefined,
         forked: resumesLiveMachine(input.origin),
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
@@ -1421,7 +1444,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
             : undefined,
         runtimeBudgetSeconds,
         memoryMb: input.memoryMb,
-        imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
+        imageSize: input.imageSize,
         edgeRules: materials?.edgeRules,
         networkRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
@@ -1506,6 +1529,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       yield* recordCreateSuccessEvents(repo, input, running);
     }
     yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
+    // The guest records its kind in /etc/cmux/vm-kind (guestVmKind.ts), after the response.
+    yield* scheduleGuestVmKindRecord(repo, providers, running, input.deferAfterResponse);
     // The create response carries the first connection, so openVmCmuxRemote
     // never runs for it; start the opted-in updater here, after the response.
     if (vmAgentUpdatesFromRow(running) === "latest") {
@@ -1611,6 +1636,30 @@ export function setVmAgentUpdates(input: ExistingVmAccessInput & {
 }
 
 /**
+ * Set a machine's idle auto-pause: minutes without activity before it pauses
+ * by itself (15, 30, 60 or 120), or 0 for Off (services/vms/idlePause.ts).
+ * The row is the source of truth; the idle cron reads it on its next run.
+ * Anyone with access to the machine may set it, as with agent updates.
+ */
+export function setVmIdlePause(input: ExistingVmAccessInput & {
+  readonly minutes: VmIdlePauseMinutes;
+}): VmWorkflowProgram<VmEntry> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!repo.setIdlePauseMinutes) {
+      return yield* Effect.fail(new VmDatabaseError({ operation: "setIdlePauseMinutes", cause: new Error("repository cannot store the idle pause") }));
+    }
+    yield* repo.setIdlePauseMinutes({ id: vm.id, minutes: input.minutes });
+    return vmEntryFromRow({
+      ...vm,
+      providerMetadata: { ...(vm.providerMetadata ?? {}), [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes },
+      updatedAt: new Date(),
+    });
+  });
+}
+
+/**
  * Runs the injected model-plane provisioning for a row that now exists. The
  * gateway rejects with VmModelPlaneError; anything else is treated as
  * coderouter being unavailable so the row is marked with a retryable code.
@@ -1674,6 +1723,8 @@ export function openBaseVm(input: {
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
@@ -1683,9 +1734,7 @@ export function openBaseVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const resourceReservation = input.billingPlanId === "go"
-      ? GO_VM_RESERVATION
-      : vmResourceReservationForCreate({ imageSize: input.imageSize });
+    const resourceReservation = vmResourceReservationForCreate({ imageSize: input.imageSize });
     const beginInput = {
       ...input,
       planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
@@ -1721,6 +1770,8 @@ export function resetBaseVm(input: {
   readonly reason?: string | null;
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
@@ -1735,9 +1786,7 @@ export function resetBaseVm(input: {
       ...input,
       planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
       planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
-      resourceReservation: input.billingPlanId === "go"
-        ? GO_VM_RESERVATION
-        : vmResourceReservationForCreate({ imageSize: input.imageSize }),
+      resourceReservation: vmResourceReservationForCreate({ imageSize: input.imageSize }),
       ...(isPaidVmPlan(input.billingPlanId)
         ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
         : {}),
@@ -1771,6 +1820,7 @@ function finishBaseCreate(
     readonly modelPlane?: VmModelPlaneProvisioner;
     readonly teamDirectory?: VmTeamDirectory;
     readonly timing?: VmTimingSink;
+    readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
@@ -1900,6 +1950,7 @@ function finishBaseCreate(
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        customer: vmProviderCustomer(create.vm) ?? undefined,
         imageSize: input.imageSize,
         runtimeBudgetSeconds: input.runtimeBudgetSeconds,
         displayName: create.vm.slug ?? undefined,
@@ -1985,6 +2036,7 @@ function finishBaseCreate(
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
     yield* schedulePromptIdentityPush(providers, running, undefined);
+    yield* scheduleGuestVmKindRecord(repo, providers, running, input.deferAfterResponse);
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
@@ -2027,7 +2079,7 @@ function reopenBaseIfProviderDeleted(
   return getStatus(existing.provider, providerVmId).pipe(
     Effect.as(null),
     Effect.catchAll((err) =>
-      isProviderNotFoundError(err)
+      isProviderMachineGone(err)
         ? Effect.gen(function* () {
           // forceStatus, the one caller that overrides the mapping. Everywhere
           // else a missing provider machine follows the shared observation
@@ -2059,9 +2111,7 @@ function reopenBaseIfProviderDeleted(
               ...input,
               planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
               planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
-              resourceReservation: input.billingPlanId === "go"
-                ? GO_VM_RESERVATION
-                : vmResourceReservationForCreate({ imageSize: input.imageSize }),
+              resourceReservation: vmResourceReservationForCreate({ imageSize: input.imageSize }),
               ...(isPaidVmPlan(input.billingPlanId)
                 ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
                 : {}),
@@ -2310,14 +2360,102 @@ export function pauseVm(input: {
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
+    const vm = yield* requireUserVm(input);
+    return yield* pauseVmRow(vm, input.providerVmId, "user");
+  });
+}
+
+/**
+ * The one pause path: the Pause Machine action and API (`pauseVm`, reason
+ * `user`) and the idle auto-pause cron (services/vms/idlePauseJob.ts, reason
+ * `idle`, through `pauseIdleVmRow`). `reason` is recorded on the row
+ * (`pauseReason`) and in the usage event.
+ */
+export function pauseVmRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPauseReason) {
+  return pauseRow(vm, requestedProviderVmId, reason, undefined).pipe(
+    Effect.flatMap((result) => result ? Effect.succeed(result) : Effect.fail(new VmNotFoundError({ vmId: requestedProviderVmId }))),
+  );
+}
+
+/**
+ * The idle cron's pause: the same path, but the row records the pause only if
+ * it still holds `idleEpoch`, the fence the cron claimed
+ * (VmRepository.claimIdlePause). Null when a write moved the fence while the
+ * provider paused (a person's exec, files or attach call, a setting change, a
+ * person's pause, a status write or a resume): the machine may now be paused
+ * at the provider with a row that says otherwise, and the caller decides what
+ * that write meant (`resumeAfterLostIdlePause`). A provider error or timeout
+ * is not taken as "no pause": the provider's state is read back, and a pause
+ * that went through is recorded at the fence (or answers null) all the same.
+ * A read-back that shows no pause, or cannot tell, fails; the claim stays in
+ * the row and the next cron run settles it.
+ */
+export function pauseIdleVmRow(vm: CloudVmRow, providerVmId: string, idleEpoch: number) {
+  return pauseRow(vm, providerVmId, "idle", idleEpoch);
+}
+
+/**
+ * The provider's pause state for the idle cron's read-back: "paused" (paused
+ * or stopped), "running", or null when it cannot tell (an error, a timeout, a
+ * pause still under way, or an answer that is neither).
+ */
+export function readIdleProviderState(vm: CloudVmRow, providerVmId: string): Effect.Effect<"paused" | "running" | null, never, VmProviderGateway> {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    if (providers.getPauseState) {
+      const state = yield* providers.getPauseState(vm.provider, providerVmId).pipe(Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS));
+      if (state === "paused" || state === "stopped") return "paused" as const;
+      return state === "not_paused" ? "running" as const : null;
+    }
+    if (!providers.getStatus) return null;
+    const status = yield* providers.getStatus(vm.provider, providerVmId).pipe(Effect.timeout(RESUME_STATUS_PROBE_TIMEOUT));
+    if (status === "paused") return "paused" as const;
+    return status === "running" ? "running" as const : null;
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+}
+
+/** A provider pause call that errored: fine if the read-back shows the machine paused, else the original error. */
+function pausedDespite<E>(vm: CloudVmRow, providerVmId: string, error: E) {
+  return readIdleProviderState(vm, providerVmId).pipe(
+    Effect.flatMap((state) => (state === "paused" ? Effect.void : Effect.fail(error))),
+  );
+}
+
+/**
+ * Record a provider pause the idle cron found after the fact (a claim left by
+ * a lost answer), at the fence it claimed, with its usage event. False when
+ * the fence moved since.
+ */
+export function recordIdlePauseAt(vm: CloudVmRow, providerVmId: string, idleEpoch: number) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "idle", expectIdleEpoch: idleEpoch });
+    if (!recorded) return false;
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.paused",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: pausedUsageMetadata(null, "idle"),
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return true;
+  });
+}
+
+function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPauseReason, expectIdleEpoch: number | undefined) {
+  return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const input = { providerVmId: requestedProviderVmId };
     const providerVmId = vm.providerVmId ?? input.providerVmId;
     if (vm.status === "destroyed") {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (vm.status === "paused") {
+      yield* recordPausedDecision(repo, vm, providerVmId, reason);
       return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
     }
     const pause = providers.pause;
@@ -2357,11 +2495,12 @@ export function pauseVm(input: {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (observed !== "paused" && observed !== "stopped") {
+      const intent = yield* recordUserPauseIntent(repo, vm, providerVmId, reason);
       const pauseOperation = Effect.gen(function* () {
         if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
         yield* pause(vm.provider, providerVmId);
       });
-      yield* pauseOperation.pipe(
+      const attempt = pauseOperation.pipe(
         Effect.timeoutFail({
           duration: PAUSE_OPERATION_TIMEOUT_MS,
           onTimeout: () => new VmOperationDeadlineError({
@@ -2371,11 +2510,20 @@ export function pauseVm(input: {
           }),
         }),
       );
+      // The idle cron reads a failed pause back: a lost answer may hide a pause that went through.
+      yield* expectIdleEpoch === undefined
+        ? attempt.pipe(clearPauseIntentOnFailure(repo, vm.id, intent))
+        : attempt.pipe(Effect.catchAll((error) => pausedDespite(vm, providerVmId, error)));
     }
-    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
-    if (!recorded) {
-      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
-    }
+    const recorded = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "paused",
+      // A machine the provider had already stopped was not paused by us, so it records no reason.
+      ...(observed === "stopped" ? {} : { pauseReason: reason }),
+      expectIdleEpoch,
+    });
+    if (!recorded) return null;
     yield* repo.recordUsageEvent({
       userId: vm.userId,
       billingTeamId: vm.billingTeamId,
@@ -2384,10 +2532,70 @@ export function pauseVm(input: {
       eventType: "vm.paused",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { source: observed === "stopped" ? "provider_stopped" : "user" },
+      metadata: pausedUsageMetadata(observed, reason),
     }).pipe(Effect.catchAll(() => Effect.void));
     return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
   });
+}
+
+/**
+ * A person's Pause on a row the status reconciler already marked paused is
+ * still their decision: record it (reason user, stamped with its fence), so an
+ * idle pause the cron is undoing yields to it. The cron never pauses a paused row.
+ */
+/**
+ * A person's pause fences its intent before any provider effect, so no idle
+ * recovery clears its zero cap or resumes the machine while the provider
+ * pause is in flight. The cron's own idle pause is fenced by its claim.
+ */
+function recordUserPauseIntent(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string, reason: VmPauseReason) {
+  if (reason !== "user" || !repo.recordPauseIntent) return Effect.succeed(null);
+  return repo.recordPauseIntent({ id: vm.id, providerVmId, cause: "user" });
+}
+
+/**
+ * A pause whose provider effects failed drops its own intent (fenced on the
+ * epoch it wrote, so a newer pause's stays). A timeout is not a failure: the
+ * provider pause may still be in flight, so the intent stays until the pause
+ * is retried or the intent expires.
+ */
+export function clearPauseIntentOnFailure(repo: VmRepositoryShape, id: string, epoch: number | null) {
+  return <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.tapError((error) => {
+    const timedOut = (error as { readonly _tag?: string })._tag === "VmOperationDeadlineError";
+    if (epoch === null || timedOut || !repo.clearPauseIntent) return Effect.void;
+    return repo.clearPauseIntent({ id, epoch }).pipe(Effect.catchAll(() => Effect.void));
+  }));
+}
+
+function recordPausedDecision(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string, reason: VmPauseReason) {
+  if (reason !== "user") return Effect.void;
+  return repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "user" }).pipe(Effect.asVoid);
+}
+
+function pausedUsageMetadata(observed: string | null, reason: VmPauseReason): Record<string, string | boolean> {
+  if (observed === "stopped") return { source: "provider_stopped" };
+  return reason === "idle" ? { source: "idle", automated: true } : { source: "user" };
+}
+
+/**
+ * Note a person's exec, files or attach call for the idle timer
+ * (services/vms/idlePause.ts). Best-effort: never fails the call. At most one
+ * write a minute per machine: skipped when the row, or `since` (a write this
+ * request already made), is within VM_API_ACTIVITY_MIN_INTERVAL_MS. The idle
+ * cron's probe and the resource sampler call the provider directly and never
+ * come through here.
+ */
+function noteVmApiActivity(vm: CloudVmRow, since: number | null = null): Effect.Effect<void, never, VmRepository> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const record = repo.recordVmApiActivity;
+    const providerVmId = vm.providerVmId;
+    if (!record || !providerVmId) return;
+    const at = yield* Clock.currentTimeMillis;
+    const last = Math.max(vmLastApiActivityFromRow(vm) ?? 0, since ?? 0);
+    if (at - last < VM_API_ACTIVITY_MIN_INTERVAL_MS) return;
+    yield* record({ id: vm.id, providerVmId, at });
+  }).pipe(Effect.catchAll(() => Effect.void));
 }
 
 /**
@@ -2542,6 +2750,8 @@ export function restoreVm(input: {
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   /** Same contract as createVm: the restored machine gets its own token and edge rule. */
   readonly modelPlane?: VmModelPlaneProvisioner;
   /** Set only when the requesting client routes team networks. */
@@ -2599,6 +2809,7 @@ export function restoreVm(input: {
       modelPlane: input.modelPlane,
       teamDirectory: input.teamDirectory,
       timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
   });
 }
@@ -3527,7 +3738,7 @@ function reconcileObservedProviderStatus(
     if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
-        isProviderNotFoundError(err)
+        isProviderMachineGone(err)
           ? Effect.succeed("destroyed" as const)
           : Effect.succeed(null),
       ),
@@ -3702,6 +3913,14 @@ function pauseWokenMachine(
   });
 }
 
+/**
+ * The provider customer a machine is tagged with: its owner's account id, or
+ * null for a deleted account's machine that a shared team kept.
+ */
+export function vmProviderCustomer(vm: Pick<CloudVmRow, "userId">): ProviderCustomer | null {
+  return vm.userId === DELETED_ACCOUNT_ACTOR_ID ? null : { customerId: vm.userId };
+}
+
 function resumeAfterLostRace(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
@@ -3712,7 +3931,7 @@ function resumeAfterLostRace(
   return Effect.gen(function* () {
     // The re-pause zeroed a Go machine's runtime budget; give it back first.
     if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
-    yield* resume(vm.provider, providerVmId).pipe(
+    yield* resume(vm.provider, providerVmId, { customer: vmProviderCustomer(vm) }).pipe(
       Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
       Effect.tapError((cause) => Effect.logWarning("Could not resume a machine a re-pause raced", {
         event: "cloud_vm.repause_race.resume_failed",
@@ -3725,46 +3944,20 @@ function resumeAfterLostRace(
   });
 }
 
-/** False when the Go allowance is used up, so the machine stays paused. */
+/** Clear any legacy cap before giving a Plus machine back after a race. */
 function restoreGoRuntimeBudget(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
 ): Effect.Effect<boolean, never> {
-  return Effect.gen(function* () {
-    const usage = yield* Effect.tryPromise(() => getGoVmUsage(vm.userId)).pipe(Effect.either);
-    if (usage._tag === "Left") {
-      yield* Effect.logWarning("Could not read Go usage for a machine a re-pause raced", {
-        event: "cloud_vm.repause_race.go_usage_unreadable",
-        vmId: vm.id,
-        providerVmId,
-        cause: usage.left,
-      });
-      return true;
-    }
-    if (usage.right && usage.right.remainingSeconds <= 0) {
-      yield* Effect.logWarning("Left a raced Go machine paused: its allowance is used up", {
-        event: "cloud_vm.repause_race.go_allowance_exhausted",
-        vmId: vm.id,
-        providerVmId,
-      });
-      return false;
-    }
-    const remainingSeconds = usage.right?.remainingSeconds ?? null;
-    yield* Effect.gen(function* () {
-      yield* setRuntimeBudget(providers, vm, providerVmId, remainingSeconds);
-    }).pipe(
-      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
-      Effect.tapError((cause) => Effect.logWarning("Could not restore the runtime budget of a machine a re-pause raced", {
-        event: "cloud_vm.repause_race.go_budget_failed",
-        vmId: vm.id,
-        providerVmId,
-        cause,
-      })),
-      Effect.catchAll(() => Effect.void),
-    );
-    return true;
-  });
+  return setRuntimeBudget(providers, vm, providerVmId, null).pipe(
+    Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+    Effect.tapError((cause) => Effect.logWarning("Could not clear the runtime cap of a machine a re-pause raced", {
+      event: "cloud_vm.repause_race.go_budget_failed", vmId: vm.id, providerVmId, cause,
+    })),
+    Effect.catchAll(() => Effect.void),
+    Effect.as(true),
+  );
 }
 
 function boundedVmStatusReconcileLimit(limit: number | undefined): number {
@@ -3775,7 +3968,7 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
-type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" | "resize" | "user";
+type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" | "resize" | "user" | "idle_pause_lost";
 
 type ResumePreflightOptions = {
   /** Resolved billing-scope allowance; null is unlimited, undefined uses the plan default. */
@@ -3846,7 +4039,12 @@ function waitForRunningOutcome(
   });
 }
 
-function setRuntimeBudget(providers: VmProviderGatewayShape, vm: CloudVmRow, vmId: string, seconds: number | null) {
+function setRuntimeBudget(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  vmId: string,
+  seconds: number | null,
+): Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError> {
   if (!providers.setRuntimeBudget) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "runtime limits" }));
   return providers.setRuntimeBudget(vm.provider, vmId, seconds);
 }
@@ -3873,13 +4071,24 @@ function resumeUntilRunning(
     const resume = providers.resume;
     if (!resume) return;
     if (vm.billingPlanId === "go") {
-      const usage = yield* Effect.tryPromise({ try: () => getGoVmUsage(vm.userId), catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }) });
-      if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: 40, usedHours: 40 }));
-      yield* setRuntimeBudget(providers, vm, providerVmId, usage?.remainingSeconds ?? null);
+      yield* setRuntimeBudget(providers, vm, providerVmId, null);
     } else {
       yield* requirePlanBudget(vm.billingPlanId, vm.userId, null);
     }
-    const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
+    yield* resumeAndWaitRunning(providers, vm, providerVmId);
+  });
+}
+
+/** Resume at the provider and wait for running; a machine that never gets there is paused again. No budget gate. */
+function resumeAndWaitRunning(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const resume = providers.resume;
+    if (!resume) return;
+    const handle = yield* resume(vm.provider, providerVmId, { customer: vmProviderCustomer(vm) }).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (settled) return;
@@ -4001,6 +4210,125 @@ function recordResumeUsageEvent(
 // status cron pauses those again (settleUnexpectedWakes) and records a
 // machine it cannot pause as running, and beginCreate re-counts
 // provider-running VMs before allocating another active slot.
+/**
+ * Undo an idle pause that lost its fence, on a row the caller re-read (`vm`,
+ * running, or paused by nobody's decision such as the status reconciler).
+ * The resume is fenced like the pause: it claims the row at the fence it read
+ * (claimIdleResume), resumes the provider if it is paused, and records running
+ * only at the claimed fence. A person's pause that lands first wins: before
+ * the claim it makes the claim fail and nothing is resumed; after it, the
+ * running record fails and the machine is paused again. "superseded" in both,
+ * as for a row deleted or replaced meanwhile. Any other write that makes the
+ * claim fail (Off, activity, the status reconciler) answers "retry": the
+ * cron's pause claim (`claimEpoch`) stays in the row and the next run tries
+ * again.
+ * A provider that never got as far as pausing reads running and only the row
+ * is written. This restores the state the cron interrupted, so it takes no
+ * active-limit reservation and no plan gate. A Plus (go) machine has its
+ * runtime cap cleared first, best effort.
+ */
+export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, claimEpoch: number) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
+    if (epoch === null) {
+      const winner = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
+      const gone = !winner || winner.id !== vm.id || winner.providerVmId !== providerVmId || winner.status === "destroyed";
+      return gone || isDeliberatePauseSince(winner, claimEpoch, yield* Clock.currentTimeMillis) ? "superseded" as const : "retry" as const;
+    }
+    const state = yield* readIdleProviderState(vm, providerVmId);
+    if (state === null) {
+      return yield* Effect.fail(new VmProviderOperationError({ provider: vm.provider, operation: `getStatus(${providerVmId})`, cause: new Error("idle pause read-back failed") }));
+    }
+    // The pause capped a Plus machine's runtime at zero: clear the cap first, best effort (a failed write
+    // is logged and the recovery goes on). No plan gate: this undoes the cron's own pause, and a gate that
+    // fails here would leave the claim retrying forever.
+    yield* restoreIdlePauseBudget(vm, providerVmId);
+    if (state === "paused") yield* resumeAndWaitRunning(providers, vm, providerVmId);
+    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running", expectIdleEpoch: epoch });
+    if (recorded) {
+      if (vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
+      return "resumed" as const;
+    }
+    const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
+    if (current && isDeliberatePauseSince(current, epoch, yield* Clock.currentTimeMillis)) {
+      yield* bestEffortPause(providers, current, providerVmId);
+      return "superseded" as const;
+    }
+    return "resumed" as const;
+  });
+}
+
+/**
+ * The provider runs but the row does not (a compensating resume whose running
+ * write lost to Off or activity): record running at a fence claimed on the
+ * row as read, which also settles the cron's claim. A person's pause after
+ * the cron's claim is left alone. False when a newer write moved the fence;
+ * the claim stays and the next run tries again. A person's Pause that lands
+ * after this claim wins the row, and the running machine is paused again.
+ */
+export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, claimEpoch: number) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    if (isDeliberatePauseSince(vm, claimEpoch, yield* Clock.currentTimeMillis)) return false;
+    const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
+    if (epoch === null) return false;
+    yield* restoreIdlePauseBudget(vm, providerVmId);
+    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running", expectIdleEpoch: epoch });
+    if (recorded) {
+      if (vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
+      return true;
+    }
+    yield* repauseIfDeliberateSince(vm, providerVmId, epoch);
+    return false;
+  });
+}
+
+/**
+ * A recovery that took the idle-resume fence `epoch` and cleared the runtime
+ * cap, then lost its write: if a person's or the allowance enforcer's pause
+ * since won the row, the machine may be running with no cap, so put that
+ * pause back (cap zero for Plus, then pause), as the compensation does.
+ */
+export function repauseIfDeliberateSince(vm: CloudVmRow, providerVmId: string, epoch: number) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
+    if (!current || !isDeliberatePauseSince(current, epoch, yield* Clock.currentTimeMillis)) return false;
+    yield* bestEffortPause(yield* VmProviderGateway, current, providerVmId);
+    return true;
+  });
+}
+
+/**
+ * The idle pause caps a Plus (go) machine's runtime at zero before the
+ * provider pause, and Freestyle keeps an exhausted limit with automatic
+ * restart off. Plus has no hour cap, so any recovery that leaves the machine
+ * running clears that cap first, through the same best-effort path as the
+ * re-pause race (restoreGoRuntimeBudget): a failed write is logged and the
+ * recovery goes on. Other plans set no runtime cap.
+ */
+export function restoreIdlePauseBudget(vm: CloudVmRow, providerVmId: string): Effect.Effect<void, never, VmProviderGateway> {
+  return Effect.gen(function* () {
+    if (vm.billingPlanId !== "go") return;
+    const providers = yield* VmProviderGateway;
+    yield* restoreGoRuntimeBudget(providers, vm, providerVmId);
+  });
+}
+
+/**
+ * A paused row whose pause was chosen after the fence `epoch`: a person's
+ * (reason user) or the allowance enforcer's. Recovery from a lost idle pause
+ * never undoes either.
+ */
+export function isDeliberatePauseSince(row: CloudVmRow, epoch: number, now: number): boolean {
+  // Under way (its intent written, its provider effects maybe still in flight) counts, whatever its fence.
+  if (hasOutstandingPauseIntent(row, now)) return true;
+  const cause = vmPauseCauseFromRow(row);
+  return (cause === "user" || cause === "allowance") && (vmPauseIntentEpochFromRow(row) ?? -1) > epoch;
+}
+
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -4013,16 +4341,6 @@ function preflightResumeIfSuspended(
     const getStatus = providers.getStatus;
     const resume = providers.resume;
     if (!getStatus || !resume) return false;
-    if (vm.billingPlanId === "go") {
-      const usage = yield* Effect.tryPromise({
-        try: () => getGoVmUsage(vm.userId),
-        catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }),
-      });
-      if (usage && usage.remainingSeconds <= 0) {
-        yield* pauseGoVm(repo, providers, vm, providerVmId, usage.usedSeconds);
-        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
-      }
-    }
     const forceProviderProbe = options.forceProviderProbe === true;
     // A passive/exec path can trust the row and let the provider operation
     // perform its own wake. User-open paths opt into a live probe because a
@@ -4521,6 +4839,8 @@ export function execVm(input: {
     const vm = yield* requireAccessibleUserVm(input);
     // Lookup and resume are never cut short: interrupting a resume midway
     // would strand its bookkeeping. The deadline governs only the command.
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -4567,6 +4887,8 @@ export function execVm(input: {
       imageId: vm.imageId,
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
     }).pipe(Effect.catchAll(() => Effect.void));
+    // A long command is activity until it ends, not only when it starts.
+    yield* noteVmApiActivity(vm, execStartedAtMs);
     return result satisfies ExecResult;
   });
 }
@@ -4764,6 +5086,8 @@ function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, v
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "user", {
       maxActiveVms: input.maxActiveVms,
     });
@@ -4898,7 +5222,7 @@ export function getVmStats(input: {
                 ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
               },
             }, input.providerVmId, Date.now()) : { ...reported, health: "unresponsive" as const }),
-            Effect.catchAll((error) => isProviderNotFoundError(error)
+            Effect.catchAll((error) => isProviderMachineGone(error)
               ? Effect.fail(error)
               : Effect.succeed({ ...reported, health: "unresponsive" as const })),
           );
@@ -4906,7 +5230,7 @@ export function getVmStats(input: {
       }),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
-        if (!isProviderNotFoundError(error)) return Effect.fail(error);
+        if (!isProviderMachineGone(error)) return Effect.fail(error);
         return Effect.gen(function* () {
           yield* applyObservedProviderStatus(repo, providers, vm, {
             providerVmId: input.providerVmId,
@@ -4941,9 +5265,6 @@ export function resizeVm(input: {
     const providers = yield* VmProviderGateway;
     let vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     const planId = input.billingPlanId ?? vm.billingPlanId ?? "free";
-    if (planId === "go" && ((input.storageMb ?? 0) > 16 * 1024 || (input.cpu ?? 0) > 2 || (input.memoryMb ?? 0) > 4 * 1024)) {
-      return yield* Effect.fail(new VmGoShapeError());
-    }
     for (const [resource, requested, max] of [
       ["cpu", input.cpu, maxVcpusForPlan(planId)],
       ["memory", input.memoryMb, maxMemoryMbForPlan(planId)],
@@ -4958,6 +5279,11 @@ export function resizeVm(input: {
     }
     if (!providers.resize || !providers.getStats) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
+    }
+    // A user resize is activity before any preflight/provider I/O. Do not
+    // proceed on a failed write: an overdue idle candidate could pause it.
+    if (repo.recordVmApiActivity) {
+      yield* repo.recordVmApiActivity({ id: vm.id, providerVmId: input.providerVmId, at: yield* Clock.currentTimeMillis });
     }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
@@ -5397,11 +5723,16 @@ export function openVmCmuxRemote(input: {
   /** Runs best-effort guest work after the response (the route passes `runAfterResponse`). */
   readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Reads the owner team's members for the caller's `vmKind` (see callerVmKind). */
+  readonly teamDirectory?: VmTeamDirectory;
+  /** Count a chat grant toward the caller's `vmKind` (the attach-endpoint route only; see callerVmKind). */
+  readonly readChatGrants?: boolean;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory, input.readChatGrants === true));
     const supportedTransports = providers.attachTransports?.(vm.provider);
     if (supportedTransports && !supportedTransports.includes("cmux-remote")) {
       return yield* Effect.fail(new VmAttachTransportUnsupportedError({
@@ -5420,6 +5751,8 @@ export function openVmCmuxRemote(input: {
         }),
       );
     }
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -5473,7 +5806,8 @@ export function openVmCmuxRemote(input: {
     if (vmAgentUpdatesFromRow(vm) === "latest") {
       yield* scheduleGuestAgentUpdates(providers, vm, "latest", input.deferAfterResponse);
     }
-    return endpoint;
+    // The caller's own sandbox opt-out reads this; see vmKindForCaller.
+    return { ...endpoint, vmKind: yield* Fiber.join(vmKind) };
   });
 }
 
@@ -5567,12 +5901,63 @@ type OpenAttachEndpointInput = {
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Reads the owner team's members for the caller's `vmKind` (see callerVmKind). */
+  readonly teamDirectory?: VmTeamDirectory;
+  /** Count a chat grant toward the caller's `vmKind` (the attach-endpoint route only; see callerVmKind). */
+  readonly readChatGrants?: boolean;
 };
+
+/**
+ * The caller's `vmKind` for `vm` (vmKindForCaller). Stack is asked for the
+ * owner team's members only when the answer depends on them (a machine the
+ * caller created on a Stack team, or one shared with the caller), with the
+ * bounded read resolveVmGuestKind uses. With no directory, or a failed or
+ * timed-out read, the list is unknown and the answer is `team`. The routes
+ * start it as soon as the machine is known, so the reads overlap the endpoint
+ * open.
+ *
+ * With `readChatGrants`, a teammate's chat grant on the machine
+ * (cloud_vm_chat_grants, services/vms/chatGrants.ts) is read first; a read
+ * that fails, times out, or has no store counts as no grant.
+ */
+function callerVmKind(
+  vm: CloudVmRow,
+  userId: string,
+  directory: VmTeamDirectory | undefined,
+  readChatGrants = false,
+): Effect.Effect<ReturnType<typeof vmKindForCaller>, never, VmRepository> {
+  return Effect.gen(function* () {
+    const chatGranted = readChatGrants && directory !== undefined && vmKindForCallerMayUseChatGrant(vm, userId)
+      ? yield* callerHoldsChatGrant(vm.id, userId)
+      : false;
+    const options = { chatGranted };
+    if (!directory || !vmKindForCallerNeedsMembers(vm, userId, options)) {
+      return vmKindForCaller(vm, userId, undefined, options);
+    }
+    const members = yield* listTeamMemberIdsWithTimeout(directory, vm.ownerTeamId);
+    return vmKindForCaller(vm, userId, members, options);
+  });
+}
+
+/** How long the attach endpoint waits for the caller's chat grant before treating it as absent. */
+const CHAT_GRANT_READ_TIMEOUT_MS = 3000;
+
+function callerHoldsChatGrant(vmId: string, userId: string): Effect.Effect<boolean, never, VmRepository> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    if (!repo.hasVmChatGrant) return false;
+    return yield* repo.hasVmChatGrant({ vmId, userId }).pipe(
+      Effect.timeout(CHAT_GRANT_READ_TIMEOUT_MS),
+      Effect.map((granted) => granted === true),
+      Effect.catchAll(() => Effect.succeed(false)),
+    );
+  });
+}
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const result = yield* openAttachEndpointResult(input);
-    return result.endpoint;
+    return { ...result.endpoint, vmKind: result.vmKind };
   });
 }
 
@@ -5727,6 +6112,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory, input.readChatGrants === true));
     // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
     const supportedTransports = providers.attachTransports?.(vm.provider);
@@ -5740,6 +6126,8 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         }),
       );
     }
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -5802,7 +6190,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         },
       })
       : undefined;
-    return { endpoint, session };
+    return { endpoint, session, vmKind: yield* Fiber.join(vmKind) };
   });
 }
 
@@ -5833,14 +6221,12 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
     }
     if (vm.providerMetadata[GO_PAUSE_INTENT_KEY] != null) {
       const repo = yield* VmRepository;
+      if (!repo.mergeProviderMetadata) return yield* Effect.fail(new VmDatabaseError({ operation: "cancel_go_pause", cause: "Durable metadata writes are unavailable" }));
       if (vm.billingPlanId === "go") {
         const providers = yield* VmProviderGateway;
-        yield* pauseGoVm(repo, providers, vm, input.providerVmId);
-        vm = { ...vm, status: "paused" };
-      } else {
-        if (!repo.mergeProviderMetadata) return yield* Effect.fail(new VmDatabaseError({ operation: "cancel_go_pause", cause: "Durable metadata writes are unavailable" }));
-        yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
+        yield* setRuntimeBudget(providers, vm, input.providerVmId, null);
       }
+      yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
       vm = { ...vm, providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
     }
     // Existing machines are grandfathered during the entitlement rollout.
@@ -6409,6 +6795,9 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
     agentUpdates: vmAgentUpdatesFromRow(row),
+    idlePauseMinutes: vmIdlePauseMinutesFromRow(row),
+    idlePause: vmIdlePauseDiagnosticsFromRow(row),
+    pauseReason: vmPauseReasonFromRow(row),
     resourceReservation: hasVmResourceReservationMetadata(row.providerMetadata)
       ? (({ vcpus, memoryMb }) => ({ vcpus, memoryMb }))(vmResourceReservationFromMetadata(row.providerMetadata))
       : null,

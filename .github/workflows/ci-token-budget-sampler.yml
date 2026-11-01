@@ -1,0 +1,61 @@
+name: GITHUB_TOKEN budget sampler
+
+# Measures how fast the repository's GITHUB_TOKEN core budget drains, so the
+# spenders can be found from data instead of from reading code. On 2026-10-26
+# the budget reached 0 of 5000 every hour while the calls counted in the code
+# explained about a fifth of the drain.
+#
+# GitHub keeps more than one GITHUB_TOKEN bucket for this repository (seen:
+# resets at :02 and at :13 past the hour), and a job's token lands in one of
+# them. So the matrix starts several samplers; each logs which bucket it
+# reads (its reset time). Each reads GET /rate_limit, which costs nothing,
+# every 5 seconds until the window ends, and uploads the series as CSV.
+# Matching the series against the Actions run and job timeline attributes
+# the drain to workflows. Manual dispatch only; nothing else starts it.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long each sampler reads (at most 120)"
+        required: true
+        default: "65"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: ci-token-budget-sampler
+  cancel-in-progress: false
+
+jobs:
+  sample:
+    name: sample GITHUB_TOKEN budget (${{ matrix.slot }})
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [a, b, c, d]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: reads only the free rate_limit endpoint with the job's token
+    timeout-minutes: 130
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the sampler
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/token_budget_sampler.py
+          sparse-checkout-cone-mode: false
+      - name: Sample the budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MINUTES: ${{ inputs.minutes }}
+          SLOT: ${{ matrix.slot }}
+        run: python3 scripts/ci/token_budget_sampler.py sample --minutes "$MINUTES" --out "$RUNNER_TEMP/budget-$SLOT.csv"
+      - name: Upload the series
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: token-budget-${{ matrix.slot }}
+          path: ${{ runner.temp }}/budget-${{ matrix.slot }}.csv
+          retention-days: 7
+          if-no-files-found: ignore

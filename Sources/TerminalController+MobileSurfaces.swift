@@ -47,6 +47,9 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "accountSignIn")
         case .cloudVPNSetup:
             return MobileSurfaceKind(rawValue: "cloudVPNSetup")
+        case .chief:
+            // Open vocabulary: phones show the fallback card until they render Chief natively.
+            return MobileSurfaceKind(rawValue: "chief")
         }
     }
 

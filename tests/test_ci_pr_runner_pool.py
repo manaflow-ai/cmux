@@ -2013,6 +2013,173 @@ class RootRunners(unittest.TestCase):
         self.assertFalse(e2e_pool.auto_runner(SMALL, enabled=True, limits=limits, measure=lambda: load, now=NOW,
                                               owned_slots={MINI: 40, ROOT_MINI: 10}).startswith("glaeda-"))
 
+    def test_auto_pick_waits_on_the_fleet_only_with_wait_owned(self):
+        """The DEV publisher's verify placement (--wait-owned) waits on owned Macs, as ci.yml's pick does."""
+        def wait_flag(env, extra=("--wait-owned",)):
+            with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "observe",
+                                            return_value=e2e_pool.simple_pool_picker.State(jobs=1)) as observe, \
+                 unittest.mock.patch("sys.stdout", io.StringIO()):
+                e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE, *extra], env=env)
+            return observe.call_args.kwargs["wait_owned"], observe.call_args.kwargs["fork"]
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux"}), (True, False))
+        # E2E callers (no flag) keep the old pick: their root jobs and re-runs are not watched the same way.
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux"}, extra=()), (False, False))
+        # A fork never waits on the fleet; neither does the bot's own re-run.
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux", "HEAD_REPO": "someone/cmux"}),
+                         (False, True))
+        dev = (ROOT / ".github/workflows/cmux-next-dev-daily.yml").read_text()
+        self.assertIn("--wait-owned", dev[dev.index("Pick the macOS pool"):dev.index("Mark a run on a persistent")])
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ATTEMPT": "2",
+                                    "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"}), (False, False))
+
+    def test_blacksmith_labels_limit_the_room_a_wait_owned_pick_counts(self):
+        """A free macOS 15 slot is no room for jobs that run only on a stalled macOS 26 label."""
+        picker = e2e_pool.simple_pool_picker
+        mac26, mac15 = picker.BLACKSMITH[1], picker.BLACKSMITH[2]
+        state = picker.State(
+            jobs=2, owned_enabled=True, wait_on_owned=True,
+            owned=(picker.Pool("glaeda-std-xcode-26.6", 8, 8, 1, free=0),),
+            blacksmith=(picker.Pool(picker.BLACKSMITH[0], 5, 5, 3),
+                        picker.Pool(mac26, 10, 0, 4, stalled=True),
+                        picker.Pool(mac15, 10, 2, 0)))
+
+        def label(*extra):
+            with unittest.mock.patch.object(picker, "observe", return_value=state):
+                output = io.StringIO()
+                with unittest.mock.patch("sys.stdout", output):
+                    e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE,
+                                   "--jobs", "2", "--wait-owned", *extra],
+                                  env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+            return output.getvalue().strip()
+        # Unrestricted, the free macOS 15 room keeps the pick off the fleet (run 40449661622).
+        self.assertEqual(label(), mac15)
+        # Limited to the jobs' own label, the stalled macOS 26 queue is no room: wait on the fleet.
+        self.assertEqual(label("--blacksmith-labels", mac26), "glaeda-std-xcode-26.6")
+        # Free room on the jobs' own label still takes it.
+        free26 = dataclasses.replace(state, blacksmith=(picker.Pool(mac26, 10, 2, 0), state.blacksmith[2]))
+        with unittest.mock.patch.object(picker, "observe", return_value=free26), \
+             unittest.mock.patch("sys.stdout", io.StringIO()) as output:
+            e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE, "--jobs", "2",
+                           "--wait-owned", "--blacksmith-labels", mac26], env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+        self.assertEqual(output.getvalue().strip(), mac26)
+
+    def test_owned_classes_keep_the_pick_off_other_owned_classes(self):
+        """cmux-next-dev-daily.yml's verify and tip-dmg-build: std only; a free light pool is no room for them."""
+        picker = e2e_pool.simple_pool_picker
+        mac26 = picker.BLACKSMITH[1]
+        std, light = "glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6"
+        state = picker.State(
+            jobs=2, owned_enabled=True, wait_on_owned=True,
+            owned=(picker.Pool(std, 42, 42, 3, free=0), picker.Pool(light, 2, 0, 0, free=2)),
+            blacksmith=(picker.Pool(picker.BLACKSMITH[0], 5, 5, 3), picker.Pool(mac26, 10, 0, 4, stalled=True)))
+
+        def label(current, *extra):
+            with unittest.mock.patch.object(picker, "observe", return_value=current), \
+                 unittest.mock.patch("sys.stdout", io.StringIO()) as output:
+                e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE, "--jobs", "2",
+                               "--wait-owned", "--blacksmith-labels", mac26, *extra],
+                              env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+            return output.getvalue().strip()
+        # Unrestricted, the free light pool takes both jobs.
+        self.assertEqual(label(state), light)
+        # std only: the busy std pool is waited on, never the light one.
+        self.assertEqual(label(state, "--owned-classes", "std"), std)
+        # With Blacksmith room on the jobs' own label, std-only takes Blacksmith over the free light pool.
+        room = dataclasses.replace(state, blacksmith=(state.blacksmith[0], picker.Pool(mac26, 10, 2, 0)))
+        self.assertEqual(label(room, "--owned-classes", "std"), mac26)
+        # A free std pool is still taken first.
+        free_std = dataclasses.replace(state, owned=(picker.Pool(std, 42, 30, 0, free=12), state.owned[1]))
+        self.assertEqual(label(free_std, "--owned-classes", "std"), std)
+        self.assertEqual(picker.owned_class(light), "light")
+        self.assertEqual(picker.owned_class("glaeda-root-std-xcode-26.6"), "std")
+        self.assertEqual(picker.owned_class(mac26), "")
+
+    def test_owned_classes_refuses_an_unknown_class(self):
+        with unittest.mock.patch("sys.stderr", io.StringIO()) as err, self.assertRaises(SystemExit) as done:
+            e2e_pool.main(["--requested", "auto", "--owned-classes", "standard"],
+                          env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+        self.assertEqual(done.exception.code, 2)
+        self.assertIn("not an owned class: standard", err.getvalue())
+
+    def test_wait_owned_never_returns_a_label_runner_pools_marks_dead(self):
+        """DEV publisher run 41261942674 (2026-11-01): the `_dead` marks of 01:31:51Z, also the value's `_updated`,
+        lapsed by TTL at 02:01:51Z with no write since, and the runners read got HTTP 403, so the --wait-owned pick
+        put verify and tip-dmg-build on blacksmith-6vcpu-macos-26 (0 of 12 runners online) while the std minis sat
+        idle. A mark no later write cleared still counts, and with no runners read the configured pools are waited on."""
+        picker = e2e_pool.simple_pool_picker
+        large, mac26 = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+        std = "glaeda-std-xcode-26.6"
+        slots = json.dumps({std: 42, "glaeda-light-xcode-26.6": 4, "glaeda-root-std-xcode-26.6": 19,
+                            "glaeda-root-light-xcode-26.6": 2, "glaeda-ios-sim": 8, "glaeda-gui-std-xcode-26.6": 9})
+        now = dt.datetime.now(dt.timezone.utc)
+
+        def stamp(minutes_ago: float) -> str:
+            return (now - dt.timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # The runners read failed (no owned pool) and the snapshot gave no queue: 6 vCPU reads as free.
+        state = picker.State(jobs=2, owned_enabled=True, wait_on_owned=True,
+                             blacksmith=(picker.Pool(large, 5), picker.Pool(mac26, 10)))
+
+        def label(pools: dict | None, current=state, *extra):
+            env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+            if pools is not None:
+                env["RUNNER_POOLS"] = json.dumps(pools)
+            with unittest.mock.patch.object(picker, "observe", return_value=current), \
+                 unittest.mock.patch("sys.stdout", io.StringIO()) as output, \
+                 unittest.mock.patch("sys.stderr", io.StringIO()):
+                e2e_pool.main(["--requested", "auto", "--owned", "1", "--owned-slots", slots,
+                               "--pr-xcode-app", PR_XCODE, "--jobs", "2", "--wait-owned",
+                               "--blacksmith-labels", mac26, "--owned-classes", "std", *extra], env=env)
+            return output.getvalue().strip()
+
+        mark = stamp(31)
+        incident = {"_dead": {large: mark, mac26: mark}, "_updated": mark, "macos_26": mac26}
+        self.assertEqual(e2e_pool.lingering_dead(incident, now), {large, mac26})
+        self.assertEqual(picker.marked_dead(incident, now), set(), "the TTL alone let these marks lapse")
+        self.assertEqual(label(incident), std)
+        # A later write that kept no fresh mark (the writer ran and saw no death): the old mark proves nothing.
+        rewritten = {**incident, "_updated": stamp(5)}
+        self.assertEqual(e2e_pool.lingering_dead(rewritten, now), set())
+        self.assertEqual(label(rewritten), mac26)
+        # A mark past the lingering bound proves nothing either, and no marks at all keeps the free label.
+        ancient = stamp(e2e_pool.LINGERING_DEAD_MARK_MINUTES + 1)
+        self.assertEqual(e2e_pool.lingering_dead({"_dead": {mac26: ancient}, "_updated": ancient}, now), set())
+        self.assertEqual(label(None), mac26)
+        # Owned runners read but none online, and 6 vCPU stalled: still the fleet, never the stalled label.
+        offline = dataclasses.replace(state, owned=(picker.Pool(std, 0),),
+                                      blacksmith=(picker.Pool(large, 5, stalled=True), picker.Pool(mac26, 10, stalled=True)))
+        self.assertEqual(label(None, offline), std)
+        # Without --wait-owned (the E2E callers) nothing changes: the marks and the slots are not read.
+        plain = dataclasses.replace(state, wait_on_owned=False)
+        with unittest.mock.patch.object(picker, "observe", return_value=plain), \
+             unittest.mock.patch("sys.stdout", io.StringIO()) as output, unittest.mock.patch("sys.stderr", io.StringIO()):
+            e2e_pool.main(["--requested", "auto", "--owned", "1", "--owned-slots", slots, "--pr-xcode-app", PR_XCODE,
+                           "--jobs", "2", "--blacksmith-labels", mac26],
+                          env={"GITHUB_REPOSITORY": "manaflow-ai/cmux", "RUNNER_POOLS": json.dumps(incident)})
+        self.assertEqual(output.getvalue().strip(), mac26)
+
+    def test_owned_fallback_names_the_configured_pool_without_an_api_read(self):
+        """cmux-next-dev-daily.yml's verify and tip-dmg-build take it when every Blacksmith macOS 26 label is dead."""
+        slots = json.dumps({"glaeda-light-xcode-26.6": 4, "glaeda-std-xcode-26.6": 42,
+                            "glaeda-root-std-xcode-26.6": 19, "glaeda-gui-std-xcode-26.6": 9, "glaeda-std-xcode-26.3": 5})
+
+        def fallback(*argv):
+            with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "observe",
+                                            side_effect=AssertionError("no API read")), \
+                 unittest.mock.patch("sys.stdout", io.StringIO()) as output:
+                e2e_pool.main(["--owned-fallback", "--owned-slots", slots, "--pr-xcode-app", PR_XCODE, *argv], env={})
+            return output.getvalue().strip()
+        self.assertEqual(fallback("--owned", "1", "--owned-classes", "std"), "glaeda-std-xcode-26.6")
+        self.assertEqual(fallback("--owned", "1", "--owned-classes", "light"), "glaeda-light-xcode-26.6")
+        # Owned pools off: nothing.
+        self.assertEqual(fallback("--owned", "0", "--owned-classes", "std"), "")
+        dev = (ROOT / ".github/workflows/cmux-next-dev-daily.yml").read_text()
+        step = dev[dev.index("Pick the macOS pool"):dev.index("Mark a run on a persistent")]
+        self.assertIn('owned="$(pick 1 --owned-fallback)"', step)
+        self.assertIn("CLOUD_DEAD: ${{ steps.cloud.outputs.dead }}", step)
+        self.assertIn('label="$owned"', step)
+        self.assertIn('echo "owned=$owned" >> "$GITHUB_OUTPUT"', step)
+
     def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
         """A media tour's auto pick must reach the UI-aware E2E picker."""
         with unittest.mock.patch.object(
@@ -2028,6 +2195,19 @@ class RootRunners(unittest.TestCase):
                 )
         self.assertEqual(output.getvalue().strip(), GUI_MINI)
         self.assertEqual(resolve.call_args.kwargs["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
+
+    def test_auto_pick_asks_the_simple_picker_for_the_jobs_it_holds(self):
+        """cmux-next-dev-daily.yml asks --jobs 2 (verify and tip-dmg-build); the default stays 1."""
+        for argv, jobs in (([], 1), (["--jobs", "2"], 2)):
+            with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "observe", return_value="state") as observe, \
+                 unittest.mock.patch.object(e2e_pool.simple_pool_picker, "pick",
+                                            return_value=e2e_pool.simple_pool_picker.Choice(MINI, "free")):
+                output = io.StringIO()
+                with unittest.mock.patch("sys.stdout", output):
+                    e2e_pool.main(["--requested", "auto", "--owned", "1", *argv],
+                                  env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+            self.assertEqual(observe.call_args.kwargs["jobs"], jobs)
+            self.assertEqual(output.getvalue().strip(), MINI)
 
     def test_ui_auto_resolve_selects_gui_label_from_measured_capacity(self):
         """The real resolver keeps a UI tour on the GUI label when minis are busy."""
@@ -3835,8 +4015,9 @@ class IrohReleaseGateWiring(unittest.TestCase):
     def test_simulator_e2e_stays_on_blacksmith(self):
         job = self.jobs["simulator-e2e"]
         self.assertEqual(job["needs"], "resolve-ref")
+        # Production Stack credentials: a literal label, never MACOS_RUNNER_15 (test_ci_fork_runner_routing.py).
         self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                         f"{self.BLACKSMITH} }}}}")
+                                         "'blacksmith-6vcpu-macos-15' }}")
 
 
 class IOSWiring(unittest.TestCase):
@@ -3890,6 +4071,62 @@ class IOSWiring(unittest.TestCase):
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
         self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned"])
 
+    def test_the_simulator_build_holds_no_secret_and_the_seed_preflight_runs_beside_it(self):
+        # ios-simulator-build runs on ios_runner_pool.py's pick: an owned simulator
+        # Mac, or whatever MACOS_RUNNER_TESTS names. It must hold no secret there.
+        # The one step that named CI_CACHE_R2_* was the seed_cache preflight; it
+        # moves to ios-simulator-cache-seed on a literal ephemeral label (#27622).
+        # The restore reads the public URL and the save step never had the keys
+        # (on R2 it warns and saves nothing), so both stay exactly as they were.
+        jobs = self.workflow("test-ios.yml")["jobs"]
+        build = jobs["ios-simulator-build"]
+        self.assertIsNone(re.search(r"\bsecrets\b", json.dumps(build), re.IGNORECASE))
+        self.assertNotIn("environment", build)
+        steps = {step.get("name"): step for step in build["steps"]}
+        self.assertNotIn("Seed iOS caches from main", steps)
+        key = ("ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-"
+               "${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}")
+        backend = "${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}"
+        seeding = "inputs.seed_cache && github.ref == 'refs/heads/main'"
+        restore = steps["Restore iOS SwiftPM cache"]
+        self.assertEqual(restore["uses"], "./.github/actions/cache-restore")
+        self.assertEqual(restore["if"], "${{ steps.owned-state.outputs.packages != 'true' }}")
+        self.assertEqual((restore["with"]["key"], restore["with"]["backend"]), (key, backend))
+        self.assertNotIn("env", restore)
+        save = steps["Save iOS SwiftPM cache"]
+        self.assertEqual(save["uses"], "./.github/actions/cache-save")
+        self.assertEqual(save["if"], "${{ " + seeding + " }}")
+        self.assertEqual((save["with"]["key"], save["with"]["backend"]), (key, backend))
+        self.assertEqual(save["with"]["path"], ".ci-ios-source-packages")
+        self.assertNotIn("env", save)
+        self.assertEqual(set(build["outputs"]), {"artifact_id", "artifact_digest", "archive_sha256", "archive_bytes",
+                                                 "compile_seconds", "package_seconds", "upload_seconds"})
+
+        seed = jobs["ios-simulator-cache-seed"]
+        # An ephemeral Blacksmith Linux VM: the bounded LINUX_RUNNER pick (4, 16 or 32 vCPU, else 4), so a
+        # 4 vCPU stall moves it and no variable value reaches a reused machine.
+        self.assertEqual(seed["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                         "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
+                         "'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\","
+                         "\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) "
+                         "&& vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(seed["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
+        self.assertEqual(seed["needs"], ["ios-simulator-build"])
+        # As the step ran: only after a successful build, only on a main seed_cache run.
+        self.assertEqual(seed["if"], "${{ !cancelled() && needs.ios-simulator-build.result == 'success' && "
+                                     + seeding + " }}")
+        self.assertEqual(seed["permissions"], {"contents": "read"})
+        self.assertEqual([step.get("name") for step in seed["steps"]], ["Seed iOS caches from main"])
+        preflight = seed["steps"][0]
+        for name, secret in (("AWS_ACCESS_KEY_ID", "secrets.CI_CACHE_R2_ACCESS_KEY_ID"),
+                             ("AWS_SECRET_ACCESS_KEY", "secrets.CI_CACHE_R2_SECRET_ACCESS_KEY"),
+                             ("CI_CACHE_R2_ENDPOINT", "secrets.CI_CACHE_R2_ACCOUNT_ID")):
+            self.assertIn(secret, preflight["env"][name])
+        self.assertIn("R2 cache seeding requested but CI_CACHE_R2 credentials are unavailable", preflight["run"])
+        # The aggregate gate sees a failed preflight, as it saw the build job fail.
+        self.assertIn("ios-simulator-cache-seed", jobs["ios-tests"]["needs"])
+
     def test_screenshots_take_the_runner_jobs_pool_without_actions_read(self):
         workflow = self.workflow("ios-screenshots.yml")
         jobs = workflow["jobs"]
@@ -3909,6 +4146,42 @@ class IOSWiring(unittest.TestCase):
         capture = next(step for step in screenshots["steps"] if step.get("name") == "Capture screenshots")
         self.assertEqual(capture["env"]["SNAPSHOT_DERIVED_DATA_PATH"],
                          "${{ runner.temp }}/cmux-ios-snapshot-derived-data")
+
+    def test_screenshots_capture_holds_no_secret_and_a_literal_job_uploads(self):
+        # The capture runs on ios_runner_pool.py's pick, an owned simulator Mac
+        # when CI_IOS_OWNED is 1, a reused machine. So it holds no secret and
+        # enters no environment; the App Store Connect key is only in the short
+        # upload job on a literal ephemeral label, which takes the screenshots
+        # from this run's artifact.
+        jobs = self.workflow("ios-screenshots.yml")["jobs"]
+        capture = jobs["screenshots"]
+        self.assertNotIn("environment", capture)
+        self.assertNotRegex(yaml.safe_dump(capture, width=100000), r"(?i)\$\{\{[^}]*\bsecrets\b|ASC_API|appstoreconnect")
+        uploaded = next(step for step in capture["steps"] if step.get("name") == "Upload screenshots artifact")
+        self.assertEqual(uploaded["with"]["name"], "ios-appstore-screenshots")
+        self.assertEqual(uploaded["with"]["path"], "ios/fastlane/screenshots")
+
+        upload = jobs["app-store-upload"]
+        self.assertEqual(upload["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                                            "'blacksmith-6vcpu-macos-26' }}")
+        self.assertIn("screenshots", upload["needs"])
+        self.assertEqual(upload["if"], "${{ github.event_name == 'workflow_dispatch' && inputs.upload }}")
+        self.assertEqual(upload["environment"], "release")
+        steps = upload["steps"]
+        names = [step.get("name") for step in steps]
+        self.assertEqual(names[0], "Guard trusted upload ref")
+        self.assertLess(names.index("Select Xcode"), names.index("Upload screenshots to App Store Connect"))
+        download = next(step for step in steps if step.get("name") == "Download screenshots artifact")
+        self.assertTrue(download["uses"].startswith("actions/download-artifact@"), download)
+        self.assertEqual(download["with"], {"name": "ios-appstore-screenshots", "path": "ios/fastlane/screenshots"})
+        self.assertLess(names.index("Download screenshots artifact"),
+                        names.index("Upload screenshots to App Store Connect"))
+        key = next(step for step in steps if step.get("name") == "Materialize App Store Connect API key")
+        self.assertIn('KEY_DIR="$RUNNER_TEMP/', key["run"])
+        self.assertNotIn("$HOME", key["run"])
+        deliver = next(step for step in steps if step.get("name") == "Upload screenshots to App Store Connect")
+        self.assertEqual(deliver["run"].strip(), "fastlane upload_screenshots")
+        self.assertEqual(deliver["working-directory"], "ios")
 
     def test_a_persistent_pick_publishes_the_rescue_marker(self):
         for name in ("test-ios.yml", "ios-screenshots.yml"):
@@ -3933,8 +4206,9 @@ class IOSWiring(unittest.TestCase):
                            "vars.CI_PR_POOL_OWNED"):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
+        # It holds CLAUDE_CODE_OAUTH_TOKEN: a literal label, never MACOS_RUNNER_IOS.
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}")
+                                              "'blacksmith-6vcpu-macos-26' }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there
@@ -4117,3 +4391,46 @@ class LiveIdleRunners(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TruncatedSnapshotTests(unittest.TestCase):
+    """A janitor sweep that listed part of the queue (queue_janitor.listing_state()) is no view of it:
+    on 2026-10-30 a sweep listed 300 of 1,138 queued runs, and its pools read the rest as nothing queued."""
+
+    def test_a_truncated_snapshot_is_a_problem_and_a_complete_one_is_not(self):
+        fresh = backlog()
+        self.assertEqual(pool.snapshot_problem(fresh, NOW), "")  # written before the key existed
+        self.assertEqual(pool.snapshot_problem(dict(fresh, truncated=False, listed=9, total=9), NOW), "")
+        for value in (True, 1, "yes", None):
+            with self.subTest(truncated=value):
+                problem = pool.snapshot_problem(dict(fresh, truncated=value, listed=300, total=1138), NOW)
+                self.assertIn("truncated", problem)
+        self.assertIn("300 of 1138", pool.snapshot_truncated(dict(fresh, truncated=True, listed=300, total=1138)))
+
+    def test_decide_keeps_the_default_on_a_truncated_snapshot(self):
+        # An empty large pool would take the run (test_placed_runs_and_a_narrower_pick_for_e2e); truncated, it
+        # may hold the demand the sweep never listed, so the default keeps its say.
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][LARGE]["running"] = 0
+        args = dict(now=NOW, xcode_pins=PINS)
+        self.assertEqual(pool.decide(snap, pool.Settings(), **args).runner, LARGE)
+        choice = pool.decide(dict(snap, truncated=True, listed=300, total=1138), pool.Settings(), **args)
+        self.assertEqual(choice.runner, "")
+        self.assertIn("truncated", choice.reason)
+
+    def test_the_e2e_and_ios_load_reads_a_truncated_snapshot_as_none(self):
+        class Client:
+            def __init__(self, snapshot):
+                self.snap = snapshot
+
+            def snapshot(self, *, now):
+                return self.snap
+
+            def runs_since(self, workflow, since, **filters):
+                return []
+
+            def pull_request_runs_since(self, since, *, exclude_run_id):
+                return 0
+
+        self.assertIsNotNone(e2e_pool.measure_load(Client(backlog()), now=NOW, exclude_run_id=None))
+        self.assertIsNone(e2e_pool.measure_load(Client(dict(backlog(), truncated=True)), now=NOW, exclude_run_id=None))

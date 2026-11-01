@@ -206,7 +206,7 @@ The Freestyle devbox image is defined in
 (chatmux devbox
 parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
 agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
-baked at `/root/.cmux/bin/cmux-tui` from the files.cmux.com artifacts manifest pin
+baked at `/home/cmux/.cmux/bin/cmux-tui` from the files.cmux.com artifacts manifest pin
 current at bake time (recorded as `cmuxTuiCommit` in the manifest entry). Its identity
 is bound to the machine's instance id by `cmux-devbox-boot`, so create runs no guest
 bootstrap. See the devbox README for the bake + verify + manifest flow. The legacy cmuxd-remote image builder
@@ -473,6 +473,28 @@ session protocol, but the managed API does not mint or expose its scoped identit
 workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
 `cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
 
+## Freestyle customer
+
+Every Freestyle machine names the cmux account that owns it as its Freestyle `customer`, so
+Freestyle can tell our customers' accounts apart. The customer id is the row's `user_id` (the
+Stack Auth user id) and nothing else: no email, IP, OAuth identity, secret or token.
+
+- **Create:** `CreateOptions.customer` and `RestoreOptions.customer` become an inline
+  `customer` on `POST /v5/vms`. `createVm` and `finishBaseCreate` pass it, which covers create,
+  restore, fork and Base open/reset. An id outside Freestyle's alphabet (1–128 of
+  `A-Za-z0-9_.:@-`) is left out rather than failing the create.
+- **Wake:** `resume` with `customer` tags a machine that does not carry its owner yet with a
+  `PATCH /v5/vms/{id}` holding only `customer`. The span's `cmux.vm.customer_tag` says `tagged`,
+  `failed` or `skipped`; a refused tag never fails the wake.
+- **Deleted accounts:** account deletion hands a shared team's machines to the
+  `deleted-account` sentinel, which is never sent. After the deletion commits,
+  `detachDeletedAccountCustomers` clears the account's id from those machines (`customerId: null`),
+  best effort; a wake or the backfill clears any it missed.
+- **Existing machines:** `scripts/cloud-vm/backfill-freestyle-customers.ts <staging|production>`
+  plans from the target's rows (read-only transaction) and changes nothing without `--apply`.
+  The Freestyle account is shared by every environment, so a machine no row names is reported
+  and never tagged.
+
 ## Capabilities: the client-visible provider contract
 
 Every VM API response (`GET /api/vm` entries, `GET /api/vm/:id`, create, restore, fork, base
@@ -543,29 +565,165 @@ Freestyle machines boot the shared devbox snapshot (definition in
 the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,
 uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
 run no cmuxd-remote: the **cmux-tui remote daemon is the machine's only session daemon**,
-and the bake installs the pinned static-musl build at `/root/.cmux/bin/cmux-tui` with
+and the bake installs the pinned static-musl build at `/home/cmux/.cmux/bin/cmux-tui` with
 `sha256sum -c` verification. A create is one `vms.create` (firewall, VPC, and the coderouter
 TLS rule inline); a size-less image also gets the grow-only resize. Nothing is written into
 the guest: the model-plane env is baked (see "Model plane"). The baked supervisor starts the
 daemon with a fresh identity
-within a second of resume (the snapshot is a memory image, so the identity is keyed on
-the platform instance id). Neither create nor attach installs, heals or upgrades cmux-tui:
+keyed on the platform instance id. Neither create nor attach installs, heals or upgrades cmux-tui:
 a new machine runs the build its image baked (the manifest entry's `cmuxTuiCommit`), and a
 running machine changes build only through `web/scripts/upgrade-fleet-cmux-tui.ts`
 (docs/cloud-guest-upgrades.md). The build and its digest come from the artifacts manifest
 published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new
-build reaches new machines through a rebake and promotion. Config: `FREESTYLE_API_KEY` (or
-`FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
-at a non-default edge. `CMUX_VM_CMUX_TUI_MANIFEST_URL` is read only by the bake, verify,
-reachability-check and BusyBox-probe scripts, to pin one commit's
-`https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling `latest`; a
-deployment ignores it.
+build reaches new machines through a rebake and promotion. Public `vm exec` commands leave
+the provider account unset, so Freestyle selects its uid-1000 work account (usually `cmux`,
+with a legacy root fallback when that account is absent) and resolves its passwd home before
+running. That often matches the terminal work user, but the daemon can fall back to root when
+the work user's home is unusable; exec still uses the provider-selected account. Commands that
+need root should use `sudo`, and snapshots with the former `/home/ubuntu` uid-1000 home do not
+leak a stale `HOME`. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`);
+optionally `FREESTYLE_API_URL` to point at a non-default edge. `CMUX_VM_CMUX_TUI_MANIFEST_URL`
+is read only by the bake, verify, reachability-check and BusyBox-probe scripts, to pin one
+commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
+`latest`; a deployment ignores it.
 
 Cloud-created Freestyle machines explicitly set `idleTimeoutSeconds: -1`, making them
 persistent boxes rather than provider-idle workers. A user-open operation probes the live
 provider state even when the control-plane row still says `running`, resumes a paused/stopped
 machine, and only then mints its attach or port endpoint. Machines created before this policy
 are migrated when they are resumed: any finite legacy idle timeout is cleared best-effort.
+
+### Idle auto-pause
+
+Freestyle's idle timer stays off (it counts only network and exec traffic, so it would pause
+a machine whose agent is mid-turn and quiet). The server pauses idle machines instead
+(`services/vms/idlePause.ts`, `idlePauseJob.ts`):
+
+- The `vm-idle-pause` cron runs every 5 minutes. On each running Freestyle machine it runs one
+  read-only probe as root through the provider exec (`python3 -I`, so nothing in its working
+  directory or environment is imported): the session daemon's `subscribe-activity`
+  snapshot, acpmux's session list (read as the daemon user, only when its daemon already runs),
+  and `/proc` (each pseudo-terminal's foreground process group, sshd session processes,
+  established TCP connections into the machine's private address or into sshd, and the busy CPU
+  time in `/proc/stat`). A run checks at most 500 machines, least recently checked first
+  (`cmuxIdleProbedAt`), so a large fleet rotates. With more running machines than about two
+  runs can check, a machine is checked less often than every 12 minutes, its idle stretch never
+  carries and it never pauses; the cron logs a warning when a run hits the 500 cap or runs long.
+- A machine whose row has no private address (`networkIpv4`/`networkIpv6`) is not probed: the
+  app's link into it would be invisible, so it is unknown.
+- A machine is idle only when nobody typed through an attached client for the whole timeout (an
+  app that is only attached does not count: the Mac app stays attached for days), no live agent or acpmux session with
+  a turn or a pending permission, no terminal running a command (anything but a shell at its
+  prompt is a command: a build, a hand-started server, vim, an agent CLI, and a shell that is
+  itself running one, `bash -c ...` or `sh script.sh`; a login or interactive shell such as
+  `-bash`, `zsh -l` or `bash -i` is a prompt), no ssh session, no
+  inbound connection on its private address (the app's own link to the daemon port does not count, but a port the app forwards over that link counts while the daemon holds a stream to it, in legacy mode too), and CPU use since the previous probe below
+  `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
+  is over it). A CPU counter that went back (a reboot) restarts the idle stretch. A probe without
+  a CPU sample, or a `/proc/net/tcp` (or an existing `tcp6`) it cannot read, is unknown; a missing
+  `tcp6` (IPv6 off) is no IPv6 connections. A stored observation without a CPU sample does not
+  carry the stretch. A `/proc/<pid>/stat`, `cmdline` or daemon `fd` entry that cannot be read
+  or parsed makes terminals, ssh or inbound connections unknown; only a process that exited
+  mid-read is skipped. Anything the probe cannot read is unknown, and unknown never pauses.
+- Machines whose cmux-tui predates `subscribe-activity` (every image up to a9b104f3) are decided
+  in legacy mode. The probe enters it only when the daemon refuses `subscribe-activity` as an
+  unknown variant, and the whole answer must be serde's message, optionally ending in
+  serde_json's `at line L column C`. acpmux then reads as none when the CLI refuses `acp` as an
+  unknown resource scope. Any other answer stays unknown. Legacy mode has no input or agent times, so it decides
+  from busy terminals (an agent CLI in a terminal is busy), ssh, inbound connections, CPU and
+  API calls: a person sitting at an idle shell prompt for the whole timeout is paused, and
+  opening the machine resumes it. Its decision reasons end in `;legacy_daemon`.
+- Freestyle's own timer stays off as well, not as a backstop: it would pause a quiet build that
+  our probe sees on CPU, and a finite `idleTimeoutSeconds` makes the health sweep skip the
+  machine (`skipped_idle`).
+- A shell builtin that waits with no child process and no CPU, such as `read -t 3600` or a
+  `wait` with nothing to wait on, typed into an interactive shell, reads as a shell at its
+  prompt and can be paused after the timeout. On new images the typing itself is input the
+  daemon reports, so the timeout starts after it; opening the machine resumes it.
+- Quiet background work can be paused. A job with no terminal, under 0.05 cores and with no
+  inbound connection reads as idle, whatever it is doing: a `nohup` bot holding a websocket open,
+  a long `curl` download, or `claude -p` started through exec outside acpmux. The escape is to
+  create the machine with `cmux cloud new-machine --persistent` or set its idle pause to Off;
+  running the job in a terminal also keeps the machine awake (a foreground command is busy).
+  Established outbound TCP connections are deliberately not counted: the machine's own daemons
+  (cmux-tui, acpmux, language servers, package mirrors) hold long-lived outbound connections on
+  an idle machine, so counting them would keep almost every machine awake, and telling a user's
+  job from those by process would be a per-image allowlist we would have to keep in step with
+  the image.
+- A person's exec, files or attach call (`execVm`, the file workflows, `openAttachEndpoint`,
+  `openVmCmuxRemote`) records its time on the row (`cmuxLastApiActivityAt`, at most once a minute,
+  without touching `updated_at`). The cron's own probe and the resource sampler call the provider
+  directly and record nothing.
+- It pauses once every probe for the whole timeout said idle and the activity times (a person's
+  input, an agent action, an acpmux session change, the last API call) are as old, through the
+  same pause path as the Pause Machine action, with `pauseReason: "idle"`.
+- Every write that can change the verdict moves the row's idle fence (`cmuxIdleEpoch`): the
+  cron's observation, API activity, the idle setting, any status write and a resume. The
+  cron's observation write requires the fence it read, so a probe that overlapped another
+  run, an exec, or a pause and resume stores nothing instead of bringing back an old
+  `idleSince`.
+- Before the provider pause the cron re-reads the row and claims the fence (`claimIdlePause`),
+  which also leaves the claim in the row (`cmuxIdlePauseClaim`). It then probes the guest once
+  more and skips the pause unless that probe is idle too. After the provider call, the pause is
+  recorded only if the row still holds the claimed fence. Guest activity that starts during the
+  provider call itself (a few seconds) is not seen; that window is accepted, because an idle
+  pause is undone by opening the machine.
+- A pause that says why (a person's Pause Machine, or the cron's own idle pause) stamps the
+  fence its write set (`cmuxPauseIntentEpoch`); the status reconciler's paused write says
+  nothing and stamps nothing. When the cron's record loses, a person's pause stamped after the
+  claim is kept. Anything else (an exec, files or attach call, a switch to Off, or the
+  reconciler recording the provider's pause) is undone. The compensating resume is fenced too
+  (`claimIdleResume`, then a running record at the claimed fence), so a person's pause that
+  lands while it runs wins and the machine is paused again. All of it is logged and counted as
+  `aborted`.
+- A provider error or timeout on the pause is not taken as "no pause". The cron reads the
+  provider back; a pause that went through is recorded, or undone if the fence moved. If the
+  read-back cannot tell, the claim stays in the row, and the next run reads the provider again
+  and settles it: running clears the claim, paused records the idle pause (or undoes it if the
+  fence moved), and unreadable waits another run.
+- Only a write that settles the claim removes it: a stated pause, the cron's own fenced write
+  or a destroy. The status reconciler's write keeps it, and the cron also picks up any live row
+  that still holds a claim, even one the reconciler already marked paused. A compensating
+  resume that loses its own claim gives up only to a person's or the allowance enforcer's
+  later pause, a delete or a replace; after any other write (Off, activity, the reconciler) it
+  keeps the claim and the next run tries again. If that resume woke the machine but its
+  running write lost, the next run finds the provider running under a paused row and repairs
+  the row to running through a fenced write, which settles the claim. Every recovery that
+  leaves the machine running (that repair, a compensation that finds it already running, a
+  refused pause the next run clears) takes the idle-resume fence, then clears the zero runtime
+  cap the idle pause put on a Plus (go) machine, as the re-pause race does. A newer write that
+  moved the fence first keeps its own cap, and a person's or the allowance enforcer's pause
+  that wins after the cap was cleared is put back (cap zero, then pause). Clearing the cap is
+  best effort: a failed write is logged and the recovery still finishes, and the compensating
+  resume takes no plan gate. A person's Pause on a row already marked paused still records
+  their decision.
+- A deliberate pause fences its intent before any provider effect. A person's Pause Machine
+  and the allowance enforcer first write the pause as under way (`cmuxPendingPause`: cause,
+  fence and `requestedAt`, with a fence bump), then set a Plus machine's cap to zero and pause
+  the provider. While that intent is outstanding (`hasOutstandingPauseIntent`), the idle cron
+  takes no pause claim, takes no resume claim, clears no cap and resumes nothing, whatever the
+  intent's fence: the claims check it in SQL, and the claim settlement, the compensation, the
+  repair and the re-pause check it on the row they read. A zero cap left in place is the safe
+  side; opening the machine resumes it and clears the cap. The pause's own paused write is not
+  fenced, so it still lands and replaces the intent with its stamp. A pause whose provider
+  effects fail drops its own intent (fenced on its own epoch); one that times out keeps it,
+  since the provider pause may still be in flight. An intent older than 20 minutes is
+  abandoned (a process that died mid-pause): past the 30 s provider pause timeout, the pause
+  route's 300 s and every route's 960 s limit.
+- The allowance enforcer's pause (`goPause.ts`, Plus and the Pro and Max budgets) stores the
+  cause `allowance`. It settles the claim and stamps the fence like a person's pause, so no
+  idle recovery resumes a machine past its allowance, whether the allowance runs out during the
+  cron's own pause or before a later run settles a claim left behind. The API's `pauseReason`
+  shows only `idle` and `user`, so it stays null for these.
+- Every pause, resume or other status write drops the stored idle observation, so a resumed
+  machine starts a new stretch and gets the whole timeout again.
+- The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and
+  detail): 15, 30, 60 or 120 minutes, or 0 for Off. A create may set it too (`POST /api/vm`
+  `idlePauseMinutes`, same values; `cmux cloud new-machine --persistent` sends `"off"`). It is
+  stored by the row's insert, before any provider call, so a same-key retry keeps the first
+  create's value; the answer carries it. A machine that never chose one gets
+  `VM_IDLE_PAUSE_DEFAULT_MINUTES` (30; 0 turns the default off).
+- `pauseReason` is `"idle"` or `"user"` on a paused machine the control plane paused, else
 
 There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
 needs a customer-verified domain), so the daemon is reached directly at a VM address.
@@ -598,10 +756,13 @@ no create-time env; the guest's model-plane env is the same for every machine an
 per-home file exist. It carries alias base URLs and a placeholder key only; the credential is
 edge-injected (see "Model plane" below).
 
-Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
-"the account holding uid 1000, or root in an image with no such account", and the devbox image
-ships a uid-1000 user — leaving it unset would silently move the daemon and its install off
-the root layout they are baked around.
+Driver maintenance commands run with `linuxUser: "root"`. Public `vm exec` leaves the
+provider account unset so Freestyle selects uid 1000 (the `cmux` work user on current
+images, with a legacy root fallback when that account is absent), then derives `HOME` from
+that account's passwd entry. This often aligns exec credentials and paths with Cloud
+terminals, but the daemon can fall back to root when its work-user layout is unavailable;
+exec still uses the provider-selected account. Explicit root remains a separate boundary
+for maintenance.
 
 `POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
@@ -673,7 +834,7 @@ machine (no env, no rule, still no secret) and must never be set in production.
 
 The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
-Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default and remains at zero regardless of stale free-limit env values while the paid-plan gate is on. A deliberate `CMUX_VM_ALLOW_FREE_PROVISIONING=1` escape hatch re-enables the configured free allowance for local demos and dev-backend stacks; it is ignored when `VERCEL_ENV=production`, so production never gives a free account a machine; Go is a $10/month personal starter plan with one active 2 vCPU / 4 GiB / 16 GB VM and two saved VM records. It includes 40 VM-hours per Stripe billing period. PostgreSQL runtime records commit with VM state changes, and an account-level lock limits Go to two retained VMs in total, with one active. Freestyle lifetime runtime caps enforce the remaining allowance and block restarts until cmux grants a new allowance. A minute job reconciles exhausted machines. Go disk growth beyond 16 GiB is refused; Pro and Max get the allowance sold on /pricing, 5 active machines per billing team, multiplied by the Team subscription's paid seats (`cmuxSeats` in the team's Stack metadata, written from the Stripe quantity) so "5 per paid seat" holds for the whole team (`PAID_MAX_ACTIVE_VMS_DEFAULT`; `maxActiveVms` in entitlements and the list response). New machines use validated Freestyle base snapshots from 4 GiB RAM / 16 GB disk through 64 GiB RAM / 128 GB disk, including the 24 GiB / 96 GB intermediate size. The default is 8 GiB RAM and 32 GB disk. Pro, Team, and Founder's plans may start machines up to the 8 vCPU / 16 GiB `lg` row; the 24 GiB, 32 GiB, and 64 GiB rows require the Max plan (`maxMemoryMbForPlan`, `lockedMemoryOptionsMbForPlan`). Free machines, which exist only behind the free-provisioning escape hatch, stop at 8 GiB. vCPUs follow the image ladder, one per 2 GiB (`vcpusForMemoryMb`). Existing machines remain usable during the entitlement migration even when their recorded CPU or memory exceeds the caller's current plan; new machines, forks, restores, Base generations, and future CPU/RAM growth enforce current limits. List, status, rename, and delete continue to work. The list response names the locked sizes and the upgrade plan, and gives each offered size's vCPUs in `vcpusByMemoryMb` so clients label sizes without their own table. A create with a locked size returns `402 vm_memory_requires_plan` rather than coercing to a smaller machine. Active machines share one vCPU and memory pool per billing scope: 20 vCPUs and 40 GiB for Pro and Founder's Edition, the same per paid seat on Team (multiplied by `cmuxSeats` exactly like the machine count), and 80 vCPUs and 160 GiB for Max (`resourcePoolForPlan`; a Max caller on a large team keeps the larger pool per dimension). Go and Free have no pool. Only `provisioning` and `running` rows draw from the pool; paused and stopped machines do not. Each row's share is its `cmuxResourceReservation` marker; a live row without a valid marker reserves the provider maximum (64 GiB / 32 vCPU) until reconciliation measures it, so a larger legacy machine cannot undercount the pool. The repository sums the scope's active shares and adds the new, resumed, resized, or forked machine inside the same transaction and billing-team advisory lock as the count check: `beginCreate` (create, restore, fork), `beginBaseOpen`, `beginBaseReset`, `reservePausedResume`, and `reserveVmComputeResize` (CPU/memory growth, which writes the larger marker before provider I/O and gives it back only when a fresh provider read proves the resize did not apply). A request that does not fit fails with `VmResourcePoolExceededError` and answers `402 vm_resource_pool_exceeded` with the pool, the amount in use, the request, and `upgradePlanId: "max"` below Max. `GET /api/vm` returns `poolVcpus`, `poolMemoryMb`, `usedVcpus`, and `usedMemoryMb` in `limits` and each machine's `resources`. Disk is not pooled. Disk growth is independent and grow-only: Go reaches 16 GiB, Pro/Team/Founder's 128 GiB, and Max 256 GiB in 4 GiB steps. The Freestyle driver applies the default at create (`CMUX_VM_DISK_MB` overrides it), and the resize API reads provider stats before and after the provider confirms the change. Destroyed VMs do not count against a limit; pausing frees the active slot, while Go still counts the retained VM toward its saved limit. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata. Paid-plan `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS`, `CMUX_VM_PAID_MAX_ACTIVE_VMS`, and `CMUX_VM_SHARED_CPU_LIMIT_ENABLED` are retired and ignored. The paid allowance lives in code; `CMUX_VM_CREATE_ENABLED=0` remains the provisioning incident control. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default and remains at zero regardless of stale free-limit env values while the paid-plan gate is on. A deliberate `CMUX_VM_ALLOW_FREE_PROVISIONING=1` escape hatch re-enables the configured free allowance for local demos and dev-backend stacks; it is ignored when `VERCEL_ENV=production`, so production never gives a free account a machine; Plus (internal plan ID `go`) is a $15/month personal plan with one saved Cloud VM total, including paused machines, with Pro’s machine sizes, up to 8 vCPU / 16 GiB RAM and 128 GiB disk. There is no monthly hour cap. PostgreSQL runtime records still commit with VM state changes, and an account-level lock prevents a second saved VM across billing teams. Legacy provider runtime caps and stale pause intents are cleared on access or by the minute job. Pro and Max get the allowance sold on /pricing, 5 saved machines per billing team, including paused machines, multiplied by the Team subscription's paid seats (`cmuxSeats` in the team's Stack metadata, written from the Stripe quantity) so "5 per paid seat" holds for the whole team (`PAID_MAX_ACTIVE_VMS_DEFAULT`; `maxActiveVms` in entitlements and the list response). New machines use validated Freestyle base snapshots from 4 GiB RAM / 16 GB disk through 64 GiB RAM / 128 GB disk, including the 24 GiB / 96 GB intermediate size. The default is 8 GiB RAM and 32 GB disk. Pro, Team, and Founder's plans may start machines up to the 8 vCPU / 16 GiB `lg` row; the 24 GiB, 32 GiB, and 64 GiB rows require the Max plan (`maxMemoryMbForPlan`, `lockedMemoryOptionsMbForPlan`). Free machines, which exist only behind the free-provisioning escape hatch, stop at 8 GiB. vCPUs follow the image ladder, one per 2 GiB (`vcpusForMemoryMb`). Existing machines remain usable during the entitlement migration even when their recorded CPU or memory exceeds the caller's current plan; new machines, forks, restores, Base generations, and future CPU/RAM growth enforce current limits. List, status, rename, and delete continue to work. The list response names the locked sizes and the upgrade plan, and gives each offered size's vCPUs in `vcpusByMemoryMb` so clients label sizes without their own table. A create with a locked size returns `402 vm_memory_requires_plan` rather than coercing to a smaller machine. Active machines share one vCPU and memory pool per billing scope: 20 vCPUs and 40 GiB for Pro and Founder's Edition, the same per paid seat on Team (multiplied by `cmuxSeats` exactly like the machine count), and 80 vCPUs and 160 GiB for Max (`resourcePoolForPlan`; a Max caller on a large team keeps the larger pool per dimension). Go and Free have no pool. Only `provisioning` and `running` rows draw from the pool; paused and stopped machines do not. Each row's share is its `cmuxResourceReservation` marker; a live row without a valid marker reserves the provider maximum (64 GiB / 32 vCPU) until reconciliation measures it, so a larger legacy machine cannot undercount the pool. The repository sums the scope's active shares and adds the new, resumed, resized, or forked machine inside the same transaction and billing-team advisory lock as the count check: `beginCreate` (create, restore, fork), `beginBaseOpen`, `beginBaseReset`, `reservePausedResume`, and `reserveVmComputeResize` (CPU/memory growth, which writes the larger marker before provider I/O and gives it back only when a fresh provider read proves the resize did not apply). A request that does not fit fails with `VmResourcePoolExceededError` and answers `402 vm_resource_pool_exceeded` with the pool, the amount in use, the request, and `upgradePlanId: "max"` below Max. `GET /api/vm` returns `poolVcpus`, `poolMemoryMb`, `usedVcpus`, and `usedMemoryMb` in `limits` and each machine's `resources`. Disk is not pooled. Disk growth is independent and grow-only: Plus/Pro/Team/Founder's reach 128 GiB, and Max 256 GiB in 4 GiB steps. The Freestyle driver applies the default at create (`CMUX_VM_DISK_MB` overrides it), and the resize API reads provider stats before and after the provider confirms the change. Destroyed VMs do not count against a limit; pausing retains a machine slot on every plan while freeing its compute pool claim. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata. Paid-plan `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS`, `CMUX_VM_PAID_MAX_ACTIVE_VMS`, and `CMUX_VM_SHARED_CPU_LIMIT_ENABLED` are retired and ignored. The paid allowance lives in code; `CMUX_VM_CREATE_ENABLED=0` remains the provisioning incident control. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
 
 ### The free limit is the paywall moment
 
@@ -681,7 +842,7 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 
 ### Pricing is flat
 
-Go includes one active VM with the starter resource shape. Pro and Max include up to 5 active VMs (per paid seat on Team) for a flat subscription price; those VMs share the plan's vCPU and memory pool, and each VM has its own disk. Go is capped by active VM count until usage metering is added. There is no overage billing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. Legacy VM resource claims are repaired by the status-reconcile cron in batches of 50, so create and resize requests do not fan out provider stats reads. A legacy row without resource metadata reserves the provider maximum until the cron records its measured shape, so an oversized row cannot undercount the shared pool.
+Plus (internal plan ID `go`) includes one saved VM total, including paused machines, with Pro’s sizes and resize ceilings: up to 8 vCPU / 16 GiB RAM and 128 GiB disk. Pro and Max include up to 5 saved VMs, including paused machines (per paid seat on Team) for a flat subscription price; those VMs share the plan's vCPU and memory pool, and each VM has its own disk. Plus has no monthly hour cap; runtime records remain for operational accounting. There is no overage billing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. Legacy VM resource claims are repaired by the status-reconcile cron in batches of 50, so create and resize requests do not fan out provider stats reads. A legacy row without resource metadata reserves the provider maximum until the cron records its measured shape, so an oversized row cannot undercount the shared pool.
 # Signed VM model-plane authorization
 
 VM model traffic uses one `x-cmux-authorization: Bearer <JWT>` header. The

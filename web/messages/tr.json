@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planlama, TDD, alt aracılar ve inceleme"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM isteği gecikti",
+      "message": "Cloud VM ayırma işlemi geçici olarak kullanılamıyor.",
+      "action": "Bir dakika bekleyin, ardından aynı idempotency anahtarıyla yeniden deneyin."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Anlık görüntü isteği için yeniden deneme anahtarı gerekiyor",
+      "message": "Cloud VM anlık görüntüleri bir idempotency anahtarı gerektirir.",
+      "action": "En fazla 128 karakterlik sabit bir Idempotency-Key ile yeniden deneyin."
+    },
+    "snapshotInProgress": {
+      "title": "Anlık görüntü hâlâ sürüyor",
+      "message": "Bu idempotency anahtarına sahip anlık görüntü bu Cloud VM için hâlâ çalışıyor.",
+      "action": "İlk anlık görüntünün tamamlanmasını bekleyin, ardından aynı idempotency anahtarıyla yeniden deneyin."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Anlık görüntü yeniden deneme anahtarı zaten kullanılmış",
+      "message": "Bu idempotency anahtarı bu Cloud VM üzerindeki başka bir anlık görüntü isteği için zaten kullanılmış.",
+      "action": "Farklı adlı bir anlık görüntü için yeni bir idempotency anahtarı kullanın."
+    },
+    "snapshotQuota": {
+      "title": "Anlık görüntü sınırına ulaşıldı",
+      "message": "Bu Cloud VM anlık görüntü sınırına ulaştı.",
+      "action": "Mevcut bir anlık görüntüyü silin, ardından aynı idempotency anahtarıyla yeniden deneyin."
+    },
     "guestInstall": {
       "title": "Cloud VM kurulumu tamamlanamadı",
       "reason": "Cloud VM konuk kurulumu tamamlanmadı.",
@@ -105,14 +130,14 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go, çalışan VM dahil iki kayıtlı VM içerir.",
+      "savedMessage": "Plus: Duraklatılan makine dahil toplam 1 kayıtlı VM",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go aynı anda bir VM çalıştırabilir.",
+      "activeMessage": "Plus: 1 Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Go bu ayki 40 VM saatini kullandı. Kayıtlı VM’ler sonraki fatura döneminde yeniden kullanılabilir.",
+      "hoursMessage": "Plus: Aylık saat sınırı yok",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go, 2 vCPU, 4 GiB RAM ve 16 GiB disk destekler.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan} işlem kotası doldu",
@@ -132,7 +157,7 @@
       "action": "Bir VM'yi duraklatın veya silin."
     },
     "activeLimit": {
-      "counted": "Şu anda sayılanlar: {machines}. Duraklatılmış makineler sayılmaz.",
+      "counted": "Şu anda sayılanlar: {machines}. Duraklatılmış makineler de sınıra dahildir.",
       "provisioning": "{name} (hazırlanıyor)",
       "separator": ", "
     }
@@ -531,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -543,9 +568,10 @@
             "Yerel oturum geçmişi"
           ],
           "go": [
-            "1 etkin Cloud VM",
-            "Ayda 40 VM saati",
-            "2 kayıtlı VM"
+            "Duraklatılan makine dahil toplam 1 kayıtlı VM",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+            "Topluluk desteği",
+            "Aylık saat sınırı yok"
           ],
           "pro": [
             "Cloud VMs üzerinde bulut ajanları",
@@ -610,6 +636,12 @@
         "title": "App Store üzerinden faturalandırılır",
         "body": "Planınız cmux iPhone uygulamasında satın alındı ve Apple tarafından faturalandırılıyor. Planı App Store aboneliklerinizden değiştirin veya iptal edin.",
         "manage": "App Store'da yönet"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Plus planınız {date} tarihinde yenilenir.",
+        "pendingBody": "Plus planınız {date} tarihinde sona erer.",
+        "monthlyPrice": "${amount}/ay"
       }
     },
     "mobileDevices": {
@@ -944,7 +976,7 @@
       },
       "plan": {
         "free": "Ücretsiz",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2181,6 +2213,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Etkinleştirildiğinde, bir bölme ayırıcısına çift tıklamak o satır veya sütundaki bölmeleri eşit boyuta getirir. Diğer satır ve sütunların boyutları korunur.",
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Yeni pencereler açılırken yalnızca DEBUG derlemelerinde kullanılan ekran adı. Boş değer sistem varsayılanını kullanır.",
@@ -2265,6 +2298,13 @@
               "enabled": "Uzak bir tmux çalışma alanı seçildiğinde “Yeni çalışma alanı”, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Ana Sayfa aracısı: gösterilip gösterilmediği ve hangi altyapıyı, modeli ve çabayı kullandığı.",
+          "enabled": "Ana Sayfa satırını ve Chief giriş noktalarını gösterir. false olduğunda Ana Sayfa satırı, Chief'i Aç kısayolu, menü öğesi ve komut paleti girdileri gizlenir.",
+          "harness": "Chief'in çalıştığı aracı altyapısı: claude (Claude Code) veya codex (Codex).",
+          "model": "Altyapıya iletilen model. Altyapının varsayılanını kullanmak için boş bırakın.",
+          "effort": "Altyapıya iletilen akıl yürütme çabası; örneğin low, medium veya high. Altyapının varsayılanını kullanmak için boş bırakın."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2935,10 +2975,10 @@
       "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@cmux.com</link> ile iletişime geçin."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "cmux üzerinden kalıcı Linux bulut makineleri çalıştırın ve Mac'inizi kapattıktan sonra bile kodlama aracılarının çalışmaya devam etmesini sağlayın.",
-      "intro": "cmux Cloud, normal cmux çalışma alanları olarak açılan kalıcı Linux bulut makineleri sunar. Bir bölmeyi kapattığınızda, ağ bağlantınız koptuğunda veya dizüstü bilgisayarınızı kapattığınızda terminaller çalışmaya devam eder. Böylece kodlama aracıları çalışmayı sürdürür ve siz de oturum açılmış herhangi bir Mac'ten yeniden bağlanabilirsiniz.",
+      "title": "cmux Cloud hızlı başlangıç",
+      "metaTitle": "cmux Cloud hızlı başlangıç",
+      "metaDescription": "cmux NEXT Cloud ile başlayın: oturum açın, Linux makinesi oluşturun, terminal ve masaüstünü açın, duraklatın veya devam ettirin, ardından silin.",
+      "intro": "Araçlarınızı Linux tabanlı bir Cloud makinesinde çalıştırın, Mac’inizi ise uygulama için kullanın. Bu kılavuz, 2026-10-29 tarihinde doğrulanan cmux NEXT komutlarını kullanır. Eski sürümler farklı bir CLI kullanır.",
       "betaNote": "cmux Cloud erken erişim aşamasındadır ve kuruluşunuz devre dışı bırakmadığı sürece kullanılabilir. Kullanmak için Settings › Beta Features › Cloud Machines’i etkinleştirin.",
       "whatTitle": "Makine nedir",
       "whatDesc": "Makine, size veya ekibinize ait kalıcı bir bulut bilgisayarıdır. Dosyalarını, kurulu araçlarını ve çalışan terminallerini korur. Ona sürüdeki bir hayvan gibi değil, evcil bir hayvan gibi davranın: ihtiyacınız olanı bir kez kurar, daha sonra ona geri dönersiniz.",
@@ -2964,12 +3004,27 @@
       "cliIntroDesc": "cmux vm ve cmux cloud aynı komuttur. Makinelerinizi listelemek için cmux vm'i fiil olmadan çalıştırın. Her fiilin uygulama olmadan çalışan bir --help sayfası vardır ve cmux vm guide eksiksiz bir Markdown kılavuzu yazdırır. Makinece okunabilir çıktı için herhangi bir fiile --json ekleyin.",
       "baseTitle": "Temel makineniz",
       "baseDesc": "Her hesabın sabitlenmiş bir temel makinesi vardır. cmux vm base onu açar ve ilk seferde oluşturur. cmux vm base reset yeni bir temel makine oluşturur ve eskisini saklar, böylece dosyalarınızı yanlışlıkla kaybetmezsiniz.",
-      "nextTitle": "Sonraki adımlar",
+      "nextTitle": "cmux Cloud hızlı başlangıç",
       "nextMachines": "Makineler: boyutlar, planlar, yeniden boyutlandırma, duraklatma, anlık görüntüler ve silme.",
       "nextWorkspaces": "Çalışma Alanları ve Aracılar: kalıcı terminaller, aracılar, bildirimler ve kurulu yazılımlar.",
       "nextNetworking": "Dosyalar ve Ağ: dosya yükleme, ortam değişkenleri, bağlantı noktaları, masaüstü ve genel URL'ler.",
-      "nextCli": "Cloud CLI Referansı: tüm cmux vm fiilleri.",
-      "nextTroubleshooting": "Güvenlik ve Sorun Giderme: erişimin nasıl çalıştığı ve yaygın hataların nasıl düzeltileceği."
+      "nextCli": "Cloud CLI başvuru kaynağı: sunulan NEXT eylemleri, gizli bilgiler ve devir komutları.",
+      "nextTroubleshooting": "Cloud sorun giderme",
+      "nextIntro": "Araçlarınızı Linux tabanlı bir Cloud makinesinde çalıştırın, Mac’inizi ise uygulama için kullanın. Bu kılavuz, 2026-10-29 tarihinde doğrulanan cmux NEXT komutlarını kullanır. Eski sürümler farklı bir CLI kullanır.",
+      "nextSignIn": "1. Oturum açın",
+      "nextSignInBody": "Mac’inizde cmux NEXT’i açık tutun. Bu komutu çalıştırın, tarayıcıda oturum açmayı tamamlayın ve ardından makine listesini kontrol edin.",
+      "nextCreate": "2. Bir makine oluşturun",
+      "nextCreateBody": "medium boyutundaki bir makinede 4 CPU, 8 GB bellek ve 32 GB disk bulunur. claude, codex, gh, git, node, bun ve python3 içerir. Araçlarda oturum açma, cmux oturum açma işleminden ayrıdır.",
+      "nextPending": "Oluşturma işlemi 30 saniye sonra pending: true döndürüp arka planda devam edebilir. Başka bir makine oluşturmadan önce list-machines sonucunu kontrol edin. Döndürülen hedefi ({machineTarget}) aşağıdaki komutlara kopyalayın; çoğu makine komutu, yalnızca tek makineniz olsa bile bunu gerektirir.",
+      "nextTerminal": "3. Bir terminal açın",
+      "nextTerminalBody": "Terminali pencerenizde göstermek için --focus kullanın. Bu seçenek olmadan çalışma alanı arka planda açılır. Bu terminalde gh auth login çalıştırın, deponuzu klonlayın ve claude veya codex başlatın. Yerleşik ajan sohbet sekmeleri, 2026-10-29 tarihinde kontrol edilen imajdan oluşturulan makinelerde henüz kullanılamıyor.",
+      "nextDesktop": "4. Masaüstünü açın",
+      "nextDesktopBody": "Bu işlem makinenin masaüstünü bir noVNC tarayıcı sekmesinde açar. Komut, sayfanın yüklenmesi tamamlanmadan döner.",
+      "nextPause": "5. Duraklatın ve devam ettirin",
+      "nextPauseBody": "İşiniz bittiğinde makineyi kendiniz duraklatın; diski korunur. Boştayken otomatik duraklatma henüz kullanılamıyor. Yeniden ihtiyaç duyduğunuzda makineyi devam ettirin.",
+      "nextDelete": "6. İşiniz bitince silin",
+      "nextDeleteBody": "Silme işlemi makineyi ve üzerindeki her şeyi kaldırır. Önce ihtiyacınız olan çalışmaları başka bir yere kaydedin. Komut, silme işlemi tamamlanmadan döner; ardından list-machines sonucunu kontrol edin.",
+      "nextReference": "Cloud CLI başvuru kaynağı"
     },
     "cloudMachines": {
       "title": "Cloud Makineleri",
@@ -2993,9 +3048,9 @@
       "limitsTitle": "Plan sınırları",
       "limitsDesc": "Etkin makineleriniz tek bir vCPU ve bellek havuzunu paylaşır. Tek bir büyük makine veya birkaç küçük makine çalıştırın. Duraklatılmış makineler havuzu kullanmaz. Disk her makine için ayrı belirlenir ve havuza dahil değildir.",
       "limitsFree": "Ücretsiz hesaplar makine oluşturamaz.",
-      "limitsPaid": "Pro ve Founder's Edition hesaplarında 20 vCPU ve 40 GB belleği paylaşan en fazla 5 etkin makine olabilir. Bir makine çalışırken veya başlatılırken etkin sayılır.",
-      "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 5 etkin makine olabilir. Her ücretli koltuk ekibin havuzuna 20 vCPU ve 40 GB bellek ekler.",
-      "limitsMax": "Max hesaplarında 80 vCPU ve 160 GB belleği paylaşan en fazla 5 etkin makine olabilir. Tek bir Max makinesi, 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları dahil olmak üzere 64 GB ve 32 vCPU'ya kadar kullanabilir; Pro ve Team 16 GB ve 8 vCPU ile sınırlıdır.",
+      "limitsPaid": "Pro ve Founder's Edition hesaplarında 20 vCPU ve 40 GB belleği paylaşan en fazla 5 makine (duraklatılanlar dahil) olabilir.",
+      "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 5 makine (duraklatılanlar dahil) olabilir. Her ücretli koltuk ekibin havuzuna 20 vCPU ve 40 GB bellek ekler.",
+      "limitsMax": "Max hesaplarında 80 vCPU ve 160 GB belleği paylaşan en fazla 5 makine (duraklatılanlar dahil) olabilir. Tek bir Max makinesi, 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları dahil olmak üzere 64 GB ve 32 vCPU'ya kadar kullanabilir; Pro ve Team 16 GB ve 8 vCPU ile sınırlıdır.",
       "limitsPoolFull": "Yeni, sürdürülen, büyütülen veya çatallanan bir makine havuzu aşacaksa cmux isteği reddeder ve havuzun ne kadarının kullanıldığını gösterir. Kaynak açmak için bir makineyi duraklatın veya silin ya da Max'e yükseltin.",
       "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Kullanım ölçümü ve aşım ücreti yoktur.",
       "agentUpdatesTitle": "Kodlama ajanlarını güncel tut",
@@ -3005,7 +3060,7 @@
       "agentUpdatesToggle": "New Machine sayfası bu ayarı varsayılan olarak açar. Mevcut bir makinede değiştirmek için makineye sağ tıklayıp Keep Agents Up to Date seçeneğini seçin veya cmux vm agent-updates komutunu çalıştırın. cmux vm new, --agent-updates latest geçmediğiniz sürece imajdaki sürümleri korur. Güncellemeleri kapatmak, kurulu sürümleri korur.",
       "agentUpdatesNetwork": "Güncellemeler yalnızca github.com, api.github.com, objects.githubusercontent.com ve release-assets.githubusercontent.com kullanır. cmux bu sunuculara Allowlist ve No internet dahil her ağ modunda izin verir, bu yüzden bir ağ politikası güncellemeleri asla engellemez.",
       "resizeTitle": "Yeniden boyutlandırma",
-      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk Pro ve Team'de 4 GB'lık adımlarla 128 GB'a, Max'te 256 GB'a kadar büyür (Go 16 GB ile sınırlıdır). Bellek Pro ve Team'de 16 GB'a, CPU 8 vCPU'ya; Max'te 64 GB'a ve 32 vCPU'ya kadar büyür. Daha büyük bir makine havuzunuzdan daha fazla kullanır. Gerçek üst sınırı planınız belirler.",
+      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk Pro ve Team'de 4 GB'lık adımlarla 128 GB'a, Max'te 256 GB'a kadar büyür (Plus 128 GB ile sınırlıdır). Bellek Pro ve Team'de 16 GB'a, CPU 8 vCPU'ya; Max'te 64 GB'a ve 32 vCPU'ya kadar büyür. Daha büyük bir makine havuzunuzdan daha fazla kullanır. Gerçek üst sınırı planınız belirler.",
       "pauseTitle": "Duraklatma ve sürdürme",
       "pauseDesc": "cmux vm pause makinenin işlem kaynaklarını durdurur. Disk, çalışma alanları ve terminal geçmişi korunur. Çalışan işlemler durur. cmux vm resume makineyi yeniden başlatır. Duraklatılmış bir makineyi açmak veya üzerinde komut çalıştırmak da onu başlatır.",
       "pauseIdle": "Makineler boşta kaldıklarında kendiliğinden duraklamaz. Bir makine siz onu duraklatana veya silene kadar çalışmaya devam eder.",
@@ -3101,10 +3156,10 @@
       "customDomainDesc": "cmux cloud domains verify eklemeniz gereken DNS kayıtlarını yazdırır: sahiplik için bir TXT kaydı, yönlendirme kayıtları ve sertifika yetkilendirmesi. Bunları ekleyin, ardından verify komutunu yeniden çalıştırın. Doğrulamadan sonra alan adında veya onun bir seviye altındaki bir alt alan adında yayımlayabilirsiniz."
     },
     "cloudCli": {
-      "title": "Cloud CLI Referansı",
-      "metaTitle": "cmux Cloud CLI Referansı",
-      "metaDescription": "Tüm cmux vm ve cmux cloud komutları için referans: yaşam döngüsü, çalışma alanları, dosyalar, ortam, alan adları ve VPN.",
-      "intro": "cmux vm ve cmux cloud aynı komuttur. CLI, oturum bilginizi tutan çalışan cmux uygulamasıyla konuşur. Makinece okunabilir çıktı için herhangi bir fiile --json ekleyin. Her fiilin bir --help sayfası vardır.",
+      "title": "Cloud CLI başvuru kaynağı (NEXT)",
+      "metaTitle": "Cloud CLI başvuru kaynağı (NEXT)",
+      "metaDescription": "Sunulan cmux NEXT Cloud eylemleri, gizli bilgi saklama ve devir komutları, açık makine hedefleri ve mevcut imaj sınırlamaları.",
+      "intro": "Bunlar cmux NEXT CLI tarafından sunulan Cloud eylemleridir. Sunulan bir komut, belirli bir makine imajında yine de kullanılamayabilir. 2026-10-29 tarihinde kontrol edilen imaj; yerleşik ajan sohbet sekmelerini, geliştirme sunucusu için tarayıcı sekmesi açmayı, yerel port yönlendirmeyi, çatallamayı veya boştayken otomatik duraklatmayı henüz desteklemiyor.",
       "exitCodes": "Çıkış kodları: başarıda 0, hatada 1 ve bilinmeyen bir komut için 2. cmux vm run uzak çıkış kodunu döndürür.",
       "authTitle": "Oturum açma",
       "authDesc": "Oturum açın, hesabınızı kontrol edin ve bir ekip seçin.",
@@ -3128,7 +3183,19 @@
       "accountsDesc": "Ekibiniz için aracı hesapları yükleyin ve model yönlendirmesini kontrol edin.",
       "preflightTitle": "Betik kontrol listesi",
       "preflightDesc": "Bir betik makine oluşturmadan veya kullanmadan önce bu salt okunur kontrolleri çalıştırın. Oturum açtığınızı doğrular, makinelerinizi ve plan sınırlarınızı gösterir ve bir dizinin hangi makineyi kullandığını gösterir.",
-      "coderouterLink": "Tam CodeRouter komut referansı"
+      "coderouterLink": "Tam CodeRouter komut referansı",
+      "nextTitle": "Cloud CLI başvuru kaynağı (NEXT)",
+      "nextIntro": "Bunlar cmux NEXT CLI tarafından sunulan Cloud eylemleridir. Sunulan bir komut, belirli bir makine imajında yine de kullanılamayabilir. 2026-10-29 tarihinde kontrol edilen imaj; yerleşik ajan sohbet sekmelerini, geliştirme sunucusu için tarayıcı sekmesi açmayı, yerel port yönlendirmeyi, çatallamayı veya boştayken otomatik duraklatmayı henüz desteklemiyor.",
+      "nextTargets": "list-machines sonucundan {machineTarget} hedefini kopyalayın ve tek makineniz olsa bile makine komutlarında --target seçeneğini açıkça belirtin. Komut sözdizimi için --help, argümanlar ve döndürülen alanlar için eylem kimliğiyle birlikte cmux action describe kullanın.",
+      "nextCatalog": "Sunulan eylemler",
+      "nextCatalogBody": "Bu liste NEXT eylem kataloğundan oluşturulur ve yalnızca GUI üzerinden kullanılabilen eylemleri içermez. Kullanılabilir komut adlarını listeler; her makinenin bunları desteklediğini garanti etmez.",
+      "nextCommand": "Komut",
+      "nextAction": "Eylem kimliği",
+      "nextSecrets": "Bu Mac’teki gizli bilgiler",
+      "nextSecretsBody": "secret set, değeri gizli giriş isteminden veya stdin üzerinden okur ve bu Mac’in Anahtar Zinciri’nde saklar. Gizli bir değeri asla komut argümanlarına koymayın. set ve rm, --repo OWNER/NAME seçeneğini kabul eder; ls, saklanan adları ve kapsamları listeler. Aktarım, gizli bilgi adlarını bildiren tamamlanmış bir makine yapılandırması gerektirir. Yapılandırmanın uygulanması ve gizli bilgilerin aktarılması, 2026-10-29 tarihinde kontrol edilen imajda henüz uçtan uca doğrulanmadı.",
+      "nextHandoff": "Devir bilgisi ve sohbet taşıma",
+      "nextHandoffBody": "hand-off-machine, bir makine hakkında metin döndürür; sohbet taşımaz. move ve bring-back, sohbet sekmelerini bu Mac ile bir Cloud makinesi arasında taşır. Uyumlu sohbet desteği gerektirirler; ajan sohbet sekmeleri olmayan bir imaj için geçici çözüm olarak kullanmayın. Bunun yerine ajanı uzak bir terminalde çalıştırın.",
+      "nextHelp": "Hızlı başlangıç ve mevcut sınırlamalar"
     },
     "cloudTroubleshooting": {
       "title": "Cloud Güvenliği ve Sorun Giderme",
@@ -3186,7 +3253,26 @@
       "errTransferDisabled": "Dosya aktarımı kuruluşunuz tarafından devre dışı bırakıldı",
       "fixTransferDisabled": "Yönetilen bir ilke dosya aktarımını kapatıyor. Yöneticinize başvurun.",
       "supportTitle": "Yardım alın",
-      "supportDesc": "Bir oluşturma işlemi başarısız olursa bildirimdeki Copy Error'ı kullanın ve destekle iletişime geçtiğinizde hatayı, varsa izleme kimliğiyle birlikte ekleyin."
+      "supportDesc": "Bir oluşturma işlemi başarısız olursa bildirimdeki Copy Error'ı kullanın ve destekle iletişime geçtiğinizde hatayı, varsa izleme kimliğiyle birlikte ekleyin.",
+      "nextTitle": "Cloud sorun giderme (NEXT)",
+      "nextIntro": "Bu mesajlar 2026-10-29 tarihinde kontrol edildi. Henüz kullanılamıyor olarak işaretlenen özellikler, o günün imajından oluşturulan makinelerde desteklenmez. Yalnızca Mac uygulamasını güncellemek, Cloud makinesinde zaten kurulu olan yazılımı güncellemez.",
+      "nextSymptom": "Mesaj veya belirti",
+      "nextFix": "Yapılması gereken",
+      "nextPendingFix": "Oluşturma işlemi arka planda devam eder. Başka bir makine oluşturmadan önce list-machines sonucunu kontrol edin. loaded: false içeren bir liste henüz bilinmiyordur; hesabın boş olduğu anlamına gelmez.",
+      "nextTargetFix": "list-machines sonucundan target değerini kopyalayın ve yalnızca tek makineniz olsa bile --target {machineTarget} belirtin.",
+      "nextOpenFix": "open-machine yalnızca GUI üzerinden kullanılabilen bir eylemdir. CLI üzerinden terminal açıp göstermek için makine hedefi ve --focus ile new-terminal-on-machine kullanın.",
+      "nextAgentFix": "Yerleşik ajan sohbet sekmeleri henüz kullanılamıyor. Makinede bir terminal açın ve orada claude veya codex çalıştırın. Ajan seçimini değiştirmek eksik sohbet desteğini düzeltmez.",
+      "nextBrowserFix": "Geliştirme sunucusu için tarayıcı sekmesi açma henüz kullanılamıyor. machine-link --port bir bağlantı döndürür, ancak bu bağlantı üzerinden tarayıcı erişimi doğrulanmadı. Yalnızca bir bağlantının döndürülmesi, porta erişilebildiğini kanıtlamaz.",
+      "nextPortFix": "Bu makine bağlantısı üzerinden yerel port listeleme ve yönlendirme henüz kullanılamıyor. machine-link bir port bağlantısı döndürebilir; localhost yönlendirmesi oluşturmaz ve tarayıcıdan erişilebilirlik doğrulanmadı.",
+      "nextForkFix": "Bu imajdan oluşturulan makinelerde çatallama henüz kullanılamıyor. Yeni bir makine oluşturup deponuzu orada klonlayın; yeni makine, özgün makinenin dosyalarını kopyalamaz.",
+      "nextIdleFix": "Boştayken otomatik duraklatma henüz kullanılamıyor. İşiniz bittiğinde makineyi kendiniz duraklatın ve gerektiğinde devam ettirin. Off, kabul edilen tek boşta duraklatma ayarıdır.",
+      "nextSecretsFix": "Gizli bilgi adlarını .cmux/machine.toml içinde bildirin, apply-machine-config ile yapılandırmayı uygulayın ve deliver-secrets öncesinde kurulumun tamamlanmasını bekleyin. Değerleri secret set NAME ile giriş istemini veya stdin kullanarak saklayın. Bu aktarım akışı, bu imajda henüz uçtan uca doğrulanmadı.",
+      "nextGithubFix": "Makinenin terminalinde gh auth login çalıştırın ve Git kimliğinizi orada yapılandırın. setup-github, Mac’te bir Git kimliği gerektirir; doğrulama sırasında bu hatayı neden belirtmeden döndürdü.",
+      "nextExecFix": "exec kısa komutlar içindir ve 25 saniye sonra durur. Derlemeler, ajanlar ve uzun süre çalışan sunucular için makinedeki bir terminali kullanın.",
+      "nextSupport": "Tanı bilgilerini toplayın",
+      "nextSupportBody": "diagnostics çalıştırın ve bir sorun bildirirken hata mesajını ve ne yapmaya çalıştığınızı ekleyin. Çıktıyı herkese açık olarak paylaşmadan önce inceleyin; hesap ayrıntılarını, makine adreslerini ve diğer özel bilgileri kaldırın.",
+      "legacyTitle": "Önceki sürümler: güvenlik ve yaygın sorunlar",
+      "legacyIntro": "Aşağıdaki bilgiler önceki cmux sürümleri için korunmuştur. Buradaki cmux vm ve cmux auth örnekleri NEXT komutları değildir. NEXT makine imajından kaynaklanan retler ve geçici çözümler için yukarıdaki bölümü kullanın."
     },
     "ui": {
       "onThisPage": "Bu sayfada",
@@ -3429,6 +3515,15 @@
     "download": "Mac için NIGHTLY indir",
     "warning": "Nightly derlemeler hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun oluşursa <githubLink>GitHub</githubLink> veya <discordLink>Discord daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geçin."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Yeni cmux uygulamasının önizleme sürümleri",
+    "metaTitle": "cmux NEXT NIGHTLY — Önizleme sürümleri",
+    "metaDescription": "Son commit'ten otomatik derlenen yeni cmux uygulamasının önizlemesi cmux NEXT NIGHTLY'yi indirin. Kendi otomatik güncellemeleriyle cmux ile yan yana çalışır.",
+    "description": "cmux NEXT NIGHTLY, son commit'ten otomatik olarak derlenen bir sonraki cmux sürümünün önizlemesidir. Kendi bundle ID'sine sahip olduğundan cmux ve cmux NIGHTLY ile çakışmadan yan yana çalışır. Apple çipli bir Mac gerektirir.",
+    "download": "Mac için NEXT NIGHTLY'yi indir",
+    "warning": "NEXT NIGHTLY sürümleri hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun olursa <githubLink>GitHub</githubLink> üzerinden veya <discordLink>Discord'daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geri dönün."
+  },
   "languageSwitcher": {
     "label": "Dil"
   },
@@ -3442,6 +3537,7 @@
     "unsupportedParams": "Bu bağlantı cmux'un reddedeceği desteklenmeyen parametreler içeriyor: {params}",
     "conflictingParams": "Bu bağlantı birlikte kullanılamayan parametreleri içerir: {params}",
     "invalidParams": "Bu bağlantı geçersiz parametre değerleri içeriyor: {params}",
+    "ignoredParams": "cmux kullanmadığı parametreleri yok sayar: {params}. Oturum yine de açılır.",
     "fixParams": "URL parametrelerini düzeltin ve ardından bu sayfayı yeniden yükleyin.",
     "examplePrefix": "Bir gör",
     "exampleLink": "örnek bağlantı",
@@ -5295,7 +5391,18 @@
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
     "signedOutSignIn": "Oturum aç",
-    "manageInAppStore": "App Store'da yönet"
+    "manageInAppStore": "App Store'da yönet",
+    "go": {
+      "name": "Plus",
+      "cta": "Plus seç",
+      "featuresLead": "Dahil olanlar:",
+      "features": [
+        "Duraklatılan makine dahil toplam 1 kayıtlı VM",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Topluluk desteği",
+        "Aylık saat sınırı yok"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",
@@ -5513,6 +5620,8 @@
     "errorInvalidCode": "Bu kod geçersiz. E-postanı kontrol edip tekrar dene.",
     "errorInvalidTotp": "Bu iki adımlı doğrulama kodu geçersiz.",
     "errorSignUpNotAllowed": "Şu anda yeni hesap oluşturulamıyor.",
+    "errorEmailUnverified": "Bu e-postanın zaten bir hesabı var, ancak adres henüz doğrulanmadı. Kaydolduğun yöntemle giriş yap, ardından giriş kodlarını kullanmak için e-postanı doğrula.",
+    "useEmailPasswordInstead": "E-posta ve şifreyle giriş yap",
     "errorPasskey": "Geçiş anahtarıyla giriş tamamlanmadı. Tekrar dene veya başka bir yöntem kullan.",
     "errorGeneric": "Bir sorun oluştu. Tekrar dene."
   },

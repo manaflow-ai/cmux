@@ -172,6 +172,28 @@ async function vmErrorsCopy(key: "providerCapacity" | "stateConflict", locale: L
   };
 }
 
+/** Localized copy for admission and snapshot guards added before provider work. */
+export async function vmMutationGuardCopy(
+  key:
+    | "allocationUnavailable"
+    | "snapshotIdempotencyRequired"
+    | "snapshotInProgress"
+    | "snapshotIdempotencyConflict"
+    | "snapshotQuota",
+  locale: Locale,
+): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: `vmErrors.${key}`,
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
 /** Localized guidance when the provider account's network rule capacity is exhausted. */
 export async function vmNetworkRuleCapacityCopy(locale: Locale): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
@@ -323,7 +345,7 @@ export async function vmPlanBudgetCopy(
  */
 export async function vmActiveLimitCountedCopy(
   locale: Locale,
-  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" }[],
+  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" | "paused" }[],
 ): Promise<string> {
   if (machines.length === 0) return "";
   const t = createTranslator({

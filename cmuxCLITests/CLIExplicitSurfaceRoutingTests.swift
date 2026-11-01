@@ -727,7 +727,7 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
-    private func runMockCommand(
+    func runMockCommand(
         arguments: [String],
         socketName: String,
         environmentOverrides: [String: String] = [:],
@@ -860,7 +860,7 @@ struct CLIExplicitSurfaceRoutingTests {
     private final class CLIExplicitSurfaceRoutingBundleToken {}
 
     // Records socket callbacks from a background queue; `lock` guards both arrays.
-    private final class ServerState: @unchecked Sendable {
+    final class ServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var requestLines: [String] = []
         private var errors: [String] = []
@@ -906,7 +906,7 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
-    private struct ProcessRunResult {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
@@ -1016,7 +1016,7 @@ struct CLIExplicitSurfaceRoutingTests {
         return handled
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
@@ -1029,7 +1029,7 @@ struct CLIExplicitSurfaceRoutingTests {
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
-    private static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
+    static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
         v2Response(
             id: id ?? "unknown",
             ok: false,
@@ -1037,7 +1037,7 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
-    private static func jsonObject(_ line: String) -> [String: Any]? {
+    static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }

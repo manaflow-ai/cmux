@@ -242,7 +242,10 @@ class WorkflowTests(unittest.TestCase):
     def test_the_wait_runs_on_linux_before_the_build(self) -> None:
         sibling_job = self.jobs["sibling"]
         self.assertNotIn("macos", str(sibling_job["runs-on"]))
-        self.assertEqual(sibling_job["runs-on"], self.jobs["runner"]["runs-on"])
+        # The same Linux fallback as the runner job. The runner job holds an App key, so no variable
+        # moves it; the sibling holds none and may still follow LINUX_RUNNER.
+        fallback = self.jobs["runner"]["runs-on"].rsplit("||", 1)[1]
+        self.assertTrue(sibling_job["runs-on"].endswith("||" + fallback), sibling_job["runs-on"])
         self.assertIn("sibling", self.jobs["build"]["needs"])
         wait = next(step for step in sibling_job["steps"] if "e2e_sibling_build.py wait" in str(step.get("run")))
         self.assertTrue(wait["run"].endswith("|| true"))

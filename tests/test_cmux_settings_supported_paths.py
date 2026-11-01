@@ -22,7 +22,7 @@ SKILL_ROOT = REPO_ROOT / "skills" / "cmux-settings"
 # descendant paths beneath these roots (for example shortcuts.bindings).
 SETTINGS_SECTIONS = (
     "app", "terminal", "surfaceTabBar", "notifications", "sidebar", "sidebarAppearance",
-    "workspaceColors", "automation", "agentMessages", "browser", "markdown", "fileEditor",
+    "workspaceColors", "automation", "agentMessages", "chief", "browser", "markdown", "fileEditor",
     "fileExplorer", "diffViewer", "shortcuts",
 )
 

@@ -426,7 +426,9 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
-        "feed.jump"
+        "feed.jump",
+        // Shows Chief Home in the target window, like workspace.select.
+        "chief.open"
     ]
 
     nonisolated static func commandHasFocusIntent(
@@ -573,7 +575,7 @@ class TerminalController {
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
-        agentHookDeliveryQueue: AgentHookDeliveryQueue = AgentHookDeliveryQueue(),
+        agentHookDeliveryQueue: AgentHookDeliveryQueue? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -584,9 +586,16 @@ class TerminalController {
             FileWatcher(path: $0.path)
         }
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
-        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        let socketCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        self.socketClientCapabilityAuthority = socketCapabilityAuthority
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
-        self.agentHookDeliveryQueue = agentHookDeliveryQueue
+        self.agentHookDeliveryQueue = agentHookDeliveryQueue ?? AgentHookDeliveryQueue(
+            process: AgentHookDeliveryProcess(
+                socketCapabilityProvider: {
+                    socketCapabilityAuthority.issueDeliveryCapability()
+                }
+            )
+        )
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
@@ -2318,7 +2327,7 @@ class TerminalController {
 #endif
         case "current.list":
             return socketWorkerCurrentWorkResponse(id: request.id, params: request.params)
-        case "surface.catalog", "surface.project", "surface.new_terminal":
+        case "surface.catalog", "surface.project", "surface.new_terminal", "surface.new_display":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
             // The CLI's own wait (cloud_client_timeout_ms) is transport
@@ -4330,6 +4339,7 @@ class TerminalController {
         timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
         daemonUnavailableMessage: String? = nil,
+        mapError: (Error) -> String? = { _ in nil },
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4362,6 +4372,8 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            // A caller's own error codes come first; the timeout above never reaches them.
+            if let mapped = mapError(error) { return mapped }
             if case VMClientError.disabledByManagedPolicy = error {
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
             }
@@ -15640,6 +15652,14 @@ class TerminalController {
             result = v2MobileWorkspaceMove(params: request.params)
         case "workspace.group.action", "workspace.group.create":
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
+        case let method where method.hasPrefix("chief."):
+            // Chief already has one validated owner-backed implementation for
+            // the local control socket. Reuse it for the authenticated mobile
+            // data plane instead of maintaining a second parser or a second
+            // set of owner/conversation checks. `chiefResult` returns the
+            // Foundation-shaped v2 result, which is bridged to the mobile
+            // envelope below just like every other mobile handler.
+            result = await chiefMobileResult(method: method, params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(
                 method: method,

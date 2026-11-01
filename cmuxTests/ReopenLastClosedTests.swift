@@ -514,6 +514,17 @@ struct ReopenLastClosedTests {
     func commandShiftTRestoresClosedWindowsInLIFOOrder() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let appDelegate = try #require(AppDelegate.shared)
+            let defaults = UserDefaults.standard
+            let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+            let originalChiefEnabled = defaults.object(forKey: chiefEnabledKey)
+            ChiefSettings.setEnabled(false, in: defaults)
+            defer {
+                if let originalChiefEnabled {
+                    defaults.set(originalChiefEnabled, forKey: chiefEnabledKey)
+                } else {
+                    defaults.removeObject(forKey: chiefEnabledKey)
+                }
+            }
             let shortcutActions: [KeyboardShortcutSettings.Action] = [
                 .reopenClosedWorkspace,
                 .reopenClosedBrowserPanel,
