@@ -203,8 +203,8 @@ otherwise: read these as a direction, not a budget.
 | same, app frames dropped per drag (mean of 9) | live 1.67, resizeSync 1.67 | live 1.0, resizeSync 1.56 | even | same |
 
 What this says:
-- Hosting costs no frames in light layouts and at most a few in STRESS, and makes Chromium tab switches 3-12 ms faster
-  to commit. The one large miss (a 256 ms column-close frame in STRESS) is one run, and it shows with syncDeadline 0
+- Hosting costs no frames in light layouts and at most a few in STRESS, and makes Chromium tab switches 3-7 ms faster
+  to commit (up to 12 ms end to end). The one large miss (a 256 ms column-close frame in STRESS) is one run, and it shows with syncDeadline 0
   too, so it is not the resize wait.
 - Resize sync caps how far a page lags a dragged divider: the worst p95 of 9 runs is 9.6 ms against 26 ms for live,
   with no more dropped app frames. `hold` lags 194-226 ms; `synced` is close to resize sync, but it is a launch switch

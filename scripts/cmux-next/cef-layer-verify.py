@@ -382,10 +382,12 @@ def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from bench_launch import BenchApp
     bench = BenchApp(APP, out=opts.out)
-    bench.start_fresh()
+    if not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
+        bench.start_fresh()
     if opts.tunables == "build":
         # The launch reads the build's file: give it this mode before the first page (a page shown at launch with the
-        # last run's value would count as hosted in mode off). The path is checked against the app's own below.
+        # last run's value would count as hosted in mode off). A build that keeps its app names reads another path
+        # (DebugSettingsService.fileURL); the live `set` below still decides that launch's mode.
         FACTS["tunables_prelaunch"] = os.path.join(bench.state_root(), "debug-tunables.json")
         write_build_tunable(FACTS["tunables_prelaunch"], opts.mode == "on")
     log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}.log"), "a")
@@ -412,6 +414,7 @@ def main():
                 FACTS["tunables_set"] = state
                 state = rpc("debug.tunables", {"action": "state"}) or {}
             FACTS["tunables_file"] = state.get("file")
+            FACTS["tunables_prelaunch_matched"] = FACTS.get("tunables_prelaunch") == state.get("file")
             if not state.get("file"):
                 row("tunables", False, f"debug.tunables gave no file: {json.dumps(state)[:200]}")
                 return
