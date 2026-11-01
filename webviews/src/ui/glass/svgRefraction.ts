@@ -53,6 +53,8 @@ function displacementMap(doc: Document): string {
  * Returns the undo: the filter and the attribute go. */
 export function installSvgRefraction(doc: Document = document): () => void {
   const root = doc.documentElement;
+  // Installed already (a second gallery stage in the same document): one filter per id.
+  if (doc.getElementById(SVG_REFRACTION_ID)) return () => undefined;
   const href = displacementMap(doc);
   const holder = doc.createElement("div");
   holder.setAttribute("aria-hidden", "true");

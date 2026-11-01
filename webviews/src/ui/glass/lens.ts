@@ -210,7 +210,7 @@ function shaderSource(source: string, kind: "vertex" | "fragment", dialect: Glas
         .replaceAll("ATTR ", "in ")
         .replaceAll("VARY ", kind === "vertex" ? "out " : "in ")
         .replace("OUT_DECL", "out vec4 cmuxColor;")
-        .replace("OUT_COLOR", "cmuxColor")
+        .replaceAll("OUT_COLOR", "cmuxColor")
         .replaceAll("SAMPLE(", "textureLod(")
     );
   const lod = dialect === "webgl1-lod" && kind === "fragment";
@@ -221,7 +221,7 @@ function shaderSource(source: string, kind: "vertex" | "fragment", dialect: Glas
       .replaceAll("ATTR ", "attribute ")
       .replaceAll("VARY ", "varying ")
       .replace("OUT_DECL", "")
-      .replace("OUT_COLOR", "gl_FragColor")
+      .replaceAll("OUT_COLOR", "gl_FragColor")
       .replaceAll("SAMPLE(", lod ? "texture2DLodEXT(" : "texture2D(")
   );
 }
