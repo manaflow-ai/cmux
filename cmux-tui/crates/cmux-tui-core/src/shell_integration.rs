@@ -294,7 +294,7 @@ fn needs_incognito_integration(command: &[String], env: &[(String, String)]) -> 
         |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone());
     is_incognito(&lookup)
         && is_bare(command)
-        && detect_shell(command).is_some_and(|shell| !runs_incognito_hook(shell, &lookup))
+        && shell_by_name(command).is_some_and(|shell| !runs_incognito_hook(shell, &lookup))
 }
 
 /// A bare incognito `command` of `shell` with no integration scripts to
@@ -356,7 +356,12 @@ fn integrate_with(
     // naming another shell would give it that shell's flags and no history
     // hook of its own.
     let shell = if incognito {
-        detect_shell(&command).or_else(|| shell_for(user.mode, &command))
+        // Fail closed: a shell the integration cannot take here reads no
+        // startup files.
+        if let Some(command) = unintegrable_incognito(&command, cfg!(target_os = "macos")) {
+            return ShellLaunch { env: features_only(extra_env), command };
+        }
+        shell_by_name(&command).or_else(|| shell_for(user.mode, &command))
     } else {
         shell_for(user.mode, &command)
     };
@@ -386,13 +391,31 @@ fn shell_for(mode: Mode, command: &[String]) -> Option<Shell> {
 }
 
 fn detect_shell(command: &[String]) -> Option<Shell> {
+    if is_apple_bash(command, cfg!(target_os = "macos")) {
+        return None;
+    }
+    shell_by_name(command)
+}
+
+/// Whether `command` runs Apple's patched Bash 3.2, which ignores ENV in
+/// POSIX startup, which the bash injection depends on. /bin is
+/// SIP-protected, so /bin/bash on macOS is always that build.
+fn is_apple_bash(command: &[String], macos: bool) -> bool {
+    macos && command.first().is_some_and(|exe| exe == "/bin/bash")
+}
+
+/// An incognito `command` naming a shell the integration cannot take
+/// (Apple's `/bin/bash` on `macos`): the same command without startup files.
+fn unintegrable_incognito(command: &[String], macos: bool) -> Option<Vec<String>> {
+    let named = shell_by_name(command)?;
+    is_apple_bash(command, macos).then(|| without_startup_files(named, command.to_vec()))
+}
+
+/// The shell `command` runs, by its program's name alone.
+fn shell_by_name(command: &[String]) -> Option<Shell> {
     let exe = command.first()?;
     let name = Path::new(exe).file_name().and_then(OsStr::to_str)?;
     match name {
-        // Apple's patched Bash 3.2 ignores ENV in POSIX startup, which the
-        // bash injection depends on. /bin is SIP-protected, so /bin/bash on
-        // macOS is always that build.
-        "bash" if cfg!(target_os = "macos") && exe == "/bin/bash" => None,
         "bash" => Some(Shell::Bash),
         "fish" => Some(Shell::Fish),
         "zsh" => Some(Shell::Zsh),
