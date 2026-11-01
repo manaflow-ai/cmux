@@ -1009,18 +1009,23 @@ def codex_hook_commands(hooks: dict) -> list[str]:
 
 def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path) -> None:
     cases = [
-        (True, None, False), (False, None, False), (None, None, False),
-        (1, None, False), ("true", None, False), (True, False, False),
-        (True, False, True), (False, True, True),
+        (True, None, False, False), (False, None, False, False),
+        (None, None, False, False), (1, None, False, False),
+        ("true", None, False, False), (True, False, False, False),
+        (True, False, True, False), (False, True, True, False),
+        (True, None, False, True), (False, None, False, True),
     ]
-    for index, (recorded_network, explicit_network, compact_override) in enumerate(cases):
+    for index, (recorded_network, explicit_network, compact_override, partial_permissions) in enumerate(cases):
         case = root / f"codex-network-policy-{index}"
         home, state, codex_home = case / "home", case / "state", case / "codex"
         for directory in (home, state, codex_home):
             directory.mkdir(parents=True)
         session_id = str(uuid.uuid4())
         captured_at = time.time() - 10
-        timestamp = datetime.fromtimestamp(captured_at - 1, timezone.utc).isoformat(
+        # The current turn can postdate a preserved launch record. It is still
+        # earlier than the hook observation that repairs the resume binding.
+        evidence_time = captured_at + 1 if partial_permissions else captured_at - 1
+        timestamp = datetime.fromtimestamp(evidence_time, timezone.utc).isoformat(
             timespec="milliseconds"
         ).replace("+00:00", "Z")
         sandbox = {"type": "workspace-write"}
@@ -1032,6 +1037,8 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
             {"timestamp": timestamp, "type": "turn_context", "payload": {"approval_policy": "never", "sandbox_policy": sandbox}},
         ]) + "\n", encoding="utf-8")
         arguments = ["codex", "resume", session_id]
+        if partial_permissions:
+            arguments += ["-a", "never", "-s", "workspace-write"]
         if explicit_network is not None:
             override = f"sandbox_workspace_write.network_access={str(explicit_network).lower()}"
             arguments += [f"-c{override}"] if compact_override else ["-c", override]
@@ -1083,6 +1090,8 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
         expected = [f"sandbox_workspace_write.network_access={str(effective).lower()}"] if type(effective) is bool else []
         if network_args != expected:
             raise AssertionError(f"recorded network policy {recorded_network!r}, explicit {explicit_network!r}: expected {expected}, got {network_args}")
+        if partial_permissions and (actual.count("-a") != 1 or actual.count("-s") != 1):
+            raise AssertionError("network recovery duplicated explicit approval or sandbox options")
         if expected and expected[0] not in published.get("command", ""):
             raise AssertionError("network override missing from rendered resume command")
 
