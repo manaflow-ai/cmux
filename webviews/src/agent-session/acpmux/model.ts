@@ -1016,7 +1016,8 @@ export type ConversationLayout = {
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
-const USER_BUBBLE_PADDING = 16;
+/// The bubble's vertical padding (`.cv-user__bubble`: `--grid-gap` above and below), scaled per pass.
+const userBubblePadding = () => 2 * gridLength("gap") * chromeScale;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
@@ -1145,16 +1146,16 @@ const userMetaHeight = (row: AcpmuxRow) => {
 const AUTHOR_HEIGHT = 22;
 const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
   row.kind === "user"
-    ? USER_BUBBLE_PADDING +
+    ? userBubblePadding() +
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
       (row.author ? AUTHOR_HEIGHT : 0)
     : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
-const USER_BUBBLE_SIDES = 24;
+const userBubbleSides = () => 2 * gridLength("cards-padding") * chromeScale;
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
-const BLOCK_GAP = TRANSCRIPT_INNER_GAP;
+const blockGap = () => TRANSCRIPT_INNER_GAP * chromeScale;
 const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
 /// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
@@ -1440,7 +1441,7 @@ function fallbackRowHeight(
     const items = row.items ?? [];
     const steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item), 0) +
-        Math.max(0, items.length - 1) * TRANSCRIPT_BLOCK_GAP
+        Math.max(0, items.length - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale
       : toolRowHeight();
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
@@ -1592,7 +1593,9 @@ function listHeight(
   used?: Set<string>,
 ): number {
   const inner = width - LIST_INDENT;
-  return list.items.reduce((sum, item) => {
+  // `.cv-list` stacks its items with the inner gap (conversation.css), scaled per pass.
+  const itemGaps = Math.max(0, list.items.length - 1) * blockGap();
+  return itemGaps + list.items.reduce((sum, item) => {
     const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
     const text = measuredText(
       item.tokens.filter((token) => token.type !== "list"),
@@ -1838,7 +1841,7 @@ function measuredRowHeight(
     !row.from &&
     !chiefEnvelope(row.text) &&
     isPlainUserPrompt(row.text);
-  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
+  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - userBubbleSides() : width);
   const usedPrepared = new Set<string>();
   let contentHeight: number;
   if (plainUser) {
@@ -1877,7 +1880,7 @@ function measuredRowHeight(
               );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-      contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+      contentHeight = (entry.blocks.length - 1) * blockGap();
       for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
     }
   }

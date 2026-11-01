@@ -97,12 +97,28 @@ test("estimated grid rows follow the Interface Size", () => {
   g.document ??= { documentElement: {} };
   g.getComputedStyle = () => ({ getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") });
   try {
-    const rows = [{ id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} }] as unknown as AcpmuxRow[];
-    const atOne = layoutConversation(rows, 720).heights[0]!;
-    scale = "1.25";
-    const atLarger = layoutConversation(rows, 720).heights[0]!;
-    expect(atOne).toBeGreaterThan(0);
-    expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
+    const received = [{ id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} }] as unknown as AcpmuxRow[];
+    // Two shell calls: two tool rows and the block gap between them, all grid lengths.
+    const run = [
+      {
+        id: "run",
+        version: 1,
+        at: 0,
+        kind: "activity",
+        items: [
+          { id: "one", tool: { kind: "execute", title: "ls" } },
+          { id: "two", tool: { kind: "execute", title: "pwd" } },
+        ],
+      },
+    ] as unknown as AcpmuxRow[];
+    for (const rows of [received, run]) {
+      scale = "1";
+      const atOne = layoutConversation(rows, 720).heights[0]!;
+      scale = "1.25";
+      const atLarger = layoutConversation(rows, 720).heights[0]!;
+      expect(atOne).toBeGreaterThan(0);
+      expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
+    }
   } finally {
     g.document = saved.document;
     g.getComputedStyle = saved.getComputedStyle;
