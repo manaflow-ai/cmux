@@ -1,12 +1,16 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The transcript's vertical rhythm, as Claude Code desktop sets it (Leo 2026-10-20: "weird amounts
-// of negative space"): a message's meta row hugs it, a reply's footer sits right under the
-// reply, and turns are a fixed gap apart. The spacing tokens are `--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and
+// of negative space"): a message's meta row is one compact line under it, and turns are a fixed gap
+// apart. A meta row (a prompt's age and actions, a turn's footer) sits centered between its message
+// and the next one: as much room above it as below it (Leo, 2026-10-31: "centered in between the
+// two things you're saying in between so padding after == padding before"), one --cv-meta-gap each
+// side. The spacing tokens are `--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and
 // `--cv-turn-gap` in conversation/conversation.css.
 //
 // Before: an older prompt's hidden action row and the row's padding left a 40px band under its
 // bubble, a reply's footer started about 22px under the reply, and a footer sat 8px over the next
-// prompt.
+// prompt. Then (to 2026-10-31) the meta row stood 4px under its message and 8px (a prompt's) or
+// 16px (a footer's) over the next one.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -188,6 +192,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
         [...document.querySelectorAll<HTMLElement>(".cv-md")].find((node) => node.textContent?.includes(text))!;
 
       const first = bubble("Is the hosted test run done?");
+      const firstActions = userRow("Is the hosted test run done?").querySelector(".cv-user__actions")!;
       const last = bubble("Ship it when green.");
       const lastActions = userRow("Ship it when green.").querySelector(".cv-user__actions")!;
       const afterFirst = rowAfter(userRow("Is the hosted test run done?"));
@@ -197,6 +202,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions:not(.cv-reply-actions)")];
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
+      const firstTurnReply = reply("Not yet: the hosted test run is still queued.");
       const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;
       return {
         metaRowUnderBubble: Math.round(rect(lastActions).top - rect(last).bottom),
@@ -205,6 +211,12 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
         promptToWorked: worked ? Math.round(rect(worked).top - rect(lastActions).bottom) : -1,
         replyToFooterText: Math.round(rect(lastFooterTime).top - rect(lastReply).bottom),
         footerToNextPrompt: Math.round(rect(last).top - rect(footers[0]!).bottom),
+        // A prompt's (hidden) meta row: its bubble to it, and it to the reply under it.
+        promptMetaAbove: rect(firstActions).top - rect(first).bottom,
+        promptMetaBelow: rect(firstContent).top - rect(firstActions).bottom,
+        // A turn's footer: its reply to it, and it to the next prompt.
+        footerAbove: rect(footers[0]!).top - rect(firstTurnReply).bottom,
+        footerBelow: rect(last).top - rect(footers[0]!).bottom,
         lastFooterToComposer: Math.round(rect(dock).top - rect(footers.at(-1)!).bottom),
       };
     });
@@ -212,27 +224,50 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
   test("meta rows hug their message and the rhythm has no empty bands", async () => {
     const page = await open();
     const measured = await gaps(page);
-    // The meta row starts 4px under its bubble and is one compact 24px line.
-    expect(measured.metaRowUnderBubble).toBeGreaterThanOrEqual(2);
-    expect(measured.metaRowUnderBubble).toBeLessThanOrEqual(6);
+    // The meta row starts 8px under its bubble and is one compact 24px line.
+    expect(measured.metaRowUnderBubble).toBeGreaterThanOrEqual(6);
+    expect(measured.metaRowUnderBubble).toBeLessThanOrEqual(10);
     expect(measured.metaRowHeight).toBeGreaterThanOrEqual(20);
     expect(measured.metaRowHeight).toBeLessThanOrEqual(24);
-    // An older prompt's hidden row reserves only its own line (4 + 24), then the 8px message gap.
-    expect(measured.olderPromptToNext).toBeLessThanOrEqual(37);
+    // An older prompt's hidden row reserves only its own line (8 + 24), then the 8px message gap.
+    expect(measured.olderPromptToNext).toBeLessThanOrEqual(41);
     // "Worked for" follows the prompt's meta row at the message gap.
     expect(measured.promptToWorked).toBeGreaterThanOrEqual(0);
     expect(measured.promptToWorked).toBeLessThanOrEqual(10);
     // A reply's footer starts right under the reply.
     expect(measured.replyToFooterText).toBeGreaterThanOrEqual(0);
     expect(measured.replyToFooterText).toBeLessThanOrEqual(10);
-    // Turns sit a fixed 16px apart (--cv-turn-gap, tightened from 24px in 4ae4a48893cf): the
-    // footer's line to the next prompt.
-    expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(12);
-    expect(measured.footerToNextPrompt).toBeLessThanOrEqual(20);
+    // The footer's line to the next prompt is the same 8px meta gap as its reply to it.
+    expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(6);
+    expect(measured.footerToNextPrompt).toBeLessThanOrEqual(10);
     // The last footer uses that same turn gap before the floating composer; there is no extra
     // runway under every transcript.
     expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(12);
     expect(measured.lastFooterToComposer).toBeLessThanOrEqual(20);
+    await page.close();
+  });
+
+  test("a meta row sits centered between its message and the next: the gap above equals the gap below", async () => {
+    const page = await open();
+    const measured = await gaps(page);
+    // A prompt's action row (age, copy, ...), reserved while hidden so pointing at it moves nothing.
+    expect(measured.promptMetaAbove).toBeGreaterThan(0);
+    expect(Math.abs(measured.promptMetaAbove - measured.promptMetaBelow)).toBeLessThanOrEqual(1);
+    // A turn's footer (worked for, copy, read aloud, the menu, its age).
+    expect(measured.footerAbove).toBeGreaterThan(0);
+    expect(Math.abs(measured.footerAbove - measured.footerBelow)).toBeLessThanOrEqual(1);
+    // Pointing at the prompt shows its row in place: neither gap changes.
+    await page.getByText("Is the hosted test run done?").hover();
+    await page.waitForFunction(() => {
+      const row = [...document.querySelectorAll<HTMLElement>(".cv-user__bubble")]
+        .find((node) => node.textContent === "Is the hosted test run done?")!
+        .closest(".acpmux-row")!
+        .querySelector<HTMLElement>(".cv-user__actions")!;
+      return getComputedStyle(row).opacity === "1";
+    });
+    const hovered = await gaps(page);
+    expect(hovered.promptMetaAbove).toBeCloseTo(measured.promptMetaAbove, 1);
+    expect(hovered.promptMetaBelow).toBeCloseTo(measured.promptMetaBelow, 1);
     await page.close();
   });
 });

@@ -3,11 +3,12 @@
 // CSS draws (conversation/conversation.css, styles.css), so a row that mounts moves nothing below it
 // and scrolling up never jumps:
 //   - a reply right over its turn's footer (`.acpmux-row--before-footer`), or over the running turn's
-//     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
+//     line that the footer takes the place of: its text and the 8px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
 //   - another agent's message: its one disclosure line, however long the message;
-//   - a turn's footer: its 24px line and the 16px turn gap, including the chat's last one
-//     (`.acpmux-row--last-footer`), so the composer uses the same rhythm as the transcript.
+//   - a turn's footer: its 24px line and the 8px meta gap, so it sits centered between the reply and
+//     the next message (Leo, 2026-10-31); the chat's last one (`.acpmux-row--last-footer`) ends at
+//     the 16px turn gap over the composer.
 //
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
@@ -30,19 +31,20 @@ const footer = (id: string) => ({
 const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
-test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {
+test("a reply over its footer is its text and the 8px meta gap, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
   const [alone] = heightsOf([reply("a", long)]);
   const [over, summary] = heightsOf([reply("a", long), footer("f"), prompt("p")]);
-  // The same text: 8px below it alone, 4px over its footer.
-  expect(alone! - over!).toBeCloseTo(4, 5);
-  // The footer always keeps its 24px line and the 16px turn gap, including the last one.
-  expect(summary).toBe(40);
+  // The same text: the 8px message gap below it alone, the same 8px meta gap over its footer.
+  expect(alone! - over!).toBeCloseTo(0, 5);
+  // The footer keeps its 24px line and, under it, the same 8px meta gap as over it; the chat's last
+  // one ends at the 16px turn gap.
+  expect(summary).toBe(32);
   expect(heightsOf([reply("a", long), footer("f")])[1]).toBe(40);
   // A one-line reply over its footer is shorter than a row's 34px floor.
   const [short] = heightsOf([reply("b", "Done."), footer("g")]);
   expect(short!).toBeLessThan(34);
-  expect(short! - 4).toBeGreaterThan(0);
+  expect(short! - 8).toBeGreaterThan(0);
 });
 
 test("a reply over its running turn's line is estimated as over the footer that takes its place", () => {
@@ -151,7 +153,7 @@ test("the chat's last footer is placed again when a prompt follows it", () => {
     rows,
     layout: first,
   });
-  expect(second.heights[1]).toBe(40);
+  expect(second.heights[1]).toBe(32);
 });
 
 test("a footer over another agent's line or a task's result keeps the turn gap", () => {
@@ -166,8 +168,8 @@ test("a footer over another agent's line or a task's result keeps the turn gap",
   };
   const notice = { id: "n", version: 1, at: 0, kind: "user", text: "Done", incoming: { kind: "notice", text: "Done" } };
   for (const line of [result, message, notice]) expect(heightsOf([reply("a", "Done."), footer("f"), line])[1]).toBe(40);
-  // The person's prompt after it still starts a turn of its own.
-  expect(heightsOf([reply("a", "Done."), footer("f"), prompt("p")])[1]).toBe(40);
+  // The person's prompt after it: the footer's line centered in two 8px meta gaps.
+  expect(heightsOf([reply("a", "Done."), footer("f"), prompt("p")])[1]).toBe(32);
 });
 
 test("a task's result is its 26px line and the 8px message gap", () => {
@@ -192,7 +194,7 @@ test("a footer shaped by turnView, which carries its answer's text, is its 24px 
   expect(footers.length).toBe(2);
   expect(rows[footers[0]!]!.text).toBe(answer);
   const { heights } = layoutConversation(rows, 720);
-  expect(heights[footers[0]!]).toBe(40);
+  expect(heights[footers[0]!]).toBe(32);
   expect(heights[footers[1]!]).toBe(40);
 });
 

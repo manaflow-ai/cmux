@@ -104,7 +104,7 @@
 .acpmux-harness-status__grid {
   display: grid;
   grid-template-columns: minmax(84px, .35fr) minmax(0, 1fr);
-  gap: var(--cv-meta-gap) var(--cv-edge);
+  gap: var(--ds-space-1, 4px) var(--cv-edge);
   margin: 12px 0 0;
 }
 

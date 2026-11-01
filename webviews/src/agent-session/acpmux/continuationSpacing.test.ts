@@ -11,11 +11,14 @@ const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxR
 });
 const footer = row("footer", "turnSummary", { text: "Done.", durationMs: 1000, status: "completed" });
 
-test("same assistant continuation halves the footer gap; a speaker change and the end retain it", () => {
+// A footer sits centered between its reply and the next message: one 8px meta gap on each side
+// (Leo, 2026-10-31: "padding after == padding before"), the same assistant's next turn or the
+// person's prompt. Another agent's line and the chat's end keep the 16px turn gap.
+test("a footer keeps the meta gap under it before the next message; another agent's line and the end retain the turn gap", () => {
   const assistant = row("next", "assistant", { text: "Next update." });
   const height = (next?: AcpmuxRow) => layoutConversation(next ? [footer, next] : [footer], 720).heights[0];
   expect(height(assistant)).toBe(32);
-  expect(height(row("user", "user", { text: "Next task." }))).toBe(40);
+  expect(height(row("user", "user", { text: "Next task." }))).toBe(32);
   expect(
     height(
       row("peer", "user", {
@@ -37,11 +40,11 @@ test("a retained footer changes its estimate when a continuation arrives or beco
   expect(continued).toEqual(layoutConversation(next, 720));
   const changed = [...rows, row("next", "user", { text: "Next task." })];
   const switched = layoutConversation(changed, 720, undefined, undefined, known, { rows: next, layout: continued });
-  expect(switched.heights[0]).toBe(40);
+  expect(switched.heights[0]).toBe(32);
   expect(switched).toEqual(layoutConversation(changed, 720));
 });
 
-test("empty continuation footers retain the full hover-control floor", () => {
+test("empty continuation footers keep the hover controls' line and the meta gap under it", () => {
   const empty = row("empty", "turnSummary", { status: "completed", durationMs: 0 });
-  expect(layoutConversation([empty, row("next", "assistant", { text: "Next update." })], 720).heights[0]).toBe(24);
+  expect(layoutConversation([empty, row("next", "assistant", { text: "Next update." })], 720).heights[0]).toBe(32);
 });
