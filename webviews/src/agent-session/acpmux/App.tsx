@@ -12149,6 +12149,7 @@ function AcpmuxPane() {
             onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
+            onHoldSend={() => holdPrompt.current?.()}
             onSend={(text, chips, steer) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.

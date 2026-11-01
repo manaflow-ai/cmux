@@ -269,6 +269,10 @@ type Props = {
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
   /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
   onSend(text: string, attachments?: ComposerAttachment[], steer?: boolean): boolean | void | Promise<unknown>;
+  /// A send now waits for its files (still reading or uploading): the pane keeps this send's
+  /// gesture for the prompt (heldPrompt.ts), so a Retry click or a file's upload meanwhile never
+  /// spends what the prompt goes with once they are in.
+  onHoldSend?(): void;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
@@ -428,6 +432,7 @@ export function Composer({
   headerCwd,
   chips: Chips,
   onSend,
+  onHoldSend,
   onStop,
   onQueueRemove,
   onQueueCancelEdit,
@@ -1392,8 +1397,11 @@ export function Composer({
         return true;
       }
     }
-    // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
-    if (holdForAttachments(() => submitNow.current(force, steer))) return false;
+    // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
+    if (holdForAttachments(() => submitNow.current(force, steer))) {
+      onHoldSend?.();
+      return false;
+    }
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
@@ -1728,7 +1736,10 @@ export function Composer({
       // earlier screenshot is still being read. Ordinary prompts retain Return's attachment wait.
       const owned =
         composerCommand(typedWords().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
-      if (!owned && holdForAttachments(sendAndOpen)) return;
+      if (!owned && holdForAttachments(sendAndOpen)) {
+        onHoldSend?.();
+        return;
+      }
       sendAndOpen();
       return;
     }
