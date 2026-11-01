@@ -144,6 +144,8 @@ export interface AcpmuxRequests {
   "_acpmux/set_default_policy": { params: unknown; result: unknown };
   "_acpmux/set_rules": { params: unknown; result: unknown };
   "_acpmux/set_turn_cap": { params: unknown; result: unknown };
+  "agent-session-turn-prepare": { params: unknown; result: unknown };
+  "agent-session-turn-abandon": { params: unknown; result: unknown };
   "_acpmux/inbox_threads": { params: unknown; result: unknown };
   "_acpmux/inbox_thread": { params: unknown; result: unknown };
   "_acpmux/inbox_reply": { params: unknown; result: unknown };
@@ -435,6 +437,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/set_default_policy", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_rules", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_turn_cap", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-abandon", kind: "request", acp: false, typed: false },
   { name: "_acpmux/inbox_threads", kind: "request", acp: false, typed: false },
   { name: "_acpmux/inbox_thread", kind: "request", acp: false, typed: false },
   { name: "_acpmux/inbox_reply", kind: "request", acp: false, typed: false },
