@@ -393,6 +393,65 @@ fn a_screens_only_tab_becomes_a_lone_pinned_dock_without_a_respawn() {
 /// tab) opens in a new column right of it in the same commit, so nothing is
 /// ever left in the dock; a background tab leaves the focus in the dock. A
 /// terminal tab is refused as before.
+/// The screen's columns as (width, pinned), left to right, and the column index holding `pane`.
+fn columns_and_column_of(wire: &Wire, pane: PaneId) -> (Vec<(f32, bool)>, Option<usize>) {
+    wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        let columns = screen
+            .layout_columns
+            .iter()
+            .map(|c| (c.width, c.dock.is_some_and(|d| d.pinned)))
+            .collect();
+        (columns, screen.layout_columns.iter().position(|column| column.root.contains(pane)))
+    })
+}
+
+/// FC-1 (fuzz catalog, 2026-11-01): right after launch, Home's dock is pinned before it takes tabs (`allow_tabs`),
+/// and a terminal tab aimed at it was refused (`dock-column-pinned`): the first New Terminal Tab from a script, the
+/// CLI, MCP, a config command or a login opener failed. A terminal tab aimed at a pinned column that takes no tabs
+/// opens in a new column right of the dock instead, through every terminal-tab entrypoint (the JSON-lines `new-tab`
+/// the app sends and `tab.create_terminal` of the CLI and MCP), whether the dock is alone on its screen or not. The
+/// dock keeps only its pinned tab.
+#[test]
+fn a_terminal_tab_aimed_at_a_pinned_dock_that_takes_no_tabs_opens_in_a_new_column_right_of_it() {
+    let (mut wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+
+    // Home's dock alone: the app's `new-tab`.
+    let created = wire.ok(json!({"cmd": "new-tab", "pane": panes[0]}));
+    let surface: SurfaceId = serde_json::from_value(created["surface"].clone()).unwrap();
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the dock keeps only its pinned tab");
+    let beside =
+        wire.mux.with_state(|state| state.pane_of(surface)).expect("the new tab has a pane");
+    let (columns, column) = columns_and_column_of(&wire, beside);
+    assert_eq!(columns.len(), 2, "{columns:?}");
+    assert!(columns[0].1, "the dock stays first and pinned: {columns:?}");
+    assert_eq!(columns[1], (crate::mux::LONE_DOCK_NEIGHBOR_WIDTH, false), "{columns:?}");
+    assert_eq!(column, Some(1), "the terminal is in the column right of the dock");
+
+    // With a column beside the dock: `tab.create_terminal` (CLI, MCP) aimed at the dock opens a new column right of it.
+    let params =
+        json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
+    let reply = resource(&wire.mux, "tab.create_terminal", params, Some("terminal-beside-dock"));
+    resource_ok(&reply);
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the dock keeps only its pinned tab: {reply}");
+    let (columns, _) = columns_and_column_of(&wire, beside);
+    assert_eq!(columns.len(), 3, "a new column, not a tab in the dock: {columns:?}");
+    assert!(columns[0].1 && !columns[1].1 && !columns[2].1, "{columns:?}");
+    let panes_now = wire.mux.with_state(|state| state.workspaces[0].screens[0].root.pane_ids_vec());
+    assert_eq!(panes_now.len(), 3, "{panes_now:?}");
+    let new_pane =
+        panes_now.iter().copied().find(|pane| *pane != panes[0] && *pane != beside).unwrap();
+    assert_eq!(
+        columns_and_column_of(&wire, new_pane).1,
+        Some(1),
+        "the new column is right of the dock"
+    );
+    assert_eq!(wire.tabs(new_pane).len(), 1, "it holds the new terminal");
+}
+
 #[test]
 fn a_browser_tab_made_in_a_lone_pinned_dock_opens_in_a_new_column_beside_it() {
     let (mut wire, panes) = Wire::home();
