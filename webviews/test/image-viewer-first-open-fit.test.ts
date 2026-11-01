@@ -157,7 +157,7 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
         const top = box.top + parseFloat(style.paddingTop);
         const bottom = box.bottom - parseFloat(style.paddingBottom);
         const drawn = image.getBoundingClientRect();
-        const boxKey = `${Math.round(drawn.left)},${Math.round(drawn.top)} ${Math.round(drawn.width)}x${Math.round(drawn.height)}`;
+        const boxKey = [drawn.left, drawn.top, drawn.width, drawn.height].map(Math.round).join(",");
         if (lastBox && boxKey !== lastBox) layoutChanges += 1;
         lastBox = boxKey;
         const line =
@@ -188,7 +188,11 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
         try {
           const first = await openAndRead(page, "dblclick");
           console.log(`${name} first open:\n${first.frames.join("\n")}`);
-          expect(first.motion).toEqual({ viewerTransition: "0s, 0s", backdropTransition: "0s", imageAnimation: "none" });
+          expect(first.motion).toEqual({
+            viewerTransition: "0s, 0s",
+            backdropTransition: "0s",
+            imageAnimation: "none",
+          });
           expect(first.layoutChanges).toBe(0);
           expect(first.frames.length).toBeGreaterThan(0);
           expect({ open: "first", spills: first.spills, last: first.frames.at(-1) }).toEqual({
