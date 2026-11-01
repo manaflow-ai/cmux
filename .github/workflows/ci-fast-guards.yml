@@ -58,6 +58,8 @@ jobs:
             scripts/ci/pr_runner_pool.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/cloud_overflow_switch.py
+            scripts/ci/runner_label_policy.py
+            scripts/ci/signing_runner_variables.py
           persist-credentials: false
 
       - name: Checkout feat runner-pool workflow boundary
