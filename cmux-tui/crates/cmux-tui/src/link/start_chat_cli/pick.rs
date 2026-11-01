@@ -37,8 +37,9 @@ pub(crate) struct Candidate {
 }
 
 impl Candidate {
+    /// Its daemon can be reached, or soon will be (`CloudMachine.Status.isLive`).
     fn is_live(&self) -> bool {
-        matches!(self.status.as_str(), "running" | "provisioning")
+        matches!(self.status.as_str(), "running" | "provisioning" | "starting")
     }
 
     /// A pause, resume or delete the server accepted is on its way
@@ -50,6 +51,22 @@ impl Candidate {
     /// Paused by the idle timer, which pauses only an idle machine.
     fn is_idle_paused(&self) -> bool {
         self.status == "paused" && self.pause_reason.as_deref() == Some("idle")
+    }
+
+    /// The server failed it or is removing it, even while a stale link to it
+    /// still reads as connected.
+    fn is_gone(&self) -> bool {
+        matches!(self.status.as_str(), "failed" | "deleting" | "deleted" | "destroyed")
+    }
+
+    /// Can take work now or after a resume: connected, live (resuming
+    /// included), or paused or pausing (by a person or the idle timer), and
+    /// not gone.
+    fn is_usable(&self) -> bool {
+        !self.is_gone()
+            && (self.connected
+                || self.is_live()
+                || matches!(self.status.as_str(), "paused" | "pausing"))
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
@@ -83,7 +100,8 @@ pub(crate) fn is_lane_pool(name: &str) -> bool {
 /// Only this person's (`user`; a machine the server names no creator for
 /// counts when an earlier send ran on it, `used`), never a lane-pool VM, and
 /// only one that can take work now or after an idle resume, with no pause,
-/// resume or delete on its way. Among those: one
+/// resume or delete on its way and not failed or removed (a stale link may
+/// still read as connected). Among those: one
 /// marked for chats first, then a free one (connected with no chat open, or
 /// paused by the idle timer); connected first, then in the App's order.
 pub(crate) fn pick(
@@ -92,10 +110,7 @@ pub(crate) fn pick(
     used: &BTreeSet<String>,
 ) -> Option<String> {
     let user = user?;
-    let mine = |machine: &Candidate| match &machine.created_by {
-        Some(creator) => creator == user,
-        None => used.contains(&machine.id),
-    };
+    let mine = |machine: &Candidate| is_mine(machine, user, used);
     let free = |machine: &Candidate| {
         if machine.connected { machine.chats == Some(0) } else { machine.is_idle_paused() }
     };
@@ -104,6 +119,7 @@ pub(crate) fn pick(
         .iter()
         .filter(|machine| {
             !machine.is_changing()
+                && !machine.is_gone()
                 && mine(machine)
                 && !machine.names().any(is_lane_pool)
                 && (machine.connected || machine.is_live() || machine.is_idle_paused())
@@ -113,6 +129,15 @@ pub(crate) fn pick(
     // A stable sort: ties keep the App's order.
     ranked.sort_by_key(|machine| (!marked(machine), !machine.connected));
     ranked.first().map(|machine| machine.id.clone())
+}
+
+/// This person's: they created it, or, when the server names no creator, an
+/// earlier send of this account ran there (`used`).
+fn is_mine(machine: &Candidate, user: &str, used: &BTreeSet<String>) -> bool {
+    match &machine.created_by {
+        Some(creator) => creator == user,
+        None => used.contains(&machine.id),
+    }
 }
 
 /// The name a new machine for chats gets: [`CHATS_NAME`], else
@@ -137,12 +162,20 @@ pub(crate) enum Destination {
 
 /// Where `send` goes: the machine its first try took while that machine
 /// exists (listed, or `stored`: in the App's store but not yet in its list,
-/// one made since; before the App's list is `loaded`, it is kept), else
-/// [`pick`], among the machines this account's sends count as the person's.
+/// one made since; before the App's list is `loaded`, it is kept). Then, for
+/// a send from the Mac workspace `workspace`, the machine that workspace
+/// picked ([`workspace_machine`]). Otherwise, as for a send from no
+/// workspace, an existing machine is reused ([`pick`], which this account's
+/// sends count as the person's) before a new one is made. Many workspaces
+/// share a machine, and a person has any number of machines (Leo,
+/// 2026-10-31: "IDK WHY THAT SHOULD BE THE LIMIT. JUST GO ARBITRARILY MANY";
+/// leo-workspace `design/cloud.md`, "Solo first, then sharing a machine").
 /// Drops a pin to a machine that is gone, which holds no tab of this send.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn destination(
     send: &Send,
     account: &str,
+    workspace: Option<&str>,
     pins: &mut Ledger,
     candidates: &[Candidate],
     stored: &[String],
@@ -158,6 +191,42 @@ pub(crate) fn destination(
         }
         pins.forget(send);
     }
-    pick(candidates, user, &pins.machines_of(account))
-        .map_or(Destination::New, Destination::Machine)
+    let used = pins.machines_of(account);
+    if let Some(workspace) = workspace
+        && let Some(picked) =
+            workspace_machine(workspace, account, pins, candidates, stored, user, &used, loaded)
+    {
+        return Destination::Machine(picked);
+    }
+    pick(candidates, user, &used).map_or(Destination::New, Destination::Machine)
+}
+
+/// The machine the workspace `workspace` picked, while it is listed, this
+/// person's and usable (one made since, `stored`, or before the App's list is
+/// `loaded`, it is kept). Other workspaces may share it. Drops the
+/// workspace's machine when it is gone, a teammate's or failed, so the
+/// machine its next send takes becomes the workspace's.
+#[allow(clippy::too_many_arguments)]
+fn workspace_machine(
+    workspace: &str,
+    account: &str,
+    pins: &mut Ledger,
+    candidates: &[Candidate],
+    stored: &[String],
+    user: Option<&str>,
+    used: &BTreeSet<String>,
+    loaded: bool,
+) -> Option<String> {
+    let own = pins.workspace_machine(workspace, account)?;
+    let keep = match candidates.iter().find(|machine| machine.id == own) {
+        Some(machine) => {
+            user.is_some_and(|user| is_mine(machine, user, used)) && machine.is_usable()
+        }
+        None => !loaded || stored.contains(&own),
+    };
+    if keep {
+        return Some(own);
+    }
+    pins.unbind(workspace, account);
+    None
 }
