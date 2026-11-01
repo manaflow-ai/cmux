@@ -711,10 +711,7 @@ impl ControlCall {
             n,
             peer: text("peer"),
         };
-        let needs_id = !matches!(
-            call.action.as_str(),
-            "status" | "cap" | "cloud" | "sessions"
-        );
+        let needs_id = !matches!(call.action.as_str(), "status" | "cap" | "cloud" | "sessions");
         if needs_id && call.id.is_none() {
             return Err(format!("control {}: `id` is required", call.action));
         }
@@ -1854,16 +1851,11 @@ mod control_session_tests {
 
         let next = ControlCall::parse(&json!({"action": "sessions", "n": 60})).unwrap();
         assert_eq!(next.n, Some(60));
-        assert_eq!(
-            next.to_json(),
-            json!({"tool": "control", "action": "sessions", "n": 60})
-        );
+        assert_eq!(next.to_json(), json!({"tool": "control", "action": "sessions", "n": 60}));
 
         // Actions operating on a particular child still require its id.
-        assert!(
-            ControlCall::parse(&json!({"action": "interrupt"}))
-                .unwrap_err()
-                .contains("id")
-        );
+        assert!(ControlCall::parse(&json!({"action": "interrupt"}))
+            .unwrap_err()
+            .contains("id"));
     }
 }
