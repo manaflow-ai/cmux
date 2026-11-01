@@ -17,7 +17,8 @@ nonisolated private let terminationLogger = Logger(subsystem: "com.cmuxterm.app.
 /// pages ended with it so far; when the turn ends, one line and one crash marker
 /// (`~/Library/Logs/cmux-next/<bundle>-webkit-agent-page-<time>-<n>.json`) give the whole group. The
 /// Reload of any of those chats is the person's request for all of them: it reloads every page of
-/// the group that still shows the notice. Nothing reloads by itself (Leo, PRs 25791 and 25920).
+/// the group that still shows the notice. A page first loads again by itself
+/// (``AgentPageCrashRetry``); only one that keeps ending shows the notice.
 ///
 /// The agent panes' ``WebProcessGroups`` (which put the pages into shared processes) hold the
 /// one every pane uses; a test gives its panes its own.
@@ -75,9 +76,10 @@ public final class AgentPageTerminations {
     private var turn: [Event] = []
     private var serial = 0
 
-    /// `view`'s page ended with `termination`; returns the event it joined.
+    /// `view`'s page ended with `termination` (`retries`: it loads again by itself, else it shows
+    /// the crash notice); returns the event it joined.
     @discardableResult
-    func ended(_ view: AgentPaneView, termination: PageTermination) -> Event {
+    func ended(_ view: AgentPaneView, termination: PageTermination, retries: Bool = false) -> Event {
         for event in events { event.remove(view) }
         let event = join(termination) ?? start(termination)
         if !events.contains(where: { $0 === event }) { events.append(event) }
@@ -86,7 +88,7 @@ public final class AgentPageTerminations {
         // An event none of whose pages still shows the notice is done (the pages closed or reloaded).
         events.removeAll { $0 !== event && $0.waiting.isEmpty }
         let page = event.pages.last
-        terminationLogger.error("agent page web content ended reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid) page=\(page?.page ?? "-", privacy: .public) session=\(page?.session ?? "none", privacy: .public) engine=\(page?.engine ?? "-", privacy: .public) ended_with_it=\(event.pages.count) event=\(event.serial); no automatic reload (the crash notice offers Reload)")
+        terminationLogger.error("agent page web content ended reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid) page=\(page?.page ?? "-", privacy: .public) session=\(page?.session ?? "none", privacy: .public) engine=\(page?.engine ?? "-", privacy: .public) ended_with_it=\(event.pages.count) event=\(event.serial); \(retries ? "loads again by itself" : "kept ending: the crash notice offers Reload", privacy: .public)")
         if !turn.contains(where: { $0 === event }) {
             if turn.isEmpty { afterTurn { [weak self] in self?.endTurn() } }
             turn.append(event)
@@ -134,7 +136,7 @@ public final class AgentPageTerminations {
         turn = []
         for event in ended where !event.pages.isEmpty {
             let sessions = event.pages.map { $0.session ?? "none" }.joined(separator: ",")
-            terminationLogger.error("agent pages ended together reason=\(event.reason.rawValue, privacy: .public) pid=\(event.pid) pages=\(event.pages.count) sessions=\(sessions, privacy: .public) event=\(event.serial); one Reload reloads them all")
+            terminationLogger.error("agent pages ended together reason=\(event.reason.rawValue, privacy: .public) pid=\(event.pid) pages=\(event.pages.count) sessions=\(sessions, privacy: .public) event=\(event.serial); one Reload reloads those that show the notice")
             writeMarker(Self.marker(event), event.date, event.serial)
         }
     }

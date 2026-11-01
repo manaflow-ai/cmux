@@ -29,6 +29,7 @@ import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { AgentIdentity, isRepeatedAgentKind } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
+import { orderedSubagents } from "./subagentOrder";
 
 const ROW_ICON = rowIconSize(12);
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -110,23 +111,12 @@ export function waitingSubagents(
   return waiting;
 }
 
-/// Depth-first from the chat's own subagents; on each level the ones waiting on the user first, then
-/// the running ones, then the ended ones, each newest first.
+/// Depth-first, attention first; the indexed walk also keeps malformed orphan/cycle records visible.
 function ordered(agents: readonly Subagent[], waiting: ReadonlySet<string>): { agent: Subagent; depth: number }[] {
-  const rank = (agent: Subagent) =>
-    ({ waiting: 0, running: 1, done: 2, failed: 2, stopped: 2 })[subagentStatus(agent, waiting)];
-  const known = new Set(agents.map((agent) => agent.id));
-  const out: { agent: Subagent; depth: number }[] = [];
-  const visit = (parent: string | null, depth: number) => {
-    for (const agent of agents
-      .filter((agent) => (agent.parent !== null && known.has(agent.parent) ? agent.parent : null) === parent)
-      .sort((a, b) => rank(a) - rank(b) || b.startedAt - a.startedAt)) {
-      out.push({ agent, depth });
-      visit(agent.id, depth + 1);
-    }
-  };
-  visit(null, 0);
-  return out;
+  return orderedSubagents(
+    agents,
+    (agent) => ({ waiting: 0, running: 1, done: 2, failed: 2, stopped: 2 })[subagentStatus(agent, waiting)],
+  );
 }
 
 /// A sub-session's state as a subagent row's status, for the row's dot and the card's counts.

@@ -538,6 +538,8 @@ impl Hub {
         if blocks.iter().any(crate::prompt_context::is_context) {
             msg.set("hiddenContext", Value::Bool(true));
         }
+        // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.
+        self.end_background_turn(session, "prompt");
         self.append(session, "mux", "user_message", msg);
     }
 

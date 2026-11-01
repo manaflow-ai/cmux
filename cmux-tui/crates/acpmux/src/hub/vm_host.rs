@@ -51,6 +51,12 @@ impl Hub {
         *self.vm_marker_root.lock().unwrap_or_else(|e| e.into_inner()) = root;
     }
 
+    /// The folder the machine's `etc/cmux` markers are read under: `/`
+    /// outside tests (`agent_login.rs` reads `vm-kind` and `agent-auth.sh` there).
+    pub(crate) fn vm_marker_root(&self) -> PathBuf {
+        self.vm_marker_root.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// Whether the creation marker says cmux created this machine as one
     /// owner's VM (module docs). Guest-writable: for display, never trust.
     pub fn cmux_vm(&self) -> bool {

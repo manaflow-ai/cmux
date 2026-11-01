@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1255,
+    "entries": 1259,
     "shortcuts": 189
   },
   "sections": [
@@ -110,6 +110,12 @@
           "title": "Conversation Info…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.hideConversation",
+          "title": "Delete Conversation from List",
+          "shortcut": null,
+          "command": "cmux home hide"
         },
         {
           "id": "home.disableChannels",
@@ -476,6 +482,12 @@
           "title": "Show cmux",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.showHiddenConversations",
+          "title": "Show Hidden Conversations",
+          "shortcut": null,
+          "command": "cmux home show-hidden"
         },
         {
           "id": "history.show",
@@ -2878,6 +2890,12 @@
           "command": "cmux tab move-to-previous-pane"
         },
         {
+          "id": "tab.moveToSpace",
+          "title": "Move Tab to Space…",
+          "shortcut": null,
+          "command": "cmux tab move-to-space"
+        },
+        {
           "id": "tab.moveToWorkspace",
           "title": "Move Tab to Workspace…",
           "shortcut": null,
@@ -4938,6 +4956,12 @@
         {
           "id": "sidebar.section.toggleCollapsed",
           "title": "Collapse/Expand Section",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.compactList.toggle",
+          "title": "Compact Workspace List",
           "shortcut": null,
           "command": null
         },

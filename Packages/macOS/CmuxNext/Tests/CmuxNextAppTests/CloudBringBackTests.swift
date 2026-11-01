@@ -28,8 +28,11 @@ struct CloudBringBackTests {
             let calls = trip.calls()
             #expect(calls.count == 4, "\(calls)")
             #expect(calls.dropFirst(2).first == ["link", "sync", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced])
+            // A running turn moves too, with what it wrote on the machine since the pull.
             #expect(calls.dropFirst(3).first == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
-                                                 "--to-socket", trip.macSocket, "--cwd", trip.project.path])
+                                                 "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--interrupt",
+                                                 "--sync", "pull", "--sync-socket", trip.vmSocket, "--sync-local", trip.project.path,
+                                                 "--sync-remote", trip.synced])
             let local = try #require(trip.localChat(), "no chat tab on this Mac")
             #expect(local.agentSession?.session == "chat-live")
             #expect(local.agentSession?.host == trip.services.agentTabs.localHost)
@@ -242,7 +245,9 @@ struct CloudBringBackTests {
             let calls = trip.calls()
             #expect(calls.count == 8, "\(calls)")
             #expect(calls.last == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
-                                   "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--ask-first"])
+                                   "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--interrupt",
+                                   "--sync", "pull", "--sync-socket", trip.vmSocket, "--sync-local", trip.project.path,
+                                   "--sync-remote", trip.synced, "--ask-first"])
             #expect(trip.localChat()?.agentSession?.session == "chat-live")
             #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == nil)
         }

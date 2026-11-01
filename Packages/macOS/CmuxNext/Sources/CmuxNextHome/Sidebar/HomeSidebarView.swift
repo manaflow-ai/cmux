@@ -27,6 +27,16 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     public var onMarkUnread: (ConversationID) -> Void = { _ in }
     /// The host's context-menu items for a conversation (Archive Chief on a Chief).
     public var menuItems: (ConversationID) -> [NSMenuItem] = { _ in [] }
+    /// Delete Conversation… on a row's menu and its left swipe (nil: not offered). A teammate row has none.
+    public var onDelete: ((ConversationID) -> Void)? {
+        didSet {
+            guard let onDelete else { list.onDelete = nil; return }
+            list.onDelete = { [weak self] id in
+                guard let self, teammate(for: id) == nil else { return }
+                onDelete(ConversationID(id))
+            }
+        }
+    }
     /// Teammates matching a query that have no DM yet (the list's extra search section). Without
     /// a search, the model's ``HomeSidebarModel/teammates`` are rows after the conversations.
     public var teammates: (String) -> [HomeContact] = { _ in [] }
@@ -103,6 +113,8 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         // No system blue in the list: a neutral selection in the theme's tint and grey pinned
         // names, as Messages' pinned grid.
         list.neutralSelection = true
+        // A Chief's avatar loops only while Home's loops run (calm mode, speed off, Home's switch).
+        list.avatarLoopGate = { Motion.home.animatesLoops }
         // A teammate row is a person, not a conversation: choosing it starts the DM, and it has
         // no pin, read state or conversation menu.
         list.onSelect = { [weak self] id in
@@ -190,6 +202,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func reshow() {
+        list.avatarMotionStyle = HomeTunables.avatarMotion.value.style
         var entries = (model.pinned + model.rows).map(Self.entry)
         if let draftRowTitle {
             entries.insert(CmuxSidebarEntry(id: Self.draftRowID.rawValue, title: draftRowTitle, people: [], preview: "", previewSender: nil,
@@ -233,7 +246,8 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge)
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge,
+                         avatarMotion: item.chiefAvatar == nil ? nil : item.chiefIsWorking ? .working : .idle)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text

@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -264,6 +265,42 @@ class BlockingRuleTests(unittest.TestCase):
         self.assertIn("main-blocking", [r.id for r, _ in refusals])
         self.assertTrue(any(kind == "guardrails" and "thread-doc" in text for kind, text in warnings))
 
+    def test_a_merge_judges_each_range_by_its_own_threading_doc(self):
+        """check_own measures a merge's ranges at once on two threads. Each must judge thread-doc by the doc at its
+        own head: here the earlier range's doc (without the new label) loads after HEAD's and before HEAD's rules
+        run. A shared copy of the doc refused HEAD's listed thread (#30169, 5eb80dfa4a0: 1 run in 6)."""
+        self.write(f"{SERVICE}/Other.swift", "let other = 1\n")
+        self.commit("the branch's earlier push: its doc does not list the new thread")
+        before = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write("plans/cmux-next/threading-model.md", DOC.replace("`<x>`", "`cmux-next fresh thread`, `<x>`"))
+        self.write(f"{SERVICE}/Added.swift",
+                   'func start() {\n    let t = Thread { work() }\n    t.name = "cmux-next fresh thread"\n    t.start()\n}\n')
+        self.commit("adds a thread and lists it")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        head_loaded, before_loaded = threading.Event(), threading.Event()
+        load = guardrails.load_blocking_context
+
+        def interleaved(texts, rev):
+            if rev == before:
+                head_loaded.wait(10)
+                load(texts, rev)
+                before_loaded.set()
+            else:
+                load(texts, rev)
+                head_loaded.set()
+                before_loaded.wait(10)
+
+        guardrails.load_blocking_context = interleaved
+        self.addCleanup(setattr, guardrails, "load_blocking_context", load)
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            refusals, warnings = guardrails.check_own(self.repo, self.base, head, [(self.base, before)])
+        finally:
+            os.environ.update(saved)
+        self.assertTrue(head_loaded.is_set() and before_loaded.is_set(), "the two ranges did not interleave")
+        self.assertEqual([w for w in warnings if w[0] == "guardrails"], [])
+        self.assertNotIn("thread-doc", [r.id for r, _ in refusals])
+
     def test_the_blocking_rules_stay_fast_on_a_large_keyword_heavy_push(self):
         """60,000 added lines in main-actor code, a third of them blocking calls (no escape, so every one goes
         through the main-actor scope and the closure walk, and is refused): the three rules' CPU time stays
@@ -275,8 +312,7 @@ class BlockingRuleTests(unittest.TestCase):
             path = f"{UI}/Big{index}.swift"
             lines = body.split("\n")
             changes.append(guardrails.FileChange(path, lines, [guardrails.Added(path, n + 1, t) for n, t in enumerate(lines)]))
-        guardrails.BLOCKING_CONTEXT.update(threading_doc=DOC, manifest=MANIFEST)
-        guardrails.BLOCKING_CONTEXT.pop("ui_targets", None)
+        guardrails.RUN_CONTEXT.values = {"threading_doc": DOC, "manifest": MANIFEST}
         started = time.process_time()
         hits = {rule.id: rule.find(changes, collections.Counter()) for rule in guardrails.BLOCKING_RULES}
         elapsed = time.process_time() - started
