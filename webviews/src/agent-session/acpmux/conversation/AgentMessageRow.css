@@ -1,5 +1,5 @@
 /* A message between agents (AgentMessageRow.tsx): one line drawn as a tool row is, in its font,
-   26px height and icon column, at the transcript's left in either direction; the other agent's
+   line height and icon column, at the transcript's left in either direction; the other agent's
    name as a glass chip, the message's first line muted after it. Opened, the message sits under
    the line in a compact glass card at the row's text indent. Never an opaque or bordered box. */
 .cv-agentmsg {
@@ -114,7 +114,9 @@ button.cv-agentmsg__name:focus-visible {
   align-items: center;
   gap: var(--grid-gap);
   min-width: 0;
-  height: var(--grid-row);
+  /* The tool rows' line, so a message row is as tall as the rows around it (Leo, 2026-11-01:
+     "doesn't make sense for these to be spaced differently"). */
+  height: var(--cv-tool-row-height);
   cursor: default;
   border-radius: 4px;
 }

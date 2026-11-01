@@ -121,7 +121,8 @@ pub async fn run(protocol: &str, principal_fd: i32) -> Result<()> {
                 )
                 .await?
         }
-        _ => unreachable!(),
+        // `operation` accepts only the three above.
+        _ => return Err(anyhow!("trigger-chat: operation must be ensure, send or status")),
     };
     serde_json::to_writer(std::io::stdout(), &result)?;
     println!();

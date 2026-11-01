@@ -283,7 +283,7 @@ fn error_fields(body: &Value) -> Option<(String, String, bool)> {
 }
 
 /// HTTP status handling shared by reads and mutations.
-pub(crate) fn classify(reply: &HttpReply) -> Result<(), CloudError> {
+fn classify(reply: &HttpReply) -> Result<(), CloudError> {
     match reply.status {
         200..=299 => Ok(()),
         401 => Err(CloudError::Unauthenticated),

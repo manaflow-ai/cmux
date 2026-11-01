@@ -88,7 +88,6 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_conversation_thread(const CloudConversationThreadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_typing(const CloudConversationTypingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_unsubscribe(const CloudConversationUnsubscribeRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<JsonValue> cloud_environment(const CloudEnvironmentRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_host_replica_clear(const CloudHostReplicaClearRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_host_replica_set(const CloudHostReplicaSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_host_replica_status(const CloudHostReplicaStatusRequest& request = {}, RequestOptions options = {});

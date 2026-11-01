@@ -258,7 +258,9 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
   expect(heights[2]).toBe(0);
 });
 
-test("another agent's message is its one 26px line in 2px margins and the 8px message gap, however long", () => {
+// Every one-line row takes a one-call tool run's frame: 2px over the 22px tool line, the 4px run gap
+// under it (model.ts LINE_ROW, conversation.css `.acpmux-row--line`).
+test("another agent's message is one 22px tool line in the one-line rows' frame, however long", () => {
   const row = (id: string, text: string) => ({
     id,
     version: 1,
@@ -272,7 +274,23 @@ test("another agent's message is its one 26px line in 2px margins and the 8px me
   expect(long).toBe(short);
 });
 
-test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {
+test("a message this agent sent another one is one 22px tool line in the one-line rows' frame", () => {
+  const send = {
+    kind: "tool",
+    text: "SendMessage",
+    tool: {
+      id: "send",
+      title: "SendMessage",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ to: "gcp-a-lane", message: "Rebase, then land." }),
+    },
+  };
+  const [height] = heightsOf([{ id: "s", version: 1, at: 0, kind: "activity", items: [send] }]);
+  expect(height).toBe(2 + 22 + 4);
+});
+
+test("a task notice is a tool row's line in the one-line rows' frame", () => {
   const [height] = heightsOf([
     { id: "n", version: 1, at: 0, kind: "user", text: "Task done", incoming: { kind: "notice", text: "Task done" } },
   ]);
