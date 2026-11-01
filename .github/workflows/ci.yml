@@ -1125,6 +1125,8 @@ jobs:
       web: ${{ needs.changes.outputs.web }}
       macos: ${{ needs.changes.outputs.macos }}
       agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
+      # web-subarea-scope takes the picker's owned side label on attempt 1 (ci-web.yml); else the Linux pool.
+      pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' web-subarea-scope ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
 
   # macOS compile admission starts as soon as `changes` and the static stage
   # pass, beside the fast Linux-only jobs instead of behind them. Over 75 gated

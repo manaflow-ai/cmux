@@ -1533,7 +1533,8 @@ INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
           "pr_root_runner": "${{ " + ROOT_OUTPUT + " }}",
           "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}",
           "pr_side_runner": {"remote-daemon": "${{ " + lane_side("remote-daemon") + " }}",
-                             "macos": "${{ " + lane_side("swift-package") + " }}"}}
+                             "macos": "${{ " + lane_side("swift-package") + " }}",
+                             "web": "${{ " + lane_side("web-subarea-scope") + " }}"}}
 MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
           "-${{ steps.macos-pool.outputs.jobs }}p${{ steps.macos-pool.outputs.placed }}"
           "-${{ steps.macos-pool.outputs.runner }}")
