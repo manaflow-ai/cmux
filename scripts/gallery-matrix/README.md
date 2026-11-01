@@ -112,6 +112,28 @@ one kind; a broken state's reason is its kind) is a warning and the shard passes
 state, a crashed render, a missing or cut-short `health.json`, a base render with no whole result,
 and any red on a push still fail.
 
+## Layout shift and geometry gates
+
+Gallery health also judges every state it renders on two more counts, each against a baseline
+file in this folder, and fails the PR that adds a regression (a red the base shares is a warning,
+as for broken states):
+
+- **Layout shift** (`shift-baseline.ts`, `shift-baseline.json`): the state's load plus each play
+  step, scored from the browser's layout-shift entries and from the tracked rows' boxes frame by
+  frame (`webviews/src/gallery/shift.ts`), whichever is larger. A row fails past a quarter again
+  plus 0.0005 (`LIMIT_SLACK`), so a row of 0 fails on any shift past frame-timing noise.
+- **Geometry invariants** (`invariant-baseline.ts`, `invariant-baseline.json`): the design specs'
+  rules read from the DOM after the state settles (`webviews/src/gallery/invariants.ts`): one
+  transcript icon column, icons on their line, gaps on the token scale, menu label columns,
+  `--ds-control-row` row heights and menus no wider than their content. A violation the state's
+  row does not list fails.
+
+A state with no row only warns. A shift or violation must show on every retry to count. Rows only
+go down: download a run's `gallery-health-*` artifacts and run `bun shift-baseline.ts --from <dir>`
+or `bun invariant-baseline.ts --from <dir>`; `--add` writes rows for states that have none.
+Shift rows are written from the worst of the downloaded runs, so a 0 row is a state no run shifted;
+seed from more than one run (several artifacts in one folder) to keep a flaky state off 0.
+
 ## Geometry audit
 
 `geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active

@@ -4,6 +4,7 @@
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
+  align-self: center;
   flex: none;
   max-width: 40%;
   min-width: 0;
@@ -22,11 +23,67 @@
   white-space: nowrap;
   cursor: default;
 }
-.cv-agent-tag:is(button, [data-interactive]):is(:hover, :focus-visible, :active) {
-  color: var(--cv-text);
-  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent) 55%, transparent);
+/* A received line's plain sender (no chat to open) starts its words on the rows' text column. */
+.cv-agent-tag.cv-received__from:not(.is-open) {
+  margin-inline-start: calc(-1 * var(--cv-disclosure-gap));
 }
-.cv-agent-tag.cv-received__from {
-  margin-inline: calc(-1 * var(--cv-disclosure-gap));
+/* A tag that opens a chat is a link chip (design/chat-transcript.md, "Session link chip"): the
+   link colour on a tint of it, real padding, centred on its row's icon line, and an open cue (↗)
+   after the name, so it reads as a way to somewhere else and not as the row's own words (Leo,
+   2026-11-01: "it's not obvious that clicking on this will be a new thing"). The look is this one
+   rule's; rows only place it. */
+button.cv-agent-tag.is-open {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  box-sizing: border-box;
+  gap: var(--ds-space-1);
+  /* The tool row's height (design/grid.md): a step under the 26px message line, so the chip has
+     room above and below inside every row it sits on. */
+  height: var(--cv-tool-row-height);
+  padding: 0 var(--ds-space-1);
+  color: var(--agent-link, var(--agent-accent));
+  background: color-mix(in srgb, var(--agent-link, var(--agent-accent)) 13%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
+    color-mix(in srgb, var(--agent-link, var(--agent-accent)) 28%, transparent);
+  line-height: var(--cv-tool-row-height);
+}
+.cv-agent-tag__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-agent-tag__cue {
+  flex: none;
+  opacity: 0.6;
+}
+/* Pointing at it lights the chip alone; the row under it stays as it was (each row's hover rule
+   skips a line whose open chip is pointed at). */
+button.cv-agent-tag.is-open:is(:hover, :focus-visible, :active) {
+  color: var(--agent-link, var(--agent-accent));
+  background: color-mix(in srgb, var(--agent-link, var(--agent-accent)) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-link, var(--agent-accent)) 50%, transparent);
+}
+button.cv-agent-tag.is-open:is(:hover, :focus-visible, :active) .cv-agent-tag__cue,
+button.cv-agent-tag.is-open:is(:has([data-popup-open]), :focus-visible, :active) .cv-agent-tag__cue {
+  opacity: 1;
+}
+/* An opened message's line names its chat whole (AgentMessageRow.css `[data-open]`). */
+.cv-agentmsg[data-open] button.cv-agent-tag.is-open {
+  height: auto;
+  min-height: var(--cv-tool-row-height);
+}
+.cv-agentmsg[data-open] .cv-agent-tag__label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: no-preference) {
+  button.cv-agent-tag.is-open,
+  .cv-agent-tag__cue {
+    transition:
+      background-color var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out),
+      box-shadow var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out),
+      opacity var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out);
+  }
 }

@@ -382,7 +382,7 @@ Có, cmux miễn phí để dùng. Mã nguồn có sẵn trên [GitHub](https://
 
 ### Tôi có thể hỗ trợ cmux như thế nào?
 
-cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn ủng hộ việc phát triển và có quyền truy cập sớm vào những thứ sắp tới, gồm cmux AI, app iOS, và Cloud VMs, hãy xem [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy.
 
 ### Tôi có yêu cầu tính năng hoặc tìm thấy lỗi?
 
@@ -421,19 +421,6 @@ Cách tham gia:
   <strong>WeChat:</strong> Quét mã QR để tham gia cộng đồng.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="Mã QR WeChat để tham gia cộng đồng cmux" width="240" />
 </p>
-
-## Founder's Edition
-
-cmux miễn phí, mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn hỗ trợ phát triển và có quyền truy cập sớm vào những thứ sắp tới:
-
-**[Lấy Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Ưu tiên yêu cầu tính năng/sửa lỗi**
-- **Truy cập sớm: cmux AI cung cấp ngữ cảnh cho mọi workspace, tab và panel**
-- **Truy cập sớm: ứng dụng iOS với terminal đồng bộ giữa desktop và điện thoại**
-- **Truy cập sớm: Cloud VM**
-- **Truy cập sớm: Voice mode**
-- **iMessage/WhatsApp cá nhân của tôi**
 
 ## Giấy phép
 

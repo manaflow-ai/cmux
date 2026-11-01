@@ -629,20 +629,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   display: block;
   color: var(--acpmux-composer-dim);
 }
-/* Another agent's message: its received line (conversation.css .cv-received) across the row,
-   its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
-   stays about as tall as one of the person's. */
-.acpmux-queued .cv-received {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin: -3px 0;
-}
-.acpmux-queued .cv-received__line {
-  padding-right: 0;
-}
-.acpmux-queued .cv-received__line > .acpmux-queued-actions {
-  margin: 0 0 0 auto;
-}
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
    its text at the prompts' edge: "N more queued" or "Show less". It opens and closes at once: no
