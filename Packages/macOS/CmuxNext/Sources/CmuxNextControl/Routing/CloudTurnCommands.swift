@@ -1,7 +1,7 @@
 import CmuxNextSettings
 public import Foundation
 
-/// The app's two fixed owner operations. The CLI owns selection and generation fencing;
+/// The app's fixed owner operations. The CLI owns selection and generation fencing;
 /// this bridge resolves native workspace ownership and forwards only that scope.
 public struct CloudTurnCommands: Sendable {
     /// A workspace's native logical machine, and how the app reconnects it after replacement.
@@ -44,7 +44,16 @@ public struct CloudTurnCommands: Sendable {
 
     /// Typed control methods, with a bounded restore deadline and no raw URL forwarding.
     public var methods: [ControlMethod] {
-        [method("cloud.turn.state", rewind: false), method("cloud.turn.rewind", rewind: true)]
+        [method("cloud.turn.state", rewind: false), method("cloud.turn.rewind", rewind: true),
+         .async("cloud.turn.connection") { call in
+             let workspace = try Self.text(call.params, "workspace")
+             let context = try await scope(workspace)
+             let target = try Self.connectionTarget(await connection(workspace), machine: context.machine)
+             try await context.confirmed?()
+             var fields = target.fields
+             fields["workspace"] = .string(workspace)
+             return .object(fields)
+         }.withDeadline(.fixed(.seconds(30)))]
     }
 
     private func method(_ name: String, rewind: Bool) -> ControlMethod {
@@ -68,19 +77,29 @@ public struct CloudTurnCommands: Sendable {
             else { throw ControlError(code: "cloud.turn.scope", message: "The platform returned a different workspace machine.") }
             try await context.confirmed?()
             if rewind {
-                let data = try await connection(workspace)
-                guard let target = CmuxNextSettings.JSONValue(foundation: try JSONSerialization.jsonObject(with: data)),
-                      target["machineId"]?.stringValue == context.machine,
-                      let raw = target["generation"]?.doubleValue, let generation = Int(exactly: raw), generation >= 0,
-                      raw == value["generation"]?.doubleValue,
-                      let provider = target["provider"]?.stringValue, provider == "freestyle" || provider == "freestyle-vm-api" || provider == "freestyle-cloud",
-                      let machine = target["connectionMachine"]?.stringValue, machine.utf8.count == 23,
-                      machine.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil
+                let target = try Self.connectionTarget(await connection(workspace), machine: context.machine)
+                guard Double(target.generation) == value["generation"]?.doubleValue
                 else { throw ControlError(code: "cloud.turn.connection", message: "The machine rewound, but its current connection target could not be verified. Retry with the same key.") }
-                try await context.reconnect(machine, generation)
+                try await context.reconnect(target.machine, target.generation)
             }
             return value
         }.withDeadline(.fixed(.seconds(300)))
+    }
+
+    private static func connectionTarget(_ data: Data, machine expected: String) throws
+        -> (fields: [String: CmuxNextSettings.JSONValue], machine: String, generation: Int) {
+        guard let target = CmuxNextSettings.JSONValue(foundation: try JSONSerialization.jsonObject(with: data)),
+              target["machineId"]?.stringValue == expected,
+              let raw = target["generation"]?.doubleValue, let generation = Int(exactly: raw), generation >= 0,
+              let provider = target["provider"]?.stringValue,
+              ["freestyle", "freestyle-vm-api", "freestyle-cloud"].contains(provider),
+              let machine = target["connectionMachine"]?.stringValue, machine.utf8.count == 23,
+              machine.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil
+        else { throw ControlError(code: "cloud.turn.connection", message: "The current workspace connection target could not be verified.") }
+        // Export only identity fields; a future provider reply must not expose credentials
+        // or connection capabilities through this owner diagnostic read.
+        return (["machineId": .string(expected), "generation": .number(Double(generation)),
+                 "provider": .string(provider), "connectionMachine": .string(machine)], machine, generation)
     }
 
     private static func text(_ params: [String: CmuxNextSettings.JSONValue], _ name: String) throws -> String {

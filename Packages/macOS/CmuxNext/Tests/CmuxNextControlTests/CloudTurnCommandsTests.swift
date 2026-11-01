@@ -11,12 +11,12 @@ import Testing
         func connect(_ machine: String, generation: Int) { connected = "\(machine):\(generation)" }
     }
 
-    private func router(_ calls: Calls, connectionGeneration: Int = 1, provider: String = "freestyle", connectionMachine: String = "vm_abcdefghijklmnopqrst") -> ControlRouter {
+    private func router(_ calls: Calls, connectionGeneration: Int = 1, provider: String = "freestyle", connectionMachine: String = "vm_abcdefghijklmnopqrst", connectionLogical: String = "logical") -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
         router.register(CloudTurnCommands(
             state: { _ in Data(#"{"machineId":"logical","generation":0,"captures":[]}"#.utf8) },
             connection: { _ in
-                Data("{\"machineId\":\"logical\",\"generation\":\(connectionGeneration),\"provider\":\"\(provider)\",\"connectionMachine\":\"\(connectionMachine)\"}".utf8)
+                Data("{\"machineId\":\"\(connectionLogical)\",\"generation\":\(connectionGeneration),\"provider\":\"\(provider)\",\"connectionMachine\":\"\(connectionMachine)\",\"privateField\":\"must-not-export\"}".utf8)
             },
             rewind: { _ in
                 await calls.rewind()
@@ -71,6 +71,37 @@ import Testing
             let result = await router(calls, provider: provider, connectionMachine: target).handle(request())
             guard case .failure(let error) = result else { Issue.record("unverified carrier accepted"); continue }
             #expect(error.code == "cloud.turn.connection")
+            #expect(await calls.connected == nil)
+        }
+    }
+
+    @Test func connectionReadReturnsVerifiedOwnerTargetWithoutChangingTheSession() async throws {
+        let calls = Calls()
+        let value = try await router(calls).handle(ControlRequest(method: "cloud.turn.connection", params: ["workspace": "workspace"])).get()
+        #expect(value["machineId"] == "logical")
+        #expect(value["generation"] == 1)
+        #expect(value["connectionMachine"] == "vm_abcdefghijklmnopqrst")
+        #expect(value["workspace"] == "workspace")
+        #expect(value["privateField"] == nil)
+        #expect(await calls.rewinds == 0)
+        #expect(await calls.connected == nil)
+        #expect(ControlError.policyRefusal("cloud.turn.connection", disabled: [.cloud])?.code == "feature.disabled")
+    }
+
+    @Test func connectionReadRefusesWrongLogicalMachineAndInvalidProviderIdentity() async {
+        for (logical, generation, provider, machine) in [
+            ("another", 1, "freestyle", "vm_abcdefghijklmnopqrst"),
+            ("logical", -1, "freestyle", "vm_abcdefghijklmnopqrst"),
+            ("logical", 1, "unknown", "vm_abcdefghijklmnopqrst"),
+            ("logical", 1, "freestyle", "vm_abcdefghijklmnopqrst\\n"),
+        ] {
+            let calls = Calls()
+            let result = await router(calls, connectionGeneration: generation, provider: provider,
+                                      connectionMachine: machine, connectionLogical: logical)
+                .handle(ControlRequest(method: "cloud.turn.connection", params: ["workspace": "workspace"]))
+            guard case .failure(let error) = result else { Issue.record("unverified connection read accepted"); continue }
+            #expect(error.code == "cloud.turn.connection")
+            #expect(await calls.rewinds == 0)
             #expect(await calls.connected == nil)
         }
     }
