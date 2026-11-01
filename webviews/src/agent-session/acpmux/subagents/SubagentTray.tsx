@@ -85,6 +85,17 @@ const ROW_ICON = rowIconSize(12);
 const itemKey = (item: TrayItem): string =>
   item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
 
+/// What a line's Stop is keyed by while it can stop: a running subagent the harness stops, or a
+/// command acpmux lists; else nothing.
+const stopKey = (item: TrayItem): string | undefined =>
+  item.kind === "agent"
+    ? item.agent.state === "running" && !item.agent.command
+      ? `agent:${item.agent.id}`
+      : undefined
+    : item.kind === "command" && item.command.processId
+      ? `process:${item.command.processId}`
+      : undefined;
+
 /// A line's menu with nothing to stop.
 const NO_STOP: readonly ContextMenuItem[] = [];
 
@@ -146,7 +157,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [showFinished, setShowFinished] = useState(false);
   const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
   // Each line's Stop, as its menu item: off while the request is out (and after it is taken, until
-  // the line ends); when acpmux or the harness refuses, the item says so and can be tried again.
+  // that run ends); when acpmux or the harness refuses, the item says so and can be tried again.
   const [stops, setStops] = useState<ReadonlyMap<string, "stopping" | "failed">>(() => new Map());
   // Read once per tray: the arm is the gallery's override or a dogfood key, never a per-tick read.
   const [look] = useState(() => experimentArm(trayPanelLook));
@@ -198,6 +209,13 @@ export const SubagentTray = memo(function SubagentTray({
   const [arrived, setArrived] = useState<ReadonlySet<string>>(NO_ARRIVALS);
   if (comparedFor.current?.items !== items || comparedFor.current.finished !== finished) {
     comparedFor.current = { items, finished };
+    // A Stop's state lasts one run: a line that ends (or leaves) drops it, so a run that resumes
+    // under the same id can be stopped again (#28533's review).
+    if (stops.size > 0) {
+      const stoppable = new Set(items.map(stopKey).filter((key): key is string => key !== undefined));
+      if ([...stops.keys()].some((key) => !stoppable.has(key)))
+        setStops((current) => new Map([...current].filter(([key]) => stoppable.has(key))));
+    }
     const keys = new Set([...items.map(itemKey), ...finished.map(itemKey)]);
     const known = seen.current ?? keys;
     seen.current = keys;
@@ -427,7 +445,7 @@ export const SubagentTray = memo(function SubagentTray({
         stop &&
           item.agent.state === "running" &&
           !item.agent.command &&
-          stopItem(`agent:${item.agent.id}`, item.agent.name, t("subagents.stop", { name: item.agent.name }), () =>
+          stopItem(stopKey(item)!, item.agent.name, t("subagents.stop", { name: item.agent.name }), () =>
             stop(item.agent.id),
           ),
       );
@@ -470,9 +488,7 @@ export const SubagentTray = memo(function SubagentTray({
             />,
             stopProcess &&
               processId &&
-              stopItem(`process:${processId}`, item.command.command, t("tray.stopCommand"), () =>
-                stopProcess(processId),
-              ),
+              stopItem(stopKey(item)!, item.command.command, t("tray.stopCommand"), () => stopProcess(processId)),
           )}
           <BackgroundTaskTail
             command={item.command}
