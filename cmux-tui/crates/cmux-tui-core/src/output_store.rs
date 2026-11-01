@@ -35,7 +35,7 @@ mod memory_budget;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -360,6 +360,15 @@ pub(crate) struct OutputStore {
     /// Stored segment stream ends, by terminal and generation key (full
     /// mode; read once at start).
     segment_resume: Mutex<HashMap<(TerminalPublicId, String), u64>>,
+    /// Terminals of incognito (ephemeral) workspaces: memory only in every
+    /// mode, whatever `terminal.persistence.mode` says (design/spaces.md
+    /// "Incognito": nothing kept). Kept here because the workspace's flag
+    /// row goes when it closes, before its terminals' exits are recorded.
+    private: Mutex<HashSet<TerminalPublicId>>,
+    /// Terminals known to be normal (not incognito), so the write pass does
+    /// not ask the registry again. A terminal never moves between an
+    /// incognito and a normal workspace.
+    public: Mutex<HashSet<TerminalPublicId>>,
 }
 
 impl OutputStore {
@@ -382,6 +391,8 @@ impl OutputStore {
             resident_trigger: std::sync::atomic::AtomicU64::new(u64::MAX),
             resume: Mutex::new(HashMap::new()),
             segment_resume: Mutex::new(HashMap::new()),
+            private: Mutex::new(HashSet::new()),
+            public: Mutex::new(HashSet::new()),
         }
     }
 
@@ -656,6 +667,14 @@ impl OutputStore {
     /// terminals that left the session.
     pub(crate) fn forget(&self, terminal_id: &TerminalPublicId) {
         self.memory_budget.forget(terminal_id);
+        self.public.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        // An incognito terminal's files (none are written; this covers one
+        // marked after a write) go now, not at the next pass. It stays
+        // marked: its exit can be recorded after it left the session, when
+        // its workspace's flag is gone too.
+        if self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id) {
+            self.remove_files(terminal_id);
+        }
         let removed = self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
         if let Some(log) = &removed {
             let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -797,6 +816,140 @@ impl OutputStore {
 
     fn cached_policy(&self) -> Option<PersistencePolicy> {
         *self.policy.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Keep terminal `terminal_id` in memory only: it belongs to an incognito
+    /// workspace. Its files, if any, are removed now.
+    pub(crate) fn mark_private(&self, terminal_id: &TerminalPublicId) {
+        self.public.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        if self.private.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone()) {
+            self.remove_files(terminal_id);
+        }
+    }
+
+    /// Terminal `terminal_id` is known normal (spawned outside an incognito
+    /// workspace), before its registry row exists. A private mark wins.
+    pub(crate) fn mark_public(&self, terminal_id: &TerminalPublicId) {
+        if !self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id) {
+            self.public.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone());
+        }
+    }
+
+    fn remove_files(&self, terminal_id: &TerminalPublicId) {
+        if let Some(directory) = self.directory.as_deref() {
+            let _pass = self.lock_pass();
+            snapshot::remove(directory, terminal_id);
+            segments::remove(directory, terminal_id);
+        }
+    }
+
+    /// Whether terminal `terminal_id` is kept in memory only: it was marked
+    /// private, or its workspace is incognito (it is marked then). When the
+    /// registry cannot tell, it is (fail closed).
+    /// Takes the workspace registry lock; see [`Self::is_private_in`].
+    pub(crate) fn is_private(&self, mux: &Mux, terminal_id: &TerminalPublicId) -> bool {
+        self.privacy(mux, terminal_id).unwrap_or(true)
+    }
+
+    /// [`Self::is_private`] for a caller that holds the workspace registry.
+    pub(crate) fn is_private_in(
+        &self,
+        registry: &crate::workspace_registry::WorkspaceRegistry,
+        terminal_id: &TerminalPublicId,
+    ) -> bool {
+        self.privacy_in(registry, terminal_id).unwrap_or(true)
+    }
+
+    /// Whether terminal `terminal_id` is private; `None` when the registry
+    /// could not tell. Takes the workspace registry lock unless the answer
+    /// is cached.
+    fn privacy(&self, mux: &Mux, terminal_id: &TerminalPublicId) -> Option<bool> {
+        if let Some(known) = self.known_privacy(terminal_id) {
+            return Some(known);
+        }
+        let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        self.privacy_in(&registry, terminal_id)
+    }
+
+    fn known_privacy(&self, terminal_id: &TerminalPublicId) -> Option<bool> {
+        if self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id) {
+            return Some(true);
+        }
+        self.public
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
+            .then_some(false)
+    }
+
+    fn privacy_in(
+        &self,
+        registry: &crate::workspace_registry::WorkspaceRegistry,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<bool> {
+        if let Some(known) = self.known_privacy(terminal_id) {
+            return Some(known);
+        }
+        match registry.read_state(|connection| {
+            crate::state::store::public_terminal_is_ephemeral(connection, terminal_id.as_str())
+        }) {
+            Ok(Some(true)) => {
+                self.private
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(terminal_id.clone());
+                Some(true)
+            }
+            Ok(Some(false)) => {
+                self.public.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone());
+                Some(false)
+            }
+            // No row (yet): not known normal, so it reads as incognito and
+            // its bytes wait; asked again next time.
+            Ok(None) => None,
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: could not tell whether terminal {} is incognito; keeping it in memory: {error:#}",
+                    terminal_id.as_str()
+                );
+                None
+            }
+        }
+    }
+
+    /// Whether terminal `terminal_id`'s screen may reach the disk (an exit
+    /// replay, a snapshot): not in memory mode and not an incognito terminal.
+    pub(crate) fn keeps_screen(&self, mux: &Mux, terminal_id: &TerminalPublicId) -> bool {
+        !self.memory_only() && !self.is_private(mux, terminal_id)
+    }
+
+    /// `dirty` without the logs of private terminals, whose unflushed bytes
+    /// (full mode) are dropped: they never reach a file. A terminal the
+    /// registry could not place waits for the next pass with its bytes kept.
+    /// Called under the pass lock.
+    fn without_private(&self, mux: &Mux, dirty: Vec<Arc<TerminalLog>>) -> Vec<Arc<TerminalLog>> {
+        let mut unknown = false;
+        let kept = dirty
+            .into_iter()
+            .filter(|log| match self.privacy(mux, &log.terminal_id) {
+                Some(false) => true,
+                Some(true) => {
+                    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                    state.pending = Vec::new();
+                    state.pending_start = state.next_offset();
+                    false
+                }
+                None => {
+                    log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+                    unknown = true;
+                    false
+                }
+            })
+            .collect();
+        if unknown {
+            self.mark_dirty();
+        }
+        kept
     }
 
     /// True when `terminal.persistence.mode` is `memory`: no terminal screen
