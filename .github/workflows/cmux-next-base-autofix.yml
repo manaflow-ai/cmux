@@ -183,13 +183,17 @@ jobs:
   # (with the base tier on, until that run is dispatched: within 15 minutes of a landing), at most 45
   # minutes, and gives up at once when none will. A miss of any kind leaves the exports to the Mac job,
   # as before. vars.CMUX_NEXT_BASE_EXPORTS_REUSE=0 turns it off.
+  # Only the run that carries the exports waits: while another run's pushed-exports or Mac job is
+  # queued or running (mac_busy, base-autofix-mac-busy.sh) this is skipped, the run defers its exports
+  # (mac-exports-deferred) and its autofix repairs the rest at once. Every run's autofix needs this
+  # job, so with every run waiting here (2026-11-01) a formatting repair waited up to 45 minutes too.
   pushed-exports:
     name: exports from the push's generated files
     # The read App's key (GLAEDA_ROUTE_APP_KEY) is this environment's, as in
     # cmux-next-generated-catch-up.yml; on feat-cmux-next only.
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'ci-routing-agent' || '' }}
     needs: action-areas
-    if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
+    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 62
     permissions:
@@ -250,13 +254,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # This run left its Mac exports to another run's queued or running Mac job. It ends green, and
-  # base-autofix-since.sh passes over a run with this job, so the next run still covers its changes.
-  # A run that took this push's packed exports has nothing to leave.
+  # This run left its exports to another run's queued or running pushed-exports or Mac job, and looked
+  # for no pack itself (pushed-exports is skipped). It ends green, and base-autofix-since.sh passes
+  # over a run with this job, so the next run still covers its changes.
   mac-exports-deferred:
     name: Mac exports deferred
-    needs: [action-areas, pushed-exports]
-    if: needs.action-areas.outputs.mac_busy == 'true' && needs.pushed-exports.outputs.hit != 'true'
+    needs: action-areas
+    if: needs.action-areas.outputs.mac_busy == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     permissions: {}
@@ -266,7 +270,7 @@ jobs:
           BUSY_RUN: ${{ needs.action-areas.outputs.mac_busy_run }}
           SERVER: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          echo "Mac exports left to run $SERVER/actions/runs/$BUSY_RUN, whose Mac job was already queued or running; the next run's changes include this run's." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Mac exports left to run $SERVER/actions/runs/$BUSY_RUN, whose pushed-exports or Mac job was already queued or running; the next run's changes include this run's." | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Regenerates the action exports and the settings exports on a Mac with a
   # read-only token and hands them to autofix as the action-exports artifact
