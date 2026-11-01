@@ -444,33 +444,80 @@ impl Brain {
 }
 
 /// The final reply of every turn that ended in `events`, oldest first (a
-/// failed turn's error included), and the seq of the last turn end.
+/// failed turn's error included), and the seq of the last turn end. A turn's
+/// final reply is its words after its last tool call (the last words it said,
+/// when it ended on a tool call): the folder's turn text glues every progress
+/// line of the run together with no break, which put whole runs in report
+/// bubbles (Leo, 2026-10-31).
 pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>, bool) {
     let mut folder = TurnFolder::default();
     let mut replies = Vec::new();
     let mut last_end = None;
     let mut cancelled = false;
+    // Byte offsets into the running turn's text where its tool calls fell.
+    let mut cuts: Vec<usize> = Vec::new();
     for event in events {
         // A turn the user stopped (`session/cancel`) ends with stopReason cancelled.
         let stopped = event.kind == "turn_end"
             && event.msg.get("stopReason").and_then(Value::as_str) == Some("cancelled");
+        if is_own_tool_call(event)
+            && let Some(turn) = folder.running()
+            && cuts.last() != Some(&turn.text.len())
+        {
+            cuts.push(turn.text.len());
+        }
         for output in folder.apply(event) {
-            if let TurnOutput::Ended { turn, seq, error } = output {
-                last_end = Some(seq);
-                cancelled = stopped || crate::fold::is_cancelled(error.as_deref());
-                let text = turn.text.trim();
-                let reply = match error {
-                    Some(error) if text.is_empty() => format!("(turn failed: {error})"),
-                    Some(error) => format!("{text}\n\n(turn failed: {error})"),
-                    None => text.to_owned(),
-                };
-                if !reply.is_empty() {
-                    replies.push(reply);
+            match output {
+                TurnOutput::Started { .. } => cuts.clear(),
+                TurnOutput::Ended { turn, seq, error } => {
+                    last_end = Some(seq);
+                    cancelled = stopped || crate::fold::is_cancelled(error.as_deref());
+                    let text = final_words(&turn.text, &cuts);
+                    cuts.clear();
+                    let reply = match error {
+                        Some(error) if text.is_empty() => format!("(turn failed: {error})"),
+                        Some(error) => format!("{text}\n\n(turn failed: {error})"),
+                        None => text.to_owned(),
+                    };
+                    if !reply.is_empty() {
+                        replies.push(reply);
+                    }
                 }
+                _ => {}
             }
         }
     }
     (replies, last_end, cancelled)
+}
+
+/// A tool call of the session itself; a Task subagent's (`<acp>/<toolu>`
+/// session, or `_meta.acpmux.subagent`) is not the turn's.
+fn is_own_tool_call(event: &AcpmuxEvent) -> bool {
+    let params = event.msg.get("params");
+    event.kind == "tool_call"
+        && !params
+            .and_then(|p| p.get("sessionId"))
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.contains('/'))
+        && params
+            .and_then(|p| p.pointer("/_meta/acpmux/subagent"))
+            .is_none()
+}
+
+/// The last non-empty segment of `text` split at `cuts`, trimmed.
+fn final_words<'a>(text: &'a str, cuts: &[usize]) -> &'a str {
+    let mut end = text.len();
+    for &cut in cuts.iter().rev() {
+        if cut > end || !text.is_char_boundary(cut) {
+            continue;
+        }
+        let segment = text[cut..end].trim();
+        if !segment.is_empty() {
+            return segment;
+        }
+        end = cut;
+    }
+    text[..end].trim()
 }
 
 /// A subagent's report, its replies since its floor: the last one, and when
