@@ -72,7 +72,8 @@ public struct CloudTurnCommands: Sendable {
                 guard let target = CmuxNextSettings.JSONValue(foundation: try JSONSerialization.jsonObject(with: data)),
                       target["machineId"]?.stringValue == context.machine,
                       let raw = target["generation"]?.doubleValue, let generation = Int(exactly: raw), generation >= 0,
-                      raw == value["generation"]?.doubleValue, target["provider"]?.stringValue == "freestyle",
+                      raw == value["generation"]?.doubleValue,
+                      let provider = target["provider"]?.stringValue, provider == "freestyle" || provider == "freestyle-vm-api",
                       let machine = target["connectionMachine"]?.stringValue, machine.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil
                 else { throw ControlError(code: "cloud.turn.connection", message: "The machine rewound, but its current connection target could not be verified. Retry with the same key.") }
                 try await context.reconnect(machine, generation)

@@ -13,9 +13,9 @@ import Testing
         return try #require(store.bindings(in: scope).first)
     }
 
-    private func record(_ state: String = "running", machine: String? = nil) -> Data {
+    private func record(_ state: String = "running", machine: String? = nil, provider: String = "freestyle") -> Data {
         Data("""
-        {"workspace":"ws_one","machine":{"id":"\(machine ?? logical)","provider":"freestyle","state":"\(state)","creator":"user_one","createdAt":1000}}
+        {"workspace":"ws_one","machine":{"id":"\(machine ?? logical)","provider":"\(provider)","state":"\(state)","creator":"user_one","createdAt":1000}}
         """.utf8)
     }
 
@@ -89,9 +89,18 @@ import Testing
         #expect(CloudWorkspaceProjection.applying([projection], to: [CloudMachine(id: logical), CloudMachine(id: replacement)]).isEmpty)
     }
 
+    @Test func boundVMAPICarrierKeepsTheLogicalWorkspaceIdentity() async throws {
+        let record = record(provider: "freestyle-vm-api"), target = connection(provider: "freestyle-vm-api")
+        let projection = try await CloudWorkspaceProjection.read(binding: binding(), machine: { _ in record }, connection: { _ in target })
+        #expect(projection.connection?.connectionMachine == replacement)
+        let rows = CloudWorkspaceProjection.applying([projection], to: [CloudMachine(id: replacement)])
+        #expect(rows.map(\.id) == [logical])
+        #expect(rows.first?.provider == "freestyle-vm-api")
+    }
+
     @Test func rawVMAPIOrWrongLogicalMachineNeverBecomesAnAppLink() async throws {
         let binding = try binding(), record = record()
-        for connection in [connection(provider: "freestyle-vm-api"), connection(machine: "vm_abcdefghijklmnopqrstuvwxyz"), connection(generation: -1)] {
+        for connection in [connection(provider: "unknown"), connection(provider: "freestyle-vm-api", machine: "vm_abcdefghijklmnopqrstuvwxyz"), connection(machine: "vm_abcdefghijklmnopqrstuvwxyz"), connection(generation: -1)] {
             await #expect(throws: CloudTurnRewindClient.Failure.self) {
                 try await CloudWorkspaceProjection.read(binding: binding, machine: { _ in record }, connection: { _ in connection })
             }

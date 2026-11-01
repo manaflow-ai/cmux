@@ -11,12 +11,12 @@ import Testing
         func connect(_ machine: String, generation: Int) { connected = "\(machine):\(generation)" }
     }
 
-    private func router(_ calls: Calls, connectionGeneration: Int = 1) -> ControlRouter {
+    private func router(_ calls: Calls, connectionGeneration: Int = 1, provider: String = "freestyle", connectionMachine: String = "vm_abcdefghijklmnopqrst") -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
         router.register(CloudTurnCommands(
             state: { _ in Data(#"{"machineId":"logical","generation":0,"captures":[]}"#.utf8) },
             connection: { _ in
-                Data("{\"machineId\":\"logical\",\"generation\":\(connectionGeneration),\"provider\":\"freestyle\",\"connectionMachine\":\"vm_abcdefghijklmnopqrst\"}".utf8)
+                Data("{\"machineId\":\"logical\",\"generation\":\(connectionGeneration),\"provider\":\"\(provider)\",\"connectionMachine\":\"\(connectionMachine)\"}".utf8)
             },
             rewind: { _ in
                 await calls.rewind()
@@ -56,11 +56,23 @@ import Testing
         #expect(await calls.connected == nil)
     }
 
-    @Test func successRequiresVerifiedReplacementConnection() async throws {
+    @Test(arguments: ["freestyle", "freestyle-vm-api"])
+    func successRequiresVerifiedReplacementConnection(provider: String) async throws {
         let calls = Calls()
-        let value = try await router(calls).handle(request()).get()
+        let value = try await router(calls, provider: provider).handle(request()).get()
         #expect(value["generation"] == 1)
         #expect(await calls.rewinds == 1)
         #expect(await calls.connected == "vm_abcdefghijklmnopqrst:1")
     }
+
+    @Test func rawProviderHandleAndUnknownProviderCannotRetargetTheApp() async {
+        for (provider, target) in [("freestyle-vm-api", "vm_abcdefghijklmnopqrstuvwxyz"), ("unknown", "vm_abcdefghijklmnopqrst")] {
+            let calls = Calls()
+            let result = await router(calls, provider: provider, connectionMachine: target).handle(request())
+            guard case .failure(let error) = result else { Issue.record("unverified carrier accepted"); continue }
+            #expect(error.code == "cloud.turn.connection")
+            #expect(await calls.connected == nil)
+        }
+    }
+
 }

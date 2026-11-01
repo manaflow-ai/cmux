@@ -96,7 +96,8 @@ public struct CloudWorkspaceConnection: Decodable, Sendable, Equatable {
     public let connectionMachine: String
 
     public func checked(machine: String) throws -> Self {
-        guard machineId == machine, generation >= 0, provider == "freestyle",
+        guard machineId == machine, generation >= 0,
+              provider == "freestyle" || provider == "freestyle-vm-api",
               connectionMachine.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil
         else { throw CloudTurnRewindClient.Failure.invalidReply }
         return self
