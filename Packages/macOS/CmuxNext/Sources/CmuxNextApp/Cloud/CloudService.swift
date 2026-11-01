@@ -535,9 +535,30 @@ final class CloudService {
     }
 
     /// A verified binding invalidates an older raw list before it can remove the logical session.
-    func rememberTurnWorkspace(workspace: String, machine: String, scope: CloudWorkspaceBindings.Scope) throws {
+    func rememberTurnWorkspace(workspace: String, machine: String, scope: CloudWorkspaceBindings.Scope, target: String? = nil) throws {
         guard workspaceBindingScope == scope else { throw CancellationError() }
-        if try workspaceBindings.remember(workspace: workspace, machine: machine, scope: scope) { listGeneration += 1 }
+        if try workspaceBindings.remember(workspace: workspace, machine: machine, scope: scope, target: target) { listGeneration += 1 }
+    }
+
+    /// Enroll before an agent attachment negotiates turn support: the guest learns the workspace
+    /// scope at startup. The owner endpoint reuses this carrier and performs no machine allocation.
+    func enrollTurnWorkspace(workspace: String, machine: CloudMachineSession) async throws {
+        guard let scope = workspaceBindingScope else { throw CancellationError() }
+        let owner = workspaceOwner
+        let current: CloudWorkspaceConnection?
+        do {
+            current = try JSONDecoder().decode(CloudWorkspaceConnection.self, from: await owner.connection(workspace: workspace))
+                .checked(machine: machine.machineID)
+        } catch CloudTurnRewindClient.Failure.http(404) { current = nil }
+        try Task.checkCancellation()
+        guard workspaceBindingScope == scope else { throw CancellationError() }
+        let target = try await owner.importWorkspace(workspace: workspace, machine: machine.machineID,
+            carrier: current?.connectionMachine ?? machine.connectionMachineID ?? machine.machineID,
+            generation: current?.generation ?? 0)
+        try rememberTurnWorkspace(workspace: workspace, machine: machine.machineID, scope: scope, target: target.connectionMachine)
+        try Task.checkCancellation()
+        try await machine.reconnectAfterRewind(connectionMachine: target.connectionMachine, generation: target.generation)
+        guard workspaceBindingScope == scope else { throw CancellationError() }
     }
 
     func projectWorkspaceMachines(_ rows: [CloudMachine]) async throws -> [CloudMachine] {

@@ -389,6 +389,10 @@ extension AgentTabStore {
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
             if host.cloudMachineID != nil, services.cloud.configuration.linkSource == .appServer {
                 host.cloudTurn = Self.turnForwarder(tab: key, services: services)
+                host.prepareCloudTurns = { [weak services] in
+                    guard let services else { throw CancellationError() }
+                    try await Self.enrollTurnWorkspace(tab: key, services: services)
+                }
             }
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
@@ -535,6 +539,16 @@ extension AgentTabStore {
 }
 
 extension AgentTabStore {
+    @MainActor private static func enrollTurnWorkspace(tab key: String, services: AppServices) async throws {
+        guard let (tab, pane) = services.locateTabOnAnyMachine(key),
+              let daemon = try? services.machines.agentDaemon(forTab: tab),
+              let machine = services.machines.session(daemon.machineID), machine.appLink != nil,
+              let workspace = daemon.store.workspace(containing: pane.handle)?.resourceID,
+              await CloudMachineLinks(appLink: machine.appLink, link: nil).ownerLink() != nil
+        else { throw CloudTurnOwnerClient.Failure.scope }
+        try await services.cloud.enrollTurnWorkspace(workspace: workspace.rawValue, machine: machine)
+    }
+
     /// Resolves the pane's current machine and workspace on every send. Neither value is supplied
     /// by the webview or the guest's prepared-turn reply; the platform verifies their binding.
     static func turnForwarder(tab key: String, services: AppServices) -> RemoteAcpmuxWire.CloudTurn {

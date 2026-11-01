@@ -100,7 +100,7 @@ import Testing
 
     @Test func rawVMAPIOrWrongLogicalMachineNeverBecomesAnAppLink() async throws {
         let binding = try binding(), record = record()
-        for connection in [connection(provider: "unknown"), connection(provider: "freestyle-vm-api", machine: "vm_abcdefghijklmnopqrstuvwxyz"), connection(machine: "vm_abcdefghijklmnopqrstuvwxyz"), connection(generation: -1)] {
+        for connection in [connection(provider: "unknown"), connection(provider: "freestyle-vm-api", machine: "vm_abcdefghijklmnopqrstuvwxyz"), connection(machine: "vm_abcdefghijklmnopqrstuvwxyz"), connection(machine: "vm_abcdefghijklmnopqrst\\n"), connection(generation: -1)] {
             await #expect(throws: CloudTurnRewindClient.Failure.self) {
                 try await CloudWorkspaceProjection.read(binding: binding, machine: { _ in record }, connection: { _ in connection })
             }

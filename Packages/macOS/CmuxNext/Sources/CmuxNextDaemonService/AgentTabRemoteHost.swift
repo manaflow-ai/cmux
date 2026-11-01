@@ -45,6 +45,9 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     public var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
     /// Fixed native owner-auth forwarding for this workspace's per-turn snapshots.
     public var cloudTurn: RemoteAcpmuxWire.CloudTurn?
+    /// Owner-authenticated enrollment of the existing workspace machine. It may refresh the
+    /// guest's startup scope and reconnect; run before resolving a surface or opening an attachment.
+    public var prepareCloudTurns: (@Sendable () async throws -> Void)?
 
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
@@ -82,6 +85,7 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
+        if mode == .attach { try await prepareCloudTurns?() }
         var surface = surface
         var session = sessionId ?? self.session
         // The tab this run opened may have been provisional when this host was made: the store's
@@ -151,6 +155,10 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// try): its throw stops the start there, and what it threw is what this throws.
     public func startNow(cwd: String?, harness: String, model: String? = nil, proceed: @escaping @Sendable () async throws -> Void) async throws -> Started {
         guard let start else { throw AgentRemoteStartRefusal.startUnsupported(machine: machine) }
+        if let prepareCloudTurns {
+            try await proceed()
+            try await prepareCloudTurns()
+        }
         return try await Self.keyedStart(cwd, harness, model, approvals: approvals, servesKeyedReason: servesKeyedReason,
                                          updateMachine: updateMachine, proceed: proceed, start: start)
     }

@@ -74,7 +74,8 @@ public struct CloudTurnCommands: Sendable {
                       let raw = target["generation"]?.doubleValue, let generation = Int(exactly: raw), generation >= 0,
                       raw == value["generation"]?.doubleValue,
                       let provider = target["provider"]?.stringValue, provider == "freestyle" || provider == "freestyle-vm-api",
-                      let machine = target["connectionMachine"]?.stringValue, machine.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil
+                      let machine = target["connectionMachine"]?.stringValue, machine.utf8.count == 23,
+                      machine.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil
                 else { throw ControlError(code: "cloud.turn.connection", message: "The machine rewound, but its current connection target could not be verified. Retry with the same key.") }
                 try await context.reconnect(machine, generation)
             }

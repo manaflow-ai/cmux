@@ -66,7 +66,7 @@ import Testing
     }
 
     @Test func rawProviderHandleAndUnknownProviderCannotRetargetTheApp() async {
-        for (provider, target) in [("freestyle-vm-api", "vm_abcdefghijklmnopqrstuvwxyz"), ("unknown", "vm_abcdefghijklmnopqrst")] {
+        for (provider, target) in [("freestyle-vm-api", "vm_abcdefghijklmnopqrstuvwxyz"), ("unknown", "vm_abcdefghijklmnopqrst"), ("freestyle", "vm_abcdefghijklmnopqrst\\n")] {
             let calls = Calls()
             let result = await router(calls, provider: provider, connectionMachine: target).handle(request())
             guard case .failure(let error) = result else { Issue.record("unverified carrier accepted"); continue }

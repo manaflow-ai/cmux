@@ -15,6 +15,28 @@ public struct CloudTurnRewindClient: Sendable {
         transport = CloudOwnerAPIClient.transport
     }
 
+    init(origin: URL, token: @escaping @Sendable () async throws -> String, transport: URLSession) {
+        self.origin = origin
+        self.token = token
+        self.transport = transport
+    }
+
+    /// Enroll an existing owner-verified Cloud carrier before the first agent attachment.
+    /// This endpoint never allocates a machine. Its idempotency scope includes the workspace,
+    /// logical machine and generation, so relaunch can safely repeat the same request.
+    public func importWorkspace(workspace: String, machine: String, carrier: String, generation: Int) async throws -> CloudWorkspaceConnection {
+        guard Self.valid(workspace), Self.valid(machine), generation >= 0, carrier.utf8.count == 23,
+              carrier.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil
+        else { throw Failure.invalidScope }
+        let data = try await request(path: "/v1/workspaces/\(workspace)/machine/import", body: [
+            "carrierMachine": carrier, "expectedMachine": machine, "expectedGeneration": generation,
+            "clientKey": "native-workspace-import-v1",
+        ])
+        let connection = try JSONDecoder().decode(CloudWorkspaceConnection.self, from: data).checked(machine: machine)
+        guard connection.generation == generation, connection.connectionMachine == carrier else { throw Failure.invalidReply }
+        return connection
+    }
+
     /// Reads the external generation and capture ledger for one workspace.
     public func state(workspace: String) async throws -> Data {
         try await request(path: path(workspace), body: nil)
