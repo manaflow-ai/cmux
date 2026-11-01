@@ -14,6 +14,11 @@ public import Foundation
 public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Draw the user's icon (nil when the user set none or turned icons off).
     public var icon: WorkspaceIcon?
+    /// The workspace's color as the row's leading rail or full fill (`workspaceColors.indicatorStyle`,
+    /// #25653); nil for the dot style, an uncolored workspace or `sidebar.showColors` off.
+    public var rowColor: GroupColor?
+    /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
+    public var colorStyle: WorkspaceColorIndicatorStyle = .dot
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
     /// The tab count, when that element is on.
@@ -131,7 +136,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             // Task status is already represented by the trailing status dots; only a user icon
             // belongs before the title (Chrome's chat list has no extra idle/status ring).
             icon: set.shows(.icon) ? ws.icon : nil,
-            detail: items.isEmpty ? nil : items.joined(separator: Self.separator),
+            detail: Self.nonRedundantDetail(items.isEmpty ? nil : items.joined(separator: Self.separator), title: ws.title),
             tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
             activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
@@ -162,9 +167,11 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon,
-            detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
-                ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
-                ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+            detail: Self.nonRedundantDetail(
+                (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
+                    ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                    ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+                title: ws.title),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
             progress: Self.bar(ws),
             showsWorking: ws.agentWorking
@@ -250,6 +257,20 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     static func descriptionLine(_ ws: SidebarWorkspace) -> String? {
         ws.workspaceDescription?.split(whereSeparator: \.isNewline).lazy
             .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+    }
+
+    /// Drops the agent-session row's synthetic local/session label when it repeats the title.
+    /// Other hosts and facts remain visible; the decision is based on the rendered data.
+    static func nonRedundantDetail(_ detail: String?, title: String) -> String? {
+        guard let detail = nonEmpty(detail) else { return nil }
+        let parts = detail.components(separatedBy: Self.separator).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if parts.count == 2, parts[0].caseInsensitiveCompare("local") == .orderedSame,
+           parts[1].caseInsensitiveCompare(title.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame {
+            return nil
+        }
+        return detail
     }
 
     static func nonEmpty(_ text: String?) -> String? {

@@ -22,7 +22,6 @@ final class SidebarListView: NSView {
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
-    var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
@@ -90,10 +89,9 @@ final class SidebarListView: NSView {
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
-    /// The workspace whose tabs the last click folded or opened: a double-click's second press puts them back
-    /// before it renames the row.
-    var lastTabFold: WorkspaceID?
     let middleClick = SidebarMiddleClick()
+    /// A click on a group's name waits out the double-click interval before it folds.
+    let groupNameClick = SidebarGroupNameClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
@@ -144,7 +142,13 @@ final class SidebarListView: NSView {
     /// Whether a dragged document item is removed when dropped beside the sidebar, and its removal (`holdsDragOut`).
     var removesOnDragOut: ((String) -> Bool)?
     var onDragOutRemove: ((String) -> Void)?
-    let tabRowDrag = SidebarTabRowDrag()
+    /// The tab the row under the pointer stands for (its workspace's focused tab), nil off every
+    /// workspace row: the app forwards it so that chat is read before the click
+    /// (`SidebarListView+HoverPrefetch`). Called only when the hovered row changes.
+    var onHoverTab: ((TabID?) -> Void)?
+    /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
+    /// tab in place reports it again (`refreshHoverTab`).
+    var hoverTabSent: TabID?
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -152,6 +156,8 @@ final class SidebarListView: NSView {
     /// The group header that holds keyboard focus (arrow keys stop on
     /// headers; focus is not selection). Nil when a workspace has it.
     var focusedGroup: GroupID?
+    /// The disclosure with keyboard focus; focus never changes workspace selection.
+    var focusedFold: SidebarRowKey?
     /// The keyboard moved focus to `focusedGroup`, so its header draws the
     /// ring (a click focuses without one). A header view made later, by
     /// reuse or scrolling, draws it from this (SidebarListView+Reuse).
@@ -342,6 +348,7 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        forwardHover(key)
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered

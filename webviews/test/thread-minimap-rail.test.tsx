@@ -18,6 +18,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
+const observed: Element[] = [];
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -35,8 +36,11 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
+  // Each observed element is recorded, so a test can bound the observers a hover sweep puts on the card.
   ResizeObserver: class {
-    observe() {}
+    observe(target: Element) {
+      observed.push(target);
+    }
     unobserve() {}
     disconnect() {}
   },
@@ -232,6 +236,39 @@ test("the card opens with the hover, follows the pointer at once, and goes as th
     // Cooled: still at once.
     await enter(6);
     expect(card()).not.toBeNull();
+  } finally {
+    await view.unmount();
+  }
+});
+
+// Leo, 2026-10-31: "the left scroll rail still lags when i hover over a lot of it it needs to be
+// faster". Each row the pointer crosses changes the card's content. A measuring copy of the reply
+// appended to the card and removed again, and a fresh ResizeObserver per row (each notifying on
+// observe), restyled the whole page twice more per move under the page's `:has()` rules
+// (test/latency/rail-sweep.ts). The card now measures its reply in place and keeps one observer.
+test("sweeping the pointer across the rail adds no measuring node to the card and makes no observer per row", async () => {
+  const view = await mount(40);
+  try {
+    await enter(4);
+    const shown = card()!;
+    expect(shown).not.toBeNull();
+    const inserted: string[] = [];
+    const watch = new dom.window.MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof dom.window.HTMLElement) inserted.push(node.className || node.tagName);
+    });
+    watch.observe(shown, { childList: true });
+    const observersBefore = observed.length;
+    for (let index = 5; index < 25; index += 1) {
+      await enter(index);
+      expect(card()!.textContent).toContain(`Question ${index}`);
+    }
+    watch.disconnect();
+    // The card is the same element throughout, and its own children never come and go to measure it.
+    expect(card()).toBe(shown);
+    expect(inserted).toEqual([]);
+    expect(observed.slice(observersBefore).filter((target) => target === shown)).toEqual([]);
   } finally {
     await view.unmount();
   }

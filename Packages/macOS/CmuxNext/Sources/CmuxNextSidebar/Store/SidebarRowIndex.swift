@@ -93,7 +93,7 @@ extension SidebarListView {
     /// Shows row content changes of listed workspaces (`SidebarModel.patchWorkspaces`):
     /// each row's new content goes into the shown layout and its realized
     /// view (plus its group header, which draws the members' activity and
-    /// unread total, and its tab rows) is configured again. Only a row whose
+    /// unread total) is configured again. Only a row whose
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
         // A drag, its settle or its landing runs: the rows keep their look until the card is gone (`SidebarRowHold`).
@@ -116,19 +116,7 @@ extension SidebarListView {
         for ws in patched {
             // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
             let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
-            let oldWorkspace = workspaces[ws.id]
-            let oldFocus = oldWorkspace?.focusedTab
             workspaces[ws.id] = ws
-            // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again,
-            // and the tabs that lost and took the focus mark (`SidebarTabRowView`).
-            var changedTabs: [TabID] = []
-            for tab in ws.tabs where tabs[tab.id] != tab {
-                tabs[tab.id] = tab
-                changedTabs.append(tab.id)
-            }
-            if oldFocus != ws.focusedTab {
-                for id in [oldFocus, ws.focusedTab].compactMap({ $0 }) where !changedTabs.contains(id) { changedTabs.append(id) }
-            }
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
                 sections[section.id] = section
@@ -159,24 +147,8 @@ extension SidebarListView {
                 heightChanged = true
                 continue
             }
-            // The parent may have no realized view to lay out and invalidate its children.
-            // Compare only title-column inputs: status/agent-step ticks must not create mark
-            // images or lay out unchanged tabs. The shared title-column calculation resolves
-            // the actual icon/mark widths when an affected child lays out.
-            let oldContent = row.content ?? WorkspaceRowContent()
-            let wasPlaceholder = oldWorkspace.map { $0.rowState == .placeholder && $0.title.isEmpty } ?? false
-            let isPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
-            let leadingMarkChanged = SidebarTunables.agentMark.value == .besideTitle
-                && (oldWorkspace?.agentBrand != ws.agentBrand || oldWorkspace?.agentIcon != ws.agentIcon)
-            let titleColumnChanged = oldContent.icon != content.icon || oldContent.treeDepth != content.treeDepth
-                || (oldContent.machine == nil) != (content.machine == nil)
-                || wasPlaceholder != isPlaceholder || leadingMarkChanged
             displayed.setContent(content, for: row.key)
-            if titleColumnChanged {
-                for tab in ws.tabs { rowViews[.tab(ws.id, tab.id)]?.needsLayout = true }
-            }
             reconfigure(row.key)
-            for tab in changedTabs { reconfigure(.tab(ws.id, tab)) }
         }
         return heightChanged
     }
@@ -203,7 +175,7 @@ nonisolated extension SidebarLayout {
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
     /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup
+        section.isHostGroup && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar

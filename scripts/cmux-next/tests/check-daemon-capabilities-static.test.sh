@@ -10,7 +10,8 @@ chmod +x "$bin"
 manifest="$tmp/daemon-capabilities.json"
 requirements="$tmp/requirements.json"
 printf '%s\n' '{"cmuxTui":["attach-initial-size","terminal-env-v1","chief-live-v1","browser-host-provider-v1"]}' > "$manifest"
-printf '%s\n' '{"required":["attach-initial-size"],"optional":["terminal-env-v1","chief-live-v1","browser-host-provider-v1","terminal-reaper-active-v1"]}' > "$requirements"
+# Agent session settings are advertised only after the daemon connects to acpmux.
+printf '%s\n' '{"required":["attach-initial-size"],"optional":["terminal-env-v1","chief-live-v1","browser-host-provider-v1","terminal-reaper-active-v1","agent-session-settings-v1"]}' > "$requirements"
 
 bash "$ROOT/scripts/cmux-next/check-daemon-capabilities.sh" --static-only \
   --binary "$bin" --capabilities "$requirements" >/dev/null

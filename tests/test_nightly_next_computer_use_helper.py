@@ -79,7 +79,10 @@ def main():
         result = verify(make_app(tmp, executable=False))
         _check(result.returncode != 0, f"a helper without its executable fails ({result.stderr.strip()})")
 
-    workflow = yaml.safe_load(open(NIGHTLY, encoding="utf-8"))
+    # nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from nightly_workflow_text import nightly_text
+    workflow = yaml.safe_load(nightly_text())
     build = "\n".join(str(s.get("run", "")) for s in workflow["jobs"]["build-nightly-app"]["steps"])
     _check("build-cmux-cua.sh" in build and "--helper-app" in build,
            "the nightly app build assembles the helper (build-cmux-cua.sh --helper-app)")
@@ -108,7 +111,7 @@ def main():
     _check("CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT" in helper_script,
            "notarize-computer-use-helper.sh bounds its notarytool wait")
     # The architecture gate runs in both preparation legs (primary and fallback), before signing (#21024).
-    for prepare_job in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+    for prepare_job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
         prepare_steps = workflow["jobs"][prepare_job]["steps"]
         arch_step = next((str(s.get("run", "")) for s in prepare_steps if s.get("name") == "Verify nightly binary architectures"), "")
         _check("cmux Computer Use.app/Contents/MacOS/cmux-cua" in arch_step,

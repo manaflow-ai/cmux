@@ -43,7 +43,7 @@ private extension SidebarRow {
     /// `SidebarItemOrder.revealsTop` counts before a selection (top items do not).
     var isWorkspaceStop: Bool {
         switch key {
-        case .workspace, .tab: true
+        case .workspace: true
         case .group: isCollapsed
         default: false
         }
@@ -62,7 +62,7 @@ private extension SidebarRowKey {
     /// A row the selection can stand on (a block holds selectable items).
     var isRevealStop: Bool {
         switch self {
-        case .workspace, .item, .tab, .block: true
+        case .workspace, .item, .block: true
         default: false
         }
     }

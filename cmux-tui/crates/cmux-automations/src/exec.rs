@@ -5,24 +5,33 @@
 //! a runner restart (an update, a crash) does not stop runs in flight. That
 //! process calls [`run_job`], which runs the body with the automation's
 //! timeout, writes its output to the run's log and records how it ended.
+//!
+//! On Windows the store side works, but a body does not run yet: `start`
+//! refuses and `run_job` records the run as failed with the reason (see
+//! `sys`), so a run never runs without its timeout.
 
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+#[cfg(unix)]
 use std::sync::mpsc;
 use std::time::Duration;
 
 use crate::automation::Body;
 use crate::runner::{ExecOutcome, Executor, Job, finish};
 use crate::store::{Store, StoreError};
+use crate::sys::private_file;
 
 /// After a timeout's SIGTERM, how long the body has to exit before SIGKILL.
+#[cfg(unix)]
 const KILL_GRACE: Duration = Duration::from_secs(10);
 
 /// Starts `program args… <automation> <run>` per job and reaps it.
+#[cfg_attr(
+    not(unix),
+    expect(dead_code, reason = "Windows refuses to start a run, so it reads no field")
+)]
 pub struct ProcessExecutor {
     program: PathBuf,
     args: Vec<String>,
@@ -56,7 +65,9 @@ impl ProcessExecutor {
 }
 
 impl Executor for ProcessExecutor {
+    #[cfg(unix)]
     fn start(&mut self, job: &Job) -> Result<u32, String> {
+        use std::os::unix::process::CommandExt;
         let child = Command::new(&self.program)
             .args(&self.args)
             .arg(&job.automation)
@@ -73,6 +84,12 @@ impl Executor for ProcessExecutor {
         Ok(pid)
     }
 
+    /// Refused: the run is recorded as failed with the reason.
+    #[cfg(windows)]
+    fn start(&mut self, _job: &Job) -> Result<u32, String> {
+        Err(crate::sys::UNSUPPORTED_ON_WINDOWS.into())
+    }
+
     fn is_alive(&self, pid: u32) -> bool {
         pid_alive(pid)
     }
@@ -80,9 +97,7 @@ impl Executor for ProcessExecutor {
 
 /// Whether a process with this id exists.
 pub fn pid_alive(pid: u32) -> bool {
-    // SAFETY: signal 0 only checks that the process exists.
-    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    crate::sys::pid_alive(pid)
 }
 
 /// The acpmux to run prompt bodies with: `$CMUX_AUTOMATION_ACPMUX`, else the
@@ -123,7 +138,7 @@ pub fn run_job(store: &Store, automation: &str, run: &str) -> Result<ExecOutcome
     if let Some(dir) = log_path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let mut log = OpenOptions::new().create(true).append(true).mode(0o600).open(&log_path)?;
+    let mut log = private_file(OpenOptions::new().create(true).append(true)).open(&log_path)?;
     let late = if r.late_seconds > 120 {
         format!(", started {} min late", r.late_seconds / 60)
     } else {
@@ -175,22 +190,36 @@ pub fn run_job(store: &Store, automation: &str, run: &str) -> Result<ExecOutcome
         .env("CMUX_AUTOMATION_LATE_SECONDS", r.late_seconds.to_string())
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
-        .stderr(log.try_clone()?)
-        .process_group(0);
+        .stderr(log.try_clone()?);
     if let Some(t) = r.scheduled_at {
         command.env("CMUX_AUTOMATION_SCHEDULED_AT", t.to_string());
     }
-    let outcome = match command.spawn() {
-        Err(e) => ExecOutcome::Error(e.to_string()),
-        Ok(child) => wait_with_timeout(child, Duration::from_secs(a.timeout_seconds)),
-    };
+    let outcome = spawn_and_wait(command, Duration::from_secs(a.timeout_seconds));
     let _ = writeln!(log, "[cmux automation: {outcome:?}]");
     finish(store, automation, run, outcome.clone(), now())?;
     Ok(outcome)
 }
 
+/// Run `command` in its own process group and wait for it, at most `timeout`.
+#[cfg(unix)]
+fn spawn_and_wait(mut command: Command, timeout: Duration) -> ExecOutcome {
+    use std::os::unix::process::CommandExt;
+    match command.process_group(0).spawn() {
+        Err(e) => ExecOutcome::Error(e.to_string()),
+        Ok(child) => wait_with_timeout(child, timeout),
+    }
+}
+
+/// Refused: without a job object the timeout could not stop the whole tree.
+#[cfg(windows)]
+fn spawn_and_wait(_command: Command, _timeout: Duration) -> ExecOutcome {
+    ExecOutcome::Error(crate::sys::UNSUPPORTED_ON_WINDOWS.into())
+}
+
 /// Wait for `child`; at the deadline SIGTERM its process group, then SIGKILL.
+#[cfg(unix)]
 fn wait_with_timeout(mut child: Child, timeout: Duration) -> ExecOutcome {
+    use std::os::unix::process::ExitStatusExt;
     let pgid = child.id() as libc::pid_t;
     let (tx, rx) = mpsc::channel();
     let waiter = std::thread::spawn(move || {

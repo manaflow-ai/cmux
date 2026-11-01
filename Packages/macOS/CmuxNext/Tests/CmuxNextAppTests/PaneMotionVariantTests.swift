@@ -1,9 +1,11 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneMotionVariantTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

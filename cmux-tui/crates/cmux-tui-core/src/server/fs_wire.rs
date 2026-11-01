@@ -33,15 +33,26 @@ use crate::mux::Mux;
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The remote gate of the link entry: it admits a frame only when its `cmd`
-/// is one of the seven `fs-v1` ops, exactly; every other frame is denied
-/// as before (`remote_denied`, no detail). Whether the op is served is
-/// decided after admission: a daemon that is not a Cloud host answers
-/// `fs.unavailable`.
+/// is one of the seven `fs-v1` ops, the two `git-seed-v1` ops, or a `cloud.repo.*`
+/// op other than `cloud.repo.local` and `cloud.repo.remember`, exactly;
+/// every other frame is denied as before (`remote_denied`, no detail),
+/// except the explicit agent carrier admitted separately for authenticated
+/// Native owners.
+/// Whether the op is served is decided after admission: a daemon that is not
+/// a Cloud host answers `fs.unavailable` (`seed.unavailable`).
 pub struct FsGate;
 
 impl RemoteGate for FsGate {
     fn admit(&self, _peer: &RemotePeer, frame: &str) -> bool {
         frame_command(frame).is_some()
+            || crate::git_seed::frame_command(frame).is_some()
+            || crate::cloud_repos::frame_command(frame).is_some_and(|cmd| {
+                !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember")
+            })
+    }
+
+    fn admit_native_owner(&self, frame: &str) -> bool {
+        super::native_owner::admits(frame)
     }
 }
 
@@ -52,6 +63,13 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
+    if message.contains("\"git.seed.") && crate::git_seed::frame_command(message).is_some() {
+        // The same transports and principal as the fs ops: the seed reads
+        // and writes under the same roots.
+        let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
+        let reply = crate::git_seed::answer_line(crate::git_seed::installed(), allowed, message);
+        return Some(writer.send_control(&reply).is_ok());
+    }
     if !message.contains("\"fs.") {
         return None;
     }

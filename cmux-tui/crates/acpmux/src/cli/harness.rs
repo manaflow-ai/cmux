@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::byo_endpoint;
-use crate::cli::command::{HarnessCmd, SecretCmd};
+use crate::cli::command::{CodexRuntimeCmd, HarnessCmd, SecretCmd};
 use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
@@ -70,6 +70,19 @@ pub fn example(name: &str) -> Option<&'static str> {
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
+        HarnessCmd::CodexRuntime { action } => {
+            let value = match action {
+                // A running daemon read its harness profiles before the runtime existed: it
+                // reads them again, so the managed Codex is offered without a restart.
+                CodexRuntimeCmd::Install => {
+                    let installed = crate::managed_codex::install().await?;
+                    with_daemon_reloaded(installed, reload_daemon().await)
+                }
+                CodexRuntimeCmd::Status => crate::managed_codex::status(),
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
+            Ok(())
+        }
         HarnessCmd::List { folder: None } => list(json_out),
         HarnessCmd::List { folder: Some(dir) } => super::harness_folder::list(&dir, json_out),
         HarnessCmd::Enable { id, folder, yes } => {
@@ -412,6 +425,14 @@ async fn icon_cmd(id: &str, value: Option<String>, clear: bool, json_out: bool) 
         );
     }
     Ok(())
+}
+
+/// An install's result with whether a running daemon reloaded after it.
+fn with_daemon_reloaded(mut installed: serde_json::Value, reloaded: bool) -> serde_json::Value {
+    if let Some(fields) = installed.as_object_mut() {
+        fields.insert("daemonReloaded".to_owned(), json!(reloaded));
+    }
+    installed
 }
 
 /// Ask a running daemon to reload its catalog; false when none runs.

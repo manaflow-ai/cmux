@@ -309,6 +309,11 @@ export class MockSettingsProvider {
         this.wentBack = params.build as string;
         return {};
       },
+      "cmux.settings.channels.switch_build": (params) => {
+        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
+        this.switchedTo = params.build as string;
+        return {};
+      },
       "cmux.settings.channels.update_machine": (params) => {
         this.updatedMachines.push(params.id as string);
         return {};
@@ -317,12 +322,21 @@ export class MockSettingsProvider {
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
-        if (menus) this.setHost({ ...this.host, context_menus: setMockMenuLayout(menus, params.menu as string, (params.layout as MenuLayout | null) ?? null) });
+        if (menus)
+          this.setHost({
+            ...this.host,
+            context_menus: setMockMenuLayout(
+              menus,
+              params.menu as string,
+              (params.layout as MenuLayout | null) ?? null,
+            ),
+          });
         return {};
       },
       "cmux.settings.context_menus.show_item": (params) => {
         const menus = this.host.context_menus;
-        if (menus) this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
+        if (menus)
+          this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
         return {};
       },
       "cmux.settings.voice_input.set": (params) => {
@@ -562,6 +576,7 @@ export class MockSettingsProvider {
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
+      "cmux.settings.channels.switch_build",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -818,6 +833,10 @@ export class MockSettingsProvider {
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
+  /** The build the card's last Switch asked for. */
+  switchedTo: string | null = null;
+  /** The host's refusal of every Switch; null: Switch runs. */
+  switchRefusal: string | null = null;
   /** The machines the card's Update buttons asked for, in order. */
   updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */

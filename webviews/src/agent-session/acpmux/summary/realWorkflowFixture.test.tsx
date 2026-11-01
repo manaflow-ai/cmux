@@ -5,7 +5,7 @@ import { WorkflowCard } from "./WorkflowCard";
 import { WorkflowSummaries } from "./WorkflowSummary";
 import { createWorkflowAdapter } from "./foldWorkflows";
 import { realWorkflowFixture } from "../realWorkflowFixture";
-import { WorkflowTasks } from "../inspector/WorkflowTasks";
+import { WorkflowTasks } from "../session-info/WorkflowTasks";
 
 const pane = globalThis as { __cmuxPaneStrings?: Record<string, Record<string, string>> };
 pane.__cmuxPaneStrings ??= (await import("../generated/strings.json")).default;

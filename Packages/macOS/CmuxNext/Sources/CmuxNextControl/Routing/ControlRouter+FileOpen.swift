@@ -11,6 +11,8 @@ import Foundation
 ///   order. The CLI makes a relative path absolute against its own working
 ///   directory before it sends it.
 /// - `where`: `tab` (default) or `editor` (the text editor app), as the action.
+/// - `as_text` (default false, `cmux open --as-text`): HTML, SVG or Markdown opens as its source
+///   in the code editor (the action's `asText`, u18462).
 /// - `workspace_id`, `terminal_id`: placement as `browser.open_split`: the
 ///   named workspace, else the caller's terminal pane, else the focused pane,
 ///   else the workspace under a page the window shows.
@@ -42,6 +44,7 @@ struct FileOpenRun {
         for (index, path) in request.paths.enumerated() {
             var args: [String: JSONValue] = ["path": .string(path)]
             if let place = request.place { args["where"] = .string(place) }
+            if request.asText { args["asText"] = true }
             var params: [String: JSONValue] = ["action": "file.open", "args": .object(args), "wait": true, "focus": .bool(request.focus)]
             if let paneID { params["target"] = .string("pane:" + paneID) }
             if let origin = request.origin { params["origin"] = .string(origin) }
@@ -61,11 +64,13 @@ struct FileOpenRun {
 
 /// The checked params of one `file.open`.
 struct FileOpenRequest: Sendable, Equatable {
-    static let parameters: Set<String> = ["paths", "path", "where", "workspace_id", "terminal_id", "focus",
+    static let parameters: Set<String> = ["paths", "path", "where", "as_text", "workspace_id", "terminal_id", "focus",
                                           "idempotency_key", "origin", "after"]
 
     var paths: [String]
     var place: String?
+    /// Open as Text: a page cmux renders opens as its source (`as_text`).
+    var asText: Bool
     var workspaceID: String?
     var terminalID: String?
     var focus: Bool
@@ -97,16 +102,18 @@ struct FileOpenRequest: Sendable, Equatable {
         place = try Self.string(params, "where")
         workspaceID = try Self.string(params, "workspace_id")
         terminalID = try Self.string(params, "terminal_id")
-        if let value = params["focus"], !value.isNull {
-            guard let flag = value.boolValue else {
-                throw ControlError.invalidParams(ControlStrings.format("control.error.boolShape", "%@ must be true or false", "focus"))
-            }
-            focus = flag
-        } else {
-            focus = false
-        }
+        focus = try Self.flag(params, "focus")
+        asText = try Self.flag(params, "as_text")
         idempotencyKey = try ControlRouter.idempotencyKey(params)
         origin = try Self.string(params, "origin")
+    }
+
+    private static func flag(_ params: [String: JSONValue], _ name: String) throws -> Bool {
+        guard let value = params[name], !value.isNull else { return false }
+        guard let flag = value.boolValue else {
+            throw ControlError.invalidParams(ControlStrings.format("control.error.boolShape", "%@ must be true or false", name))
+        }
+        return flag
     }
 
     private static func string(_ params: [String: JSONValue], _ name: String) throws -> String? {

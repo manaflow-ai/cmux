@@ -4,13 +4,14 @@ import CmuxNextActions
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's edit mode (Leo 2026-10-20, as an iPhone's home screen): Edit Sidebar makes its items
 /// wiggle (through the sidebar's motion gate: still under Reduce Motion), a drag moves one, its ✕
 /// takes it out (the menu's Remove), a press opens nothing, Add Items opens App Store Features on
 /// Sidebar, where the built-in items are cards, and Done ends it.
-@MainActor @Suite(.serialized) struct SidebarEditModeTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEditModeTests {
     static let link = LayoutItemID("itm_link"), app = LayoutItemID("itm_app")
 
     final class Band {
@@ -55,7 +56,7 @@ import Testing
 
     @Test func inEditModeAnItemShowsItsXAndAPressOpensNothing() throws {
         let band = Band()
-        defer { band.window.orderOut(nil) }
+        defer { band.window.closeAfterTest() }
         try band.click(try band.view(Self.link))
         #expect(band.activated == [Self.link], "the fixture's press did not open the item")
 
@@ -81,7 +82,7 @@ import Testing
         Motion.reduceMotionOverride = false
         #expect(Motion.sidebar.wiggleAnimation(center: .zero) != nil)
         let band = Band()
-        defer { band.window.orderOut(nil) }
+        defer { band.window.closeAfterTest() }
         band.region.isEditing = true
         let link = try band.view(Self.link)
         #expect(link.layer?.animation(forKey: SidebarItemRowView.wiggleKey) != nil, "an edited item does not wiggle")
@@ -143,11 +144,11 @@ import Testing
     }
 
     /// Add Items' cards: Home, Notifications, History, Bookmarks and the launchers (Search Chats, New
-    /// Terminal, New Browser Tab, New Agent Chat, Customize) beside the Chief's, each on when the
+    /// Terminal, New Browser Tab, New Agent Chat, Customize, Automations) beside the Chief's, each on when the
     /// sidebar shows it (Home as the app it is now), Get and Remove the sidebar's own actions.
     @Test func theSidebarCategoryListsTheBuiltInItems() {
         let builtIns: Set<String> = ["home", "notifications", "history", "bookmarks", "search_chats", "new_terminal", "new_browser",
-                                     "new_agent_chat", "customize"]
+                                     "new_agent_chat", "customize", "automations"]
         let items = AppFeature.catalog.filter { $0.category == .sidebar }.compactMap(\.sidebarItem)
         #expect(Set(items) == builtIns)
 
@@ -160,6 +161,7 @@ import Testing
         #expect(store.names == builtIns.union(["chief"]))
         #expect(store.isShown("home"), "the default sidebar's Home (an app item) reads as off")
         #expect(!store.isShown("bookmarks"))
+        #expect(!store.isShown("automations"), "Automations stays opt-in in the default layout")
         #expect(store.isShown("chief"), "the Chief's own answer was lost")
         _ = store.set("bookmarks", true)
         _ = store.set("history", false)

@@ -91,13 +91,12 @@ about a day. A dead label takes no slot, no overflow and no retry_runner, and a
 feed's compile counts it full (fresh_stalled()), while another label shows
 life; with every label dead the snapshot says nothing to choose by.
 
-Nothing goes to GitHub-hosted macOS (Leo, 2026-10-27: "THE GITHUB HOSTED MACS /
-ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO"). Until
-then fast-tier and swift-canary overflowed to hosted `macos-26` while Blacksmith
-was full or stalled, and built cold there for up to 45 minutes; the fast-tier
-seed kept a hosted pool warm for it (21 jobs, 891 minutes a day). A job Blacksmith
-cannot take (no free slot, and 6 vCPU stalled or backed up: overflow()) stays on
-the owned label, where an idle mini or the rescue takes it
+Only owned Macs participate in this cascade. Before it existed, fast-tier and
+swift-canary overflowed to an external macOS runner while Blacksmith was full or
+stalled, and built cold there for up to 45 minutes; the fast-tier seed kept that
+external pool warm (21 jobs, 891 minutes a day). A job Blacksmith cannot take
+(no free slot, and 6 vCPU stalled or backed up: overflow()) stays on the owned
+label, where an idle mini or the rescue takes it
 (tests/test_ci_no_github_hosted_macos.py). A feed's compile (FRESH_JOBS: a DEV
 daily, a feat-cmux-next push) counts a label whose oldest queued job has waited
 FRESH_STALL_MINUTES as full, and so does its last resort when the runner groups
@@ -141,6 +140,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
 import simple_pool_picker as _picker_rule  # noqa: E402 - the one Blacksmith stall rule
+import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
 
 LARGE = "blacksmith-12vcpu-macos-26"
 SMALL = "blacksmith-6vcpu-macos-26"
@@ -224,6 +224,8 @@ class Placement:
     # Jobs for which every owned and Blacksmith macOS target is full/dead;
     # cmux-next sends these to the thin build-fleet gateway.
     fleet_jobs: tuple[str, ...] = ()
+    # Jobs allowed to consume retry_runner on a rescue attempt, capped by MAX_PER_RUN and pool room.
+    retry_jobs: tuple[str, ...] = ()
 
 
 def vcpus(label: str) -> int:
@@ -361,10 +363,17 @@ class Seen:
     owned_full_known: Mapping[str, bool] = dataclasses.field(default_factory=dict)
     snapshot: Mapping[str, Any] | None = dataclasses.field(default=None, compare=False)
     observed_at: dt.datetime | None = dataclasses.field(default=None, compare=False)
-    # Stale snapshots preserve only freshness reservations (#28341).
+    # Stale snapshots preserve freshness reservations (#28341) and the waits they saw, without their age
+    # (late_waits()): a queue already stalled then still keeps jobs off it.
     stale: bool = False
     # The LABELS the snapshot, fresh or not, shows dead (dead()).
     dead: frozenset[str] = frozenset()
+    # The owned labels the janitor found unserved (queue_janitor.py's `unserved`, starved_labels.unserved()): a
+    # job queued on the label and none running or started on it within starved_labels.STARVED_AFTER. A label
+    # whose runners are online and busy elsewhere looks like room by its counts, yet starts nothing:
+    # glaeda-session-std-xcode-26.6 held cmux#24295's daemon tests 90 minutes on 2026-10-29 that way, with
+    # five runners online and the queue shorter than them (role_room() in side_lane_placement.py reads this).
+    unserved: frozenset[str] = frozenset()
 
 
 def _fleet_gates(snapshot: Mapping[str, Any] | None, env: Mapping[str, str]) -> Mapping[str, Any] | None:
@@ -462,6 +471,33 @@ def _field(pools: Mapping[str, Any], label: str, key: str) -> int:
         return 0
 
 
+def late_waits(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, float]:
+    """Each LABEL's oldest queued wait as a snapshot too old for the counts saw it, from one at most
+    RESERVED_SNAPSHOT_MINUTES old ({} for none, an older one, or a fresh one: seen() reads that).
+
+    The janitor's snapshot lands every 12 to 25 minutes, so a placement often finds none under
+    QUEUE_SNAPSHOT_MINUTES. It then read no wait at all and sent jobs to Blacksmith 6 vCPU blind: on 2026-10-31
+    from about 04:00Z every cmux-next placement logged "no pool snapshot under 15 min old" and put swift test,
+    daemon tests, the fast tier and the Release compile on blacksmith-6vcpu-macos-26 (run 41175923956), while
+    the 06:17Z snapshot showed it with 166 queued and its oldest job waiting 179 min; about 100 PR jobs queued
+    there in two hours. The figure is the snapshot's own, without its age added (seen() adds it to a fresh
+    one): on a 30-minute-old snapshot the age alone would call every queue stalled, so only a queue that was
+    already stalled when the snapshot was made reads stalled here. Only a label with a queue gets a wait."""
+    if not isinstance(snapshot, Mapping) or _fresh(snapshot, now) is not None:
+        return {}
+    try:
+        generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return {}
+    pools = snapshot.get("pools")
+    if generated.tzinfo is None or not isinstance(pools, Mapping):
+        return {}
+    if not -5 <= (now - generated).total_seconds() / 60 <= RESERVED_SNAPSHOT_MINUTES:
+        return {}
+    return {label: float(_field(pools, label, "oldest_queued_minutes")) for label in LABELS
+            if _field(pools, label, "queued")}
+
+
 def dead(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozenset[str]:
     """The LABELS the snapshot (fresh or not) shows dead (simple_pool_picker.dead_macos_26(), blacksmith_dead():
     nothing running and no job started on it for an hour, from a snapshot up to six hours old), or none when it
@@ -521,9 +557,17 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     if fresh is None:
         stale_reservations = reserved_from(snapshot, now)
         reserved = stale_reservations.reserved if stale_reservations is not None else {}
+        # Too old for the counts, still read for a queue that was already stalled (late_waits()).
+        waits = late_waits(snapshot, now)
+    # A key names every fleet label a job asked for, joined with "+" (starved_labels.fleet_key()); only a
+    # one-label key says that label itself starts nothing. Only a fresh snapshot says so: an older one's
+    # unserved label may have started since.
+    unserved = frozenset(str(key) for key in (snapshot.get("unserved") or ()) if fresh is not None
+                         and isinstance(key, str) and key.startswith("glaeda-") and "+" not in key)
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
                 owned_queued=owned_queued, owned_full=full, owned_full_known=known, snapshot=snapshot,
-                observed_at=now, stale=fresh is None, dead=dead(snapshot, now))
+                observed_at=now, stale=fresh is None, dead=dead(snapshot, now),
+                unserved=unserved)
 
 
 def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
@@ -553,16 +597,17 @@ def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen 
     reserved = {label: count for label, count in reserved.items() if count}
     if not reserved:
         return None
-    return Seen(waits={}, age=max(0.0, age), reserved=reserved, observed_at=now, stale=True, dead=dead(snapshot, now))
+    return Seen(waits=late_waits(snapshot, now), age=max(0.0, age), reserved=reserved, observed_at=now, stale=True,
+                dead=dead(snapshot, now))
 
 
 def stale_seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
-    """seen(), else reserved_from(), else a stale Seen carrying only dead labels."""
+    """seen(), else reserved_from(), else a stale Seen carrying only dead labels and late waits (late_waits())."""
     found = seen(snapshot, now) or reserved_from(snapshot, now)
     if found is not None:
         return found
-    gone = dead(snapshot, now)
-    return Seen(waits={}, stale=True, dead=gone) if gone else None
+    gone, waits = dead(snapshot, now), late_waits(snapshot, now)
+    return Seen(waits=waits, stale=True, dead=gone) if gone or waits else None
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -708,6 +753,29 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
     return min(free, key=lambda label: (load[label] / CAPACITY[label], LABELS.index(label)))
 
 
+def gui_overflow_label(live: Mapping[str, int] | None, waiting: Mapping[str, int] | None, seen: Seen | None,
+                       jobs: int = 1) -> str:
+    """The Blacksmith macOS label the GUI jobs (cmux-next.yml swift-test, daemon-test, generated-files) take
+    when no owned GUI runner has room: LARGE while it can start all `jobs` now, else SMALL, the last resort.
+
+    LARGE needs a fresh reading that vouches for it: not stalled (stalled(), the pickers' one rule), not dead
+    (Seen.dead: on 2026-10-30 it had started nothing for about a day, 158 queued, oldest 1431 min), no
+    freshness work queued for it (Seen.reserved), a free slot for each job under CAPACITY, and the shared pool
+    fitting each (fits(): nothing queued on any Blacksmith macOS label). Without that reading (runner groups or
+    snapshot unread, or a snapshot too old for waits) nothing does, so SMALL. On 6 vCPU, swift-test's suites
+    ran starved (run 41123927916: tests that take under a second idle took 78-227 s).
+    """
+    if live is None or waiting is None or seen is None or seen.stale:
+        return SMALL
+    stall = {*stalled(live, waiting, seen.waits, seen.age), *seen_dead(seen)}
+    if LARGE in stall or seen.reserved.get(LARGE, 0) > 0:
+        return SMALL
+    jobs = max(jobs, 1)
+    free = CAPACITY[LARGE] - live.get(LARGE, 0) - waiting.get(LARGE, 0)
+    room, queue = pool_room(live, waiting), pool_queued(waiting)
+    return LARGE if free >= jobs and fits(LARGE, room - vcpus(LARGE) * (jobs - 1), queue) else SMALL
+
+
 def bot_rerun(env: Mapping[str, str]) -> bool:
     """The rescue's full re-run: attempt 2 that a RESCUE_ACTORS bot triggered, placed afresh like attempt 1."""
     return ((env.get("GITHUB_RUN_ATTEMPT") or "").strip() == "2"
@@ -840,13 +908,25 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
-    retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
-                        waiting, (*stall, *reserved, *(fresh_stall if fresh else ())))
+    retry_live = {**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}}
+    retry = retry_label(retry_live, waiting, (*stall, *reserved, *(fresh_stall if fresh else ())))
     # A re-run's jobs that no Blacksmith label listed take the overflow label before the owned side label
     # (cmux-next.yml's runs-on), so while an idle mini would take one of them the overflow stays owned.
     rerun_owned = bot_rerun(env) and len(owned) > 0
     if rerun_owned:
         retry = ""
+    # A shared retry label is still subject to the same per-run cap as first placement.
+    # Export the exact jobs allowed to consume it; workflow jobs outside this set stay on the owned route.
+    retry_jobs = ()
+    if retry:
+        label_room = CAPACITY[retry] - retry_live.get(retry, 0) - waiting.get(retry, 0)
+        pool_room_slots = pool_room(retry_live, waiting) // vcpus(retry)
+        available = max(0, min(label_room, pool_room_slots))
+        retry_candidates = tuple(job for job in jobs
+                                 if job not in fleet_jobs
+                                 and not any(job in names for names in placed.values()))
+        retry_allowance = max(0, MAX_PER_RUN - len(placed.get(retry, ())))
+        retry_jobs = retry_candidates[:min(retry_allowance, available)]
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (" (dead: nothing running, no job started in an hour)" if label in gone
                         else f" (stalled: oldest queued {seen.waits.get(label, 0.0):.0f} min)"
@@ -885,7 +965,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                                            else "; an idle mini takes the re-run, so overflow stays on the owned label"
                                            if rerun_owned
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"),
-                     fresh_stall=fresh_stall, fleet_jobs=fleet_jobs)
+                     fresh_stall=fresh_stall, fleet_jobs=fleet_jobs, retry_jobs=retry_jobs)
 
 
 def seen_dead(seen: Seen | None) -> frozenset[str]:
@@ -916,8 +996,10 @@ class Api:
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-next-macos-cascade"})
         try:
             with urllib.request.urlopen(request, timeout=15) as response:
+                github_spend.record(request.get_header("Authorization") or "", getattr(response, "headers", None), getattr(response, "status", 200))
                 return json.load(response)
         except urllib.error.HTTPError as error:
+            github_spend.record(request.get_header("Authorization") or "", error.headers, error.code)
             print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}", file=sys.stderr)
             raise
 
@@ -981,7 +1063,7 @@ def delimited(jobs: Sequence[str]) -> str:
 
 def write(placement: Placement, env: Mapping[str, str]) -> None:
     """Outputs blacksmith_12_jobs, blacksmith_6_jobs, fresh_stalled (space-delimited, as owned_jobs) and
-    free_retry_runner (also as retry_runner)."""
+    free_retry_runner (also as retry_runner), and retry_jobs (the capped per-run retry set)."""
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
@@ -990,7 +1072,8 @@ def write(placement: Placement, env: Mapping[str, str]) -> None:
                          f"fresh_stalled={delimited(placement.fresh_stall)}\n"
                          f"fleet_jobs={delimited(placement.fleet_jobs)}\n"
                          f"retry_runner={placement.retry_runner}\n"
-                         f"free_retry_runner={placement.retry_runner}\n")
+                         f"free_retry_runner={placement.retry_runner}\n"
+                         f"retry_jobs={delimited(placement.retry_jobs)}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:

@@ -85,7 +85,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
-    var launchImageSize: CGSize?
+    var launchImageSizes: [CGSize] = [] // its pixels fit: the host's size when shown, and the image's own
     /// Move covers clear without invoking their one-frame reveal callback on resize.
     var launchImageInvokesResizeCallback = true
     /// Runs once when the launch image goes (`clearLaunchImage`).
@@ -175,9 +175,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
-        if launchImageView != nil, let launchImageSize, launchImageSize != .zero, launchImageSize != contentHost.bounds.size {
-            // A move cover owns the clear callback that reveals the page on its next frame. A
-            // resize must discard old-size pixels without consuming that hand-off early.
+        if launchImageView != nil, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
+            // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
+            // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
             launchImageInvokesResizeCallback = true
         }
@@ -288,6 +288,8 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
+        // Content with no strip of its own over it (Home's header) keeps clear of the traffic lights too.
+        WindowControlsAvoiders.refresh(in: window)
         // The pane moved under a possibly still pointer (column scroll, split resize).
         stripView.paneMovedInWindow()
     }
@@ -433,9 +435,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
         needsLayout = true
-        let tokens = themeTokens
-        let paints = WindowBackdrop.current(tokens).panesPaintBackground
+        // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
         performWithTheme {
+            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
         // The strip: clear, or the user's tab bar background (R55).
@@ -458,4 +460,3 @@ private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: 
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
-

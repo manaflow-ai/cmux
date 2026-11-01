@@ -532,7 +532,8 @@
    "method": "_acpmux/sessions",
    "params": {
     "limit": 1,
-    "cursor": 1
+    "cursor": 1,
+    "usage": 1
    }
   },
   "mode_fields": null,
@@ -1976,6 +1977,30 @@
     "sessionId": "s",
     "before": 4096,
     "file": "/etc/passwd"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/peers every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/peers",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/peers refuses any param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/peers",
+   "params": {
+    "peer": "other"
    }
   },
   "mode_fields": null,

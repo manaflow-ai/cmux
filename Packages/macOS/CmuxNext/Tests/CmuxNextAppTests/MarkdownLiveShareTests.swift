@@ -135,7 +135,9 @@ import Testing
         let got = try await withThrowingTaskGroup(of: Bool.self) { group in
             group.addTask { try await reload.value }
             // test-deadline: a bound on the whole wait, not a settle; the watcher signals by sending `reload`.
-            group.addTask { try await Task.sleep(for: .seconds(10)); reload.cancel(); return false }
+            // Load-tolerant: the change hops to the main actor twice (the watcher's event, then the
+            // read after its debounce), which a loaded runner held 5 s and longer (tip runs 2026-11-01).
+            group.addTask { try await Task.sleep(for: .seconds(60)); reload.cancel(); return false }
             let first = try await group.next() ?? false
             group.cancelAll()
             return first

@@ -12,8 +12,16 @@ const layout: MenuLayout = {
 };
 
 test("a node moves to any index of any submenu, the old place still counted", () => {
-  expect(move(layout, [0], [], 3).items).toEqual(["b", { key: "folder:more", items: ["c", { key: "folder:options", items: ["d"] }] }, "a", "e"]);
-  expect(move(layout, [3], [2, 1], 0).items[2]).toEqual({ key: "folder:more", items: ["c", { key: "folder:options", items: ["e", "d"] }] });
+  expect(move(layout, [0], [], 3).items).toEqual([
+    "b",
+    { key: "folder:more", items: ["c", { key: "folder:options", items: ["d"] }] },
+    "a",
+    "e",
+  ]);
+  expect(move(layout, [3], [2, 1], 0).items[2]).toEqual({
+    key: "folder:more",
+    items: ["c", { key: "folder:options", items: ["e", "d"] }],
+  });
   expect(move(layout, [2, 1, 0], [], 0).items[0]).toBe("d");
   // Into itself or inside itself: nothing changes.
   expect(move(layout, [2], [2, 1], 0)).toBe(layout);
@@ -23,12 +31,19 @@ test("a node moves to any index of any submenu, the old place still counted", ()
 
 test("Move to… lists every submenu but the node's own and those inside it", () => {
   const title = (node: Folder) => node.key;
-  expect(destinations(layout, [0], title).map((d) => d.trail.join(" › "))).toEqual(["", "folder:more", "folder:more › folder:options"]);
+  expect(destinations(layout, [0], title).map((d) => d.trail.join(" › "))).toEqual([
+    "",
+    "folder:more",
+    "folder:more › folder:options",
+  ]);
   expect(destinations(layout, [2], title).map((d) => d.trail.join(" › "))).toEqual([""]);
 });
 
 test("deleting the person's submenu leaves its rows in its place", () => {
-  const mine: MenuLayout = { items: ["a", { key: "group:x", title: "X", items: ["b", "c"] }, "d"], hidden: ["group:x"] };
+  const mine: MenuLayout = {
+    items: ["a", { key: "group:x", title: "X", items: ["b", "c"] }, "d"],
+    hidden: ["group:x"],
+  };
   expect(deleteGroup(mine, [1])).toEqual({ items: ["a", "b", "c", "d"], hidden: [] });
 });
 
@@ -68,14 +83,26 @@ test("at a submenu's end the pointer's sideways travel picks in or out", () => {
 
 test("the rows below the lifted block move up into its place, and the rows from the gap down open it", () => {
   // The last row dragged to the top: every other row slides down one row.
-  expect([...shifts(rows, 3, 3, 24, 0)]).toEqual([[0, 24], [1, 24], [2, 24]]);
+  expect([...shifts(rows, 3, 3, 24, 0)]).toEqual([
+    [0, 24],
+    [1, 24],
+    [2, 24],
+  ]);
   // The first row dragged to the end: the rest slide up into its place.
-  expect([...shifts(rows, 0, 0, 24, 3)]).toEqual([[1, -24], [2, -24], [3, -24]]);
+  expect([...shifts(rows, 0, 0, 24, 3)]).toEqual([
+    [1, -24],
+    [2, -24],
+    [3, -24],
+  ]);
   // The first row dropped after the open submenu's row: only that submenu row moves up.
   expect([...shifts(rows, 0, 0, 24, 1)]).toEqual([[1, -24]]);
   // An open submenu (two drawn rows) dragged to the top.
   expect([...shifts(rows, 1, 2, 48, 0)]).toEqual([[0, 48]]);
   // Into a closed submenu: no gap, the rows below close up.
-  expect([...shifts(rows, 0, 0, 24, null)]).toEqual([[1, -24], [2, -24], [3, -24]]);
+  expect([...shifts(rows, 0, 0, 24, null)]).toEqual([
+    [1, -24],
+    [2, -24],
+    [3, -24],
+  ]);
   expect(shifts(rows, 0, 0, 24, undefined).size).toBe(0);
 });

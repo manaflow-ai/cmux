@@ -31,19 +31,25 @@ impl Hub {
         }
         let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
         let shown = names_hosts.then_some(own.as_str());
-        let summaries = self.all_session_summaries();
+        let mut summaries = self.live_session_summaries();
         if bead_only {
             if !crate::beads::is_bead_id(query) {
                 return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
             }
-            let found = by_bead(&summaries, query);
+            let mut found = by_bead(&summaries, query);
+            if found.is_empty() {
+                // Closed records are retained for explicit history lookups, but are not part of
+                // the repeated live index walk.
+                summaries = self.all_session_summaries_including_closed();
+                found = by_bead(&summaries, query);
+            }
             if found.is_empty() {
                 return Err(RpcError::not_found(self.unfound(query, None, shown)));
             }
             let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
             return Ok(json!({"session": matches.first(), "matches": matches, "link": null}));
         }
-        let (link, found) = match crate::agent_link::find(query) {
+        let (mut link, mut found) = match crate::agent_link::find(query) {
             Some(Err(e)) => {
                 return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
             }
@@ -51,8 +57,40 @@ impl Hub {
                 let found = by_link(&summaries, &link, &own);
                 (Some(link), found)
             }
-            None => (None, by_key(&summaries, query, &own)),
+            None => {
+                let exact_live = by_key_exact(&summaries, query, &own);
+                if !exact_live.is_empty() {
+                    (None, exact_live)
+                } else {
+                    summaries = self.all_session_summaries_including_closed();
+                    let exact_all = by_key_exact(&summaries, query, &own);
+                    if !exact_all.is_empty() {
+                        (None, exact_all)
+                    } else {
+                        (None, by_key(&summaries, query, &own))
+                    }
+                }
+            }
         };
+        if found.is_empty() && link.is_some() {
+            // A name or id that explicitly asks for a closed chat is resolved on demand. The
+            // common live lookup above never walks those records.
+            summaries = self.all_session_summaries_including_closed();
+            (link, found) = match crate::agent_link::find(query) {
+                Some(Err(e)) => {
+                    return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
+                }
+                Some(Ok(link)) => {
+                    let found = by_link(&summaries, &link, &own);
+                    (Some(link), found)
+                }
+                None => (None, by_key(&summaries, query, &own)),
+            };
+        }
+        if found.is_empty() && link.is_none() {
+            summaries = self.all_session_summaries_including_closed();
+            found = by_key(&summaries, query, &own);
+        }
         if found.is_empty() {
             let e = RpcError::not_found(self.unfound(query, link.as_ref(), shown));
             // Close names only for a caller that may read them all: never a peer daemon's or a
@@ -275,6 +313,31 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     by_short_name(summaries.iter().collect(), key)
 }
 
+fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
+    if let Some((host, rest)) = key.split_once('/') {
+        return summaries
+            .iter()
+            .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
+            .filter(|s| {
+                s["sessionId"].as_str() == Some(rest)
+                    || s["qualifiedSessionId"].as_str() == Some(key)
+                    || bare_name(s) == rest
+                    || s["name"].as_str() == Some(key)
+            })
+            .collect();
+    }
+    summaries
+        .iter()
+        .filter(|s| {
+            ["sessionId", "qualifiedSessionId", "agentSessionId"]
+                .iter()
+                .any(|field| s[*field].as_str() == Some(key))
+                || s["name"].as_str() == Some(key)
+                || bare_name(s) == key
+        })
+        .collect()
+}
+
 /// The sessions whose last name segment is `key` (`session_name::ends_with_segments`).
 fn by_short_name<'a>(rows: Vec<&'a Value>, key: &str) -> Vec<&'a Value> {
     rows.into_iter()
@@ -445,6 +508,28 @@ mod tests {
         assert_eq!(ids(&by_key(&rows, "big-red/review", "big-red")), ["m1"]);
         assert_eq!(ids(&by_key(&rows, "builder", "big-red")), ["m2"]);
         assert!(by_key(&rows, "nobody", "big-red").is_empty());
+    }
+
+    #[test]
+    fn locate_prefers_a_closed_exact_name_over_a_live_prefix() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        for (id, name, status) in [("closed", "review", "closed"), ("live", "review-2", "idle")] {
+            let meta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA,
+                "id": id,
+                "name": name,
+                "harness": "claude",
+                "family": "claude",
+                "cwd": "/tmp",
+                "status": status,
+                "createdAt": 1,
+                "updatedAt": 1
+            }))
+            .unwrap();
+            hub.insert_test_session(meta);
+        }
+        let found = hub.locate("review", false, false).unwrap();
+        assert_eq!(found["session"]["sessionId"], "closed");
     }
 
     #[test]

@@ -1,9 +1,8 @@
 // The recap card above the composer (Claude desktop's end-of-turn card, its 10-14 release): when
 // the last turn completed by asking the person something ("Should I open a PR for this?"), the
 // card shows the answer's last paragraph, the question, and its yes one click (or ⌘Return on an
-// empty composer) away. Not now and × hide it for that turn, kept per chat in the page's storage
-// as the pull request bars keep theirs (summary/PullRequestDock.tsx). Behind the agent.sessionStatus
-// Debug toggle.
+// empty composer) away. Not now and × hide it for that turn, kept per chat in the page's storage.
+// Behind the agent.sessionStatus Debug toggle.
 import { useMemo, useState } from "react";
 import { Close } from "./conversation/icons";
 import { useT } from "./i18n";

@@ -172,7 +172,8 @@ public struct BrowserPageService: Sendable {
     }
 
     /// The tab `params.tab` names (exact id or unique prefix), else the
-    /// focused tab. It must be a browser tab the app shows.
+    /// browser nearest the caller (``BrowserCallerTarget``), else, for a call
+    /// that names no caller, the focused tab. It must be a browser tab the app shows.
     static func tab(_ call: ControlCall) throws -> Tab {
         let tabs = call.snapshot.topology.workspaces.flatMap { $0.screens.flatMap { $0.panes.flatMap(\.tabs) } }
         let requested = call.request.params["tab"]?.stringValue?.trimmingCharacters(in: .whitespaces)
@@ -186,6 +187,8 @@ public struct BrowserPageService: Sendable {
                                    data: ["candidates": .array(matches.map { .string($0.id) })])
             }
             found = exact
+        } else if let near = try BrowserCallerTarget.resolve(params: call.request.params, in: call.snapshot.topology) {
+            found = near.tab
         } else {
             guard let focused = call.snapshot.topology.focus.tabID, let tab = tabs.first(where: { $0.id == focused }) else {
                 throw ControlError(code: "not_found", message: ControlStrings.text("control.error.noFocusedBrowser", "No focused browser surface"))

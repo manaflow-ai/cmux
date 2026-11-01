@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo's first-frame call (BACKLOG "Ideas"): a cold launch with a saved layout paints it in its first
@@ -9,7 +10,7 @@ import Testing
 /// until their data lands (`LaunchReveal`). A relaunch has that data before the window's first frame
 /// (the saved tabs, an agent page's last image), so they must draw in that frame, not fade in from
 /// clear after it. Data that lands after the first frame still fades in. A real pane in a window.
-@MainActor @Suite(.serialized) struct LaunchFirstFrameRevealTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct LaunchFirstFrameRevealTests {
     final class LaunchWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -100,6 +101,57 @@ import Testing
         launch.pane.layoutSubtreeIfNeeded()
         #expect(launch.pane.launchImageView == nil,
                 "a launch snapshot from the old pane width remained visible after resize")
+    }
+
+    /// A chat whose header tools join the pane's tab row once its page reports them
+    /// (`pane.tabRowTools`), as a restored chat's page does on its first render.
+    final class RowChat: NSView, PaneTabRowSharing {
+        var reported: CGFloat = 0 {
+            didSet { onTabRowToolsChange?() }
+        }
+        var onTabRowToolsChange: (() -> Void)?
+        var tabRowToolsWidth: CGFloat? { reported > 0 ? reported : nil }
+        var tabRowToolsNeed: CGFloat? { reported > 0 ? reported : nil }
+        func setTabRow(height: CGFloat, trailingInset: CGFloat) {}
+    }
+
+    /// Leo 2026-10-24: "on the first load after a restart, I saw a black screen for the Chromium, the
+    /// Agent pane area". The saved frame of a chat is the chat's own view at quit, which shares the
+    /// tab row and so fills the whole pane. At launch the page has not reported its row tools yet, so
+    /// the pane lays its content under the strip; once the page draws its header and reports them,
+    /// the content grows back over the row to exactly the frame's size. That resize took the frame
+    /// and showed the empty loading state (black in dark mode) until the chat was read, 0.5-1.6 s on
+    /// the fleet's restore bench. A frame the pane grows to fit stays.
+    @Test func aChatJoiningTheTabRowKeepsItsLastFrame() throws {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        let chat = RowChat()
+        launch.pane.show(chat)
+        launch.pane.layoutSubtreeIfNeeded()
+        let underStrip = launch.pane.contentHost.bounds.size
+        let full = launch.pane.bounds.size
+        try #require(underStrip.height < full.height, "the test pane has no tab strip to share")
+        var clearedCallbacks = 0
+        // The saved frame came back a point short of the pane on the fleet (816x680 against 816x681).
+        let frame = NSImage(size: NSSize(width: full.width, height: full.height - 1), flipped: false) { rect in
+            NSColor.textBackgroundColor.setFill()
+            rect.fill()
+            return true
+        }
+        launch.pane.showLaunchImage(frame)
+        launch.pane.onLaunchImageCleared = { clearedCallbacks += 1 }
+        let shown = try #require(launch.pane.launchImageView)
+        chat.reported = 120
+        launch.pane.needsLayout = true
+        launch.pane.layoutSubtreeIfNeeded()
+        #expect(launch.pane.contentHost.bounds.size == full, "the chat's tools did not take the tab row")
+        #expect(launch.pane.launchImageView === shown,
+                "the pane dropped the chat's last frame when the chat joined the tab row, showing its empty loading state")
+        #expect(clearedCallbacks == 0)
+        // Any other size still drops it: those pixels are from another layout.
+        launch.pane.setFrameSize(NSSize(width: 700, height: 600))
+        launch.pane.layoutSubtreeIfNeeded()
+        #expect(launch.pane.launchImageView == nil)
     }
 
     @Test(arguments: [false, true])

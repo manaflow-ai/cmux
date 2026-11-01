@@ -45,6 +45,7 @@ type Row = {
   id: string;
   kind: string;
   text?: string;
+  promptId?: string;
   failed?: boolean;
   delivery?: { state: string; promptId: string; slow?: boolean; hop?: string; code?: string; acceptedAt?: number };
 };
@@ -72,6 +73,56 @@ test("a prompt goes from sending to delivered to read", async () => {
     const sent = rows.find((row) => row.kind === "user" && row.text === "ship it");
     expect(sent?.delivery?.state).toBe("read");
     expect(seen.has("sending")).toBe(true);
+  } finally {
+    client.close?.();
+  }
+});
+
+test("the optimistic prompt keeps its row key and position through the echo and turn start", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  type ManualHooks = Hooks & { emit: (target: string, step: unknown) => void };
+  class ManualHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as ManualHooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) =>
+        method === "session/prompt" ? new Promise(() => undefined) : answer(method, params);
+    }
+  }
+  let snapshot: { rows: Row[]; isWorking?: boolean } = { rows: [] };
+  const host = new ManualHost();
+  const hooks = host as unknown as ManualHooks;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (next) => (snapshot = next as typeof snapshot),
+    undefined,
+    () => host as unknown as WebSocket,
+  );
+  const promptId = "stable-prompt";
+  try {
+    void client.send("ship it", [], promptId).catch(() => undefined);
+    await settle(() => snapshot.rows.some((row) => row.id === `local-${promptId}`));
+    const optimisticIndex = snapshot.rows.findIndex((row) => row.id === `local-${promptId}`);
+    const optimistic = snapshot.rows[optimisticIndex];
+    expect(optimisticIndex).toBeGreaterThanOrEqual(0);
+
+    hooks.emit(mockHost.sessionId!, {
+      mux: "user_message",
+      msg: { text: "ship it", promptId, turnId: "turn-1" },
+    });
+    await settle(() => snapshot.rows.some((row) => row.promptId === promptId && row.delivery?.state === "read"));
+    const echoedIndex = snapshot.rows.findIndex((row) => row.promptId === promptId);
+    const echoed = snapshot.rows[echoedIndex];
+    expect(echoed?.id).toBe(optimistic?.id);
+    expect(echoedIndex).toBe(optimisticIndex);
+
+    hooks.emit(mockHost.sessionId!, { mux: "turn_started", msg: { turnId: "turn-1" } });
+    await settle(() => snapshot.isWorking === true);
+    const startedIndex = snapshot.rows.findIndex((row) => row.promptId === promptId);
+    expect(snapshot.rows[startedIndex]?.id).toBe(optimistic?.id);
+    expect(startedIndex).toBe(optimisticIndex);
   } finally {
     client.close?.();
   }

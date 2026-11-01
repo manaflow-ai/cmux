@@ -21,7 +21,9 @@ import os
 /// crashed daemon). Attempts are spaced by one capped backoff across
 /// consecutive drops (reset only after a connection stays up for
 /// `healthyAfter`), and after `retry.timedRetries` failures no timer runs:
-/// the loop waits for the daemon socket to change or `retryWake` to fire.
+/// the loop waits for the daemon socket to change or `retryWake` to fire,
+/// unless `retry.keepsTrying` (the app's local daemon, whose start can fail
+/// for a cause that ends with no event: one attempt per backoff cap).
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
 /// that dies on connect) only `retryWake` does.
 public actor DaemonConnection {
@@ -52,6 +54,8 @@ public actor DaemonConnection {
     /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
     var sessionStream: String?
     private var reconnectTask: Task<Void, Never>?
+    /// The initial endpoint/handshake attempt, retained so teardown can join it too.
+    private var connectTask: Task<DaemonIdentity, any Error>?
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
@@ -72,6 +76,8 @@ public actor DaemonConnection {
     var handoffHoldTimer: DemandTimer?
     /// Shows a request refused because it names a pane still opening (``PaneNotReady``); see ``observePaneNotReady(_:)``.
     private var paneNotReadyObserver: (@Sendable (PaneNotReady) -> Void)?
+    /// Told each time a reconnect fails with the timed retries spent; see ``observeRetriesSpent(_:)``.
+    private var retriesSpentObserver: (@Sendable () -> Void)?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -99,23 +105,50 @@ public actor DaemonConnection {
     /// afterwards the connection reconnects by itself until `close()`.
     @discardableResult
     public func start() async throws -> DaemonIdentity {
-        guard case .idle = phase else {
-            if let identity { return identity }
-            throw DaemonError.notConnected
+        if let identity, !isClosedPhase { return identity }
+        let task = try beginInitialAttempt()
+        do {
+            let identity = try await task.value
+            connectTask = nil
+            return identity
+        } catch {
+            connectTask = nil
+            throw error
         }
-        return try await connectOnce()
+    }
+
+    /// Kept synchronous on the actor so one initial attempt owns its retained task.
+    /// Tests can close in this same actor turn before the scheduled attempt enters.
+    func beginInitialAttempt() throws -> Task<DaemonIdentity, any Error> {
+        guard case .idle = phase, connectTask == nil else { throw DaemonError.notConnected }
+        let task = Task { [weak self] in
+            guard let self else { throw DaemonError.connectionClosed(reason: "connection deallocated") }
+            return try await self.connectOnce()
+        }
+        connectTask = task
+        return task
     }
 
     /// Stops reconnecting, closes the socket, and finishes `events`.
     public func close() {
         healthy.cancel()
         heartbeat.stop()
+        connectTask?.cancel()
         reconnectTask?.cancel()
         reconnectTask = nil
         if case .ready(let ready) = phase { ready.transport.close() }
         phase = .closed
         releaseHandoffHold()
         continuation.finish()
+    }
+
+    /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
+    public func closeAndWait() async {
+        let connect = connectTask
+        let reconnect = reconnectTask
+        close()
+        _ = try? await connect?.value
+        await reconnect?.value
     }
 
     /// False while the connected daemon left its heartbeat's asks unanswered and its process is alive
@@ -208,6 +241,13 @@ public actor DaemonConnection {
         paneNotReadyObserver = observer
     }
 
+    /// Sets what is told when the reconnect loop's timed retries are spent and it waits for an
+    /// event only (a remote machine's header then reads offline, not connecting, HQ #4877 G4).
+    /// Runs on this connection's executor, after each failed attempt past the budget.
+    public func observeRetriesSpent(_ observer: (@Sendable () -> Void)?) {
+        retriesSpentObserver = observer
+    }
+
     /// The event sequence this connection has routed so far, or nil when
     /// not connected. Taken after a command's reply, it is a write barrier:
     /// once `DaemonStore.appliedSequence` reaches it, the store reflects
@@ -249,6 +289,9 @@ public actor DaemonConnection {
     // MARK: - Connect / reconnect
 
     private func connectOnce() async throws -> DaemonIdentity {
+        guard acceptsNewAttempt else {
+            throw DaemonError.connectionClosed(reason: "connection is not accepting a new attempt")
+        }
         phase = .connecting
         serial += 1
         let serial = serial
@@ -306,6 +349,13 @@ public actor DaemonConnection {
     }
 
     private var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
+    /// Only an idle or waiting connection may start a new endpoint/handshake attempt.
+    private var acceptsNewAttempt: Bool {
+        switch phase {
+        case .idle, .waiting: true
+        case .connecting, .ready, .closed: false
+        }
+    }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
@@ -340,7 +390,7 @@ public actor DaemonConnection {
     }
 
     private func reconnectLoop() async {
-        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
+        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
@@ -378,6 +428,8 @@ public actor DaemonConnection {
             }
             if pacer.isExhausted {
                 logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")
+                // A busy daemon keeps its timed retry: still reconnecting, not offline.
+                if pacer.waitsForEventOnly, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?() }
             }
         }
         reconnectTask = nil

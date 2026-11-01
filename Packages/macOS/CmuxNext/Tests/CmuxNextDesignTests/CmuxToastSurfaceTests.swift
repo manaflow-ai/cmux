@@ -251,6 +251,27 @@ struct CmuxToastSurfaceTests {
         (handles + [fourth]).forEach { $0.dismiss() }
     }
 
+    /// A taller toast pushing out the oldest: the one leaving still fades clear of every toast that
+    /// stays, measured on the stack's final heights (review of #27807).
+    @Test func aToastPushedOutByATallerOneFadesClearOfIt() throws {
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
+        let handles = (1...3).map { center.show(CmuxToast(id: "t\($0)", message: "Toast \($0)"), in: window) }
+        let oldest = try #require(Self.toastViews(in: window).first { $0.toast.id == "t1" })
+        let long = String(repeating: "A machine could not update to this Mac's build. ", count: 4)
+        let fourth = center.show(CmuxToast(id: "t4", message: long), in: window)
+        #expect(handles[0].isDismissed)
+        let tall = try #require(Self.toastViews(in: window).first { $0.toast.id == "t4" })
+        #expect(tall.frame.height > oldest.frame.height + 8, "the fourth toast is not taller")
+        let leaving = oldest.convert(oldest.bounds, to: nil)
+        for view in Self.toastViews(in: window) where view !== oldest {
+            #expect(!view.convert(view.bounds, to: nil).intersects(leaving), "\(view.toast.id) overlaps the leaving toast")
+        }
+        (handles + [fourth]).forEach { $0.dismiss() }
+    }
+
     /// The toasts shown over `window`: they live in its overlay panel, a child window.
     private static func toastViews(in window: NSWindow) -> [CmuxToastView] {
         func walk(_ view: NSView) -> [CmuxToastView] {

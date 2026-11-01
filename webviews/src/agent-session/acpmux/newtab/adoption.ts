@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
-import { omnibarContext } from "../omnibar";
+import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
 import { parseWeather } from "./ambient";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
@@ -56,6 +56,32 @@ export function useEarlyNewTabContext(
     };
   }, [callNative, onContext, onSettled, applied]);
   return applied;
+}
+
+/// The handshake's answer for a page that drew New Tab from an earlier context (the one injected as
+/// the document committed, or `newTab.context`'s): the page keeps its own state and takes only what
+/// that context lacked. The folder the handshake filled in (seed, start folder), and the Commands
+/// palette's actions: they are listed on the frame after the page shows
+/// (NewTabPage.fillPaletteActions), and on a cold page their `acpmux-newtab-places` event can come
+/// before `useNewTabPlaces` listens, so the handshake, read after they were listed, carries them.
+export function withHandshakeNewTab(
+  current: NewTabHost | undefined,
+  handshake: { newTab?: unknown; cwd?: unknown },
+): NewTabHost | undefined {
+  if (!current) return current;
+  const cwd = !current.cwd && typeof handshake.cwd === "string" && handshake.cwd ? handshake.cwd : undefined;
+  const newTab = handshake.newTab;
+  const omnibar = typeof newTab === "object" && newTab !== null ? (newTab as { omnibar?: unknown }).omnibar : undefined;
+  const actions =
+    !current.omnibar?.actions?.length && typeof omnibar === "object" && omnibar !== null
+      ? omnibarActions((omnibar as { actions?: unknown }).actions)
+      : undefined;
+  if (!cwd && !actions?.length) return current;
+  return {
+    ...current,
+    ...(cwd ? { cwd } : {}),
+    ...(actions?.length ? { omnibar: { ...(current.omnibar ?? EMPTY_OMNIBAR), actions } } : {}),
+  };
 }
 
 /// Calls `onAdopt` with each adopt event's context and returns the adoption count, a key that
