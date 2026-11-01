@@ -26,6 +26,10 @@ final class CloudService {
     /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
     /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
     @ObservationIgnored let machineAPI: CloudAPIClient
+    /// Same person and team as the machine API, at the configured platform preview origin.
+    var previewAPI: CloudAPIClient? {
+        configuration.platformPreviewAPIBaseURL().map { machineAPI.previewClient(baseURL: $0) }
+    }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
