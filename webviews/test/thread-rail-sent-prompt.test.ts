@@ -83,7 +83,7 @@ await requireBrowserLane("thread-rail-sent-prompt.test.ts", async () => {
     await page.waitForFunction(
       () =>
         [...document.querySelectorAll<HTMLElement>(".acpmux-row")].some(
-          (row) => row.dataset.rowId?.startsWith("user-") && row.textContent?.includes("Brand new prompt"),
+          (row) => row.dataset.rowId === `local-${promptId}` && row.textContent?.includes("Brand new prompt"),
         ),
       undefined,
       { timeout: 10_000 },

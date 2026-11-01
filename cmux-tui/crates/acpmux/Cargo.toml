@@ -30,6 +30,8 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 
 [dependencies]
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
+chrono.workspace = true
+chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
 cmux-chat-index.workspace = true
@@ -83,6 +85,7 @@ unicode-normalization.workspace = true
 wait-timeout.workspace = true
 zeroize.workspace = true
 regex = "1"
+time.workspace = true
 # Log lines a reader passes on their head are searched, not parsed (src/store.rs `scan_heads`).
 memchr.workspace = true
 # The typed protocol registry (src/protocol): JSON Schema for spec/acpmux-protocol.json.
@@ -90,6 +93,7 @@ schemars = "1"
 # The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the
 # workspace's reqwest and ring rustls provider.
 reqwest.workspace = true
+tar.workspace = true
 rustls.workspace = true
 pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
