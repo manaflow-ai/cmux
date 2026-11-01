@@ -1036,6 +1036,9 @@ function activityStepHeight(item: AcpmuxActivity): number {
     // A start's card, its doing line while it starts, and its prompt (cut like a reply).
     if (subsession.tool === "start" && subsession.prompt)
       return cardHeight("working") + replyHeight(subsession.prompt) + TOOL_ROW_HEIGHT;
+    // A message sent to a sub-session is the sent-message row a shell `acpmux send` draws
+    // (SubsessionCallCard.tsx SentLine, SentMessageLine.tsx): one tool row.
+    if (subsession.tool === "send") return TOOL_ROW_HEIGHT;
     return 40;
   }
   switch (tool.kind) {
@@ -1052,6 +1055,29 @@ function activityStepHeight(item: AcpmuxActivity): number {
       return 26;
   }
 }
+/// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
+/// work between coordination cards folds under one summary line per stretch, and every card the run
+/// keeps in sight is its own row. A run of agent-to-agent messages ("Sent to lane-a", a command,
+/// "Sent to lane-b") is a line per entry, not the one summary line a run of plain work is, or each
+/// such run grows by its other lines when it mounts and the scroll thumb jumps (Leo, 2026-10-25:
+/// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
+/// confused").
+function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
+  return runStretches(row, groups).reduce(
+    (height, stretch) =>
+      height +
+      (stretch.fold ? TOOL_ROW_HEIGHT : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
+    0,
+  );
+}
+
+/// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
+/// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
+function foldedGroupHeight(group: ToolGroup): number {
+  if (group.type === "group" || group.type === "send") return TOOL_ROW_HEIGHT;
+  return ("items" in group ? group.items : [group.item]).reduce((sum, item) => sum + activityStepHeight(item), 0);
+}
+
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 16;
@@ -1355,9 +1381,13 @@ function fallbackRowHeight(
       const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
       return finish(14 + editedCardHeight(files.size, plain.length));
     }
-    // A folded run (Debug toggle) draws one summary line until opened.
-    if (row.foldRun && row.items && isFoldedRun(row.items))
-      return finish(TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM);
+    // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
+    // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
+    if (row.foldRun && row.items?.length) {
+      const groups = toolGroups(row.items);
+      if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups));
+      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM);
+    }
     const items = row.items ?? [];
     const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : TOOL_ROW_HEIGHT;
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
@@ -1983,6 +2013,7 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";

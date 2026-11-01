@@ -2820,6 +2820,14 @@ pre.cv-math-source {
   margin-inline-start: 4px;
   opacity: 0;
 }
+/* On a sent line (SentMessageLine.tsx) Copy's 24px slot (`.cv-message-footer-row`) sits inside the
+   line's 22px tool row (`--cv-tool-row-height`), as a block, so neither the slot nor its text strut
+   makes the line taller than the command rows beside it: model.ts estimates every sent line as one
+   tool row, and a taller line moved the transcript under it when it mounted. */
+.cv-sent .cv-sent-actions {
+  display: flex;
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-footer-control-slot)) / 2);
+}
 @media (prefers-reduced-motion: no-preference) {
   .cv-sent-actions {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
