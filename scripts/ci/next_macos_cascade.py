@@ -224,6 +224,8 @@ class Placement:
     # Jobs for which every owned and Blacksmith macOS target is full/dead;
     # cmux-next sends these to the thin build-fleet gateway.
     fleet_jobs: tuple[str, ...] = ()
+    # Jobs allowed to consume retry_runner on a rescue attempt, capped by MAX_PER_RUN and pool room.
+    retry_jobs: tuple[str, ...] = ()
 
 
 def vcpus(label: str) -> int:
@@ -901,6 +903,12 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     rerun_owned = bot_rerun(env) and len(owned) > 0
     if rerun_owned:
         retry = ""
+    # A shared retry label is still subject to the same per-run cap as first placement.
+    # Export the exact jobs allowed to consume it; workflow jobs outside this set stay on the owned route.
+    retry_jobs = ()
+    if retry:
+        available = max(0, CAPACITY[retry] - live.get(retry, 0) - waiting.get(retry, 0))
+        retry_jobs = tuple(jobs[:min(MAX_PER_RUN, available)])
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (" (dead: nothing running, no job started in an hour)" if label in gone
                         else f" (stalled: oldest queued {seen.waits.get(label, 0.0):.0f} min)"
@@ -939,7 +947,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                                            else "; an idle mini takes the re-run, so overflow stays on the owned label"
                                            if rerun_owned
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"),
-                     fresh_stall=fresh_stall, fleet_jobs=fleet_jobs)
+                     fresh_stall=fresh_stall, fleet_jobs=fleet_jobs, retry_jobs=retry_jobs)
 
 
 def seen_dead(seen: Seen | None) -> frozenset[str]:
@@ -1035,7 +1043,7 @@ def delimited(jobs: Sequence[str]) -> str:
 
 def write(placement: Placement, env: Mapping[str, str]) -> None:
     """Outputs blacksmith_12_jobs, blacksmith_6_jobs, fresh_stalled (space-delimited, as owned_jobs) and
-    free_retry_runner (also as retry_runner)."""
+    free_retry_runner (also as retry_runner), and retry_jobs (the capped per-run retry set)."""
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
@@ -1044,7 +1052,8 @@ def write(placement: Placement, env: Mapping[str, str]) -> None:
                          f"fresh_stalled={delimited(placement.fresh_stall)}\n"
                          f"fleet_jobs={delimited(placement.fleet_jobs)}\n"
                          f"retry_runner={placement.retry_runner}\n"
-                         f"free_retry_runner={placement.retry_runner}\n")
+                         f"free_retry_runner={placement.retry_runner}\n"
+                         f"retry_jobs={delimited(placement.retry_jobs)}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
