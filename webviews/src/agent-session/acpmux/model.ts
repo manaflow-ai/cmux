@@ -1099,11 +1099,14 @@ function activityStepHeight(item: AcpmuxActivity): number {
 /// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
 /// confused").
 function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
-  return runStretches(row, groups).reduce(
+  // `.cv-tools` and `.cv-tool-run` stack their children with the block gap (conversation.css).
+  const stretches = runStretches(row, groups);
+  const children = stretches.reduce((count, stretch) => count + (stretch.fold ? 1 : stretch.groups.length), 0);
+  return stretches.reduce(
     (height, stretch) =>
       height +
       (stretch.fold ? toolRowHeight() : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
-    0,
+    Math.max(0, children - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale,
   );
 }
 
@@ -1111,7 +1114,12 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
 function foldedGroupHeight(group: ToolGroup): number {
   if (group.type === "group" || group.type === "send") return toolRowHeight();
-  return ("items" in group ? group.items : [group.item]).reduce((sum, item) => sum + activityStepHeight(item), 0);
+  // `.cv-tool-group` stacks its calls with the block gap too.
+  const items = "items" in group ? group.items : [group.item];
+  return items.reduce(
+    (sum, item) => sum + activityStepHeight(item),
+    Math.max(0, items.length - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale,
+  );
 }
 
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
