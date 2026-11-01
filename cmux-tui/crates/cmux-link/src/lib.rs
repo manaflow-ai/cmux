@@ -41,6 +41,8 @@ pub mod pairing;
 pub mod registration;
 #[cfg(target_os = "linux")]
 pub mod root_bootstrap;
+#[cfg(any(test, target_os = "macos"))]
+mod sign_clone;
 pub mod stamp;
 pub mod stream_lease;
 pub mod token;
