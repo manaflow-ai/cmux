@@ -349,8 +349,9 @@ struct Link {
     attached: bool,
     /// The room's asks that came before the attachment answered, sent once it does.
     waiting: VecDeque<Ask>,
-    /// The records the daemon sent before the attachment answered, sent after the snapshot.
-    early: VecDeque<Value>,
+    /// The records the daemon sent before the attachment answered (cut), each with the prompt
+    /// state it said (read before the cut), sent after the snapshot.
+    early: VecDeque<(Value, Option<(String, &'static str)>)>,
     /// The bytes of `early` (at most [`MAX_EARLY_BYTES`]).
     early_bytes: usize,
     /// This guest's prompts (kept by the bridge across relays and host sockets).
@@ -411,9 +412,11 @@ impl Link {
                 }
                 // Before the snapshot nothing reaches the room; too many and the relay ends
                 // (the guest's next one starts from a fresh snapshot).
+                // The prompt state it says is read whole: a cut record no longer names it.
+                let decided = decision(&record);
                 let record = cut(record);
                 self.early_bytes = self.early_bytes.saturating_add(record.to_string().len());
-                self.early.push_back(record);
+                self.early.push_back((record, decided));
                 return self.early.len() <= MAX_EARLY && self.early_bytes <= MAX_EARLY_BYTES;
             }
             // share_ended, detached, overflow: the guest's page reconnects for a fresh snapshot.
@@ -438,9 +441,9 @@ impl Link {
                 self.attached = true;
                 let watermark = self.snapshot(frame.get("data").unwrap_or(&Value::Null));
                 self.early_bytes = 0;
-                for record in std::mem::take(&mut self.early) {
+                for (record, decided) in std::mem::take(&mut self.early) {
                     if record.get("seq").and_then(Value::as_u64).is_none_or(|s| s > watermark) {
-                        self.record(record);
+                        self.relay(record, decided);
                     }
                 }
                 let view = json!({"cmd": "agent-session-view", "surface": 0, "visible": true});
@@ -601,6 +604,11 @@ impl Link {
 
     fn record(&mut self, record: Value) {
         let decided = decision(&record);
+        self.relay(record, decided);
+    }
+
+    /// Sends `record` (cut) to the room, then notes the prompt state it said (read whole).
+    fn relay(&mut self, record: Value, decided: Option<(String, &'static str)>) {
         let records =
             json!({"v": 1, "t": "records", "to": [self.guest_id], "records": [cut(record)]});
         self.emit(records);
@@ -741,12 +749,12 @@ mod tests {
             let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
             let (_read, write) = ours.into_split();
             let (out, _frames) = mpsc::unbounded_channel();
-            let mut link = super::tests::link(out, write);
+            let mut link = tests::link(out, write);
             let huge = json!({"event": "agent-session-record",
                 "record": {"seq": 1, "kind": "agent_message", "text": "y".repeat(2 * MAX_RECORD)}});
             assert!(link.inbound(&huge.to_string()).await);
             assert!(link.early_bytes < 1024);
-            assert_eq!(link.early[0]["truncated"], json!(true));
+            assert_eq!(link.early[0].0["truncated"], json!(true));
         });
     }
 
