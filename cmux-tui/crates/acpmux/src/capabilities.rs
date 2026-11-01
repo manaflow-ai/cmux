@@ -200,7 +200,16 @@ pub const CAPABILITIES: &[Capability] = &[
 
 /// The ids of [`CAPABILITIES`], in its order.
 pub fn ids() -> Vec<&'static str> {
-    CAPABILITIES.iter().map(|capability| capability.id).collect()
+    CAPABILITIES
+        .iter()
+        .filter(|capability| {
+            capability.id != "agent-session-turn-rewind-v1"
+                || ["CMUX_PLATFORM_ORIGIN", "CMUX_PLATFORM_WORKSPACE_ID", "CMUX_PLATFORM_MACHINE_ID"]
+                    .iter()
+                    .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+        })
+        .map(|capability| capability.id)
+        .collect()
 }
 
 /// `acpmux capabilities`: one id per line, or with `--json`
