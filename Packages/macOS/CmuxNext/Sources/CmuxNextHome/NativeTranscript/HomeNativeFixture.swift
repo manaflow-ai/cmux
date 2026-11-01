@@ -143,12 +143,8 @@ public final class HomeNativeFixture {
     /// With `open`, nothing is posted: the notes row of the last such run opens or closes, as a click on it does.
     public func debugAgentMessages(notes: Bool = false, open: Bool = false) -> Bool {
         guard let shown else { return false }
-        if open {
-            guard let turn = lastAgentTurn else { return false }
-            let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: turn)
-            store.toggleAgentMessages(HomeAgentMessageRow.notesGroup(group), in: shown.conversation)
-            return true
-        }
+        // SCRATCH: today's fold opens through its link (`debug.home.drive` `link`); `open` does nothing here.
+        if open { return false }
         let source = self.source
         let turn = IdempotencyKey("debug-agent-messages-\(UUID().uuidString)")
         lastAgentTurn = turn
