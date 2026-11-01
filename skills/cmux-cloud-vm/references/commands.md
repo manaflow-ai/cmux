@@ -87,6 +87,7 @@ cmux cloud new-terminal-on-machine --target machine:vm-…      # a new workspac
 cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id>   # a terminal tab in that workspace
 cmux cloud rename-machine --target machine:vm-… --name <label>
 cmux cloud resize-machine --target machine:vm-… --size small|medium|large|xlarge
+cmux cloud resize-machine --target machine:vm-… --disk 100   # disk in whole GiB: 4 GiB steps, up to 256, grow-only; --size and --disk may go together
 cmux cloud machine-status --target machine:vm-…              # stats, plus hourly_rate_usd, running_since, estimated_cost_usd
 cmux cloud machine-ports --target machine:vm-…
 cmux cloud snapshot-machine --target machine:vm-…

@@ -23,10 +23,14 @@ public struct SidebarSeed {
     /// status callback still says `connecting`, it must not re-arm the bars.
     private var suppressedSections: Set<SectionID> = []
     public let grace: SidebarPlaceholderGrace
+    /// Holds one list's "Connecting…" labels for the startup deadline (`holdingConnectingLabels`).
+    public let connecting: SidebarPlaceholderGrace
 
-    public init(sections: [SidebarSection] = [], grace: SidebarPlaceholderGrace = SidebarPlaceholderGrace()) {
+    public init(sections: [SidebarSection] = [], grace: SidebarPlaceholderGrace = SidebarPlaceholderGrace(),
+                connecting: SidebarPlaceholderGrace = SidebarPlaceholderGrace(wait: SidebarPlaceholderGrace.connectingDelay)) {
         self.sections = sections
         self.grace = grace
+        self.connecting = connecting
     }
 
     /// `live` with loading sections filled in. `launching` is true until the
