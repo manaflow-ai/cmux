@@ -240,6 +240,12 @@ sidebar from now on"). Scope: workspace and group rows, nested groups, the group
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
 performance.
 
+- 2026-10-30: sidebar pane gap (PR #28052, commits `8a92353e0b2`, `4e3a0a16d4c` and `c4f11ab868f` and `852496a26e1` and `ded89ea2064` and `9cf5deb0a3c`): Leo, "THE FUCKING OPERATIVE SITUATION IS THE SPACING" / "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card style keeps a scaled 2.5 pt plain sidebar band after each row; the resize line remains above the card in the titlebar, while `flat-sidebar-line` remains unchanged. Geometry: `SidebarPaneGapTests`.
+- 2026-10-30: sidebar pane gap style-switch repair (PR #28052, commit `4c25ba92f1b`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card and flat styles remount the resize line when the visual pane reach changes, even when their hit bands are equal. Regression: `SidebarPaneGapTests.styleSwitchRemountsTheDividerAtTheNewSurfaceEdge`.
+- 2026-10-30: sidebar pane gap synchronous remount (PR #28052, commit `b3e080abff7`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". `apply()` remounts the resize line immediately when pane reach changes, before its observation task can run.
+- 2026-10-30: sidebar pane gap hit-test coordinate repair (PR #28052, commit `0c7a18ed432`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Pane-reach hit testing converts AppKit's superview point once, preserving right-sidebar card clicks.
+- 2026-10-30: sidebar pane gap right-sidebar hit-test repair (PR #28052, commit `de5e5413804`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Extended-band hit testing preserves AppKit's superview coordinates, visibility, and right-pane clicks.
+
 ## Rule for every sidebar change
 
 ### Shared grid columns (2026-10-30)
