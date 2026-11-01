@@ -5,6 +5,8 @@ import CmuxNextTestSupport
 import Foundation
 import GhosttyNextKit
 import Testing
+import struct CmuxNextBrowser.TerminalLinkResolver
+import enum CmuxNextBrowser.TerminalLinkTarget
 
 /// Cmd-hover and Cmd-click on terminal links, on a real Ghostty surface driven by real
 /// `NSEvent`s through the view's own mouse and key handlers: a URL with Command pressed over a
@@ -189,13 +191,13 @@ import Testing
     }
 
     @Test func aPrintedPathKeepsItsLineAndColumn() {
-        let code = TerminalLinkResolver.location("src/app.ts:3:5")
+        let code = TerminalLinkResolver().location("src/app.ts:3:5")
         #expect(code?.line == 3 && code?.column == 5)
-        let note = TerminalLinkResolver.location("\"notes/todo.md:12\",")
+        let note = TerminalLinkResolver().location("\"notes/todo.md:12\",")
         #expect(note?.line == 12 && note?.column == nil)
-        #expect(TerminalLinkResolver.location("README.md") == nil)
-        #expect(TerminalLinkResolver.location("localhost:3000/docs") == nil)
-        #expect(TerminalLinkResolver.location("https://example.com:8080") == nil)
+        #expect(TerminalLinkResolver().location("README.md") == nil)
+        #expect(TerminalLinkResolver().location("localhost:3000/docs") == nil)
+        #expect(TerminalLinkResolver().location("https://example.com:8080") == nil)
     }
 
     @Test func onlyAWordBrokenAtTheEdgeJoinsTheNextRow() {

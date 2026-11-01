@@ -550,7 +550,12 @@ test("a row's star stars and unstars its model, and ⌘D is left to Split Right"
   expect(star().title).not.toContain("⌘D");
   expect(star().getAttribute("aria-pressed")).toBe("false");
   // ⌘D is cmux's Split Right: the open menu neither stars with it nor keeps it from the app.
-  const commandD = new dom.window.KeyboardEvent("keydown", { key: "d", metaKey: true, bubbles: true, cancelable: true });
+  const commandD = new dom.window.KeyboardEvent("keydown", {
+    key: "d",
+    metaKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
   await act(async () => {
     row.dispatchEvent(commandD);
   });

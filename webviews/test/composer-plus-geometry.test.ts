@@ -360,7 +360,12 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         inline = !!prompt?.querySelector(".acpmux-md-inline");
         // The first line's text: what is typed, else the placeholder.
         if (chosen)
-          line = { top: chosen.top, center: (chosen.top + chosen.bottom) / 2, bottom: chosen.bottom, source: textSource };
+          line = {
+            top: chosen.top,
+            center: (chosen.top + chosen.bottom) / 2,
+            bottom: chosen.bottom,
+            source: textSource,
+          };
       }
       /** The leftmost drawn mark in `root`: a glyph (svg, img) or a text character, and what it is. */
       const leadingMark = (root: Element | null) => {
@@ -647,7 +652,10 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
             gap: m.plus && m.text !== null ? +(m.text - m.plus.button.right).toFixed(2) : null,
             textFromBox: m.box && m.text !== null ? +(m.text - m.box.left).toFixed(2) : null,
             lineCenterFromTop: m.box && m.line ? +(m.line.center - m.box.top).toFixed(2) : null,
-            lineRoom: m.box && m.line ? [+(m.line.top - m.box.top).toFixed(2), +(m.box.bottom - m.line.bottom).toFixed(2)] : null,
+            lineRoom:
+              m.box && m.line
+                ? [+(m.line.top - m.box.top).toFixed(2), +(m.box.bottom - m.line.bottom).toFixed(2)]
+                : null,
             caretCenterFromTop: m.box && m.caret ? +(centerY(m.caret) - m.box.top).toFixed(2) : null,
             plus: rel(m.plus),
             mic: rel(m.mic),

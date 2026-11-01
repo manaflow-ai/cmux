@@ -1,6 +1,7 @@
-//! JSON POST for the Cloud machine agent (`cmux host run`'s cloud role):
-//! bind, auth and `/v1/ops`. HTTPS only (redirects included), 20 s per
-//! request, no async runtime of its own (reqwest's blocking client).
+//! JSON requests for the Cloud machine agent (`cmux host run`'s cloud role):
+//! bind, auth, `/v1/ops` and the platform's saved logins. HTTPS only
+//! (redirects included), 20 s per request, no async runtime of its own
+//! (reqwest's blocking client).
 
 use std::time::Duration;
 
@@ -35,6 +36,21 @@ impl JsonPoster {
         Ok(JsonPoster { client, allow_http })
     }
 
+    /// An authenticated JSON GET. The same HTTPS and time bounds as POST apply.
+    pub fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        check_url(url, self.allow_http).map_err(|e| e.to_string())?;
+        let mut request = self.client.get(url).header("accept", "application/json");
+        if let Some(token) = bearer {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().map_err(|e| format!("GET {url}: {e}"))?;
+        let status = response.status().as_u16();
+        let text = response.text().unwrap_or_default();
+        let parsed =
+            serde_json::from_str(&text).unwrap_or_else(|_| Value::Object(Default::default()));
+        Ok((status, parsed))
+    }
+
     /// `(status, body)`; a body that is not JSON reads as `{}`.
     pub fn post(
         &self,
@@ -42,13 +58,29 @@ impl JsonPoster {
         body: &Value,
         bearer: Option<&str>,
     ) -> Result<(u16, Value), String> {
+        self.send("POST", url, Some(body), bearer)
+    }
+
+    /// One request with `method` (`GET`, `PUT`, `POST`, ...) and an optional
+    /// JSON body, as [`JsonPoster::post`] answers it.
+    pub fn send(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+    ) -> Result<(u16, Value), String> {
         check_url(url, self.allow_http).map_err(|e| e.to_string())?;
-        let mut request =
-            self.client.post(url).header("content-type", "application/json").body(body.to_string());
+        let verb = reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| format!("bad method {method}"))?;
+        let mut request = self.client.request(verb, url);
+        if let Some(body) = body {
+            request = request.header("content-type", "application/json").body(body.to_string());
+        }
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
-        let response = request.send().map_err(|e| format!("POST {url}: {e}"))?;
+        let response = request.send().map_err(|e| format!("{method} {url}: {e}"))?;
         let status = response.status().as_u16();
         let text = response.text().unwrap_or_default();
         let parsed =

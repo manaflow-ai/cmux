@@ -37,6 +37,10 @@ def failed(name):
     return f"✘ Test {name} recorded an issue at X.swift:1:2: Expectation failed"
 
 
+def failed_suite(name):
+    return f"✘ Suite {name} recorded an issue at {name}.swift:12:13: Issue recorded"
+
+
 SUMMARY = "✔ Test run with 40 tests in 3 suites passed after 1.0 seconds."
 
 
@@ -177,6 +181,18 @@ class EchoedStepScripts(unittest.TestCase):
 
 
 class PerTest(unittest.TestCase):
+    def test_suite_teardown_issue_is_a_failing_suite(self):
+        found = reds.read(log(failed_suite("SidebarGroupHoverCardTests"),
+                              "✘ Suite SidebarGroupHoverCardTests failed after 0.2 seconds with 1 issue."))
+        self.assertEqual(found.failed, {"SidebarGroupHoverCardTests"})
+
+    def test_quoted_suite_teardown_issue_is_a_failing_suite(self):
+        found = reds.read(log(
+            '✘ Suite "Cloud sidebar Ports status controls" recorded an issue at Cloud.swift:1:2: Issue recorded',
+            '✘ Suite "Cloud sidebar Ports status controls" failed after 0.2 seconds with 1 issue.',
+        ))
+        self.assertEqual(found.failed, {"Cloud sidebar Ports status controls"})
+
     def test_swift_test_summary_fixture_signal_text_is_not_a_crash(self):
         fixture = log(
             "scripts/cmux-next/tests/swift-test-summary.test.sh:148: "

@@ -641,11 +641,24 @@ async fn execute(
         // token::create checks the store itself, under its create lock.
         Command::Token(token::TokenCommand::Create(_)) => None,
         Command::Token(command) => {
-            let token = token::load(env)
-                .map_err(CliError::unexpected)?
-                .ok_or_else(|| {
-                    CliError::unauthenticated("no stored VM token: run `cmux vm token create`")
-                })?;
+            let token = match token::read_stored(env).map_err(CliError::unexpected)? {
+                Some(token::Stored::Token(token)) => token,
+                // Nothing can revoke a key it cannot read: revoke removes
+                // the local copy, which the error for it recommends.
+                Some(token::Stored::Unreadable)
+                    if matches!(command, token::TokenCommand::Revoke) =>
+                {
+                    return token::remove_unreadable(env, cli.json, stdout).map(|()| exit::OK);
+                }
+                Some(token::Stored::Unreadable) => {
+                    return Err(CliError::unexpected(token::unreadable_message()));
+                }
+                None => {
+                    return Err(CliError::unauthenticated(
+                        "no stored VM token: run `cmux vm token create`",
+                    ));
+                }
+            };
             return token_command(command, token, &cli, env, stdout).await;
         }
         // A stored token that cannot be read is refused, never skipped: the

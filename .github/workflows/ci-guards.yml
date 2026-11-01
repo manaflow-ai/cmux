@@ -272,7 +272,9 @@ jobs:
 
       - name: Validate fleet compiler-cache wiring
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: bash tests/test_ci_fleet_compilation_cache.sh
+        run: |
+          bash tests/test_ci_fleet_compilation_cache.sh
+          python3 tests/test_ci_fleet_compilation_cache.py
 
       - name: Validate feature flag linter scope
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -917,7 +919,11 @@ jobs:
 
       - name: Validate portable placement (fleet Linux, then a free mini, then Blacksmith)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_portable_job_placement.py
+        run: |
+          python3 tests/test_ci_portable_job_placement.py
+          python3 tests/test_nightly_linux_admission.py
+          python3 tests/test_nightly_admission_receipt.py
+          python3 tests/test_nightly_dedicated_mini.py
 
       - name: Validate the rescue's re-runs route alike for both bot identities
         if: ${{ !cancelled() && matrix.group == 'ci' }}

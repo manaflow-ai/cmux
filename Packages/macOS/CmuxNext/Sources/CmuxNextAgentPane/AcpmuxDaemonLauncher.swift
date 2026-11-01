@@ -9,7 +9,9 @@ import CmuxNextCompat
 /// The daemon runs as a background job of a throwaway `/bin/sh` with job
 /// control on (`set -m`), so it gets its own process group, is adopted by
 /// launchd when the shell exits, and outlives the app (its sessions are
-/// durable state). The launcher reaps the shell. Its fd 3 is our pipe; stdout and stderr go to
+/// durable state) while an agent works or a client is connected; with
+/// nothing left to do it stops soon after the app exits
+/// (``ownerAppPidKey``). The launcher reaps the shell. Its fd 3 is our pipe; stdout and stderr go to
 /// `<home>/daemon.log`.
 nonisolated enum AcpmuxDaemonLauncher {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
@@ -24,6 +26,9 @@ nonisolated enum AcpmuxDaemonLauncher {
         /// The daemon refused to start, and said why on its ready line.
         case refused(String)
     }
+
+    /// Names the app that started the daemon; the daemon follows its exit.
+    static let ownerAppPidKey = "ACPMUX_OWNER_APP_PID"
 
     static let script = #"set -m; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
     /// The daemon reads its person key (``AcpmuxPersonKey``) from this descriptor and
@@ -72,6 +77,9 @@ nonisolated enum AcpmuxDaemonLauncher {
         }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
+        // The owning app (acpmux `daemon/owner_exit.rs`): after this app exits, the daemon stops
+        // once no client, agent, turn or task keeps it, instead of running on with nothing to do.
+        variables[ownerAppPidKey] = String(ProcessInfo.processInfo.processIdentifier)
         return variables
     }
 

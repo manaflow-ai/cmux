@@ -582,3 +582,41 @@ html[data-cmux-page="changelog"] {
   .cln-clips-alternate .cln-clip { grid-template-columns: minmax(0, 1fr); }
   .cln-clips-alternate .cln-clip:nth-child(even) .cln-clip-media { order: 0; }
 }
+
+/* ---------- The What's New sheet (default; SheetPage.tsx, 2026-10-31) ----------
+   An Apple app's What's New sheet: a centered bold title, then each release day, newest first,
+   under a small date heading; each change a row of an accent glyph, a bold title and one muted
+   line. One column of reading width, no rules between days, no motion. */
+.cls {
+  --cls-column: 560px;
+  padding-block: calc(var(--ds-space-6) * 1.5) calc(var(--ds-space-6) * 3);
+  padding-inline: max(var(--ds-space-6), calc((100% - var(--cls-column)) / 2));
+}
+.cls-title {
+  margin: 0 0 32px;
+  font-size: 1.85em; /* the page's one large text, relative to the body step */
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-align: center;
+  text-wrap: balance;
+}
+.cls .cls-day { padding-bottom: 0; margin-bottom: 32px; border-bottom: 0; }
+.cls-date {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cls-rows { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.cls-row { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
+.cls-icon { display: grid; place-items: center; width: 28px; height: 28px; color: var(--cmux-accent, var(--page-text)); }
+.cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.cls-row-text { min-width: 0; padding-top: 4px; }
+.cls-row-title { color: var(--page-text); font-weight: 600; }
+.cls-row-line { margin-top: 2px; color: var(--page-text-2); }
