@@ -192,19 +192,24 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           const handle = document
             .querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle')!
             .getBoundingClientRect();
-          const body = document.querySelector(".acpmux-session-info__body")!.getBoundingClientRect();
+          const scroller = document.querySelector<HTMLElement>(".acpmux-session-info__body")!;
+          const body = scroller.getBoundingClientRect();
+          // The scrollport's right edge: where a classic scrollbar's track begins.
+          const scrollport = body.left + scroller.clientLeft + scroller.clientWidth;
           const section = document.querySelector('section[data-section="outputs"]')!.getBoundingClientRect();
           const title = document
             .querySelector('section[data-section="outputs"] .acpmux-session-info-section__title')!
             .getBoundingClientRect();
           return {
             inBody: handle.right <= body.right + 0.5,
+            // Leo, 2026-11-01: "the dragger is a bit too close to the thumb".
+            clearOfScrollbar: scrollport - handle.right >= 3.5,
             afterSection: handle.left >= section.right - 0.5,
             rightOfTitle: handle.left > title.right,
             titleAtTextColumn: Math.round(title.left - section.left),
           };
         });
-        expect(inside).toEqual({ inBody: true, afterSection: true, rightOfTitle: true, titleAtTextColumn: 8 });
+        expect(inside).toEqual({ inBody: true, clearOfScrollbar: true, afterSection: true, rightOfTitle: true, titleAtTextColumn: 8 });
       } finally {
         await page.close();
       }
