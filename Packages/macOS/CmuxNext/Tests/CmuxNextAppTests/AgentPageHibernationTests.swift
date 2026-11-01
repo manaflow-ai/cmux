@@ -220,6 +220,9 @@ struct AgentPageHibernationTests {
         defer { rig.window.closeAfterTest() }
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
         let view = try rig.hiddenChat("tab_crashed", session: "s-crashed")
+        // The injected end ends no real process: a document that finishes loading after it shows
+        // the page lives and takes the notice away (pageLoadedAgain), so the load finishes first.
+        if let page = view.page { await page.waitUntilLoaded() } else { await rig.settle { !view.webView.isLoading } }
         for _ in 0..<AgentPageCrashBudget.limit { _ = view.crashRetry.budget.ended(at: Date()) }
         view.webContentProcessDidTerminate()
         #expect(view.crashNotice != nil, "a chat that kept crashing showed no notice")
