@@ -491,6 +491,7 @@ impl Hub {
             client,
             prompt_id: &prompt_id,
             control,
+            cloud_mobile: opts.cloud_mobile,
             trust_gate,
             // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
             // agent's message stop a review box's review, or go ahead of the person's prompt that
@@ -539,7 +540,8 @@ impl Hub {
             return Err(e);
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
-        let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let (mut blocks, control, trust_gate, cloud_mobile) =
+            (run.blocks.clone(), run.control, run.trust_gate, run.cloud_mobile);
         // A queued prompt restored from the log may still name its uploads (`prompt_uploads.rs`).
         let web = control == Control::Web;
         let read = crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await;
@@ -557,6 +559,7 @@ impl Hub {
             .check_dispatch(
                 session,
                 control,
+                cloud_mobile,
                 trust_gate,
                 device.as_deref(),
                 &prompt_id,
@@ -683,6 +686,10 @@ impl Hub {
         if control == Control::Web || !family {
             session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         }
+        session
+            .floor
+            .cloud_mobile_turn
+            .store(control == Control::Web && run.cloud_mobile, Ordering::SeqCst);
         self.reset_stream(session);
         // A forced Stop retires the logical turn even if Claude's compaction
         // finishes later. Do not let the stale compaction flag cancel the
@@ -738,6 +745,7 @@ impl Hub {
             .check_dispatch(
                 session,
                 control,
+                cloud_mobile,
                 trust_gate,
                 device.as_deref(),
                 &prompt_id,
@@ -962,6 +970,7 @@ impl Hub {
                         .check_dispatch(
                             session,
                             control,
+                            cloud_mobile,
                             trust_gate,
                             device.as_deref(),
                             &prompt_id,

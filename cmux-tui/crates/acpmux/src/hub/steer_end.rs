@@ -335,6 +335,7 @@ impl Hub {
                     prompt_id: Some(prompt_id),
                     message_id: opts.message_id,
                     control,
+                    cloud_mobile: opts.cloud_mobile,
                     trust_gate,
                     interrupt: opts.interrupt,
                     interrupt_turn: opts.interrupt.then(|| turn_id.to_owned()),

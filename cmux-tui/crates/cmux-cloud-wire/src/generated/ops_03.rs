@@ -216,6 +216,62 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmAttentionEmitOp {
+        name: "cloud.vm.attention.emit",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmAttentionEmitParams,
+        result: CloudVmAttentionEmitResult,
+        error: CloudVmAttentionEmitError,
+    }
+}
+
+wire_enum! {
+    CloudVmAttentionEmitParamsKind {
+        Question = "question",
+        Permission = "permission",
+        Done = "done",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmAttentionEmitParams {
+    pub machine: MachineId,
+    pub event_id: String,
+    pub kind: CloudVmAttentionEmitParamsKind,
+    pub session: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    pub occurred_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmAttentionEmitResult {
+    pub delivered: bool,
+    pub replayed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.attention.emit declares.
+    CloudVmAttentionEmitError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmEventEmitOp {
         name: "cloud.vm.event.emit",
@@ -838,57 +894,4 @@ pub struct DmOpenParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DmOpenResult {
     pub conversation: HomeConversationSummary,
-}
-
-wire_errors! {
-    /// The error codes dm.open declares.
-    DmOpenError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        HomeRateLimited = "home.rate_limited",
-        HomeUserNotReady = "home.user_not_ready",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InviteLimit = "invite_limit",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        NotReachable = "not_reachable",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.
-    DomainClaimOp {
-        name: "domain.claim",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: DomainClaimParams,
-        result: TeamDomain,
-        error: DomainClaimError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainClaimParams {
-    pub domain: EmailDomain,
-}
-
-wire_errors! {
-    /// The error codes domain.claim declares.
-    DomainClaimError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

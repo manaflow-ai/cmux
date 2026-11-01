@@ -244,7 +244,11 @@ fn serve_remote_connection(
     let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
         return;
     };
-    let admission = RemoteAdmission { peer, gate };
+    let admission = RemoteAdmission {
+        peer,
+        gate,
+        cloud_token: matches!(check, Some(cmux_link::stamp::StampCheck::LinkToken)),
+    };
     serve_line_connection(
         mux,
         stream,
@@ -294,11 +298,12 @@ fn read_stamp(stream: &UnixStream) -> Option<cmux_link::stamp::Stamp> {
 struct RemoteAdmission {
     peer: RemotePeer,
     gate: Arc<dyn RemoteGate>,
+    cloud_token: bool,
 }
 
 impl LineAdmission for RemoteAdmission {
     fn registered(&self, mux: &Arc<Mux>, client: u64) -> bool {
-        mux.bind_remote_peer(client, &self.peer).is_ok()
+        mux.bind_remote_peer_checked(client, &self.peer, self.cloud_token).is_ok()
     }
 
     fn refusal(&self, line: &str) -> Option<Value> {

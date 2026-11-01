@@ -52,6 +52,7 @@ pub mod op_names {
     pub const CLOUD_SNAPSHOT_DELETE: &str = "cloud.snapshot.delete";
     pub const CLOUD_SNAPSHOT_LIST: &str = "cloud.snapshot.list";
     pub const CLOUD_SNAPSHOT_RESTORE: &str = "cloud.snapshot.restore";
+    pub const CLOUD_VM_ATTENTION_EMIT: &str = "cloud.vm.attention.emit";
     pub const CLOUD_VM_EVENT_EMIT: &str = "cloud.vm.event.emit";
     pub const CLOUD_VM_SELF_GET: &str = "cloud.vm.self.get";
     pub const CLOUD_VM_STATUS_REPORT: &str = "cloud.vm.status.report";
@@ -266,6 +267,7 @@ pub mod op_names {
         CLOUD_SNAPSHOT_DELETE,
         CLOUD_SNAPSHOT_LIST,
         CLOUD_SNAPSHOT_RESTORE,
+        CLOUD_VM_ATTENTION_EMIT,
         CLOUD_VM_EVENT_EMIT,
         CLOUD_VM_SELF_GET,
         CLOUD_VM_STATUS_REPORT,
@@ -483,6 +485,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.snapshot.delete" => visitor.visit::<CloudSnapshotDeleteOp>(),
         "cloud.snapshot.list" => visitor.visit::<CloudSnapshotListOp>(),
         "cloud.snapshot.restore" => visitor.visit::<CloudSnapshotRestoreOp>(),
+        "cloud.vm.attention.emit" => visitor.visit::<CloudVmAttentionEmitOp>(),
         "cloud.vm.event.emit" => visitor.visit::<CloudVmEventEmitOp>(),
         "cloud.vm.self.get" => visitor.visit::<CloudVmSelfGetOp>(),
         "cloud.vm.status.report" => visitor.visit::<CloudVmStatusReportOp>(),
