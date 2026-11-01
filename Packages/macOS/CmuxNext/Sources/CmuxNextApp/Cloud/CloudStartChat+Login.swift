@@ -19,7 +19,7 @@ import Foundation
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
-    static let passHarnessLoginKey = "cmux.cloud.passHarnessLogin"
+    nonisolated static let passHarnessLoginKey = "cmux.cloud.passHarnessLogin"
 
     /// The one switch for every Mac-to-machine login transfer: this pass, the turn card's recovery
     /// and the new-workspace setup, Claude's `setup-token` and the Codex broker alike. The
