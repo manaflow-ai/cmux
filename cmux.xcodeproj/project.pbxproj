@@ -3863,6 +3863,7 @@
 		7D94FB96202784F5643115F0 /* SurfaceSocketCommandTests+NewDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */; };
 		97003C82A6CDC90F8D20503F /* SurfaceSocketCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E107EF903AAF714086F52BC4 /* SurfaceSocketCommandTests.swift */; };
 		C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */; };
+		9709004200000000000000A1 /* SurfaceTabColorPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9709004200000000000000A2 /* SurfaceTabColorPersistenceTests.swift */; };
 		6CDB46F9F4D5380D8631CD23 /* SurfaceWorkspaceLayoutSyncing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C02896AFDD3AADD6A11F1A /* SurfaceWorkspaceLayoutSyncing.swift */; };
 		9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */; };
 		DF4FAEF2EFFDC7957B6EA7D6 /* SwiftUIKeyViewProxyResponderGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */; };
@@ -8530,6 +8531,7 @@
 		AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceSocketCommandTests+NewDisplay.swift"; sourceTree = "<group>"; };
 		E107EF903AAF714086F52BC4 /* SurfaceSocketCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSocketCommandTests.swift; sourceTree = "<group>"; };
 		C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabBarButtonConfiguration.swift; sourceTree = "<group>"; };
+		9709004200000000000000A2 /* SurfaceTabColorPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabColorPersistenceTests.swift; sourceTree = "<group>"; };
 		72C02896AFDD3AADD6A11F1A /* SurfaceWorkspaceLayoutSyncing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceWorkspaceLayoutSyncing.swift; sourceTree = "<group>"; };
 		9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTestingAssertions.swift; sourceTree = "<group>"; };
 		4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SwiftUIKeyViewProxyResponderGuard.swift; sourceTree = "<group>"; };
@@ -13402,6 +13404,7 @@
 				F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */,
 				F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */,
 				71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
+				9709004200000000000000A2 /* SurfaceTabColorPersistenceTests.swift */,
 				970900030000000000000002 /* WorkspaceColorMenuTests.swift */,
 				CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */,
 				901000010000000000000002 /* WorkspaceCustomLayoutOrderTests.swift */,
@@ -19497,6 +19500,7 @@
 				A10020000000000000000009 /* SurfaceSelectionTests.swift in Sources */,
 				7D94FB96202784F5643115F0 /* SurfaceSocketCommandTests+NewDisplay.swift in Sources */,
 				97003C82A6CDC90F8D20503F /* SurfaceSocketCommandTests.swift in Sources */,
+				9709004200000000000000A1 /* SurfaceTabColorPersistenceTests.swift in Sources */,
 				9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */,
 				E112778D0CA1F725A9F2677C /* SwiftUIKeyViewProxyResponderGuardTests.swift in Sources */,
 				372153DEDA910ADC47F88E87 /* SyntheticProcessSnapshotReader.swift in Sources */,
