@@ -631,6 +631,27 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
 
 
+
+def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | None:
+    """classify against several base logs (BASES: [(label, log)], newest first): a head failing test is the base's
+    when it fails the same way on any one of them (base_red_excuse.py's window). A crash or a cut-short head run is
+    the head's whatever the bases show, judged as classify judges it against the newest. shared names, for each test,
+    the first base it failed on: `name (label)`."""
+    verdicts = [(label, classify(head_log, log, job, label)) for label, log in bases] or [("", classify(head_log, None, job))]
+    first = verdicts[0][1]
+    head = read(head_log)
+    if first is None or len(verdicts) == 1 or head_log is None or head.crashes or head.truncated:
+        return first
+    on: dict = {}
+    for label, verdict in verdicts:
+        for name in verdict.shared:
+            on.setdefault(name, label)
+    new = sorted(head.failed - on.keys())
+    labels = ", ".join(label for label, _ in verdicts)
+    reasons = [f"{len(new)} failing test(s) pass, do not run or fail differently on each of {labels}: "
+               f"{'; '.join(new)[:600]}"] if new else []
+    return Verdict(bool(new), reasons, [f"{name} ({on[name]})" for name in sorted(on)])
+
 # The webview tests (scripts/ci/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
 # a head shard (`react-apps-check (N)`) and, when red, is replayed on the merge parent by `react-apps-base-check (N)`,
 # while the base's own push runs it in whichever shard it falls in; a per-job comparison never matches those names
@@ -839,6 +860,8 @@ GALLERY_KEYS = ("fresh", "known", "slow")
 GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has been )?closed|"
                            r"browser has (?:been )?(?:disconnected|closed)|\bsignal\b|\bSIG[A-Z]+\b", re.I)
 GALLERY_SLOW = "over its ready-time budget"
+# A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
+GALLERY_SHIFT = "past its layout-shift baseline"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -872,6 +895,8 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{state}: {re.sub(r'[0-9]+', '#', reason)}")
     for item in found["slow"]:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
+    for item in found.get("shifted") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
     return result
 
 

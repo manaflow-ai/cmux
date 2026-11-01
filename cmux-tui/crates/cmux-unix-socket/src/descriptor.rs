@@ -67,7 +67,7 @@ pub fn send(stream: &UnixStream, bytes: &[u8], descriptor: RawFd) -> io::Result<
     }
     // The descriptor travelled with the first byte; the rest is plain data.
     let mut writer = stream;
-    writer.write_all(&bytes[sent.min(bytes.len())..])
+    writer.write_all(bytes.get(sent..).unwrap_or_default())
 }
 
 /// Receive the exact bounded payload and at most one owned, close-on-exec descriptor.
@@ -83,10 +83,10 @@ pub fn receive(stream: &UnixStream, length: usize) -> io::Result<(Vec<u8>, Optio
     let mut descriptor: Option<OwnedFd> = None;
     while received < length {
         let mut control = ControlBuffer([0; 64]);
-        let mut iov = libc::iovec {
-            iov_base: bytes[received..].as_mut_ptr().cast(),
-            iov_len: length - received,
-        };
+        let rest = bytes.get_mut(received..).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "descriptor payload overran its buffer")
+        })?;
+        let mut iov = libc::iovec { iov_base: rest.as_mut_ptr().cast(), iov_len: rest.len() };
         // SAFETY: zeroed msghdr is a valid empty message.
         let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
         message.msg_iov = &mut iov;
