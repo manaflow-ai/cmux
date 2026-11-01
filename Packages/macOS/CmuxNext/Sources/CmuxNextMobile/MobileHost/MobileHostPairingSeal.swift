@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import LocalAuthentication
@@ -43,20 +43,24 @@ public enum MobileHostPairingSealError: Error {
 /// same-user process can delete the item or plant its own (no item is the app's alone there). Such
 /// a build has no store a same-user process cannot write; signing it with a profile that grants
 /// keychain-access-groups puts the seal back in the app's access group. A login item this build may
-/// not read or change (a locked keychain, an ad hoc rebuild) fails without UI: the phone asks again.
+/// not read or change (a locked keychain, an ad hoc rebuild) fails without UI (Keychain interaction
+/// is off for those calls): the phone asks again.
 public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     public let service: String
     let keychain: MobileHostSecItems
+    /// The app's one guard of the Keychain UI switch (the login Keychain fallback).
+    let loginKeychain: LoginKeychain
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
-    public init(bundleID: String) {
-        self.init(bundleID: bundleID, keychain: .system)
+    public init(bundleID: String, loginKeychain: LoginKeychain) {
+        self.init(bundleID: bundleID, keychain: .system, loginKeychain: loginKeychain)
     }
 
-    init(bundleID: String, keychain: MobileHostSecItems) {
+    init(bundleID: String, keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
         service = bundleID + ".iphone-host.pairing-seal"
         self.keychain = keychain
+        self.loginKeychain = loginKeychain
     }
 
     /// The item: the data-protection Keychain, the app's default access group, no account sync.
@@ -78,12 +82,15 @@ public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     }
 
     /// Runs `call` against the data-protection Keychain, and again against the login Keychain when
-    /// this build has no entitlement for the first.
+    /// this build has no entitlement for the first. The login call runs with Keychain UI off
+    /// (``LoginKeychain/withoutUI(_:)``): the `LAContext` does not reach the login Keychain, and an
+    /// item an earlier build of this bundle id made under another signature would otherwise prompt
+    /// for the login keychain password.
     private func perform<T>(_ call: ([String: Any]) -> (status: OSStatus, value: T)) -> (status: OSStatus, value: T) {
         let noPrompt = [kSecUseAuthenticationContext as String: Self.noPrompt()]
         let result = call(Self.query(service: service).merging(noPrompt) { $1 })
         guard result.status == errSecMissingEntitlement else { return result }
-        return call(Self.loginQuery(service: service).merging(noPrompt) { $1 })
+        return loginKeychain.withoutUI { call(Self.loginQuery(service: service).merging(noPrompt) { $1 }) }
     }
 
     public func digest() -> Data? {

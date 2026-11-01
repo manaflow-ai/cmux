@@ -35,7 +35,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
-    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var connectionState: DaemonConnectionState = .connecting { didSet { dropGrace.note(oldValue, connectionState) } }
+    public let dropGrace = DaemonDropGrace()
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
@@ -139,9 +140,12 @@ public final class DaemonStore: StateResourceQueries {
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
     /// Stand-in pane handles a pending create names as its target (a New Column or split pressed on
-    /// a create still in flight), by handle: the stand-in's public pane id, under which the
-    /// daemon's pane takes it over with a new handle (``daemonHandle(showing:)``).
-    @ObservationIgnored var standInTargets: [PaneID: String] = [:]
+    /// a create still in flight, a Ctrl-` on Cmd-N's pane), by handle: what made the stand-in, by
+    /// which the daemon's pane that takes it over is found (``daemonHandle(showing:)``).
+    @ObservationIgnored var standInTargets: [PaneID: StandInOrigin] = [:]
+    /// Creates waiting for the daemon's pane of a stand-in whose own create is in flight
+    /// (``daemonTarget(_:)``), resumed by the reconcile that resolves them.
+    @ObservationIgnored var standInWaits: [StandInWait] = []
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
@@ -367,13 +371,12 @@ public final class DaemonStore: StateResourceQueries {
         for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
     }
 
-    /// Records a completed handshake before its `.connected` event drains,
-    /// so capability checks right after connect see this daemon.
+    /// Records a completed handshake before its `.connected` event drains, so capability checks right after connect see this daemon.
     public func noteHandshake(_ identity: DaemonIdentity) {
         if self.identity != identity { self.identity = identity }
     }
 
-    /// Marks the connection permanently failed (incompatible daemon).
+    /// Marks the connection failed: no retry can fix it, or it outlived the startup deadline (`DaemonStartupState.showsFailure`).
     public func markFailed(_ message: String) {
         connectionState = .failed(message)
     }

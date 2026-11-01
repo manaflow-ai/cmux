@@ -81,7 +81,6 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
     ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
-    ("nightly.yml", "signer-dmg"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
@@ -185,12 +184,6 @@ def keychain_job(job: dict) -> bool:
         script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
 
 
-def release_pool_signer(job: dict) -> bool:
-    """The rcodesign release-pool path keeps its certificate in a temporary directory."""
-    text = json.dumps(keychain_guard.inline_step_scripts(job))
-    return any(script in text for script in keychain_guard.RELEASE_POOL_SIGNERS.values())
-
-
 def signing_job(job: dict) -> bool:
     """A keychain job, or a job that holds a Sparkle private key (read in dot form, after dotted())."""
     return keychain_job(job) or bool(SPARKLE_KEY.search(json.dumps(keychain_guard.inline_step_scripts(job))))
@@ -201,6 +194,12 @@ def owned_only(runs_on: str) -> bool:
     blacksmith-*, ubuntu-* or GitHub-hosted macos-* label and no EPHEMERAL_RUNNER_VARIABLES variable, and an owned
     label or a variable to take one from."""
     text = FORK_ROUTE.sub("", runs_on)
+    # The nightly release-pool Linux picker validates RUNNER_POOLS.linux against
+    # the three trusted Blacksmith Linux labels before exposing its output. It
+    # is an ephemeral route even though it is not one of the scalar signing
+    # variables below.
+    if "fromJSON(vars.RUNNER_POOLS).linux" in text and "blacksmith-" in text:
+        return False
     if any(keychain_guard.EPHEMERAL_LABEL.match(label) or label.startswith("macos-")
            for label in LABEL_LITERAL.findall(text)):
         return False
@@ -396,7 +395,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             if "security import" in text:
                 failures.append(f"{label}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
             # Rule 4 is the keychain's; a job that only holds a Sparkle key makes none.
-            if keychain_job(job) and not release_pool_signer(job) and not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
+            if keychain_job(job) and not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
                        for step in steps):
                 failures.append(f"{label}: routed to owned Macs without an `if: always()` step that runs "
                                 "scripts/ci/signing-keychain.sh delete")

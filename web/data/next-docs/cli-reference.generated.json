@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 785,
-    "mcp": 701
+    "verbs": 789,
+    "mcp": 705
   },
   "nouns": [
     {
@@ -521,6 +521,13 @@
           "id": "app.command.run",
           "mcp": true,
           "mcpTool": "app_run_command"
+        },
+        {
+          "command": "cmux app settings",
+          "title": "Settings…",
+          "id": "openSettings",
+          "mcp": true,
+          "mcpTool": "app_settings"
         },
         {
           "command": "cmux app show-pane",
@@ -4390,6 +4397,13 @@
           "mcpTool": "app_tab_move_to_previous_pane"
         },
         {
+          "command": "cmux tab move-to-space",
+          "title": "Move Tab to Space…",
+          "id": "tab.moveToSpace",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_space"
+        },
+        {
           "command": "cmux tab move-to-workspace",
           "title": "Move Tab to Workspace…",
           "id": "tab.moveToWorkspace",
@@ -5134,6 +5148,20 @@
           "id": "workspace.mergeInto",
           "mcp": true,
           "mcpTool": "app_workspace_merge_into"
+        },
+        {
+          "command": "cmux workspace move-above",
+          "title": "Move Workspace Above…",
+          "id": "workspace.moveAbove",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_above"
+        },
+        {
+          "command": "cmux workspace move-below",
+          "title": "Move Workspace Below…",
+          "id": "workspace.moveBelow",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_below"
         },
         {
           "command": "cmux workspace move-down",

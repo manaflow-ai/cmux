@@ -32437,6 +32437,18 @@
             },
             "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
           },
+          "placement": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "top",
+                "after_current",
+                "bottom"
+              ]
+            },
+            "description": "Where the new workspace goes in the sidebar order, for this create: top (first, below Home), after_current or bottom. Default: the workspaces.newPlacement setting."
+          },
           "cwd": {
             "required": false,
             "type": {

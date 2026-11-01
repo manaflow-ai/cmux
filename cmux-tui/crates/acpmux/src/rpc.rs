@@ -60,10 +60,11 @@ impl RpcError {
     }
 }
 
-/// The most one JSON-RPC message takes on any acpmux transport. The app accepts 32 MiB frames and
-/// the daemon accepts 64 MiB WebSocket frames, so 31 MiB leaves room for the envelope and a peer
-/// relay's metadata without falling back to a connection-reset failure.
-pub const MAX_MESSAGE_BYTES: usize = 31 << 20;
+/// The most one JSON-RPC message takes on any acpmux transport: under the 16 MiB WebSocket frame
+/// every acpmux build reads with, with room for a daemon that relays it to add its peer's name. A
+/// larger frame resets the whole connection on the side that reads it, with every chat on it: a
+/// 32.8 MB history reply did that to a peer link at 2026-10-21 06:23Z.
+pub const MAX_MESSAGE_BYTES: usize = 15 << 20;
 
 impl RpcError {
     /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
@@ -723,7 +724,8 @@ mod line_tests {
     /// (`server/list_reply.rs`) see no change.
     #[test]
     fn a_line_is_the_bytes_of_the_value() {
-        let error = RpcError { code: -32000, message: "no".into(), data: Some(json!({"b": 1, "a": 2})) };
+        let error =
+            RpcError { code: -32000, message: "no".into(), data: Some(json!({"b": 1, "a": 2})) };
         for message in [
             Message::request(1, "session/prompt", json!({"z": 1, "a": [1, 2]})),
             Message::notification("_acpmux/event", json!({"kind": "x"})),
