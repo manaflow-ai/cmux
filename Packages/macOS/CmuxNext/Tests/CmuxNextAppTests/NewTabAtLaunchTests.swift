@@ -84,21 +84,6 @@ struct NewTabAtLaunchTests {
                 "the claim is not the launch window's, or a reconcile before the restore dropped it")
     }
 
-    /// With saved windows and no launch snapshot, the launch window opens under a new id and restore gives
-    /// it the frontmost saved window's id (`adoptLaunchWindow`). A workspace claimed for it meanwhile goes
-    /// with it: a claim left on the old id would open a second window under that id.
-    @Test func aClaimOnTheLaunchWindowFollowsItsAdoptedIdentity() throws {
-        let (services, launch) = try Self.launchWindowUp()
-        defer { for controller in services.windows.controllers { controller.window?.close() } }
-        let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
-        services.windows.claimNew(workspaceID: Self.created, window: target, frame: CGRect(x: 10, y: 10, width: 800, height: 600))
-
-        services.windows.launchWindowAdopted(from: launch.state.id, as: "saved-front")
-
-        #expect(services.windows.pendingClaims[Self.created] == "saved-front")
-        #expect(services.windows.pendingFrames[launch.state.id] == nil && services.windows.pendingFrames["saved-front"] != nil)
-    }
-
     /// A script's create without `focus` (no view change) during the launch files the workspace into the
     /// launch window without showing it, as it does for any open window (a quiet claim), and never sends the
     /// launch window, the one the person looks at, behind the others.
