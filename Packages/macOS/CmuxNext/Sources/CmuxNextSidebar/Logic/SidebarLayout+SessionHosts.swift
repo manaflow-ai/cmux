@@ -7,18 +7,10 @@ nonisolated extension SidebarLayout {
     func groupingSessions(_ tree: SidebarSessionTreeState, sections: [SidebarSection], gap: DropPosition?, metrics m: SidebarLayoutMetrics) -> SidebarLayout {
         var bundles: [Int: [SidebarRow]] = [:]
         var starts: [Int] = []
-        var tabRows: Set<Int> = []
         for (i, row) in rows.enumerated() {
             guard case let .workspace(id) = row.key else { continue }
             starts.append(i)
-            var bundle = [row]
-            var next = i + 1
-            while next < rows.count, case let .tab(workspace, _) = rows[next].key, workspace == id {
-                bundle.append(rows[next])
-                tabRows.insert(next)
-                next += 1
-            }
-            bundles[i] = bundle
+            bundles[i] = [row]
         }
         let drawnIDs: [WorkspaceID?] = starts.map { if case let .workspace(id) = rows[$0].key { id } else { nil } }
         // The base projection already dropped the descendants of a folded loose parent. Keep
@@ -159,7 +151,6 @@ nonisolated extension SidebarLayout {
         }
         for (index, row) in rows.enumerated() {
             boundary(from: index == 0 ? 0 : rows[index - 1].maxY + m.rowSpacing, to: row.y)
-            if tabRows.contains(index) { continue }
             guard let root = byStart[index] else {
                 append(row, spacing: m.rowSpacing)
                 continue
