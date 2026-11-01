@@ -62,6 +62,20 @@ afterAll(() => {
 });
 
 const { configureSubagentTray } = await import("../src/agent-session/acpmux/subagents/runningTray");
+const { rememberTrayOpen } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
+// A tray of more than one line starts folded and builds no rows (cmux#29250); these tests read rows.
+for (const chat of [fixtures.SESSION_ID, "late-root-tray"]) rememberTrayOpen(chat, true);
+// Workflows are on by default (cmux#30192): a running workflow is its transcript card, not a tray
+// row. These tests cover the tray and Session Info lines, so they turn workflows off as the app's
+// `workflowLabs` push would, as the gallery's tray workflow-progress state does.
+const mountApp = async (root: { render(node: unknown): void }) => {
+  await act(async () => root.render(<AcpmuxApp />));
+  await act(async () =>
+    (
+      dom.window as unknown as { cmuxAcpmuxBridge?: { applyWorkflowLabs?(on: boolean): void } }
+    ).cmuxAcpmuxBridge?.applyWorkflowLabs?.(false),
+  );
+};
 const { AgentProgressStore, markAgentProgressSource } =
   await import("../src/agent-session/acpmux/subagents/agentProgressSource");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
@@ -136,7 +150,7 @@ for (const producer of [false, true])
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(<AcpmuxApp />));
+      await mountApp(root);
       await act(async () => receive(publish(structuredClone(agents))));
       const rows = () => [...dom.window.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
       expect(rows()).toHaveLength(2);
@@ -193,7 +207,7 @@ test("bridge repopulates progress when switching sessions", async () => {
   try {
     const first = { ...agents[0]!, tokens: 42_000, agents: { started: 3, done: 1 } };
     const second = { ...agents[0]!, id: "workflow-session-b", tokens: 84_000, agents: { started: 3, done: 2 } };
-    await act(async () => root.render(<AcpmuxApp />));
+    await mountApp(root);
     await act(async () => receive(snapshot([first], [], "gallery-session-a")));
     expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([second], [], "gallery-session-b")));
@@ -228,7 +242,7 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
   });
   const progress = () => dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent;
   try {
-    await act(async () => root.render(<AcpmuxApp />));
+    await mountApp(root);
     await act(async () => receive(versioned([first])));
     expect(progress()).toBe("1/3 agents");
     await act(async () => receive(versioned([updated], [updated])));
@@ -260,7 +274,7 @@ test("compatibility snapshots without a progress delta refresh the row from its 
   try {
     const first = { ...agents[0]!, tokens: 42_000, agents: { started: 3, done: 1 } };
     const updated = { ...first, tokens: 84_000, agents: { started: 3, done: 2 } };
-    await act(async () => root.render(<AcpmuxApp />));
+    await mountApp(root);
     await act(async () => receive(snapshot([first], [], "compatibility-session")));
     expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([updated], [], "compatibility-session")));
@@ -302,7 +316,7 @@ test("a rebuilt producer source refreshes rows even when its structure counter r
     return next;
   };
   try {
-    await act(async () => root.render(<AcpmuxApp />));
+    await mountApp(root);
     await act(async () => receive(direct("First producer", 42_000)));
     expect(dom.window.document.querySelector(".acpmux-agent-line__button")?.textContent).toContain("First producer");
     await act(async () => receive(direct("Rebuilt producer", 84_000)));
@@ -393,9 +407,9 @@ for (const surface of ["tray", "inspector"] as const)
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const container = () =>
-      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : "aside.acpmux-chat-inspector");
+      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : "aside.acpmux-session-info");
     try {
-      await act(async () => root.render(<AcpmuxApp />));
+      await mountApp(root);
       await act(async () => receive(publish()));
       if (surface === "inspector")
         await act(async () => {
