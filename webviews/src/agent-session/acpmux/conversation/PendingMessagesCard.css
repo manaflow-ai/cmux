@@ -30,7 +30,8 @@
   min-width: 0;
   height: var(--cv-message-line);
   box-sizing: border-box;
-  gap: var(--ds-space-2);
+  /* The words start where every iconed row's do (conversation.css `--cv-row-icon-gap`). */
+  gap: var(--cv-row-icon-gap);
   /* The trailing room keeps the count clear of the plate's edge; none before the chevron, which
      sits in the tool rows' glyph slot at the row's left edge (design/chat-transcript.md "One icon
      column"). */
