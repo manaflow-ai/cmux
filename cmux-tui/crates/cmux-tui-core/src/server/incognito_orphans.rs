@@ -112,18 +112,44 @@ fn moves_content(operation: ResourceOperation) -> bool {
     )
 }
 
-/// The workspaces in `creators` whose creating process is not `reader` and
-/// has no connection among `connected`.
+/// The workspaces in `creators` whose creating process is not `reader`,
+/// has no connection among `connected` and has exited (`gone`). A process
+/// that exited cannot reconnect, so a close never races its return.
 fn orphaned(
     creators: &HashMap<String, String>,
     reader: &str,
     connected: &HashSet<String>,
+    gone: impl Fn(&str) -> bool,
 ) -> Vec<String> {
     creators
         .iter()
-        .filter(|(_, creator)| creator.as_str() != reader && !connected.contains(*creator))
+        .filter(|(_, creator)| {
+            creator.as_str() != reader && !connected.contains(*creator) && gone(creator)
+        })
         .map(|(workspace, _)| workspace.clone())
         .collect()
+}
+
+/// Whether the process of peer key `peer_key` (`token:<pid>.<pidversion>`)
+/// has exited. A live process with that pid (the same one, or a later one
+/// that reused the pid) keeps its workspaces: a wrong keep is undone at the
+/// next daemon start, a wrong close loses an open space.
+fn process_gone(peer_key: &str) -> bool {
+    let Some(pid) = super::origin_gate::peer_pid(peer_key) else { return true };
+    #[cfg(unix)]
+    {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return true };
+        // SAFETY: signal 0 only checks that the process exists.
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return false;
+        }
+        std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 /// The peer keys of every connection.
@@ -151,24 +177,19 @@ pub(super) fn close_orphaned(mux: &Arc<Mux>, client: u64) {
             return;
         }
     }
+    // Lock order: the client state, then the creators (never the reverse).
+    let connected = connected(mux);
     let orphans = {
-        let by_workspace = creators.by_workspace.lock().recover_poison();
-        orphaned(&by_workspace, &reader, &connected(mux))
+        let mut by_workspace = creators.by_workspace.lock().recover_poison();
+        let orphans = orphaned(&by_workspace, &reader, &connected, process_gone);
+        orphans
+            .into_iter()
+            .filter_map(|workspace| {
+                by_workspace.remove(&workspace).map(|creator| (workspace, creator))
+            })
+            .collect::<Vec<_>>()
     };
-    for workspace in orphans {
-        // Its creator may have reconnected since: look again right before
-        // the close, and take the record only for a creator still gone.
-        let creator = {
-            let state = mux.control_clients.state.lock().recover_poison();
-            let mut by_workspace = creators.by_workspace.lock().recover_poison();
-            let Some(creator) = by_workspace.get(&workspace).cloned() else { continue };
-            if state.clients.values().any(|record| record.origin.peer_key.as_ref() == Some(&creator))
-            {
-                continue;
-            }
-            by_workspace.remove(&workspace);
-            creator
-        };
+    for (workspace, creator) in orphans {
         if let Err(error) = mux.close_ephemeral_workspace(&workspace) {
             eprintln!(
                 "cmux-tui: could not close incognito workspace {workspace} of gone app {creator}: {error:#}"
@@ -189,8 +210,18 @@ mod tests {
             ("connected".to_string(), "token:3.1".to_string()),
         ]);
         let connected = HashSet::from(["token:2.1".to_string(), "token:3.1".to_string()]);
-        assert_eq!(orphaned(&creators, "token:2.1", &connected), vec!["gone".to_string()]);
+        let all_gone = |_: &str| true;
+        assert_eq!(orphaned(&creators, "token:2.1", &connected, all_gone), vec!["gone".to_string()]);
         // A new process with the old pid (another pid version) is another process.
-        assert_eq!(orphaned(&creators, "token:1.2", &connected), vec!["gone".to_string()]);
+        assert_eq!(orphaned(&creators, "token:1.2", &connected, all_gone), vec!["gone".to_string()]);
+        // A creator whose process still runs keeps its workspaces.
+        assert!(orphaned(&creators, "token:2.1", &connected, |_| false).is_empty());
+    }
+
+    #[test]
+    fn a_running_process_is_not_gone() {
+        assert!(!process_gone(&format!("token:{}.1", std::process::id())));
+        // Above every pid_max (Linux 4194304, macOS 99999).
+        assert!(process_gone("token:999999901.1"));
     }
 }
