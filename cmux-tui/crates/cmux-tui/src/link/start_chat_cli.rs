@@ -378,18 +378,15 @@ fn ensures(request: &PlanRequest, repo: Option<&str>) -> bool {
 
 /// Whether a failed ensure definitely signals an unavailable workspace-machine path, so the App may use its
 /// legacy create. Permission failures (401/403) and typed missing resources (404) are refusals, not fallbacks.
-/// `workspace_machine.not_admitted` still covers both quota and provider gaps: the platform needs distinct codes
-/// before the client can safely distinguish those outcomes.
+/// A server `workspace_machine.not_admitted` is an admission refusal (budget, capacity or no suitable offer), not
+/// permission to bypass placement with an App-created machine.
 pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
     use crate::cli::PlatformCallError as E;
     match error {
         // An authorization denial wins even if a server reuses a fallback-looking code.
         E::Status { status: 401 | 403, .. } => false,
         E::Status { status: 404, code: "" | "not_found" } => true,
-        E::Status {
-            code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
-            ..
-        } => true,
+        E::Status { code: "workspace_machine.unconfigured", .. } => true,
         _ => false,
     }
 }
