@@ -13,7 +13,7 @@ import type { CloudTransport } from "../cloud-vm-api-config.ts"
  * - Operator and company grants, as classic Cloud honours them (cloudPlanId, companyPlanKey): a
  *   `cmuxVmPlan` on the sign-in record, and verified company-domain accounts. Machine limits only.
  * - STUB_PLAN: only in the stub environments (development, staging, test) and only for teams on
- *   CLOUD_ALLOWED_TEAMS.
+ *   CLOUD_ALLOWED_TEAMS ("*" = every team: NEXT's own users while NEXT Cloud is in dogfood).
  * Every other team gets no plan, so create answers cloud.plan.required and no provider VM is made
  * for free. With the flag off (production until go-live) only the stub applies, as before.
  */
@@ -30,21 +30,22 @@ export interface PlanLimits {
   readonly upgrade_plan: string | null
 }
 
+/** Only in STUB_PLAN_ENVIRONMENTS (development, staging, test): Max's machine sizes, so dogfood is not capped below what people pay for. */
 export const STUB_PLAN: PlanLimits = {
   plan_id: "stub_default",
   max_active: 5,
   max_saved: 10,
-  memory_options_mb: [4096, 8192],
+  memory_options_mb: [4096, 8192, 16384, 32768, 65536],
   locked_memory_options_mb: [],
   vm_hours_included: null,
-  max_cpu: 4,
-  max_disk_mb: 65536,
+  max_cpu: 32,
+  max_disk_mb: 262144,
   // CLOUD-LINK-FOLLOWUPS (3): the catalog entry plan, so "See plans" shows on the stub plan too.
   upgrade_plan: cloudEntryPlan()
 }
 
 const GiB = 1024
-/** Pro, Team and Founders: 5 machines at once, up to 8 vCPU / 16 GB (pricing-DESIGN.md section 4). */
+/** Pro, Team and Founders: 5 machines at once, up to 8 vCPU / 16 GB, disk 128 GB (classic entitlements.ts). */
 const PRO_LIMITS: Omit<PlanLimits, "plan_id" | "upgrade_plan"> = {
   max_active: 5,
   max_saved: 20,
@@ -56,16 +57,19 @@ const PRO_LIMITS: Omit<PlanLimits, "plan_id" | "upgrade_plan"> = {
 }
 
 /**
- * The Cloud limits of each paid plan id (the ids web billing writes as cmuxPlan). `upgrade_plan` is
- * the plan that lifts them: Go -> Pro, Pro and Founders -> Max; Max and Team have no self-serve plan
- * above them (null).
+ * The Cloud limits of each paid plan id (the ids web billing writes as cmuxPlan). They are classic's
+ * live allowance (web/services/vms/entitlements.ts on main), because both apps sell the same Stripe
+ * products: Plus ($15, id `go`, #26732) is one machine at Pro sizes with no hour cap; Pro, Founders
+ * and Team five up to 8 vCPU / 16 GB; Max five up to 32 vCPU / 64 GB with 256 GB disk.
+ * `upgrade_plan` is the plan that lifts them: Plus -> Pro, Pro and Founders -> Max; Max and Team
+ * have no self-serve plan above them (null).
  */
 export const PAID_PLAN_LIMITS: Readonly<Record<string, PlanLimits>> = {
-  go: { plan_id: "go", max_active: 1, max_saved: 5, memory_options_mb: [4 * GiB], locked_memory_options_mb: [], vm_hours_included: 40, max_cpu: 2, max_disk_mb: 32 * GiB, upgrade_plan: "pro" },
+  go: { plan_id: "go", ...PRO_LIMITS, max_active: 1, upgrade_plan: "pro" },
   pro: { plan_id: "pro", ...PRO_LIMITS, upgrade_plan: "max" },
   founders: { plan_id: "founders", ...PRO_LIMITS, upgrade_plan: "max" },
   team: { plan_id: "team", ...PRO_LIMITS, upgrade_plan: null },
-  max: { plan_id: "max", max_active: 20, max_saved: 50, memory_options_mb: [4 * GiB, 8 * GiB, 16 * GiB, 32 * GiB, 64 * GiB], locked_memory_options_mb: [], vm_hours_included: null, max_cpu: 32, max_disk_mb: 512 * GiB, upgrade_plan: null }
+  max: { plan_id: "max", max_active: 5, max_saved: 50, memory_options_mb: [4 * GiB, 8 * GiB, 16 * GiB, 32 * GiB, 64 * GiB], locked_memory_options_mb: [], vm_hours_included: null, max_cpu: 32, max_disk_mb: 256 * GiB, upgrade_plan: null }
 }
 
 /**
@@ -137,7 +141,7 @@ export interface CloudEntitlements {
 export interface CloudConfig {
   readonly transport?: CloudTransport
   readonly environment: string
-  /** CLOUD_ALLOWED_TEAMS: the only teams with the stub plan and provider calls; empty = nobody. */
+  /** CLOUD_ALLOWED_TEAMS: the only teams with the stub plan and provider calls; empty = nobody, ALL_TEAMS = everyone. */
   readonly allowedTeams: ReadonlySet<string>
   /** This environment's provider name prefix (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-); null = no provider. */
   readonly prefix: string | null
@@ -152,8 +156,11 @@ export interface CloudConfig {
 /** Environments where the stub plan may apply, as an explicit list (never "not production"). */
 export const STUB_PLAN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging", "test"])
 
+/** The CLOUD_ALLOWED_TEAMS entry that puts every team on the stub plan (still only in STUB_PLAN_ENVIRONMENTS). */
+export const ALL_TEAMS = "*"
+
 export const planFor = (environment: string, team: string | null | undefined, allowed: ReadonlySet<string>): PlanLimits | null =>
-  STUB_PLAN_ENVIRONMENTS.has(environment) && team !== null && team !== undefined && allowed.has(team) ? STUB_PLAN : null
+  STUB_PLAN_ENVIRONMENTS.has(environment) && team !== null && team !== undefined && team !== "" && (allowed.has(team) || allowed.has(ALL_TEAMS)) ? STUB_PLAN : null
 
 /**
  * The entitlement key of a record whose plan is set but grants no machines: an operator restriction
@@ -169,7 +176,7 @@ export const teamPlan = (config: CloudConfig, team: string | null | undefined): 
   return paidPlanLimits(key) ?? planFor(config.environment, team, config.allowedTeams)
 }
 
-/** CLOUD_ALLOWED_TEAMS: comma-separated team ids; blanks dropped; unset or empty = nobody. */
+/** CLOUD_ALLOWED_TEAMS: comma-separated team ids, or "*" for every team; blanks dropped; unset or empty = nobody. */
 export const parseAllowedTeams = (raw: string | undefined): ReadonlySet<string> => new Set((raw ?? "").split(",").map((t) => t.trim()).filter((t) => t.length > 0))
 
 export const DEFAULT_SIZE = { cpu: 2, disk_mb: 16384 } as const
@@ -200,8 +207,8 @@ export const planView = (plan: PlanLimits | null, usage: { active: number; saved
     locked_memory_options_mb: [...(plan?.locked_memory_options_mb ?? [])],
     vm_hours_included: plan?.vm_hours_included ?? null
   },
-  // VM-hours metering (UsageMeterDO) is not wired yet: 0 until it is.
-  usage: { active: usage.active, saved: usage.saved, vm_hours_used: 0, period_end: periodEnd(now) }
+  // VM-hours metering (UsageMeterDO) is not wired yet: null (unknown) until it is, so no page shows "0 of 40 h".
+  usage: { active: usage.active, saved: usage.saved, vm_hours_used: null, period_end: periodEnd(now) }
 })
 
 export type CloudMachineView = typeof CloudMachine.Type

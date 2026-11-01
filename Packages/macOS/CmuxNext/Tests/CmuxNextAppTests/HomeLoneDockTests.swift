@@ -58,7 +58,7 @@ struct HomeLoneDockTests {
         let lone = [LayoutColumn(id: "home", width: 0.5, root: .leaf("dock"), dock: Self.homeDock)]
         for mode in [NewColumnWidthMode.matchCurrent, .fixed, .fitScreen] {
             let plan = NewColumnWidth.plan(mode: mode, columns: lone, anchor: "home", visible: [], fixedWidth: 0.5)
-            #expect(plan == NewColumnPlan(width: 1, resizes: []), "\(mode)")
+            #expect(plan == NewColumnPlan(width: 1), "\(mode)")
         }
         // A tab dragged out of the only column beside the dock leaves the dock alone: same rule.
         let beside = lone + [LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))]

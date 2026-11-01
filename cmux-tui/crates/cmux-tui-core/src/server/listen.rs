@@ -12,8 +12,9 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use super::start_apps_when_ready;
 use super::{
-    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_connection, cleanup,
-    handle_connection_with_permit, try_default_socket_path,
+    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_watched_connection,
+    claim_watched_terminal_connection, cleanup, handle_connection_with_permit,
+    try_default_socket_path,
 };
 use crate::mux::Mux;
 use crate::platform::{self, transport};
@@ -401,13 +402,28 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
 pub(super) struct ServedSession {
     pub(super) mux: Arc<Mux>,
     pub(super) render_service: Arc<RenderService>,
+    pub(super) terminal_sessions: Arc<super::terminal_sessions::TerminalSessions>,
 }
 
 impl ServedSession {
     /// Serve one accepted connection on its own thread (bounded by the
     /// session's connection permits).
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
-        let Some(permit) = claim_connection(self.mux.connection_stats()) else {
+        // A process in one of the session's terminals (an agent, its hooks,
+        // `cmux` run in a pane) may hold only its share of the connections, so
+        // a burst of agents cannot lock the app out of its own daemon (#27698).
+        // Decided here, before the connection's thread, without waiting on the
+        // state lock (`TerminalSessions`).
+        let key = stream.peer_process_key();
+        let connections = self.mux.connection_stats();
+        let permit = if let Some(terminal) =
+            self.terminal_sessions.terminal_of_peer(&self.mux, key.as_deref())
+        {
+            claim_watched_terminal_connection(connections, &*stream, Some(terminal))
+        } else {
+            claim_watched_connection(connections, &*stream)
+        };
+        let Some(permit) = permit else {
             refuse_busy(stream);
             return;
         };
@@ -430,7 +446,7 @@ pub(super) const REFUSED_BUSY_LINE: &str = concat!(
 
 /// Best effort: a short write timeout keeps the accept loop from waiting on a
 /// client that does not read.
-fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
+pub(super) fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
     use std::io::Write as _;
     let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
     let _ = stream.write_all(REFUSED_BUSY_LINE.as_bytes());

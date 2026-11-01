@@ -7025,6 +7025,17 @@
       "es": "ms is the SI symbol for milliseconds, written the same way in Spanish; the other tokens are values. The translated entry is still required."
     }
   },
+  "machines.group.ssh": {
+    "class": "technical",
+    "source": "SSH"
+  },
+  "machines.group.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
+      "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
+    }
+  },
   "settings.choice.modelRouterDeepSeekV41Flash": {
     "class": "brand",
     "source": "DeepSeek V4.1 Flash"
@@ -7046,6 +7057,44 @@
           "DeepSeek V4.1 Flash 1017 (Images)"
         ]
       }
+    }
+  },
+  "iphone.phone.transport.next": {
+    "class": "brand",
+    "source": "%@ · cmux next"
+  },
+  "iphone.phone.transport.ios": {
+    "class": "brand",
+    "source": "%@ · cmux (iOS)"
+  },
+  "cloud.workspaceSetup.setupScriptPlaceholder": {
+    "class": "technical",
+    "source": "bun install"
+  },
+  "home.chatColors.text": {
+    "source": "Text",
+    "identityLocales": {
+      "de": "Text is the German noun for text; the translated entry remains required."
+    }
+  },
+  "home.compose.section.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the established German noun for a team; the translated entry remains required."
+    }
+  },
+  "settingsPage.cloudEnvironments.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name is the German noun for name; the translated entry remains required."
+    }
+  },
+  "settings.choice.newChatsInCloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required.",
+      "fr": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required.",
+      "it": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required."
     }
   }
 }

@@ -4,14 +4,24 @@
 // either place (Leo 2026-10-20: one style for the tray, the chip and the popover). Its icon
 // (summary.css `.acpmux-lineage__icon`) is in the theme's accent while it runs, never a brand color,
 // and carries no corner dot, since the line says its state in words; then its name, a dim detail (what it does now, or its kind), its time and
-// its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
+// its state. A click opens it. With a `card` (Session Info's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
 //
-// In the tray a line also says what kind of thing it is before its name, "Command" or "Subagent"
-// (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
-// subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
+// In the tray a line also says what kind of thing it is before its name (Leo 2026-10-21 on a tray
+// line that showed a raw shell line: "is that a command or a subagent?"): "Command" in words, a
+// subagent by its own icon, never the word on every line under a header that says it already (Leo,
+// 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add the icon
+// when it's in here"). A line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
-import type { ReactNode } from "react";
+//
+// In the tray a line has one anatomy, after Claude desktop's and Claude Code's subagent rows (Leo,
+// 2026-10-31: "why is this still so ass in latest nightly", and earlier "eg a lot of these
+// subtitles are bad"): one leading glyph (the spinner while it works, else its own icon or its
+// harness's mark), never a second kind glyph beside it; the title; one muted trailing meta (what it
+// spent, a state worth reading, its time); the chevron. No agent-type subtitle on the line (the
+// tooltip and the hover card keep it), and no "Done" or "Running" word: the glyph says those
+// (`quiet`), and the word stays for screen readers. design/chat-transcript.md "Subagent row anatomy".
+import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -27,6 +37,7 @@ const ROW_ICON = rowIconSize(12);
 export function AgentLine({
   name,
   detail,
+  progress,
   status,
   state,
   time,
@@ -39,6 +50,7 @@ export function AgentLine({
   title,
   label,
   kind,
+  kindIcon,
   chevron = false,
   onOpen,
   after,
@@ -47,10 +59,14 @@ export function AgentLine({
   working = false,
   expanded,
   trayColumns = false,
+  quiet = false,
+  progressAt = "below",
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
   detail?: string;
+  /// Reported agent counts, warnings and usage; separate from the current action.
+  progress?: string;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -72,8 +88,11 @@ export function AgentLine({
   title?: string;
   /// The accessible name, when the visible text is not enough ("Open Reviewer").
   label?: string;
-  /// What kind of thing it is, before its name ("Command", "Subagent"); the tray's lines say it.
+  /// What kind of thing it is, before its name ("Command"); the tray's lines say it.
   kind?: string;
+  /// The kind as an icon before its name in place of the word (a subagent's), with `kind` as its
+  /// accessible name.
+  kindIcon?: string;
   /// A trailing chevron when a click opens it (the tray's lines).
   chevron?: boolean;
   onOpen?: () => void;
@@ -90,6 +109,12 @@ export function AgentLine({
   expanded?: boolean;
   /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
   trayColumns?: boolean;
+  /// Its state needs no word on the line (done, or running under the spinner): screen readers
+  /// still read it. Tray lines only.
+  quiet?: boolean;
+  /// Where `progress` sits on a tray line: in the trailing meta before the time (`meta`), or on a
+  /// line under the title (`below`, every other consumer's place).
+  progressAt?: "meta" | "below";
 }) {
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
@@ -98,11 +123,21 @@ export function AgentLine({
     <button
       type="button"
       className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-agent-line__button"
-      style={depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
+      style={
+        depth > 0
+          ? trayColumns
+            ? ({ "--acpmux-tray-indent": `${Math.min(depth, 3) * 14}px` } as CSSProperties)
+            : { paddingLeft: 8 + Math.min(depth, 3) * 14 }
+          : undefined
+      }
       data-status={status}
       aria-current={current ? "true" : undefined}
       aria-expanded={expanded}
-      aria-label={label}
+      // A quiet line names its state here too: an aria-label overrides the line's own text, its
+      // screen-reader state word included.
+      aria-label={
+        label ? [label, trayColumns && quiet ? state : undefined, progress].filter(Boolean).join(" · ") : undefined
+      }
       /* tooltip-allow: the line shows the name; the task appears nowhere else */
       title={card ? undefined : title}
       disabled={!onOpen}
@@ -122,24 +157,43 @@ export function AgentLine({
         )}
       </span>
       <span className="acpmux-summary-text">
-        {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
+        {kindIcon ? (
+          <span className="acpmux-agent-line__kind-icon">
+            <Icon name={kindIcon} size={iconSize} title={kind} row />
+          </span>
+        ) : (
+          kind && <span className="acpmux-agent-line__kind">{kind}</span>
+        )}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {progress && !(trayColumns && progressAt === "meta") && (
+          <span className="acpmux-agent-line__progress">{progress}</span>
+        )}
       </span>
       {trayColumns ? (
         <>
+          {/* One muted trailing meta: what it spent and a state worth a word, then its time. */}
+          {((progress && progressAt === "meta") || !quiet) && (
+            <span className="acpmux-summary-meta acpmux-agent-line__meta">
+              {progress && progressAt === "meta" && <span className="acpmux-agent-line__stats">{progress}</span>}
+              {/* Running turns to Waiting or Failed with a tick, never a jump (trayMotion.tsx). */}
+              {!quiet && <Tick className="acpmux-summary-agent__state" text={state} />}
+            </span>
+          )}
+          {quiet && <span className="acpmux-agent-line__sr">{state}</span>}
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
             {time}
           </span>
-          <span className="acpmux-agent-line__status">
-            {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
-            <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
-            {chevron && onOpen && (
-              <span className="acpmux-agent-line__chevron" aria-hidden="true">
-                <Icon name="disclosure.collapsed" size={ROW_ICON} row />
-              </span>
-            )}
-          </span>
+          {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
+              last at the line's end: the column the header's and View all's chevrons end in. */}
+          <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
+          {chevron && onOpen ? (
+            <span className="acpmux-agent-line__chevron" aria-hidden="true">
+              <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+            </span>
+          ) : (
+            <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
+          )}
         </>
       ) : (
         <>

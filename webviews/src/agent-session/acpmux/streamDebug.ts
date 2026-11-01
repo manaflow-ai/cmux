@@ -1,3 +1,4 @@
+import { userScrollIntent } from "./conversation/userScroll";
 // `debug.agent_pane action=stream` (R104): streams a scripted reply into a long transcript, at a
 // chosen delta size and cadence, and reports how the frames went. Deltas arrive on a timer, not
 // on frames, as a socket's do. Measures dropped and long frames, how often the view left the
@@ -43,7 +44,7 @@ export async function runStream(
   for (let index = 0; index < 30; index += 1) warmup.push(await frame());
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) return { error: "no transcript" };
-  scroller.scrollTop = scroller.scrollHeight;
+  if (!userScrollIntent(scroller).isHeld()) scroller.scrollTop = scroller.scrollHeight;
   await frame();
   const nominal =
     options.nominal_ms && options.nominal_ms > 0

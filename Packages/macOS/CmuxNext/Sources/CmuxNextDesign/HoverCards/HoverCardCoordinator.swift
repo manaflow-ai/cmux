@@ -179,7 +179,10 @@ public final class HoverCardCoordinator {
         let inGap = card.map { panel?.escapeGeometry?.zone(at: now) == .gap || besideTarget(now, card: $0) } ?? false
         let bridging = hit == nil && !mouseButtonDown()
             && (onCard || (escaped == nil && (inGap ? aiming : bridges(at: now))))
-        send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
+        // A card that hides on leave holds for a pointer aiming into it only beside its row (a
+        // sidebar row's card): a tab's card below its strip still swaps at once, as in Chrome.
+        let holdsAim = machine.shownTarget?.leave.hidesAtOnce != true || panel?.escapeGeometry != nil
+        send(.hit(hit?.target, moved: true, aiming: aiming && holdsAim, bridging: bridging))
     }
 
     /// `point` is between the shown target's own frame and its card, beside the card (a sidebar
@@ -274,6 +277,12 @@ public final class HoverCardCoordinator {
         panel?.refit()
     }
 
+    /// Refits a shown card after a local disclosure changes its height without reconfiguring it.
+    public func refit(_ id: HoverTargetID) {
+        guard machine.shownTarget?.id == id else { return }
+        panel?.refit()
+    }
+
     /// The card shows `id` now.
     public func isShowing(_ id: HoverTargetID) -> Bool { machine.shownTarget?.id == id && panel?.isShowingCard == true }
 
@@ -327,7 +336,8 @@ public final class HoverCardCoordinator {
             let panel = panel ?? HoverCardPanel()
             self.panel = panel
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
-                          themeAnchor: body.themeAnchor, sliding: sliding, applyTheme: body.applyTheme)
+                          themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
+                          cornerRadius: body.cornerRadius, applyTheme: body.applyTheme)
             // A hover card whose row's escape slot already holds the pointer (it rested in the
             // sidebar's margin beside the row) goes at once: the slot never shows its row's card.
             if case .shown(let shown) = machine.phase, shown.id == target.id, escapeTarget(at: currentPointer()) == target.id {
@@ -349,12 +359,17 @@ public final class HoverCardCoordinator {
         if let active { owners[active]?.source?.hoverCardActivated(active) }
     }
 
+    /// What the card's monitor sees. Presses only, never releases: a control's own tracking
+    /// loop takes its mouse-up, so a press the card accepts (a tab row, Show details) is the
+    /// whole click and its release never dismisses the card.
+    public static let monitoredEvents: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+
     /// Key presses, clicks and wheel scrolls end a card; the monitor exists
     /// only while one is pending or shown.
     private func updateMonitor() {
         let needed = machine.activeTarget != nil
         if needed, monitor == nil {
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: Self.monitoredEvents) { [weak self] event in
                 guard let self else { return event }
                 return self.handleMonitoredEvent(event)
             }
@@ -373,6 +388,27 @@ public final class HoverCardCoordinator {
     /// disappears"): the card ignores the mouse, so the window under it would scroll. The card
     /// scrolls its own scroll view (a long timeline) instead, stays, and the event goes no further.
     func handleMonitoredEvent(_ event: NSEvent) -> NSEvent? {
+        if let panel, panel.isInteractive, panel.isShowingCard {
+            let belongsToParent = event.window.map { window in
+                sequence(first: window, next: \.parent).contains { $0 === panel.parent }
+            } ?? false
+            let pointerOnCard = panel.cardFrame.contains(currentPointer())
+            if event.type == .keyDown, belongsToParent, pointerOnCard,
+               let body = panel.body as? any HoverCardInteractiveBody,
+               body.handleHoverCardKeyDown(event) {
+                return nil
+            }
+            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
+            if panel.cardFrame.contains(point) {
+                if event.type == .leftMouseDown,
+                   let body = panel.body as? any HoverCardInteractiveBody,
+                   body.acceptsHoverCardMouse(at: point, in: panel) {
+                    // Let the interactive card's row receive the click. Its
+                    // action dismisses after it focuses the selected tab.
+                    return event
+                }
+            }
+        }
         if event.type == .scrollWheel, let panel, machine.shownTarget != nil, panel.isShowingCard {
             // A real event names the window under the pointer; a synthesized one may name none.
             let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
@@ -520,6 +556,15 @@ public final class HoverCardCoordinator {
             "card_text": panel.map { $0.isShowingCard ? $0.bodyLines.joined(separator: "\n") : "" } ?? "",
         ]
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The currently interactive card, for synthetic native input proofs.
+    /// Coordinates are relative to the card, excluding the window's shadow band.
+    public var debugInteractiveCard: (window: NSWindow, frame: CGRect)? {
+        guard let panel, panel.isInteractive, panel.isShowingCard else { return nil }
+        return (panel, panel.cardFrame)
+    }
+    #endif
 }
 
 struct WeakSource {

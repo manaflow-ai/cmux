@@ -1,5 +1,5 @@
 public import Foundation
-import CmuxNextCompat
+public import CmuxNextCompat
 import Security
 
 /// Where this device keeps the relay secrets it opened.
@@ -26,10 +26,10 @@ public struct KeychainRelaySecretStore: RelaySecretStore {
         legacy = nil
     }
 
-    /// The store of the app whose identity is ``DeviceIdentity/forApp(bundleIdentifier:)``.
-    public init(bundleIdentifier: String) {
-        keychain = DeviceKeychain(service: bundleIdentifier + ".device-hub", dataProtection: true)
-        legacy = DeviceKeychain(service: bundleIdentifier + ".device-hub")
+    /// The store of the app whose identity is ``DeviceIdentity/forApp(bundleIdentifier:loginKeychain:)``.
+    public init(bundleIdentifier: String, loginKeychain: LoginKeychain) {
+        keychain = DeviceKeychain(service: bundleIdentifier + ".device-hub", dataProtection: true, loginKeychain: loginKeychain)
+        legacy = DeviceKeychain(service: bundleIdentifier + ".device-hub", loginKeychain: loginKeychain)
     }
 
     public func secret(relayID: String) -> RelaySecret? {

@@ -1180,6 +1180,268 @@
         }
       }
     },
+    "control.error.noBrowserNearCaller": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No browser in workspace %@ or its window; list every tab with `cmux browser page tabs --all` and name one (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد متصفح في مساحة العمل %@ أو نافذتها؛ اعرض كل علامات التبويب باستخدام `cmux browser page tabs --all` وسمِّ واحدة (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema preglednika u radnom prostoru %@ ni u njegovom prozoru; izlistajte sve kartice sa `cmux browser page tabs --all` i navedite jednu (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen browser i arbejdsområdet %@ eller dets vindue; vis alle faner med `cmux browser page tabs --all` og angiv én (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Browser im Arbeitsbereich %@ oder seinem Fenster; liste alle Tabs mit `cmux browser page tabs --all` auf und nenne einen (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay navegador en el espacio de trabajo %@ ni en su ventana; lista todas las pestañas con `cmux browser page tabs --all` y nombra una (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun navigateur dans l’espace de travail %@ ni dans sa fenêtre ; listez tous les onglets avec `cmux browser page tabs --all` et nommez-en un (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun browser nell’area di lavoro %@ o nella sua finestra; elenca tutte le schede con `cmux browser page tabs --all` e indicane una (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース %@ とそのウインドウにブラウザがありません。`cmux browser page tabs --all` ですべてのタブを一覧表示し、1 つを指定してください (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានកម្មវិធីរុករកក្នុងកន្លែងធ្វើការ %@ ឬបង្អួចរបស់វាទេ; បង្ហាញផ្ទាំងទាំងអស់ដោយ `cmux browser page tabs --all` ហើយដាក់ឈ្មោះមួយ (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 %@ 또는 그 창에 브라우저가 없습니다. `cmux browser page tabs --all`로 모든 탭을 나열하고 하나를 지정하세요 (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen nettleser i arbeidsområdet %@ eller vinduet; list alle faner med `cmux browser page tabs --all` og angi én (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak przeglądarki w obszarze roboczym %@ ani w jego oknie; wypisz wszystkie karty poleceniem `cmux browser page tabs --all` i wskaż jedną (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum navegador no espaço de trabalho %@ ou na janela dele; liste todas as abas com `cmux browser page tabs --all` e indique uma (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В рабочем пространстве %@ и его окне нет браузера; выведите все вкладки командой `cmux browser page tabs --all` и укажите одну (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเบราว์เซอร์ในพื้นที่ทำงาน %@ หรือหน้าต่างของมัน แสดงแท็บทั้งหมดด้วย `cmux browser page tabs --all` แล้วระบุหนึ่งแท็บ (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ çalışma alanında veya penceresinde tarayıcı yok; tüm sekmeleri `cmux browser page tabs --all` ile listeleyin ve birini belirtin (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У робочому просторі %@ і його вікні немає браузера; виведіть усі вкладки командою `cmux browser page tabs --all` і вкажіть одну (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có trình duyệt trong không gian làm việc %@ hoặc cửa sổ của nó; liệt kê mọi tab bằng `cmux browser page tabs --all` và chỉ định một tab (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区 %@ 及其窗口中没有浏览器；用 `cmux browser page tabs --all` 列出所有标签页并指定一个（`cmux browser tab_… <verb>`）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區 %@ 及其視窗中沒有瀏覽器；用 `cmux browser page tabs --all` 列出所有分頁並指定一個（`cmux browser tab_… <verb>`）"
+          }
+        }
+      }
+    },
+    "control.error.callerBrowserNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ cannot reach your browser %2$@: no pane shows it, or it is not the focused tab; use a page verb on it: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لـ %1$@ الوصول إلى متصفحك %2$@: لا يعرضه أي جزء، أو ليس علامة التبويب النشطة؛ استخدم أمر صفحة عليه: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ne može doći do vašeg preglednika %2$@: nijedno okno ga ne prikazuje ili nije fokusirana kartica; koristite naredbu stranice na njemu: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kan ikke nå din browser %2$@: ingen rude viser den, eller den er ikke den fokuserede fane; brug en sidekommando på den: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ erreicht deinen Browser %2$@ nicht: kein Bereich zeigt ihn, oder er ist nicht der fokussierte Tab; nutze einen Seitenbefehl darauf: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ no puede llegar a tu navegador %2$@: ningún panel lo muestra o no es la pestaña enfocada; usa un comando de página en él: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ne peut pas atteindre votre navigateur %2$@ : aucun panneau ne l’affiche, ou ce n’est pas l’onglet actif ; utilisez une commande de page dessus : `cmux browser %2$@ <verb>`"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ non raggiunge il tuo browser %2$@: nessun riquadro lo mostra o non è la scheda attiva; usa un comando di pagina su di esso: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ はあなたのブラウザ %2$@ を操作できません。どのペインにも表示されていないか、フォーカス中のタブではありません。ページコマンドを使ってください: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មិនអាចទៅដល់កម្មវិធីរុករក %2$@ របស់អ្នកទេ៖ គ្មានផ្ទាំងណាបង្ហាញវា ឬវាមិនមែនជាផ្ទាំងដែលកំពុងផ្ដោត; ប្រើពាក្យបញ្ជាទំព័រលើវា៖ `cmux browser %2$@ <verb>`"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@이(가) 브라우저 %2$@에 접근할 수 없습니다. 표시하는 패널이 없거나 포커스된 탭이 아닙니다. 페이지 명령을 사용하세요: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ når ikke nettleseren din %2$@: ingen rute viser den, eller den er ikke den fokuserte fanen; bruk en sidekommando på den: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nie może sięgnąć do Twojej przeglądarki %2$@: żaden panel jej nie pokazuje lub nie jest aktywną kartą; użyj na niej polecenia strony: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ não alcança seu navegador %2$@: nenhum painel o mostra ou não é a aba em foco; use um comando de página nele: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не может достать ваш браузер %2$@: ни одна панель его не показывает или это не вкладка в фокусе; используйте команду страницы: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ เข้าถึงเบราว์เซอร์ %2$@ ของคุณไม่ได้: ไม่มีบานหน้าต่างใดแสดง หรือไม่ใช่แท็บที่โฟกัสอยู่ ใช้คำสั่งหน้ากับมัน: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tarayıcınıza (%2$@) ulaşamıyor: hiçbir bölme onu göstermiyor veya odaktaki sekme değil; üzerinde bir sayfa komutu kullanın: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не може дістатися вашого браузера %2$@: жодна панель його не показує або це не вкладка у фокусі; використайте команду сторінки: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ không tới được trình duyệt %2$@ của bạn: không ngăn nào hiển thị nó hoặc nó không phải tab đang chọn; dùng lệnh trang trên nó: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 无法访问你的浏览器 %2$@：没有窗格显示它，或它不是聚焦的标签页；请对它使用页面命令：`cmux browser %2$@ <verb>`"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 無法存取你的瀏覽器 %2$@：沒有窗格顯示它，或它不是聚焦的分頁；請對它使用頁面命令：`cmux browser %2$@ <verb>`"
+          }
+        }
+      }
+    },
     "control.error.createdNoSurface": {
       "extractionState": "manual",
       "localizations": {
@@ -9827,6 +10089,138 @@
         }
       }
     },
+    "control.error.uploadNotRegularFile": {
+      "comment": "browser.page.upload error: a path the agent passed is a pipe, device or other non-regular file. %@ is the path.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only regular files can be uploaded: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن رفع الملفات العادية فقط: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mogu se otpremiti samo obične datoteke: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun almindelige filer kan uploades: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur normale Dateien können hochgeladen werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo se pueden subir archivos normales: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seuls les fichiers ordinaires peuvent être téléversés : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si possono caricare solo file normali: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップロードできるのは通常のファイルのみです: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាចផ្ទុកឡើងបានតែឯកសារធម្មតាប៉ុណ្ណោះ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일반 파일만 업로드할 수 있습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare vanlige filer kan lastes opp: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Można przesyłać tylko zwykłe pliki: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Somente arquivos comuns podem ser enviados: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Загружать можно только обычные файлы: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปโหลดได้เฉพาะไฟล์ปกติเท่านั้น: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca normal dosyalar yüklenebilir: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантажувати можна лише звичайні файли: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ có thể tải lên tệp thông thường: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只能上传普通文件：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只能上傳一般檔案：%@"
+          }
+        }
+      }
+    },
     "control.error.uploadTooLarge": {
       "comment": "browser.page.upload error: the files together are larger than the 25 MB limit.",
       "extractionState": "manual",
@@ -14160,6 +14554,1062 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "該分頁已在那個窗格中"
+          }
+        }
+      }
+    },
+    "control.authToken.invalidTeam": {
+      "comment": "auth.token refusal (cmux auth token): --team is not a backend team id. Keep --team and team_ as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--team takes a cmux team id: team_ and 20 hex digits."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team erwartet eine cmux-Team-ID: team_ und 20 Hexadezimalziffern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team attend un identifiant d’équipe cmux : team_ suivi de 20 chiffres hexadécimaux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يقبل --team معرّف فريق cmux: ‏team_ متبوعًا بـ 20 رقمًا ست عشريًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team acepta un ID de equipo de cmux: team_ y 20 dígitos hexadecimales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team 需要 cmux 團隊 ID：team_ 加 20 位十六進位數字。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team 需要 cmux 团队 ID：team_ 加 20 位十六进制数字。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team에는 cmux 팀 ID(team_와 16진수 20자리)를 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team には cmux のチーム ID (team_ と 16 進数 20 桁) を指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team prima ID cmux tima: team_ i 20 heksadecimalnih cifara."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team tager et cmux-team-id: team_ og 20 hexadecimale cifre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team accetta un ID team cmux: team_ e 20 cifre esadecimali."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team ទទួលយក ID ក្រុម cmux៖ team_ និងលេខគោលដប់ប្រាំមួយ 20 ខ្ទង់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team tar en cmux-team-ID: team_ og 20 heksadesimale sifre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team przyjmuje identyfikator zespołu cmux: team_ i 20 cyfr szesnastkowych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team aceita um ID de equipe do cmux: team_ e 20 dígitos hexadecimais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team принимает ID команды cmux: team_ и 20 шестнадцатеричных цифр."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team ต้องเป็น ID ทีมของ cmux: team_ ตามด้วยเลขฐานสิบหก 20 หลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team bir cmux ekip kimliği alır: team_ ve 20 onaltılık basamak."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team приймає ID команди cmux: team_ і 20 шістнадцяткових цифр."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--team nhận ID nhóm cmux: team_ và 20 chữ số thập lục phân."
+          }
+        }
+      }
+    },
+    "control.authToken.refused": {
+      "comment": "auth.token refusal: cmux Cloud would not mint a token for the team. %@ is the team id.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud refused a token for team %@. Check that your account belongs to it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud hat ein Token für das Team %@ abgelehnt. Prüfe, ob dein Konto zu diesem Team gehört."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud a refusé un jeton pour l’équipe %@. Vérifiez que votre compte en fait partie."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفضت cmux Cloud إصدار رمز للفريق %@. تحقّق من أن حسابك ينتمي إليه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud rechazó un token para el equipo %@. Comprueba que tu cuenta pertenece a él."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 拒絕為團隊 %@ 簽發權杖。請確認你的帳號屬於該團隊。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 拒绝为团队 %@ 签发令牌。请确认你的账户属于该团队。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud가 팀 %@의 토큰을 거부했습니다. 계정이 해당 팀에 속해 있는지 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud がチーム %@ のトークンを拒否しました。アカウントがそのチームに属しているか確認してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud je odbio token za tim %@. Provjeri da li tvoj račun pripada tom timu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud afviste et token til teamet %@. Tjek, at din konto hører til det."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ha rifiutato un token per il team %@. Verifica che il tuo account ne faccia parte."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud បានបដិសេធថូខឹនសម្រាប់ក្រុម %@។ សូមពិនិត្យថាគណនីរបស់អ្នកស្ថិតក្នុងក្រុមនោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud avviste et token for teamet %@. Sjekk at kontoen din hører til det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud odmówił tokenu dla zespołu %@. Sprawdź, czy Twoje konto do niego należy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux Cloud recusou um token para a equipe %@. Verifique se sua conta pertence a ela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud отказал в токене для команды %@. Проверьте, что ваша учётная запись в неё входит."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ปฏิเสธโทเค็นสำหรับทีม %@ ตรวจสอบว่าบัญชีของคุณอยู่ในทีมนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud, %@ ekibi için bir belirteci reddetti. Hesabınızın bu ekibe ait olduğunu kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud відмовив у токені для команди %@. Перевірте, що ваш обліковий запис до неї належить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud đã từ chối token cho nhóm %@. Hãy kiểm tra tài khoản của bạn có thuộc nhóm đó không."
+          }
+        }
+      }
+    },
+    "control.authToken.unreachable": {
+      "comment": "auth.token refusal: cmux Cloud did not answer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud didn't answer. Try again in a moment."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud hat nicht geantwortet. Versuche es gleich noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud n’a pas répondu. Réessayez dans un instant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تستجب cmux Cloud. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud no respondió. Inténtalo de nuevo en un momento."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 沒有回應。請稍後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 没有响应。请稍后再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud가 응답하지 않습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud から応答がありません。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud nije odgovorio. Pokušaj ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud svarede ikke. Prøv igen om lidt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud non ha risposto. Riprova tra un momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud មិនបានឆ្លើយតបទេ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud svarte ikke. Prøv igjen om litt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud nie odpowiedział. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux Cloud não respondeu. Tente de novo em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud не ответил. Повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ไม่ตอบสนอง ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud yanıt vermedi. Biraz sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud не відповів. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud không phản hồi. Hãy thử lại sau giây lát."
+          }
+        }
+      }
+    },
+    "control.authToken.notSignedIn": {
+      "comment": "auth.token refusal: the app is not signed in to cmux.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux in the cmux app first."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde dich zuerst in der cmux-App bei cmux an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous d’abord à cmux dans l’app cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول إلى cmux في تطبيق cmux أولًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primero inicia sesión en cmux en la app de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請先在 cmux App 中登入 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请先在 cmux App 中登录 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "먼저 cmux 앱에서 cmux에 로그인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "先に cmux アプリで cmux にサインインしてください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo se prijavi u cmux u aplikaciji cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log først ind på cmux i cmux-appen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi prima a cmux nell’app cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមចូល cmux ក្នុងកម្មវិធី cmux ជាមុនសិន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg først på cmux i cmux-appen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw zaloguj się do cmux w aplikacji cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primeiro entre no cmux pelo app cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала войдите в cmux в приложении cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ cmux ในแอป cmux ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce cmux uygulamasında cmux'a giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу увійдіть у cmux у застосунку cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy đăng nhập cmux trong ứng dụng cmux trước."
+          }
+        }
+      }
+    },
+    "control.authToken.noTeam": {
+      "comment": "auth.token refusal: no team chosen and none asked for. Keep --team as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a cmux team in the cmux app first, or pass --team."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle zuerst ein cmux-Team in der cmux-App oder gib --team an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez d’abord une équipe cmux dans l’app cmux, ou passez --team."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر فريق cmux في تطبيق cmux أولاً، أو مرّر ‎--team."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige primero un equipo de cmux en la app de cmux, o pasa --team."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請先在 cmux App 中選擇 cmux 團隊，或傳入 --team。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请先在 cmux App 中选择 cmux 团队，或传入 --team。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "먼저 cmux 앱에서 cmux 팀을 선택하거나 --team을 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "先に cmux アプリで cmux のチームを選ぶか、--team を指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo odaberi cmux tim u aplikaciji cmux ili proslijedi --team."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg først et cmux-team i cmux-appen, eller angiv --team."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli prima un team cmux nell’app cmux, oppure passa --team."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមជ្រើសក្រុម cmux ក្នុងកម្មវិធី cmux ជាមុនសិន ឬបញ្ជូន --team។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg først et cmux-team i cmux-appen, eller oppgi --team."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw wybierz zespół cmux w aplikacji cmux albo podaj --team."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primeiro escolha uma equipe do cmux no app cmux, ou passe --team."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала выберите команду cmux в приложении cmux или укажите --team."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกทีม cmux ในแอป cmux ก่อน หรือระบุ --team"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce cmux uygulamasında bir cmux ekibi seçin veya --team verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу виберіть команду cmux у застосунку cmux або вкажіть --team."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy chọn một nhóm cmux trong ứng dụng cmux trước, hoặc truyền --team."
+          }
+        }
+      }
+    },
+    "control.authToken.clientTooOld": {
+      "comment": "auth.token refusal: the team requires a newer cmux. Keep cmux auth token as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This team needs a newer cmux. Install the newest cmux, then run cmux auth token again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Team braucht ein neueres cmux. Installiere das neueste cmux und führe dann cmux auth token erneut aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette équipe exige une version plus récente de cmux. Installez la dernière version de cmux, puis relancez cmux auth token."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتطلب هذا الفريق إصدارًا أحدث من cmux. ثبّت أحدث إصدار من cmux، ثم شغّل cmux auth token مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este equipo necesita una versión más reciente de cmux. Instala la última versión de cmux y vuelve a ejecutar cmux auth token."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此團隊需要較新版本的 cmux。請安裝最新版 cmux，然後再次執行 cmux auth token。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此团队需要更新版本的 cmux。请安装最新版 cmux，然后再次运行 cmux auth token。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 팀에는 최신 cmux가 필요합니다. 최신 cmux를 설치한 후 cmux auth token을 다시 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチームには新しいバージョンの cmux が必要です。最新の cmux をインストールしてから、cmux auth token をもう一度実行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj tim traži noviji cmux. Instaliraj najnoviji cmux, pa ponovo pokreni cmux auth token."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette team kræver en nyere cmux. Installer den nyeste cmux, og kør derefter cmux auth token igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo team richiede una versione più recente di cmux. Installa l’ultima versione di cmux, poi esegui di nuovo cmux auth token."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមនេះត្រូវការ cmux ថ្មីជាងនេះ។ សូមដំឡើង cmux ថ្មីបំផុត រួចដំណើរការ cmux auth token ម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette teamet krever en nyere cmux. Installer den nyeste cmux, og kjør deretter cmux auth token igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten zespół wymaga nowszej wersji cmux. Zainstaluj najnowszy cmux, a potem ponownie uruchom cmux auth token."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta equipe exige um cmux mais recente. Instale o cmux mais novo e execute cmux auth token de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этой команде нужна более новая версия cmux. Установите последнюю версию cmux и снова запустите cmux auth token."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทีมนี้ต้องใช้ cmux เวอร์ชันใหม่กว่า ติดตั้ง cmux เวอร์ชันล่าสุด แล้วเรียก cmux auth token อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ekip daha yeni bir cmux gerektiriyor. En yeni cmux'ı kurun, ardından cmux auth token komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця команда потребує новішої версії cmux. Установіть найновіший cmux, потім знову запустіть cmux auth token."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm này cần phiên bản cmux mới hơn. Hãy cài cmux mới nhất rồi chạy lại cmux auth token."
+          }
+        }
+      }
+    },
+    "control.authToken.badReply": {
+      "comment": "auth.token refusal: cmux Cloud answered something the app will not use. Keep cmux auth token as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud sent an answer cmux can't use. Run cmux auth token again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud hat eine Antwort gesendet, die cmux nicht verwenden kann. Führe cmux auth token erneut aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud a envoyé une réponse que cmux ne peut pas utiliser. Relancez cmux auth token."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أرسلت cmux Cloud ردًا لا يستطيع cmux استخدامه. شغّل cmux auth token مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud envió una respuesta que cmux no puede usar. Vuelve a ejecutar cmux auth token."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 傳回了 cmux 無法使用的回應。請再次執行 cmux auth token。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 返回了 cmux 无法使用的响应。请再次运行 cmux auth token。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud가 cmux에서 사용할 수 없는 응답을 보냈습니다. cmux auth token을 다시 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud から cmux が使えない応答が返りました。cmux auth token をもう一度実行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud je poslao odgovor koji cmux ne može koristiti. Ponovo pokreni cmux auth token."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud sendte et svar, som cmux ikke kan bruge. Kør cmux auth token igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ha inviato una risposta che cmux non può usare. Esegui di nuovo cmux auth token."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud បានផ្ញើចម្លើយដែល cmux មិនអាចប្រើបាន។ សូមដំណើរការ cmux auth token ម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud sendte et svar cmux ikke kan bruke. Kjør cmux auth token igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud wysłał odpowiedź, której cmux nie może użyć. Uruchom ponownie cmux auth token."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux Cloud enviou uma resposta que o cmux não consegue usar. Execute cmux auth token de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud прислал ответ, который cmux не может использовать. Снова запустите cmux auth token."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ส่งคำตอบที่ cmux ใช้ไม่ได้ เรียก cmux auth token อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud, cmux'ın kullanamayacağı bir yanıt gönderdi. cmux auth token komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud надіслав відповідь, яку cmux не може використати. Знову запустіть cmux auth token."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud đã gửi phản hồi mà cmux không dùng được. Hãy chạy lại cmux auth token."
+          }
+        }
+      }
+    },
+    "control.authToken.managed": {
+      "comment": "auth.token refusal (cmux auth token): the device is restricted to its organization's managed team.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your organization limits cmux on this Mac to its managed team, so a token for another team isn't available."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Organisation beschränkt cmux auf diesem Mac auf ihr verwaltetes Team, daher gibt es kein Token für ein anderes Team."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre organisation limite cmux sur ce Mac à son équipe gérée : aucun jeton n’est disponible pour une autre équipe."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تقصر مؤسستك cmux على هذا الـ Mac على فريقها المُدار، لذا لا يتوفر رمز لفريق آخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu organización limita cmux en este Mac a su equipo administrado, así que no hay token para otro equipo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的組織將此 Mac 上的 cmux 限制為其受管理團隊，因此無法取得其他團隊的權杖。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的组织将此 Mac 上的 cmux 限制为其受管理团队，因此无法获取其他团队的令牌。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "조직에서 이 Mac의 cmux를 관리 팀으로 제한하므로 다른 팀의 토큰은 받을 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "組織がこの Mac の cmux を管理対象のチームに限定しているため、ほかのチームのトークンは取得できません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tvoja organizacija ograničava cmux na ovom Macu na svoj upravljani tim, pa token za drugi tim nije dostupan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din organisation begrænser cmux på denne Mac til sit administrerede team, så et token til et andet team er ikke tilgængeligt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La tua organizzazione limita cmux su questo Mac al suo team gestito, quindi un token per un altro team non è disponibile."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថាប័នរបស់អ្នកកំណត់ cmux លើ Mac នេះត្រឹមក្រុមដែលខ្លួនគ្រប់គ្រង ដូច្នេះមិនមានថូខឹនសម្រាប់ក្រុមផ្សេងទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organisasjonen din begrenser cmux på denne Macen til sitt administrerte team, så et token for et annet team er ikke tilgjengelig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoja organizacja ogranicza cmux na tym Macu do swojego zarządzanego zespołu, więc token dla innego zespołu nie jest dostępny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua organização limita o cmux neste Mac à equipe gerenciada dela, então não há token para outra equipe."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша организация ограничивает cmux на этом Mac своей управляемой командой, поэтому токен для другой команды недоступен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "องค์กรของคุณจำกัด cmux บน Mac เครื่องนี้ไว้ที่ทีมที่จัดการ จึงไม่มีโทเค็นสำหรับทีมอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kuruluşunuz bu Mac'teki cmux'ı yönetilen ekibiyle sınırlıyor; bu yüzden başka bir ekip için belirteç alınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша організація обмежує cmux на цьому Mac своєю керованою командою, тож токен для іншої команди недоступний."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tổ chức của bạn giới hạn cmux trên máy Mac này trong nhóm được quản lý, nên không có token cho nhóm khác."
           }
         }
       }

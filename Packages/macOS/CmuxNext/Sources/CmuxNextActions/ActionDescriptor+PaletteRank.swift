@@ -86,7 +86,8 @@ extension ActionDescriptor {
         // Interface Size is a Debug opt-in (chrome.interfaceSize); Interface Scale is the setting.
         "appearance.interfaceSize.increase", "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset",
         // Cloud machine plumbing.
-        "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "palette.cloud.promoteTemplate",
+        "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "cloudAPIKeyList", "cloudAPIKeyRevoke",
+        "palette.cloud.promoteTemplate",
     ]
 
     /// Built-in palette aliases: a query that is one of these words puts the action first (as a
@@ -110,7 +111,7 @@ extension ActionDescriptor {
     nonisolated public static let paletteFamilies: [PaletteFamily] = [
         PaletteFamily("workspace.move", title: familyTitle("palette.family.workspace.move", "Workspace: Move…"),
                       symbol: "arrow.up.arrow.down", members: [
-                          "moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom",
+                          "moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom", "workspace.moveAbove", "workspace.moveBelow",
                           "moveWorkspaceToGroup", "workspace.moveToNewGroup", "removeWorkspaceFromGroup", "moveWorkspaceToWindow",
                           "moveWorkspaceToNewWindow", "workspace.moveToSpace",
                       ]),
@@ -269,6 +270,8 @@ extension ActionDescriptor {
         PaletteFamily("forkConversation", parent: "palette.forkAgentConversation", members: [
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
+                          "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft",
+                          "palette.forkAgentConversationNewRow",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",
                           "palette.forkAgentConversationNewWindow",
                       ]),

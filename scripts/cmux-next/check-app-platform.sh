@@ -10,4 +10,7 @@ bun "$root/samples/apps/build.ts" --check
 (cd "$host/app-test" && bun test)
 (cd "$root/samples/apps" && bun test)
 "$root/scripts/cmux-next/sync-app-runtime.sh" --check
+# Zero first-party privilege (docs/app-store-platonic-ideal.md 5): every first-party app runs its
+# own tests as a fork with only the public SDK; known gaps are listed in fork-check-gaps.json.
+bun "$root/first-party-apps/fork-check.ts"
 echo "app platform checks passed"

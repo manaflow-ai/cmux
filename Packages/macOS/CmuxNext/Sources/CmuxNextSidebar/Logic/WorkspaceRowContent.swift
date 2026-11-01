@@ -14,6 +14,11 @@ public import Foundation
 public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Draw the user's icon (nil when the user set none or turned icons off).
     public var icon: WorkspaceIcon?
+    /// The workspace's color as the row's leading rail or full fill (`workspaceColors.indicatorStyle`,
+    /// #25653); nil for the dot style, an uncolored workspace or `sidebar.showColors` off.
+    public var rowColor: GroupColor?
+    /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
+    public var colorStyle: WorkspaceColorIndicatorStyle = .dot
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
     /// The tab count, when that element is on.
@@ -56,6 +61,11 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
+    /// The computer as a one-list row names it, with its status when it cannot connect
+    /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
+    /// in every row mode): no line draws it any more (Leo 2026-10-30), so the row's accessibility label
+    /// says it, whether or not the row draws a machine mark. Nil for this Mac and a grouped sidebar.
+    public var machineLabel: String?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
     /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
@@ -91,11 +101,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public static let separator = " · "
 
     /// The content of `ws`'s row under `preferences`; `now` decides whether
-    /// the last activity shows a time (today) or a date. `machine` (the
-    /// computer of a workspace in the one-list sidebar that is not this Mac)
-    /// leads the second line whatever the preferences show, followed by the
-    /// workspace's folder on that computer and a starting Cloud machine's
-    /// stage (`SidebarWorkspace.stage`).
+    /// the last activity shows a time (today) or a date. The second line holds
+    /// only the elements the person turned on (`sidebar.workspaceRow`, none by
+    /// default): no line of its own repeating the computer, its folder, a Cloud
+    /// stage or the description (Leo 2026-10-30, of "local · claude-sr2-coord":
+    /// "remove the second line"). The computer stays in the row's machine mark,
+    /// its hover card and its accessibility label; the description in its hover
+    /// card; an expanded row (`init(expanded:...)`) keeps its own meta line.
     init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache) {
         self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages)
     }
@@ -106,15 +118,11 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
 
     private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
         let set = preferences.resolved(for: ws.rowKind)
-        // Another computer's workspace names its folder after the computer, so the row says
-        // where its terminals run (`host · ~/code/app`), unless the folder element shows it already (cx-gaq9).
-        let folder = machine != nil && !set.secondLine.contains(.directory) ? Self.nonEmpty(ws.directory) : nil
-        let lead = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage), Self.descriptionLine(ws)].compactMap { $0 }
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
-        var items = lead + secondLine.map(\.1)
+        var items = secondLine.map(\.1)
         var status = Self.status(ws.reported, set)
         // A one-line status leaves a one-line row one line: its text moves to the name's line.
-        let others = lead + secondLine.filter { $0.0 != .agentStatus }.map(\.1)
+        let others = secondLine.filter { $0.0 != .agentStatus }.map(\.1)
         var trailing: String?
         if others.isEmpty {
             if let line = secondLine.first(where: { $0.0 == .agentStatus })?.1, status == nil {

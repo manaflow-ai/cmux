@@ -685,3 +685,32 @@ test("unchanged streamed tool revisions reuse the lifetime-owned parser memo", (
   expect(failed?.type).toBe("send");
   if (failed?.type === "send") expect(failed.send.text).toBeUndefined();
 });
+
+const sendMessage = (to: string, message: string, status = "completed") =>
+  item({ title: "SendMessage", kind: "other", status, inputSummary: JSON.stringify({ to, message }) });
+
+test("sent messages are never summed up: each, of any kind, is its own entry in order", () => {
+  // Leo 2026-10-31: "this +11 is really bad you guys should just render them all separately".
+  const shell = item({ title: "Bash", kind: "execute", command: "acpmux send tests 'cover retries'" });
+  const subsession = item({
+    title: "mcp__cmux-subsessions__send_message",
+    kind: "other",
+    inputSummary: JSON.stringify({ sessionId: "sub-tests", text: "and the backoff" }),
+    output: "Delivered into its running turn: it reads it at its next tool step.",
+  });
+  const failed = sendMessage("Picker", "lost", "failed");
+  const groups = toolGroups([sendMessage("Picker", "brief"), shell, subsession, sendMessage("Picker", "more"), failed]);
+  expect(groups.map((group) => group.type)).toEqual(["message", "send", "subsession", "message", "message"]);
+  // A sub-session start keeps its own card between two messages.
+  const start = item({
+    title: "mcp__cmux-subsessions__start_session",
+    kind: "other",
+    inputSummary: JSON.stringify({ name: "tests", prompt: "go" }),
+    output: "Started sub-session tests (sessionId tests-id, depth 1).",
+  });
+  expect(toolGroups([sendMessage("A", "one"), start, sendMessage("B", "two")]).map((g) => g.type)).toEqual([
+    "message",
+    "subsession",
+    "message",
+  ]);
+});

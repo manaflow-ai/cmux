@@ -7361,6 +7361,41 @@
       },
       "extra": false
     },
+    "ClosedAgentSessionRecord": {
+      "kind": "object",
+      "fields": {
+        "session": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "description": "The bound acpmux session id; null while an agent tab has not bound one."
+        },
+        "harness": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The harness type that owns the session, such as claude or codex."
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "The public record intentionally omits the session host and install identity."
+      ]
+    },
     "ClosedTabRecord": {
       "kind": "object",
       "fields": {
@@ -7370,9 +7405,11 @@
             "kind": "enum",
             "values": [
               "terminal",
-              "browser"
+              "browser",
+              "conversation"
             ]
-          }
+          },
+          "description": "An agent chat reads as conversation under closed-conversation-tabs-v1; older connections retain browser and safe agent_session metadata."
         },
         "name": {
           "required": true,
@@ -7420,6 +7457,14 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "agent_session": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ClosedAgentSessionRecord"
+          },
+          "description": "The safe public identity of a closed agent chat; host/install metadata is omitted."
         },
         "page": {
           "required": false,
@@ -9030,6 +9075,56 @@
       },
       "extra": false
     },
+    "GitPatchPage": {
+      "kind": "object",
+      "fields": {
+        "offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "next_offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "total_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "data_base64": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
     "GitDiffResult": {
       "kind": "object",
       "fields": {
@@ -9107,7 +9202,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "total_files minus the files returned."
+          "description": "Files after this page; continue with next_path as after_path."
         },
         "untracked_skipped": {
           "required": false,
@@ -9116,6 +9211,23 @@
             "name": "uint32"
           },
           "description": "Untracked files left out to keep the read bounded."
+        },
+        "patch_page": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitPatchPage"
+          },
+          "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "next_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "If files remain after this page, pass this path as after_path to read the next page."
         }
       },
       "extra": false
@@ -10029,7 +10141,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "total_files minus the files returned."
+          "description": "Files after this page; continue with next_path as after_path."
         },
         "untracked_skipped": {
           "required": false,
@@ -10038,6 +10150,23 @@
             "name": "uint32"
           },
           "description": "Untracked files left out to keep the read bounded."
+        },
+        "patch_page": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitPatchPage"
+          },
+          "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "next_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "If files remain after this page, pass this path as after_path to read the next page."
         }
       },
       "extra": false
@@ -11474,10 +11603,12 @@
             "values": [
               "terminal_tab",
               "browser_tab",
+              "conversation_tab",
               "screen",
               "workspace"
             ]
-          }
+          },
+          "description": "conversation_tab requires closed-conversation-tabs-v1; older connections read browser_tab."
         },
         "cwd": {
           "required": false,
@@ -18108,6 +18239,14 @@
             },
             "description": "Reopen the member of the newest group that holds this tab (a tab member, or the screen or workspace member that contains it), under the SAME tab id, so a `cmux://tab/` link to it keeps working. Excludes `closed` and `members`. `resource.not_found` when no group holds it: the tab is open, or its record was deleted."
           },
+          "workspace": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Reopen the workspace member of the newest group that recorded this closed workspace, so a `cmux://workspace/` link to a closed workspace opens it again (as a new workspace). Excludes `closed`, `members` and `tab`. `resource.not_found` when no group holds it: the workspace is open, it closed before its id was recorded, or its record was deleted."
+          },
           "fallback_pane": {
             "required": false,
             "type": {
@@ -19416,6 +19555,33 @@
             },
             "default": 500,
             "description": "Files returned, in path order; the rest are counted in files_omitted."
+          },
+          "after_path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Read files strictly after this path in path order; the previous reply's next_path continues a large file listing."
+          },
+          "patch_offset": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
+          },
+          "patch_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "The first patch_page revision; required when patch_offset is greater than zero. Continuations read that immutable capture, even if the working file changes. An expired capture refuses with patch_expired; restart at zero. A first-page revision mismatch refuses with repository_changed."
           }
         },
         "extra": false
@@ -19982,6 +20148,33 @@
             },
             "default": 500,
             "description": "Files returned, in path order; the rest are counted in files_omitted."
+          },
+          "after_path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Read files strictly after this path in path order; the previous reply's next_path continues a large file listing."
+          },
+          "patch_offset": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
+          },
+          "patch_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "The first patch_page revision; required when patch_offset is greater than zero. Continuations read that immutable capture, even if the working file changes. An expired capture refuses with patch_expired; restart at zero. A first-page revision mismatch refuses with repository_changed."
           }
         },
         "extra": false
@@ -32243,6 +32436,18 @@
               "name": "boolean"
             },
             "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
+          },
+          "placement": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "top",
+                "after_current",
+                "bottom"
+              ]
+            },
+            "description": "Where the new workspace goes in the sidebar order, for this create: top (first, below Home), after_current or bottom. Default: the workspaces.newPlacement setting."
           },
           "cwd": {
             "required": false,

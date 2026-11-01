@@ -1,3 +1,4 @@
+import { artifactRuntimeVite } from "./scripts/agent-pane/artifactRuntimePlugin.mjs";
 import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
@@ -27,6 +28,7 @@ export default defineConfig({
     fs: { allow: [webviewsRoot] },
   },
   plugins: [
+    artifactRuntimeVite(),
     // Keep the standalone pane dev server's host contract identical to `bun run dev`: real,
     // confined checkout reads are served by /__dev-host/read instead of silently becoming stubs.
     // Install only this host plugin so `/` remains the pane, rather than the generic dev index.

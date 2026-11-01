@@ -13,9 +13,11 @@ import os
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
 /// relay already holds a set that trusts to the person's fresh gesture), and who is in the chat
 /// (`_acpmux/typing` and `_acpmux/view` out, `_acpmux/presence` back, `agent-session-presence-v1`;
-/// an observer never types). Every other method, and any
-/// frame that names another session, is answered `remote.unsupported`: nothing on the other
-/// machine changes a mode, reads a folder or spawns a process from here.
+/// an observer never types), and the person's model, mode and option picks (`session/set_model`,
+/// `session/set_mode`, `session/set_config_option`, through the daemon's `agent-session-set-*`,
+/// `agent-session-settings-v1`; the host already checked their gesture and full-access rule).
+/// Every other method, and any frame that names another session, is answered
+/// `remote.unsupported`: nothing on the other machine reads a folder or spawns a process from here.
 ///
 /// A new chat's wire (``init(start:)``) has no session yet: its page's first `session/new` (the
 /// first send, cx-k21v) starts the chat on that machine through the host's start
@@ -36,6 +38,24 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public typealias Trust = @Sendable (_ cwd: String, _ level: String?, _ homeChosen: Bool) async throws -> Data
     /// The relay's mark on a Trust answer for a home folder the person chose there.
     public static let homeChosenParam = "cmuxHomeChosen"
+    /// Whether the chat's machine is the person's own Cloud VM now: the link's Cloud API owner
+    /// answer holds, and that machine's daemon starts any agent on it
+    /// (`agent-session-start-owner-cloud-v1`). Read at each `initialize`; the page then lets a
+    /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
+    public typealias OwnerCloud = @Sendable () async -> Bool
+
+    /// `agent-session-start-owner-cloud-v1`: on a Cloud VM, `vm_kind: "owner"` starts any agent (the
+    /// person's own disposable VM is the boundary). Only a Cloud VM's daemon serves it, so it is no
+    /// `DaemonCapability` case (check-app-capability-references.py `CONDITIONAL`, like `fs-v1`).
+    public static let ownerCloudCapability = "agent-session-start-owner-cloud-v1"
+
+    /// A Cloud machine's ``OwnerCloud`` from its link's owner answer (the running link id while the
+    /// Cloud API says the caller owns it, else nil), when its daemon serves the owner start
+    /// (`served`). Nil for a machine that is not a Cloud one, or a daemon that does not serve it.
+    public static func ownerCloud(_ ownerLink: (@Sendable () async -> Int?)?, served: Bool) -> OwnerCloud? {
+        guard let ownerLink, served else { return nil }
+        return { await ownerLink() != nil }
+    }
 
     private struct State {
         var onFrame: (@Sendable (String) -> Void)?
@@ -54,19 +74,32 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
     private let start: Start?
     private let trust: Trust?
+    private let ownerCloud: OwnerCloud?
+    private let host: String?
+    /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
+    /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
+    private let linksAlias: String?
     private let state: Mutex<State>
 
     /// The wire of the chat `session` (its store record), through `client`.
-    public init(client: any AgentSessionRemoteClient, session: String, trust: Trust? = nil) {
+    public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
+                trust: Trust? = nil, ownerCloud: OwnerCloud? = nil) {
         start = nil
+        self.host = host
+        self.linksAlias = linksAlias
         self.trust = trust
+        self.ownerCloud = ownerCloud
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
-    public init(start: @escaping Start, trust: Trust? = nil) {
+    public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
+                ownerCloud: OwnerCloud? = nil) {
         self.start = start
+        self.host = host
+        self.linksAlias = linksAlias
         self.trust = trust
+        self.ownerCloud = ownerCloud
         state = Mutex(State())
     }
 
@@ -89,8 +122,15 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         case "initialize":
             // `acp.trust.set` listed: the person answers the folder question here (acpmux never
             // lists it, so a remote browser's page still cannot).
-            reply(id, ["protocolVersion": 1, "agentCapabilities": [String: Any](),
-                       "_meta": ["acpmux": ["origin": "remote", "extensions": trust == nil ? [] : ["acp.trust.set"]]]])
+            let extensions = trust == nil ? [] : ["acp.trust.set"]
+            guard let ownerCloud else {
+                return reply(id, Self.initialized(extensions: extensions, ownerCloud: false))
+            }
+            // task-owner: one owner-answer read per initialize; its reply ends it
+            Task { [weak self] in
+                let owned = await ownerCloud()
+                self?.reply(id, Self.initialized(extensions: extensions, ownerCloud: owned))
+            }
         case "_acpmux/status":
             reply(id, ["peers": [Any]()])
         case "session/new":
@@ -175,6 +215,19 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 }
                 return Self.json(AgentPaneReply.success(["src": source]))
             }
+        case "session/set_model", "session/set_mode", "session/set_config_option":
+            // The person's pick (the host checked its gesture and full-access rule, and took its
+            // ticket off): that machine's daemon sends it to acpmux on this chat's session only,
+            // and acpmux's answer goes back as it is (a config option's names the whole list).
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let setting = Self.setting(method, params) else { return refuse(id, method) }
+            run(id) { client in
+                switch setting {
+                case .model(let model): return try await client.setModel(model)
+                case .mode(let mode): return try await client.setMode(mode)
+                case .config(let config, let value): return try await client.setConfig(id: config, value: value)
+                }
+            }
         case "_acpmux/permission_respond":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
@@ -211,6 +264,25 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
         }
         return try await client.media(path: path)
+    }
+
+    /// What a setting frame asks for; nil when a value is missing or not text.
+    enum Setting: Sendable, Equatable {
+        case model(String)
+        case mode(String)
+        case config(String, String)
+    }
+
+    static func setting(_ method: String, _ params: [String: Any]) -> Setting? {
+        let text = { (key: String) in (params[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        switch method {
+        case "session/set_model": return text("modelId").map(Setting.model)
+        case "session/set_mode": return text("modeId").map(Setting.mode)
+        case "session/set_config_option":
+            guard let config = text("configId"), let value = text("value") else { return nil }
+            return .config(config, value)
+        default: return nil
+        }
     }
 
     // MARK: Start
@@ -273,7 +345,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let children = (listed?["sessions"] as? [[String: Any]] ?? []).filter { child in
             (child["sessionId"] as? String).map { !names($0) } ?? false
         }
-        Self.noteLinks(children)
+        noteLinks(children)
         var reply: [String: Any] = ["sessions": (summary.map { [$0] } ?? []) + children]
         // The session the tab is bound to on that machine now, by acpmux's id: the daemon attached
         // only the session its store records for this tab. The page may hold another name for it (a
@@ -284,14 +356,23 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     /// The parents of the children the daemon listed or changed, for the sidebar's session tree
-    /// and the Subagents rows' open (``RemoteAgentSessionLinks``).
-    private static func noteLinks(_ summaries: [[String: Any]]) {
-        guard !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
+    /// and the Subagents rows' open (``RemoteAgentSessionLinks``). A wire with a host notes even an
+    /// empty list, so that daemon has a map of its own (none of its sessions has a parent); a hostless
+    /// wire notes into the hostless map, which only hostless lookups read. The tab's host and the
+    /// daemon's store host are noted as aliases of one daemon, so the sidebar finds a parent tab under either.
+    private func noteLinks(_ summaries: [[String: Any]]) {
+        guard host != nil || !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
               let data = try? JSONSerialization.data(withJSONObject: summaries) else { return }
         // task-owner: one main-actor note of what the daemon answered; nothing waits on it
+        let remoteHost = host, alias = linksAlias.flatMap { $0 != host ? $0 : nil }
         Task { @MainActor in
             let copy = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
-            RemoteAgentSessionLinks.shared.note(copy)
+            let links = RemoteAgentSessionLinks.shared
+            links.note(copy, host: remoteHost)
+            if let alias {
+                links.note(copy, host: alias)
+                if let remoteHost { links.noteAliases(remoteHost, alias) }
+            }
         }
     }
 
@@ -327,7 +408,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // joins the chat's Subagents summary and the sidebar's tree.
             if let changed = change as? [String: Any], let session = changed["session"] as? [String: Any],
                let id = changed["sessionId"] as? String, !names(id) {
-                Self.noteLinks([session])
+                noteLinks([session])
             }
             notify("_acpmux/session_changed", change)
         case .presence(let data):
@@ -420,6 +501,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard let id else { return }
         let error: [String: Any] = ["code": Self.unsupportedCode, "message": message, "data": data.merging(["code": code]) { $1 }]
         emit(#"{"jsonrpc":"2.0","id":\#(id),"error":"# + String(decoding: Self.json(error), as: UTF8.self) + "}")
+    }
+
+    /// The `initialize` answer: always `origin: "remote"`; `ownerCloud` only on the person's own Cloud VM.
+    static func initialized(extensions: [String], ownerCloud: Bool) -> [String: Any] {
+        var acpmux: [String: Any] = ["origin": "remote", "extensions": extensions]
+        if ownerCloud { acpmux["ownerCloud"] = true }
+        return ["protocolVersion": 1, "agentCapabilities": [String: Any](), "_meta": ["acpmux": acpmux]]
     }
 
     private func reply(_ id: String?, _ result: [String: Any]) {
