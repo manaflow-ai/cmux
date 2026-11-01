@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(test)]
+#[path = "trigger_chat_tests.rs"]
 mod trigger_chat_tests;
 
 const MAX: usize = 4096;
