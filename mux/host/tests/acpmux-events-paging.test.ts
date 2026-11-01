@@ -59,6 +59,21 @@ test("sessions reads every page of a list longer than one reply", async () => {
   expect(pages.map((c) => c.params.cursor)).toEqual([undefined, "2", "4"]);
 });
 
+// A malformed session-list response is unknown inventory, never zero sessions.
+// The Rust client rejects this same response before reading continuation pages.
+test("sessions refuses a first reply with no sessions array", async () => {
+  const { client, fake } = await fakeWithLog(0);
+  fake.sessionReplies.push({});
+  await expect(client.sessions()).rejects.toThrow("the reply lists no sessions");
+});
+
+test("sessions refuses a null or non-object first reply", async () => {
+  const { client, fake } = await fakeWithLog(0);
+  fake.sessionReplies.push(null, "invalid");
+  await expect(client.sessions()).rejects.toThrow("invalid session-list reply");
+  await expect(client.sessions()).rejects.toThrow("invalid session-list reply");
+});
+
 test("sessions refuses a cursor that comes back instead of reading forever", async () => {
   const { client, fake } = await fakeWithLog(0);
   for (const name of ["b", "c", "d", "e"]) await client.newSession({ cwd: "/tmp", name });
