@@ -47,10 +47,13 @@ export function CloudSignIn({
   signIn,
   rowId,
   prompt,
+  keyOnly = false,
 }: {
   signIn: SignIn;
   rowId: string | undefined;
   prompt: string | undefined;
+  /// Only Use an API key: a team Cloud machine, where the agent's own sign-in is not offered.
+  keyOnly?: boolean;
 }) {
   const t = useT();
   const [stage, setStage] = useState<Stage>({ at: "idle" });
@@ -227,14 +230,16 @@ export function CloudSignIn({
     case "starting":
       return (
         <>
-          <button
-            type="button"
-            className="cv-turn-auth-action cv-turn-error__primary"
-            disabled={stage.at === "starting"}
-            onClick={start}
-          >
-            {t(SIGN_IN_LABEL[signIn.agent])}
-          </button>
+          {!keyOnly && (
+            <button
+              type="button"
+              className="cv-turn-auth-action cv-turn-error__primary"
+              disabled={stage.at === "starting"}
+              onClick={start}
+            >
+              {t(SIGN_IN_LABEL[signIn.agent])}
+            </button>
+          )}
           <button
             type="button"
             className="cv-turn-auth-action"

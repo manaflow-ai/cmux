@@ -344,6 +344,7 @@ impl Mux {
             journal_kernel,
             journal_ingress,
             output_store,
+            incognito_workspace_keys: Mutex::new(HashSet::new()),
             journal_maintenance: Mutex::new(None),
             journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
