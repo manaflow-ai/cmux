@@ -17,10 +17,12 @@ import { tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
 import { tenantOwnsMesh } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamMesh, type CreatedNetwork } from "../upstream/mesh.ts";
 
-export const createMeshWithKey = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "mesh:write">, rawKey: string, payload: { readonly displayName?: string | undefined }) => Effect.gen(function* () {
+export const createMeshWithKey = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "mesh:write">, rawKey: string, payload: { readonly displayName?: string | undefined; readonly labels?: Readonly<Record<string, string>> | undefined }) => Effect.gen(function* () {
   const principal = caller.value, limits = yield* TenantLimits, store = yield* MeshStore, ownership = yield* OwnershipStore, upstream = yield* UpstreamMesh;
   const key = yield* sha256Hex(`mesh-create:${rawKey}`);
-  const labels = { [MESH_CREATION_LABEL]: key };
+  const requestedLabels = payload.labels ?? {};
+  if (Object.hasOwn(requestedLabels, MESH_CREATION_LABEL)) return yield* Effect.fail(new Forbidden({ message: "The mesh creation label is reserved" }));
+  const labels = { ...requestedLabels, [MESH_CREATION_LABEL]: key };
   const hidden = () => new NotFound({ message: "Mesh not found" });
   if (!carriesRequiredLabels(principal, labels)) return yield* Effect.fail(new Forbidden({ message: "This credential cannot create this mesh" }));
   // A selected-resource key can replay a permitted mesh, but cannot claim an unknown intent.
@@ -29,13 +31,15 @@ export const createMeshWithKey = <C>(caller: Named<C, Principal>, scope: KeyHasS
     if (prior.state !== "record" || !principal.resourceAllowlist.has(prior.record.meshId)) return yield* Effect.fail(hidden());
   }
   const holder = crypto.randomUUID();
-  const fingerprint = yield* sha256Hex(JSON.stringify(["mesh-create-v1", payload.displayName ?? null]));
-  const begun = yield* limits.meshCreation(principal.tenantId, {
-    op: "begin", key, fingerprint, meshId: newMeshId(), holder, createdBy: actorRef(principal.actor), displayName: payload.displayName ?? null,
-  }).pipe(Effect.mapError(() => unavailable()));
+  const ordered = Object.entries(requestedLabels).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const fingerprint = yield* sha256Hex(JSON.stringify(ordered.length === 0 ? ["mesh-create-v1", payload.displayName ?? null] : ["mesh-create-labelled-v1", payload.displayName ?? null, ordered]));
+  const intent = { key, fingerprint, meshId: newMeshId(), holder, createdBy: actorRef(principal.actor), displayName: payload.displayName ?? null };
+  const begun = yield* limits.meshCreation(principal.tenantId, ordered.length === 0 ? { op: "begin", ...intent } : { op: "begin-labelled", ...intent, labels }).pipe(Effect.mapError(() => unavailable()));
   if (begun.state === "conflict") return yield* Effect.fail(new Conflict({ message: "This mesh creation key was used for a different request" }));
   if (begun.state !== "record") return yield* Effect.fail(unavailable());
   const { record } = begun;
+  const retainedLabels = record.labels ?? { [MESH_CREATION_LABEL]: key };
+  if (retainedLabels[MESH_CREATION_LABEL] !== key || !carriesRequiredLabels(principal, retainedLabels)) return yield* Effect.fail(new Forbidden({ message: "This credential cannot reach the retained mesh" }));
   return yield* name(record.meshId, (mesh) => Effect.gen(function* () {
     if (principal.resourceAllowlist !== null && !principal.resourceAllowlist.has(mesh.value)) return yield* Effect.fail(hidden());
     if (record.phase === "cancelling" || record.phase === "deleted") return yield* Effect.fail(hidden());
@@ -57,7 +61,7 @@ export const createMeshWithKey = <C>(caller: Named<C, Principal>, scope: KeyHasS
       const commit = (created: CreatedNetwork, active: Effect.Effect<void, unknown>) => Effect.gen(function* () {
         yield* active.pipe(Effect.mapError(() => unavailable()));
         yield* ownership.record({ tenantId: principal.tenantId, kind: "mesh", cmuxId: mesh.value, upstreamId: created.upstreamId,
-          createdBy: record.createdBy, createdAt: new Date(record.createdAt), displayName: record.displayName, labels }).pipe(Effect.mapError(() => unavailable()));
+          createdBy: record.createdBy, createdAt: new Date(record.createdAt), displayName: record.displayName, labels: retainedLabels }).pipe(Effect.mapError(() => unavailable()));
         yield* journal({ op: "complete", key, meshId: mesh.value });
         return new Mesh({ id: mesh.value, displayName: record.displayName, ipv4Cidr: created.cidr, createdAt: record.createdAt });
       });

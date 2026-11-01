@@ -869,7 +869,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           const ownership = yield* OwnershipStore;
           const store = yield* MeshStore;
           const rows = yield* ownership
-            .listPage(principal.tenantId, "mesh", { limit: 100, after: null, only: principal.resourceAllowlist, labels: null })
+            .listPage(principal.tenantId, "mesh", { limit: 100, after: null, only: principal.resourceAllowlist, labels: principal.requiredLabels ?? null })
             .pipe(Effect.catchAll(dependencyDown("ownership.list")));
           const items = yield* Effect.forEach(rows, (row) =>
             Effect.map(store.cidrOf(principal.tenantId, row.cmuxId).pipe(Effect.catchAll(dependencyDown("mesh.cidrOf"))), (cidr) =>

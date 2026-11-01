@@ -18,6 +18,17 @@ const retained = async () => {
   return h;
 };
 
+it("retains labelled intent through lease owners and refuses changing it through the legacy command", async () => {
+  const storage = memoryLedgerStorage(), ledger = new TenantLedger(storage), meshId = newMeshId();
+  const intent = { key, fingerprint, meshId, holder: "first", createdBy: "service:cloud", displayName: null };
+  expect(await ledger.meshCreation({ op: "begin-labelled", ...intent, labels: { role: "cloud", cmux_mesh_creation: key } }, 0)).toMatchObject({ state: "record", record: { labels: { role: "cloud" } } });
+  await ledger.meshCreation({ op: "abandon", key, meshId, holder: "first" }, 1);
+  const restarted = new TenantLedger(storage);
+  expect(await restarted.meshCreation({ op: "begin-labelled", ...intent, holder: "second", labels: { cmux_mesh_creation: key, role: "cloud" } }, 2)).toMatchObject({ state: "record", acquired: true, record: { labels: { role: "cloud" } } });
+  expect(await restarted.meshCreation({ op: "begin-labelled", ...intent, labels: { role: "other", cmux_mesh_creation: key } }, 3)).toEqual({ state: "conflict" });
+  expect(await restarted.meshCreation({ op: "begin", ...intent }, 3)).toEqual({ state: "conflict" });
+});
+
 it("retains the original identity, creator and request binding across lease owners", async () => {
   const { ledger, intent, lease } = await prepared();
   expect(await ledger.meshCreation({ op: "begin", ...intent, fingerprint: "4".repeat(64) }, 1)).toEqual({ state: "conflict" });
