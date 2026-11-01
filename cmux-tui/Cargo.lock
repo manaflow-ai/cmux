@@ -17,6 +17,7 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
+ "cmux-host",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",

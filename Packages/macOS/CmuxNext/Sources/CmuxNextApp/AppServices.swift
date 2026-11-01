@@ -409,10 +409,10 @@ final class AppServices {
     /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
     let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
 
-    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no
-    /// avatar of its own: its worn upload's first frame, else its pet character's.
-    func characterPicture(of chief: String?) -> URL? {
-        ChiefPetSettingsRows.characterPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
+    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no avatar
+    /// of its own: its worn upload's first frame, else the character it picked, else nil (its monogram).
+    func chosenPicture(of chief: String?) -> URL? {
+        ChiefPetSettingsRows.chosenPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot, file: settings?.fileRoot)
     }
 
     /// Chief `chief`'s (nil: the default) upload while it is worn over the character picked now.

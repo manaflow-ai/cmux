@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
+import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { chatUnderGlass, summaryGlass } from "../chatUnderGlass";
 import { usePresence } from "../../../ui/presence";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -149,6 +151,11 @@ export function SummaryCard({
     [shown, registry.processes, registry.listed, summary, running],
   );
   const panel = useRef<HTMLElement>(null);
+  // The popover floats over the chat: in a see-through Chromium page the chat under it blurs itself
+  // there (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its text never reads
+  // through the glass (Leo 2026-10-30: "I don't like the non-glassness"). The inline column is
+  // beside the chat and covers nothing.
+  useSeeThroughBlur(panel, drawn && !card.column, chatUnderGlass, summaryGlass);
   const popover = shown && !card.column;
   const edges = useScrollEdges();
   const close = card.close;

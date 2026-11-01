@@ -51,8 +51,10 @@
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
+/* Match the composer's 8px outset below 298px of content width (#28587). */
 .acpmux-dock > .acpmux-running-tray {
-  margin: 0 var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  --acpmux-tray-outset: clamp(0px, calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000), 8px);
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset)) - var(--acpmux-tray-outset)) 0 calc(var(--cv-inset) - var(--acpmux-tray-outset));
 }
 /* The cards over the composer: the running tray (Leo, 2026-10-30: "the stupid fucking gap at the
    bottom plus the stupid right indent misalignemnt"). It takes the composer card's two edges
