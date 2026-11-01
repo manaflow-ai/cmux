@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4136174016701",
+  "notes": "notes/4136174016701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31435,
+      "title": "fix(next): keep no-project headline after remote machine pick",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31416,
+      "title": "fix(sidebar): every row status mark draws at the red warning's size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31426,
+      "title": "Session Info: content under the floating panel pushes the chat left",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31398,
+      "title": "Transcript: a run of agent messages folds into one line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31424,
+      "title": "Subagent tray: no 3/4 ring, no View all (the list scrolls), a settled tray keeps its own surface joined to the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31360,
+      "title": "Agent chat tests: a prompt after tool rows stays centred in its gap",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
