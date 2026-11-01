@@ -113,11 +113,11 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
     /// (not its async bridge, whose continuation leaked on a disconnect) behind ``deadline``.
     @MainActor
     private func open(_ window: NSWindow) async throws {
-        let content: SCShareableContent = try await deadline("list this process's windows") { done in
+        let content = try await deadline("list this process's windows") { (done: @escaping @Sendable (Result<Handed<SCShareableContent>, any Error>) -> Void) in
             SCShareableContent.getCurrentProcessShareableContent { content, error in
-                done(content.map { .success($0) } ?? .failure(error ?? Failure(description: "no shareable content")))
+                done(content.map { .success(Handed($0)) } ?? .failure(error ?? Failure(description: "no shareable content")))
             }
-        }
+        }.value
         guard let target = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else {
             throw Failure(description: "ScreenCaptureKit lists no window \(window.windowNumber) of this process (\(content.windows.count) listed)")
         }
@@ -175,6 +175,13 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
                 once.resume(.failure(Unavailable(reason: "ScreenCaptureKit did not \(what) within \(Int(Self.callLimit)) s")))
             }
         }
+    }
+
+    /// A ScreenCaptureKit result handed from its callback queue to the main actor once.
+    // crash-allow: ScreenCaptureKit makes the value and never touches it again; only the main actor reads it, after the hand-over.
+    struct Handed<T>: @unchecked Sendable {
+        let value: T
+        init(_ value: T) { self.value = value }
     }
 
     /// Resumes a continuation once; later results are dropped.
