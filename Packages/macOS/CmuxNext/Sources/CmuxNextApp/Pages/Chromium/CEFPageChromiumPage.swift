@@ -128,12 +128,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 }
 
 extension TabContent {
-    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page
-    /// (an agent chat or New Tab page too) in Chromium.
+    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page in Chromium
+    /// (an agent chat, New Tab, the docked Home's Channels page: ``PageWebView/shown(in:)``).
     var childWindowTab: (any BrowserTab)? {
         switch self {
         case .browser(let entry): entry.tab.presentation == .childWindow ? entry.tab : nil
-        case .page(let view): ((view.content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab
+        case .page(let view): (PageWebView.shown(in: view.content)?.chromiumPage as? CEFPageChromiumPage)?.tab
         case .agent(let view): (view.chromiumPage as? CEFPageChromiumPage)?.tab
         default: nil
         }

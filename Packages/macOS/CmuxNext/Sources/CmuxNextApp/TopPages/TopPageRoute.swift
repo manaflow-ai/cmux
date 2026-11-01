@@ -62,6 +62,7 @@ extension TopPageRoute {
         case .settings: return .page(.settings)
         case .history: return .page(.history)
         case .bookmarks: return .page(.bookmarks)
+        case .automations: return .page(.automations)
         default: return nil
         }
     }

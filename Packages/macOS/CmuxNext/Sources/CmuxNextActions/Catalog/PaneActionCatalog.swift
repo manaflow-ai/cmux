@@ -35,7 +35,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "newColumnLeft",
                 title: String(localized: "action.newColumnLeft", defaultValue: "New Column Left", bundle: .module),
                 keywords: ["new column", "scroll", "column", "pane", "left", "add", "before"],
-                category: .pane, symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                category: .pane, symbol: "rectangle.lefthalf.inset.filled", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 targets: [.pane], cliName: "pane new-column-left", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(

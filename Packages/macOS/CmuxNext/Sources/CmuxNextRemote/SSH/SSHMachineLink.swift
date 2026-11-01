@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import os
@@ -81,6 +82,8 @@ public actor SSHMachineLink {
     private let environment: @Sendable () async -> [String: String]
     private let onStatus: @Sendable (SSHConnectionMachine.Status) -> Void
     private var machine = SSHConnectionMachine()
+    /// ``SSHConnectionMachine/waitsForUser``, mirrored at each event for readers off the actor.
+    private nonisolated let waitsForUserMirror = Mutex(false)
     private var child: ChildProcess?
     /// The stderr tail of the last link that exited.
     private var exitedOutput: String?
@@ -106,6 +109,9 @@ public actor SSHMachineLink {
     }
 
     public var status: SSHConnectionMachine.Status { machine.status }
+    /// Only Reconnect may open the gate (``SSHConnectionMachine/waitsForUser``): read without a hop,
+    /// set before the status that follows it is reported.
+    public nonisolated var waitsForUser: Bool { waitsForUserMirror.withLock { $0 } }
 
     /// The link's stderr tail (ssh and the machine's cmux-tui write their
     /// errors there, the daemon's start failure included): the running
@@ -120,6 +126,8 @@ public actor SSHMachineLink {
     public func handle(_ event: SSHConnectionMachine.Event) {
         let before = machine.status
         machine.handle(event)
+        let waits = machine.waitsForUser
+        waitsForUserMirror.withLock { $0 = waits }
         if event == .disconnect {
             startGeneration += 1
             starting?.cancel()

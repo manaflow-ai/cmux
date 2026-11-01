@@ -116,9 +116,10 @@ import Testing
         coordinator.runPass()
         try await waitFor { !host.cards.isEmpty && !document.sent.isEmpty }
         let card = try #require(host.cards.first)
-        #expect(card.title == "Archive 2 idle workspaces?")
+        #expect(card.title == "2 idle workspaces", "the button says Archive; the title fits the sidebar (a capture cut \"Archive 6 idle workspa…\")")
         #expect(card.eyebrow == nil && card.detail == nil, "no heading, no paragraph")
         #expect(card.actions.map(\.id) == ["archive", "always"])
+        #expect(card.actions.map(\.isSwitch) == [false, true], "T3: Always is an inline switch, not a button")
         #expect(host.styles == [.quiet], "Always Archive turns on automatic archiving")
         #expect(archived() == ["itm_old", "itm_older"])
     }
@@ -130,7 +131,7 @@ import Testing
         host.policy.style = .suggest
         coordinator.runPass()
         try await waitFor { !host.cards.isEmpty && !document.sent.isEmpty }
-        #expect(host.cards.first?.title == "Archive 1 idle workspace?")
+        #expect(host.cards.first?.title == "1 idle workspace")
         #expect(host.cards.first?.lines == ["OLDER"])
         #expect(host.toasts.first?.0 == "Archived 1 idle workspace")
     }
