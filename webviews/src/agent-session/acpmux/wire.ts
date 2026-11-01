@@ -84,8 +84,7 @@ function withoutFields(text: string, part: "params" | "result", fields: readonly
   try {
     const message = JSON.parse(text);
     const body = message?.[part];
-    if (body && typeof body === "object")
-      for (const field of fields) if (field in body) body[field] = "(secret)";
+    if (body && typeof body === "object") for (const field of fields) if (field in body) body[field] = "(secret)";
     return JSON.stringify(message);
   } catch {
     return "(secret answer)"; // l10n-allow: wire log text, never rendered

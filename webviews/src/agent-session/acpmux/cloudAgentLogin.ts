@@ -97,7 +97,13 @@ function startOf(reply: unknown): LoginStart | undefined {
 
 type LoginClient = Pick<
   AcpmuxDirectClient,
-  "selectedSession" | "resendPrompt" | "send" | "agentLoginStart" | "agentLoginFinish" | "agentLoginApiKey" | "agentLoginCancel"
+  | "selectedSession"
+  | "resendPrompt"
+  | "send"
+  | "agentLoginStart"
+  | "agentLoginFinish"
+  | "agentLoginApiKey"
+  | "agentLoginCancel"
 >;
 
 /// What the card calls. Every step that sends the failed prompt again takes the click's gesture
@@ -146,7 +152,8 @@ export function cloudAgentLogin(options: {
 }): CloudSignIn | undefined {
   const { connected, machineID, sessionId, harness, supported, gesture, openURL, isCurrent, currentClient } = options;
   const agent = agentKey(harness?.split("/").pop());
-  if (!connected || !machineID || !sessionId || !supported || (agent !== "claude" && agent !== "codex")) return undefined;
+  if (!connected || !machineID || !sessionId || !supported || (agent !== "claude" && agent !== "codex"))
+    return undefined;
   const client = () => {
     const current = currentClient();
     if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");

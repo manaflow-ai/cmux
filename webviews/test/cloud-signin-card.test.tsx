@@ -5,11 +5,7 @@
 // the person's click. These tests drive the card and its wire with a mocked client.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import {
-  cloudAgentLogin,
-  loginFailure,
-  signInURL,
-} from "../src/agent-session/acpmux/cloudAgentLogin";
+import { cloudAgentLogin, loginFailure, signInURL } from "../src/agent-session/acpmux/cloudAgentLogin";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -39,7 +35,9 @@ const replacements: Record<string, unknown> = {
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (
-    /^(HTML|SVG|CSS|Shadow|Document|Mutation|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|InputEvent|SubmitEvent)/.test(key) &&
+    /^(HTML|SVG|CSS|Shadow|Document|Mutation|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|InputEvent|SubmitEvent)/.test(
+      key,
+    ) &&
     !(key in scope)
   )
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
@@ -416,7 +414,12 @@ test("the wire log keeps no sign-in code, API key or device code", async () => {
     JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
-      result: { loginId: "l", url: "https://auth.openai.com/codex/device", userCode: "DEVICE-CODE-9", needsCode: false },
+      result: {
+        loginId: "l",
+        url: "https://auth.openai.com/codex/device",
+        userCode: "DEVICE-CODE-9",
+        needsCode: false,
+      },
     }),
   );
   log.sent(

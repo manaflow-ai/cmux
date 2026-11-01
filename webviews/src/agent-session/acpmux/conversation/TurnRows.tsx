@@ -577,7 +577,8 @@ function TurnFailure({
   const compactFirst = recovery === "compact" && compact !== undefined;
   // The way out goes first and reads as the card's one filled button.
   // Sign in again leads whenever the chat has a login to run, with or without a Retry beside it.
-  const switchFirst = offersSwitch && !signInFirst && !cloudSignInLeads && (recovery === "switch-model" || !offersRetry);
+  const switchFirst =
+    offersSwitch && !signInFirst && !cloudSignInLeads && (recovery === "switch-model" || !offersRetry);
   // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
   // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
   // only way out; the card keeps exactly one.

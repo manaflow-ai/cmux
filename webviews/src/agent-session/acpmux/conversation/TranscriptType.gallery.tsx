@@ -42,7 +42,12 @@ function gallerySignIn(agent: LoginAgent): CloudSignIn {
     start: async () =>
       agent === "claude"
         ? { loginId: "gallery-login", url: "https://claude.ai/oauth/authorize", needsCode: true }
-        : { loginId: "gallery-login", url: "https://auth.openai.com/codex/device", userCode: "QRST-4821", needsCode: false },
+        : {
+            loginId: "gallery-login",
+            url: "https://auth.openai.com/codex/device",
+            userCode: "QRST-4821",
+            needsCode: false,
+          },
     open: () => {},
     finish: () => new Promise<boolean>(() => {}),
     apiKey: async () => true,
