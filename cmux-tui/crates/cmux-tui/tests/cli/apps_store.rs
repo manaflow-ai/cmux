@@ -164,6 +164,19 @@ impl Client {
         }
     }
 
+    /// The next event line named `name` (other events and replies are
+    /// skipped; the read timeout bounds the wait).
+    fn event(&mut self, name: &str) -> Value {
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value["event"] == name {
+                return value;
+            }
+        }
+    }
+
     /// An App Store op; `origin` is the claimed origin.
     fn store(&mut self, op: &str, args: Value, origin: &str) -> Value {
         self.rpc(json!({ "cmd": "apps-store", "op": op, "args": args, "origin": origin }))
@@ -1434,4 +1447,72 @@ fn self_hosted_deploy_runs_the_container_and_rolls_back_on_failure() {
         "user",
     );
     assert_eq!(error_code(&refused), "deploy.target_not_allowed", "{refused}");
+}
+
+/// An open App Store page shows an app installed from somewhere else (the
+/// CLI's `cmux apps install`, another window, an agent's request the person
+/// approved) without a reload: its relay hears `apps-changed` and re-reads
+/// `installed.list`. Before, the page's entry named no event and the relay
+/// was never an apps event sink, so the Installed tab stayed empty while
+/// `cmux apps list --installed` showed the app.
+#[test]
+fn the_apps_page_relay_hears_an_install_made_elsewhere() {
+    let apps = Apps::new("page-events");
+    copy_store_examples(&apps.dir.join("bundled"));
+    apps.start();
+
+    let mut relay = apps.agent();
+    let hello = relay.rpc(json!({"cmd": "client-hello", "role": "page_relay", "page": "apps"}));
+    assert_eq!(ok(&hello)["page_events"], json!(["apps-changed"]), "{hello}");
+    let page = json!({"origin": {"claim": "page"}});
+    let reply = relay.v2("apps.installed.list", json!({}), page.clone());
+    let before = v2_ok(&reply)["apps"].as_array().cloned().unwrap_or_default();
+    assert!(before.iter().all(|row| row["app"] != "manaflow-ai/standup"), "{reply}");
+    let subscribed = relay.rpc(json!({"cmd": "subscribe"}));
+    assert_eq!(subscribed["ok"], true, "{subscribed}");
+
+    // The person installs from the CLI: the cmux app's own connection.
+    let mut app = apps.app();
+    let installed = app.store(
+        "cmux.apps.install",
+        json!({ "app": "manaflow-ai/standup", "grant_optional": false, "idempotency_key": "pe1" }),
+        "user",
+    );
+    assert_eq!(ok(&installed)["app"]["state"]["installed"], true, "{installed}");
+
+    let changed = relay.event("apps-changed");
+    assert_eq!(changed["app"], "manaflow-ai/standup", "{changed}");
+    let reply = relay.v2("apps.installed.list", json!({}), page);
+    let after = v2_ok(&reply)["apps"].as_array().cloned().unwrap_or_default();
+    assert!(after.iter().any(|row| row["app"] == "manaflow-ai/standup"), "{reply}");
+}
+
+/// A listing with a `deploy` block says where it runs: `catalog.get` sends
+/// the manifest's targets (the App Store page's "Runs on" section) and
+/// `cmux apps info` prints them; an app with no deploy block sends none.
+#[test]
+fn a_deployed_apps_listing_names_its_deploy_targets() {
+    let apps = Apps::new("deploy-targets");
+    copy_store_examples(&apps.dir.join("bundled"));
+    apps.start();
+    let mut agent = apps.agent();
+    let reply =
+        agent.store("cmux.apps.catalog.get", json!({"app": "manaflow-ai/hello-deploy"}), "cli");
+    let detail = ok(&reply);
+    assert_eq!(detail["deploy"]["targets"], json!(["self-hosted", "cloud-vm"]), "{reply}");
+    assert_eq!(detail["deploy"]["tenancy"], json!(["user"]), "{reply}");
+    let reply = agent.store("cmux.apps.catalog.get", json!({"app": "manaflow-ai/standup"}), "cli");
+    assert!(ok(&reply).get("deploy").is_none_or(Value::is_null), "{reply}");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .arg("--socket")
+        .arg(&apps.socket)
+        .args(["apps", "info", "manaflow-ai/hello-deploy"])
+        .env("CMUX_TUI_STATE_DIR", apps.dir.join("state"))
+        .env("CMUX_TUI_CONFIG", apps.dir.join("config.json"))
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(text.contains("runs on: self-hosted, cloud-vm"), "{text}");
 }

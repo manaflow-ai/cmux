@@ -126,8 +126,8 @@ function Row({ row }: { row: HarnessRow }) {
               {t("settingsWindow.harnesses.autoUpdateFailed", row.lastAutoUpdate.detail)}
             </div>
           )}
-          {row.auth === "signedOut" && (
-            <div className="row-error" data-harness-auth="signedOut">
+          {(row.auth === "signedOut" || row.auth === "expired") && (
+            <div className="row-error" data-harness-auth={row.auth}>
               {t("settingsWindow.harnesses.signedOut")}
             </div>
           )}

@@ -20,11 +20,10 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { foldMotion, foldMs, markHeightFold } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
-import { SoftBroken } from "./softBreaks";
-
-// Ordinary text keeps its literal whitespace and cheap span. Anything that can contain Markdown
-// uses the shared transcript parser, including a list, code or link with no quote in the prompt.
-const PROMPT_MARKDOWN = /[`*_~[\]$<>|#\\]|https?:\/\/|(^|\n)[ \t]*(?:[-+]|\d+[.)])[ \t]/;
+import { SoftBroken, softBreaks } from "./softBreaks";
+import { isPromptMarkdown } from "./promptMarkdown";
+import { githubRefLabel, UrlChip } from "../chips/LinkChips";
+import { textLinks } from "../chips/paths";
 
 export function PromptText({
   rowId,
@@ -198,19 +197,41 @@ export function PromptText({
   );
 }
 
-/// One typed block of a sent prompt: Markdown when it can hold any, else its literal text with
-/// break points in long tokens. A sent prompt's inline parts draw theirs with it too
+/// One typed block of a sent prompt: Markdown when it is written in Markdown (promptMarkdown.ts),
+/// else its literal text, its line breaks kept (the bubble's `pre-wrap`), a bare web address as a
+/// link, and break points in long tokens. A sent prompt's inline parts draw theirs with it too
 /// (InlinePromptContent.tsx), so a placed prompt reads as a legacy one does.
 export function PromptTyped({ text, show }: { text: string; show: (text: string) => string }) {
-  return PROMPT_MARKDOWN.test(text) ? (
+  const shown = show(text);
+  return isPromptMarkdown(text) ? (
     <Markdown className="cv-user__markdown" thumbnails={false}>
-      {show(text)}
+      {shown}
     </Markdown>
   ) : (
     <span className="cv-user__typed">
-      <SoftBroken text={show(text)} />
+      <LiteralText text={shown} />
     </span>
   );
+}
+
+/// Literal prompt text with each bare web address a link (UrlChip, as in a reply); the rest keeps
+/// its break points (softBreaks.tsx).
+function LiteralText({ text }: { text: string }) {
+  const urls = text.includes("://") ? textLinks(text).filter((link) => link.kind === "url") : [];
+  if (!urls.length) return <SoftBroken text={text} />;
+  const out: ReactNode[] = [];
+  let at = 0;
+  urls.forEach((link, index) => {
+    if (link.start > at) out.push(...softBreaks(text.slice(at, link.start), `t${index}`));
+    out.push(
+      <UrlChip key={`u${index}`} href={link.value}>
+        {githubRefLabel(link.value) ?? link.value}
+      </UrlChip>,
+    );
+    at = link.end;
+  });
+  if (at < text.length) out.push(...softBreaks(text.slice(at), "tail"));
+  return <>{out}</>;
 }
 
 /// One pasted block: the chip, and the paste under it once opened. A sent prompt's inline parts

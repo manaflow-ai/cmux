@@ -1,6 +1,20 @@
 import Foundation
 
 extension HomeStore {
+    /// Expands the agent-message fold `group` in `conversation`, or collapses it when expanded: a
+    /// click on its row (``HomeAgentMessageRow/toggleLink(group:)``). The transcript shows the change.
+    public func toggleAgentMessages(_ group: String, in conversation: ConversationID) {
+        if expandedAgentMessages[conversation, default: []].remove(group) == nil {
+            expandedAgentMessages[conversation, default: []].insert(group)
+        }
+        bumpTranscript(conversation)
+    }
+
+    /// Whether the agent-message fold `group` in `conversation` shows every message.
+    public func isAgentMessagesExpanded(_ group: String, in conversation: ConversationID) -> Bool {
+        expandedAgentMessages[conversation]?.contains(group) == true
+    }
+
     func applyAgentRun(_ run: HomeAgentRun, preservingLiveAfter snapshot: UInt64? = nil) {
         guard pager.isShown(run.conversation) else { return }
         if agentMessages[run.conversation, default: HomeAgentMessages()].apply(run, preservingLiveAfter: snapshot) {

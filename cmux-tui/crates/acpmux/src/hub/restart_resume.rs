@@ -568,7 +568,21 @@ impl Hub {
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
-        blocks.extend(super::super::prompt_images::blocks_of(&images));
+        // Each image's source goes with it as display metadata, so the continuation's record keeps
+        // it (`prompt_images.rs`, `keep_sourced`).
+        let mut display = Vec::new();
+        for image in &images {
+            let Some(block) =
+                super::super::prompt_images::blocks_of(std::slice::from_ref(image)).pop()
+            else {
+                continue;
+            };
+            if let Some(source) = image.get("source") {
+                display
+                    .push(json!({"kind": "image", "blockIndex": blocks.len(), "source": source}));
+            }
+            blocks.push(block);
+        }
         let mut queued = json!({
             "text": text,
             "client": "acpmux",
@@ -584,6 +598,9 @@ impl Hub {
         });
         if !images.is_empty() {
             queued.set("images", Value::Array(images));
+        }
+        if !display.is_empty() {
+            queued.set("displayParts", Value::Array(display));
         }
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
@@ -696,19 +713,20 @@ mod tests {
             "{msg}"
         );
 
-        // A loop longer than the default's four runs all of its attempts.
+        // A configured six-attempt loop runs all of its attempts.
         let (id, gave_up) = chain(Some(vec![10_000; 6]), 5).await;
         assert_eq!(id, Some(format!("p1{SUFFIX}6")));
         assert!(gave_up.is_empty(), "{gave_up:?}");
     }
 
-    /// The key unset keeps the default waits' four attempts, and `[]` still turns it off.
+    /// The key unset keeps the default waits' attempts, and `[]` still turns it off.
     #[tokio::test]
     async fn an_unset_key_keeps_the_default_attempts_and_an_empty_list_turns_it_off() {
-        let (id, _) = chain(None, 3).await;
-        assert_eq!(id, Some(format!("p1{SUFFIX}4")));
+        let attempts = DEFAULT_DELAYS_MS.len();
+        let (id, _) = chain(None, attempts - 1).await;
+        assert_eq!(id, Some(format!("p1{SUFFIX}{attempts}")));
 
-        let (id, gave_up) = chain(None, 4).await;
+        let (id, gave_up) = chain(None, attempts).await;
         assert_eq!(id, None);
         assert_eq!(gave_up.len(), 1, "{gave_up:?}");
 

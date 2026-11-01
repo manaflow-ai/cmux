@@ -140,6 +140,9 @@ pub struct Paths {
     pub traces: PathBuf,
     /// The memory inspector's address and token for the app (inspect/http.rs), 0600.
     pub inspector: PathBuf,
+    /// Share Screen with Chief's files (the app writes them; `screen_share.rs`):
+    /// `inbox/` entries the brain turns into notes, `frames/` it names.
+    pub screen: PathBuf,
 }
 
 impl Paths {
@@ -165,6 +168,7 @@ impl Paths {
             turn_codex: root.join("turn-codex"),
             traces: root.join("traces"),
             inspector: root.join("inspector.json"),
+            screen: root.join("screen"),
             root,
         }
     }

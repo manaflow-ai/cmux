@@ -125,13 +125,54 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/** Shows the full prompt as a tooltip only when its one line (the button's inner text) cuts it off. */
+/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
+/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
+export function shownText(entry: QueuedEntry, t: Translate): string {
+  const retry = entry.retry;
+  if (!retry) return entry.prompt;
+  return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/// The most a held list may grow to: the room the pane leaves the composer's stack, that is the
+/// floating dock's max-height and the pane under its header (44px) less the transcript's least room
+/// (64px, bottomStack.css), whichever is less. Not the list's resting cap (--acpmux-queue-max): a
+/// row opened under the pointer may take the list past it, so nothing under the pointer moves.
+function heldCap(list: HTMLElement, now: number): number {
+  const view = list.ownerDocument.defaultView;
+  let cap = Infinity;
+  const dock = list.closest<HTMLElement>(".acpmux-dock");
+  const dockMax = dock ? parseFloat(view?.getComputedStyle(dock).maxHeight ?? "") : NaN;
+  if (dock && Number.isFinite(dockMax)) cap = Math.min(cap, now + dockMax - dock.getBoundingClientRect().height);
+  const main = list.closest<HTMLElement>(".acpmux-main");
+  if (main) cap = Math.min(cap, now + list.getBoundingClientRect().top - (main.getBoundingClientRect().top + 44 + 64));
+  return cap;
+}
+
+/** Row `id` of `list`, matched by its prompt id (no selector escaping: an id may hold any character). */
+function rowOf(list: HTMLElement | null | undefined, id: string): HTMLElement | undefined {
+  return [...(list?.querySelectorAll<HTMLElement>(":scope > .acpmux-queued") ?? [])].find(
+    (row) => row.dataset.promptId === id,
+  );
+}
+
+/** Shows the row's whole text as a tooltip only when its one line (the button's inner text) cuts it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
   const text = button.firstElementChild ?? button;
   if (text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
   else button.removeAttribute("title");
 }
+
+/// Bridge failures whose request may already have reached acpmux (it answered late, or the socket
+/// closed after sending); every other rejection (`native.not_connected`, a typed refusal) means
+/// the edit was not applied.
+const UNCERTAIN_CODES = new Set(["native.timed_out", "transport.closed", "transport.stale_connection"]);
+const mayHaveReachedAcpmux = (error: unknown) => {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && UNCERTAIN_CODES.has(code);
+};
 
 export function ComposerQueue({
   queue,
@@ -179,6 +220,15 @@ export function ComposerQueue({
   const [sentNow, setSentNow] = useState<ReadonlySet<string>>(new Set());
   const queueing = useQueueing();
   const [editing, setEditingId] = useState<string>();
+  // The open edit as the latest render saw it, for a call that settles later.
+  const editingNow = useRef<string | undefined>(undefined);
+  editingNow.current = editing;
+  // Each row's latest Save: an older one that settles after a newer one began must not reopen its
+  // superseded text (the newer save's editor, or its result, is the one that counts).
+  const saveGeneration = useRef(new Map<string, number>());
+  // Typed text of Saves that failed before acpmux had them while another editor was open (or a
+  // sibling's recovery was just claimed): each waits, per row, for the editor to be free again.
+  const recovered = useRef(new Map<string, { text: string; original: string; generation: number }>());
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const setEditing = (id: string | undefined) => {
@@ -187,14 +237,192 @@ export function ComposerQueue({
   };
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (id: string) =>
+  // Opening or closing a row under the pointer never moves what is under the pointer (Leo,
+  // 2026-10-30: "its expansion animation makes the hovered buttons shift layout"). A row's actions
+  // sit on its last line (composerStates.css), and the list sits on the composer, so it grows and
+  // shrinks at its top: the list changes by exactly what the row did, at once and with no
+  // animation, so the row's last line, its actions and every row below stay where they were, and
+  // all of the opened text shows (no scroll). Until the pointer leaves, the list keeps that height
+  // instead of fitting its rows again; then it fits them.
+  const held = useRef(false);
+  // The pointer that pressed a row's text, read by its click.
+  const pressedBy = useRef<string>(undefined);
+  // A row the pointer just opened or closed, with its height and the list's before, for the
+  // layout effect that sizes the list once the row draws.
+  const resized = useRef<{ id: string; row: number; list: number }>(undefined);
+  // The row whose pointer toggle holds the list: the hold is that row's, and goes with it.
+  const heldId = useRef<string>(undefined);
+  // While a hold lasts: the observers that give room back when the stack around the list grows.
+  const holding = useRef<{ disconnect(): void }>(undefined);
+  /** Ends the hold now: the list fits its rows again. */
+  const release = (current: HTMLElement | null) => {
+    held.current = false;
+    heldId.current = undefined;
+    holding.current?.disconnect();
+    holding.current = undefined;
+    if (!current) return;
+    // Fit while [data-held] still turns the max-height transition off, and have the browser take
+    // the new height (a style read) before the transition comes back: the list shrinks at once,
+    // never animating down over a blank band (closing takes effect on the click).
+    current.style.removeProperty("min-height");
+    fitList(current);
+    void current.ownerDocument.defaultView?.getComputedStyle(current).maxHeight;
+    current.removeAttribute("data-held");
+  };
+  const toggle = (id: string, hovered: boolean) => {
+    // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to
+    // leave it, and must never keep the list from fitting.
+    held.current = hovered;
+    heldId.current = hovered ? id : undefined;
+    const current = list.current;
+    const row = rowOf(current, id);
+    resized.current =
+      hovered && current && row
+        ? { id, row: row.getBoundingClientRect().height, list: current.getBoundingClientRect().height }
+        : undefined;
+    if (!hovered) {
+      current?.style.removeProperty("min-height");
+      current?.removeAttribute("data-held");
+    }
     setOpen((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  };
+  // The list follows the row the pointer opened or closed, by exactly its change, before the frame
+  // paints.
+  useLayoutEffect(() => {
+    const was = resized.current;
+    const current = list.current;
+    if (!was || !current) return;
+    resized.current = undefined;
+    const row = rowOf(current, was.id);
+    if (!row) return;
+    const want = Math.max(0, was.list + row.getBoundingClientRect().height - was.row);
+    // Never past the list's own cap, nor past the room the pane leaves the stack: a very long prompt
+    // in a short pane would otherwise push the composer off the pane. Past it, the list scrolls.
+    const height = Math.min(want, Math.max(was.list, heldCap(current, was.list)));
+    // No max-height transition for this change (composerStates.css [data-held]).
+    current.setAttribute("data-held", "");
+    current.style.maxHeight = `${height}px`;
+    current.style.minHeight = `${height}px`;
+    // Capped, the opened row's end (its error, its last lines) scrolls into view inside the list.
+    if (height < want - 0.5) {
+      const end = offsets(current, row).bottom - current.clientHeight;
+      if (end > current.scrollTop) current.scrollTop = end;
+    }
+  }, [open]);
+  // A hold outlives nothing it holds for: once its row leaves the queue (deleted, sent, steered,
+  // run), or a row leaving makes the held height more than the rows left need, the list fits its
+  // rows at once instead of keeping a blank band until the pointer leaves.
+  useLayoutEffect(() => {
+    const current = list.current;
+    if (!held.current || !current) return;
+    const rows = [...current.querySelectorAll<HTMLElement>(":scope > .acpmux-queued")];
+    if (!heldId.current || !rows.some((row) => row.dataset.promptId === heldId.current)) return release(current);
+    const last = current.lastElementChild;
+    const pad = parseFloat(current.ownerDocument.defaultView?.getComputedStyle(current).paddingBottom ?? "") || 0;
+    const need = last ? offsets(current, last).bottom + pad : 0;
+    if (need < parseFloat(current.style.minHeight || "0") - 0.5) release(current);
+  });
+  // A held list gives room back when the stack around it grows (a permission card or a question
+  // arrives under the pointer, the pane shortens): past the room the pane leaves the stack, or by
+  // what a part above it has had to give up since the hold began (bottomStack.css shrinks those
+  // first, so a card would otherwise sit cut to one row over a held queue), it shrinks and scrolls.
+  // While a hold lasts, a ResizeObserver on the dock, the pane, the parts above the list and their
+  // contents, and a MutationObserver for parts that arrive; both disconnect when the hold ends or
+  // the list goes.
+  useLayoutEffect(() => {
+    const current = list.current;
+    if (!held.current || !current) {
+      holding.current?.disconnect();
+      holding.current = undefined;
+      return;
+    }
+    if (holding.current || typeof ResizeObserver === "undefined") return;
+    const view = current.ownerDocument.defaultView;
+    const dock = current.closest<HTMLElement>(".acpmux-dock");
+    const main = current.closest<HTMLElement>(".acpmux-main");
+    /// The parts of the stack drawn above the list (a question, a permission card, notices).
+    const above = () =>
+      dock
+        ? [...dock.querySelectorAll<HTMLElement>(":scope > *, :scope > .acpmux-composer > *")].filter(
+            (part) =>
+              part !== current &&
+              !part.contains(current) &&
+              (part.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          )
+        : [];
+    /// How much of its own height (to its own max-height) the stack has squeezed out of a part.
+    const squeezed = (part: HTMLElement) => {
+      const max = parseFloat(view?.getComputedStyle(part).maxHeight ?? "");
+      return Math.max(0, Math.min(part.scrollHeight, Number.isFinite(max) ? max : Infinity) - part.clientHeight);
+    };
+    // What each part had given up when the hold began: only what it gives up after is handed back,
+    // so the hold itself never moves the list under the pointer.
+    const before = new WeakMap(above().map((part) => [part, squeezed(part)]));
+    const shrinkToRoom = () => {
+      if (!held.current || !current.isConnected) return;
+      const box = current.getBoundingClientRect();
+      let room = heldCap(current, box.height);
+      for (const part of above()) room = Math.min(room, box.height - (squeezed(part) - (before.get(part) ?? 0)));
+      if (room >= box.height - 0.5) return;
+      const min = parseFloat(view?.getComputedStyle(current).getPropertyValue("--acpmux-stack-row-min") ?? "") || 34;
+      const height = `${Math.max(min, room)}px`;
+      current.style.maxHeight = height;
+      current.style.minHeight = height;
+    };
+    const observer = new (view?.ResizeObserver ?? ResizeObserver)(shrinkToRoom);
+    const watch = () => {
+      for (const part of above()) for (const box of [part, ...part.children]) observer.observe(box);
+      for (const box of [dock, main]) if (box) observer.observe(box);
+    };
+    watch();
+    // A part that arrives later (the card), or a card a part gains, is watched too and measured at once.
+    const arrivals = new (view?.MutationObserver ?? MutationObserver)(() => {
+      watch();
+      shrinkToRoom();
+    });
+    if (dock) arrivals.observe(dock, { childList: true, subtree: true });
+    holding.current = {
+      disconnect() {
+        observer.disconnect();
+        arrivals.disconnect();
+      },
+    };
+  });
+  useEffect(
+    () => () => {
+      holding.current?.disconnect();
+      holding.current = undefined;
+    },
+    [],
+  );
+  /** Fits the list to its rows, unless a row the pointer opened holds its height. */
+  const fit = (current: HTMLElement) => {
+    if (!held.current) fitList(current);
+  };
   // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
   const draft = useRef<{ id: string; original: string; text: string }>(undefined);
+  // Reopens the next waiting recovery once the editor is free; a row that is gone by then hands its
+  // text back to the composer, and one saved again since is dropped (its newer save counts).
+  const reopenRecovered = () => {
+    for (const [id, waiting] of recovered.current) {
+      recovered.current.delete(id);
+      const row = drawnRows.current.find((entry) => entry.id === id && entry.author === undefined);
+      if (!row) onLost?.(waiting.text, id);
+      else if (saveGeneration.current.get(id) === waiting.generation) {
+        editingNow.current = id;
+        draft.current = { id, original: waiting.original, text: waiting.text };
+        setEditing(id);
+        return;
+      }
+    }
+  };
+  // The layout effect below runs on queue changes only, and calls the latest closure.
+  const reopenRecoveredRef = useRef(reopenRecovered);
+  reopenRecoveredRef.current = reopenRecovered;
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
@@ -233,6 +461,8 @@ export function ComposerQueue({
       draft.current = undefined;
       setDropped(new Set());
       setEditingId(undefined);
+      editingNow.current = undefined;
+      reopenRecoveredRef.current();
     }
   }, [queue, editing, onLost]);
   // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
@@ -242,6 +472,12 @@ export function ComposerQueue({
   const wasOpen = useRef(unfolded);
   useLayoutEffect(() => {
     const current = list.current;
+    // A hold belongs to the list the pointer was on: once that list leaves (the queue emptied) no
+    // pointerleave comes, so a list drawn later starts unheld.
+    if (watched.current?.list !== current) {
+      held.current = false;
+      heldId.current = undefined;
+    }
     if (current) {
       // Clear the collapsed list's scroll offset before measuring the opened rows. A pointer click
       // can leave focus on a row that the browser keeps anchored while the list grows; measuring
@@ -250,7 +486,7 @@ export function ComposerQueue({
       const opening = unfolded && !wasOpen.current;
       if (opening) current.scrollTop = 0;
       const firstFit = !current.hasAttribute("data-fit-ready");
-      fitList(current);
+      fit(current);
       if (firstFit) {
         fitReadyFrame.current = requestFitFrame(current.ownerDocument, () => {
           fitReadyFrame.current = undefined;
@@ -268,10 +504,10 @@ export function ComposerQueue({
         const observer = new ResizeObserver(() => {
           if (current.clientWidth === width) return;
           width = current.clientWidth;
-          fitList(current);
+          fit(current);
         });
         observer.observe(current);
-        const rows = new ResizeObserver(() => fitList(current));
+        const rows = new ResizeObserver(() => fit(current));
         watched.current = { list: current, observer, rows };
       }
     }
@@ -430,16 +666,20 @@ export function ComposerQueue({
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
-      void onChange(entry.id, { op: "move", index: to }).finally(() =>
-        setTimeout(() => {
-          if (refocus.current === entry.id) refocus.current = undefined;
-        }, 500),
-      );
+      void onChange(entry.id, { op: "move", index: to })
+        .finally(() =>
+          setTimeout(() => {
+            if (refocus.current === entry.id) refocus.current = undefined;
+          }, 500),
+        )
+        .catch(() => undefined);
     });
   // The open edit ends unsaved, its images all kept; focus goes back to its row.
   const cancel = (index: number) => {
     draft.current = undefined;
     setEditing(undefined);
+    editingNow.current = undefined;
+    reopenRecovered();
     focusRow(index);
   };
   const save = (entry: QueuedEntry, text: string) => {
@@ -448,6 +688,10 @@ export function ComposerQueue({
     const kept = images.filter((image) => !dropped.has(image.id));
     draft.current = undefined;
     setEditing(undefined);
+    editingNow.current = undefined;
+    // A save of this row supersedes any text of its own that waited; the others get the editor next.
+    recovered.current.delete(entry.id);
+    reopenRecovered();
     focusRow(shown.indexOf(entry));
     const next = text.trim();
     // Text alone keeps every image; an image removed sends the ones left.
@@ -456,9 +700,32 @@ export function ComposerQueue({
     const edit: QueueEdit = removed
       ? { op: "update", text: next, images: kept.map((image) => image.id) }
       : { op: "update", text: next };
-    void onChange(entry.id, edit).then((ok) => {
-      if (!ok) onLost?.(next, entry.id);
-    });
+    const generation = (saveGeneration.current.get(entry.id) ?? 0) + 1;
+    saveGeneration.current.set(entry.id, generation);
+    const latest = () => saveGeneration.current.get(entry.id) === generation;
+    // A refused edit (acpmux answered no: the prompt already started) hands the typed text back to
+    // the composer. A call that failed before acpmux could have it (not connected, a typed
+    // refusal) leaves the row queued, so the text goes back into the row's editor: restoring it to
+    // the composer too would show the prompt twice. If the row is gone by the time the queue next
+    // draws, the open editor hands the text back then. A timeout or a closed bridge may have
+    // reached acpmux already: the next snapshot says, and restoring could duplicate it.
+    void onChange(entry.id, edit).then(
+      (ok) => {
+        if (!ok) onLost?.(next, entry.id);
+      },
+      (error: unknown) => {
+        if (mayHaveReachedAcpmux(error) || !latest()) return;
+        // Another edit is open (or a sibling's recovery just claimed the editor in this batch): its
+        // draft is not ours to drop, so this text waits its turn and the row stays queued meanwhile.
+        if (editingNow.current !== undefined) {
+          recovered.current.set(entry.id, { text: next, original: entry.prompt, generation });
+          return;
+        }
+        editingNow.current = entry.id;
+        draft.current = { id: entry.id, original: entry.prompt, text: next };
+        setEditing(entry.id);
+      },
+    );
   };
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
@@ -637,6 +904,7 @@ export function ComposerQueue({
         <QueuedEdit
           entry={entry}
           label={t("composer.queueEdit")}
+          initial={draft.current?.id === entry.id ? draft.current.text : undefined}
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
           onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
@@ -646,8 +914,14 @@ export function ComposerQueue({
           className="acpmux-queued-text"
           data-open={open.has(entry.id) ? "" : undefined}
           aria-expanded={open.has(entry.id)}
-          onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
-          onClick={() => toggle(entry.id)}
+          onPointerEnter={(event) => titleWhenTruncated(event, shownText(entry, t))}
+          onPointerDown={(event) => (pressedBy.current = event.pointerType)}
+          onClick={(event) => {
+            // A mouse or pen press is a hovering pointer; a key (no press) or a touch is none.
+            const by = pressedBy.current;
+            pressedBy.current = undefined;
+            toggle(entry.id, event.detail > 0 && (by === "mouse" || by === "pen"));
+          }}
         >
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
           <span className="acpmux-queued-clamp">
@@ -657,7 +931,19 @@ export function ComposerQueue({
                 {t("composer.steering")}
               </span>
             )}
-            {entry.prompt}
+            {entry.retry ? (
+              <>
+                <span className="acpmux-queued-kind" data-kind="retry">
+                  {t("composer.queuedSubagentRetry")}
+                </span>
+                {entry.retry.name ?? entry.retry.agentId}
+                {open.has(entry.id) && entry.retry.error && (
+                  <span className="acpmux-queued-detail">{entry.retry.error}</span>
+                )}
+              </>
+            ) : (
+              entry.prompt
+            )}
           </span>
         </button>
       )}
@@ -700,6 +986,9 @@ export function ComposerQueue({
           const row = (event.target as HTMLElement).closest("li");
           if (row && list.current && !pressing.current) reveal(list.current, row);
         }}
+        onPointerLeave={(event) => {
+          if (held.current) release(event.currentTarget);
+        }}
         onPointerDown={(event) => {
           pressing.current = true;
           // Released anywhere, over the list or not; a press that ends outside the page (a
@@ -729,7 +1018,7 @@ export function ComposerQueue({
               <button
                 type="button"
                 className="acpmux-queue-resume"
-                onClick={() => void onChange(queue[0].id, { op: "resume" })}
+                onClick={() => void onChange(queue[0].id, { op: "resume" }).catch(() => undefined)}
               >
                 {t("composer.queueResume")}
               </button>
@@ -780,11 +1069,14 @@ export function ComposerQueue({
 function QueuedEdit({
   entry,
   label,
+  initial,
   onInput,
   onDone,
 }: {
   entry: QueuedEntry;
   label: string;
+  /// The text the editor opens with when it comes back after a failed save; the row's own otherwise.
+  initial?: string;
   onInput(text: string): void;
   /// The new text, or undefined when cancelled.
   onDone(text: string | undefined): void;
@@ -814,7 +1106,7 @@ function QueuedEdit({
       className="acpmux-queued-edit"
       aria-label={label}
       rows={1}
-      defaultValue={entry.prompt}
+      defaultValue={initial ?? entry.prompt}
       onInput={(event) => {
         fit();
         onInput(event.currentTarget.value);
