@@ -269,6 +269,10 @@ pub(super) fn handle_frame(
         return writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok();
     }
     #[cfg(unix)]
+    if let Some(keep_open) = super::native_owner::mobile::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
     if let Some(keep_open) = super::native_owner::try_handle(mux, client, message, writer) {
         return keep_open;
     }

@@ -181,6 +181,25 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
 }
 
 #[test]
+fn native_owner_without_agent_socket_does_not_advertise_mobile_chat() {
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    assert!(!identity["capabilities"].as_array().unwrap().contains(&json!("cloud-mobile-chat-v1")));
+    ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"set-client-info", "capabilities":["cloud-mobile-chat-v1"]}),
+    );
+    assert_eq!(
+        call(&mut stream, &mut reader, json!({"cmd":"list-workspaces"}))["error_code"],
+        json!(REMOTE_DENIED)
+    );
+}
+
+#[test]
 fn native_owner_mobile_handshake_keeps_phone_policy_for_the_connection() {
     let fake = FakeAcpmux::start("native-mobile-handshake");
     let entry = entry_with(true, Arc::new(FsGate), Some(true));
@@ -203,6 +222,27 @@ fn native_owner_mobile_handshake_keeps_phone_policy_for_the_connection() {
     // until this authenticated connection closes, not until the next hello.
     ok(&mut stream, &mut reader, json!({"cmd":"set-client-info", "capabilities":[]}));
     assert!(entry.mux.control_clients.supports_capability(client, "cloud-mobile-chat-v1"));
+    // A phone cannot recover the broader owner vocabulary through another
+    // dispatcher, optional fields, or a second handshake.
+    for frame in [
+        json!({"cmd":"create-workspace"}),
+        json!({"cmd":"create-terminal"}),
+        json!({"cmd":"subscribe", "tree_events":"deltas"}),
+        json!({"cmd":"agent-inventory"}),
+        json!({"cmd":"agent-session-trust", "surface":1, "cwd":"/tmp"}),
+        json!({"cmd":"agent-transfer-receive", "cwd":"/tmp", "manifest":{}}),
+        json!({"cmd":"list-workspaces", "command":"injected"}),
+        json!({"cmd":"set-client-info", "vm_kind":"owner"}),
+        json!({"cmd":"agent-session-attach", "surface":1, "session":"other-session"}),
+        json!({"cmd":"agent-session-prompt", "surface":1, "prompt_id":"forged",
+            "text":"hello", "mode":"bypassPermissions"}),
+        json!({"cmd":"agent-session-prompt", "surface":1, "prompt_id":"forged",
+            "text":"hello", "_meta":{"acpmux":{"via":"desktop"}}}),
+        json!({"protocol":"cmux.protocol/2", "op":"workspace.create"}),
+        json!({"cmd":"shutdown-daemon"}),
+    ] {
+        assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
+    }
     entry.mux.remote_relay().revocation.lock().unwrap().record_revoked("inst_1");
     assert!(!entry.mux.is_native_agent_owner(client));
     assert_eq!(
@@ -210,6 +250,51 @@ fn native_owner_mobile_handshake_keeps_phone_policy_for_the_connection() {
         json!(REMOTE_DENIED)
     );
     fake.no_connection();
+}
+
+#[test]
+fn native_owner_mobile_prompt_uses_the_phone_floor_before_broad_owner_dispatch() {
+    let fake = FakeAcpmux::start_with(
+        "native-mobile-prompt",
+        Fixture { start_folder_trusted: Some(true), ..Default::default() },
+    );
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let surface = crate::server::agent_session_attach_tests::agent_tab(&entry.mux, Some(SESSION));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"set-client-info", "kind":"frontend", "device_kind":"ios",
+            "capabilities":["cloud-mobile-chat-v1", "conversation-tabs-v1", "agent-session-tabs-v1"]}),
+    );
+    ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let accepted = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"agent-session-prompt", "surface":surface,
+            "prompt_id":"mobile-1", "text":"A phone prompt"}),
+    );
+    assert_eq!(accepted["turn_id"], json!("turn_1"));
+    let prompt = fake.frame();
+    assert_eq!(prompt["method"], json!("session/prompt"));
+    assert_eq!(prompt["params"]["sessionId"], json!(SESSION));
+    assert_eq!(prompt["params"]["_meta"]["acpmux"]["via"], json!("cloud-mobile"));
+    // These verbs are available to the full Native owner, but not to the
+    // phone carrier. Its guard must consume refusals before owner dispatch.
+    for frame in [
+        json!({"cmd":"create-workspace"}),
+        json!({"cmd":"agent-session-start", "surface":surface, "cwd":"/tmp"}),
+        json!({"cmd":"agent-session-set-mode", "surface":surface, "mode_id":"bypassPermissions"}),
+        json!({"cmd":"agent-session-permission", "surface":surface,
+            "permission_id":"perm_attach", "option_id":"allow"}),
+    ] {
+        assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
+    }
+    fake.no_frame();
 }
 
 #[test]
