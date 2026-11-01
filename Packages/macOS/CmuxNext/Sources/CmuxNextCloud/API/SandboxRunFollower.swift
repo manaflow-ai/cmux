@@ -68,6 +68,11 @@ public final class SandboxRunFollower {
     /// Runs this app asked to cancel, newest last (bounded), noted before or after their follow
     /// starts: a cancel that races the send's hand-off still ends silently.
     private var cancelledHere: [String] = []
+    /// Incognito tasks that may still be open, newest last (ids only, as the incognito ledger keeps). Never
+    /// evicted for count: an id goes when its task ends or the server no longer shows it (403, 404). Their
+    /// records are never saved, so one found again after a relaunch (a hand-off in the owner's list) is
+    /// given back its flag (#31040).
+    private var incognitoIDs: [String] = []
     private var user: String?
 
     public convenience init(wait: @escaping Wait, defaults: UserDefaults = .standard, now: @escaping @MainActor () -> Date = { Date() },
@@ -85,6 +90,7 @@ public final class SandboxRunFollower {
             records = Dictionary(saved.following.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             ended = saved.ended
             cancelledHere = saved.cancelled ?? []
+            incognitoIDs = saved.incognito ?? []
         }
     }
 
@@ -145,11 +151,23 @@ public final class SandboxRunFollower {
 
     /// Keeps `record` (unless followed or ended already) and starts its poll.
     private func add(_ record: SandboxRunRecord) {
+        var record = record
+        if record.incognito == true, !incognitoIDs.contains(record.id) { incognitoIDs.append(record.id) }
+        if incognitoIDs.contains(record.id) { record.incognito = true }
         if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
             save()
+        } else if record.incognito == true {
+            flagIncognito(record.id)
         }
         start(record)
+    }
+
+    /// Task `id`, followed or ended already as a normal one (the owner's list answered before this app's watch), is incognito from now on.
+    private func flagIncognito(_ id: String) {
+        if records[id] != nil { records[id]?.incognito = true }
+        if let index = ended.lastIndex(where: { $0.record.id == id }) { ended[index].record.incognito = true }
+        save()
     }
 
     /// Task `id`, followed now, changed at `changed` with its turn `running` or not, as the owner's
@@ -206,6 +224,7 @@ public final class SandboxRunFollower {
                     return
                 } catch CloudAPIError.http(let status, _, _, _, _) where status == 403 || status == 404 {
                     // The server doesn't show this Run to this account any more: nothing to wait for.
+                    self.incognitoIDs.removeAll { $0 == id }
                     return self.drop(id, error: CloudAPIError.timedOut("\(path)/\(id)"))
                 } catch {
                     answer = .unreadable
@@ -239,6 +258,7 @@ public final class SandboxRunFollower {
         guard let record = records.removeValue(forKey: id) else { return }
         let silent = silent || (cancelledHere.contains(id) && outcome == .cancelled) || !source.tells.contains(outcome)
         cancelledHere.removeAll { $0 == id }
+        incognitoIDs.removeAll { $0 == id }
         // Saved untold first: a crash before the banner leaves it to the next launch, never lost;
         // marked told once ``onEnd`` ran, so it is never told twice.
         ended.append(SandboxRunEnded(record: record, outcome: outcome, card: Self.card(snapshot), at: now(), told: silent))
@@ -327,7 +347,8 @@ public final class SandboxRunFollower {
 
     private func save() {
         // Nothing of an incognito chat's tasks outlives this run (leo-workspace design/spaces.md "Incognito").
-        let saved = Saved(following: following.filter { $0.incognito != true }, ended: ended.filter { $0.record.incognito != true }, cancelled: cancelledHere)
+        let saved = Saved(following: following.filter { $0.incognito != true }, ended: ended.filter { $0.record.incognito != true }, cancelled: cancelledHere,
+                          incognito: incognitoIDs)
         if let data = try? JSONEncoder().encode(saved) { defaults.set(data, forKey: source.defaultsKey) }
     }
 
@@ -336,6 +357,8 @@ public final class SandboxRunFollower {
         var ended: [SandboxRunEnded]
         /// Runs this app asked to cancel (``noteCancel(_:)``): a quit before their end keeps them silent.
         var cancelled: [String]?
+        /// The ids of incognito tasks still open (``incognitoIDs``).
+        var incognito: [String]?
     }
 
     /// The part of a final snapshot the Run's card needs: its receipt.

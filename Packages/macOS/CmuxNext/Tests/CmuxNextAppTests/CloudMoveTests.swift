@@ -67,7 +67,7 @@ struct CloudMoveTests {
 
     /// How a move stops: the stand-in `cmux link agent move` answer (or the machine tab's failure).
     enum Stop: String, CaseIterable, Sendable {
-        case unresolved, inProgress, badAnswer, timeout, tabFailed, teamMachine
+        case unresolved, inProgress, badAnswer, timeout, tabFailed, teamMachine, unavailable
     }
 
     /// A move that stops keeps this Mac's tab and leaves the right Retry: one that may not have
@@ -86,7 +86,9 @@ struct CloudMoveTests {
             switch stop {
             case .teamMachine:
                 #expect(retry == nil, "a team machine is offered Retry")
-            case .unresolved, .inProgress, .badAnswer, .timeout:
+            // `unavailable`: the machine had no acpmux up to take the chat (cmux#31198); it comes
+            // back here, so the same move can run again.
+            case .unresolved, .inProgress, .badAnswer, .timeout, .unavailable:
                 #expect(retry == .move(machineID: "vm-move"), "Retry does not finish the move on its machine: \(String(describing: retry))")
             case .tabFailed:
                 guard case .show(let shown) = retry else {
@@ -672,6 +674,7 @@ struct CloudMoveTests {
                 badAnswer) echo 'thread main panicked'; exit 101 ;;
                 timeout) exec sleep 30 ;;
                 teamMachine) echo '{"ok":false,"error":"a team machine","error_code":"agent_session.team_vm_blocked"}'; exit 1 ;;
+                unavailable) echo '{"ok":false,"error":"this daemon has no acpmux or host to move chats with","error_code":"agent_transfer.unavailable","side":"target"}'; exit 1 ;;
                 outdated) echo '{"ok":false,"error":"the target daemon runs an older cmux-tui (0000old) without agent-transfer-v1","error_code":"machine_outdated","side":"target"}'; exit 1 ;;
                 macOutdated) echo '{"ok":false,"error":"the source daemon runs an older cmux-tui (0000old) without agent-transfer-v1","error_code":"machine_outdated","side":"source"}'; exit 1 ;;
                 *)
