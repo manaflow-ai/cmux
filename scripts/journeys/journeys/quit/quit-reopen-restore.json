@@ -138,6 +138,11 @@
    ]
   },
   {
+   "do": "rpc",
+   "method": "debug.focus",
+   "title": "evidence: what has the keyboard (AppKit's first responder and the focus model) before the typed line"
+  },
+  {
    "do": "type",
    "text": "echo back-${nonce}-$((6*7))",
    "enter": true,
