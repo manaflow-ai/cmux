@@ -173,3 +173,36 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
     await act(async () => root.unmount());
   }
 });
+
+test("a chat with more prompts than the rail holds keeps its latest tick at the box's end as the index arrives", async () => {
+  const all = chat(80);
+  const prompts = all.filter((entry) => entry.kind === "user");
+  const held = all.slice(all.indexOf(prompts[68]!));
+  const earlier = prompts.slice(0, 68).map((entry) => ({ ...entry }));
+  const root = createRoot(document.getElementById("root")!);
+  const dock = document.getElementById("dock")!;
+  const render = (props: { earlier?: AcpmuxRow[]; promptCount?: number }) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(held, new Set())}
+          {...props}
+          sessionId="rail-over"
+          dock={dock}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+  try {
+    await render({ promptCount: 80 });
+    const open = rail();
+    // Taller than the room: the rail fills it, and the latest tick ends at its bottom.
+    expect(open.height).toBeLessThan(800);
+    expect(open.latest + 10).toBe(open.top + open.height);
+    await render({ earlier });
+    expect(rail()).toEqual(open);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
