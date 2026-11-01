@@ -50,8 +50,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "palette.cloud.ports": """
             Lists the TCP ports listening on the machine (--target machine:<id>) and returns machine_id and \
-            ports (comma-separated). Needs the machine connected: resume a paused one first with \
-            `cmux cloud resume-machine --target machine:<id>`.
+            ports (comma-separated). New Cloud also returns private previews, listening and unavailable \
+            ports; its menu opens a detected port in the app browser. On the classic link, connect first \
+            with `cmux cloud resume-machine --target machine:<id>`.
             """,
         "palette.cloud.tools": """
             Shows the machine's login shell, where zsh, git, gh, htop, btop, node, bun and python3 are \
@@ -167,6 +168,23 @@ nonisolated enum CloudActionDescriptions {
             Lists the account's Cloud publications and returns count and text with one line per \
             publication: its hostname, state and access mode.
             """,
+        "cloudProvisionAPI": """
+            Provisions an API on the machine (--target machine:<id>): publishes --port behind cmux \
+            sign-in under a generated https hostname and mints an API key for it, in one call. Returns url, \
+            publication_id, api_key_id, key and cookie. API clients send the key as the cookie \
+            (__Host-cmux-api-key=<key>), which the machine never receives; the key is answered this one time. \
+            Running it again for the same port reuses the URL and mints another key. Optional --name names \
+            the key.
+            """,
+        "cloudAPIKeyList": """
+            Lists the live API keys of a Cloud publication (--arg path=<publication id or hostname>) and \
+            returns count and text with one line per key: its id, name and last four characters.
+            """,
+        "cloudAPIKeyRevoke": """
+            Revokes an API key (--arg path=<publication id or hostname> --arg key=<key id>); requests with \
+            it are refused from the next one on. Destructive: a CLI or agent run needs --confirm. Returns \
+            api_key_id and revoked_at.
+            """,
         "cloudListMachines": """
             Returns the app's Cloud machines: loaded, count, account.signed_in and machines, each with \
             machine_id, target (machine:<id>), title, status, owner, created_by and created_at. created_by is \
@@ -196,6 +214,13 @@ nonisolated enum CloudActionDescriptions {
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \
             once, before the rename is done. Without --name it asks the person for the name in the app, so a \
             script or agent passes --name.
+            """,
+        "cloudShareMachine": """
+            Shares app-started chats on a team machine (--target machine:<id>) with a teammate \
+            (--teammate <user id>), or takes the share back (--revoke). Only the machine's creator or a \
+            team admin may change shares. Without --teammate it answers the machine's teammates as \
+            `teammates` [{user_id, name, shared}]; in the app it opens a page of them, where Return \
+            shares or stops sharing.
             """,
         "cloudKillMachine": """
             Deletes the machine (--target machine:<id>) and everything on it. Destructive: a CLI or agent \
@@ -234,13 +259,22 @@ nonisolated enum CloudActionDescriptions {
             pending), delivered and missing names. Values are stored with cmux cloud secret set NAME.
             """,
         "cloudResizeMachine": """
-            Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \
-            4 GB, 4 and 8, 8 and 16, or 16 and 24). Answers at once, before the resize is done.
+            Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and \
+            4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB \
+            steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, \
+            and size and disk_gib as given. Answers pending after 30 s; the resize goes on.
             """,
         "cloudSetIdlePause": """
             Sets how long the machine (--target machine:<id>) may sit idle (nothing attached, running or \
             forwarded) before cmux Cloud pauses it: --minutes off, 15, 30, 60 or 120. Returns machine_id \
             and idle_pause_minutes (0 for off).
+            """,
+        "cloudSetNetworkAccess": """
+            Sets what the machine (--target machine:<id>) may reach on the internet: --access full (every \
+            public address), trusted (only GitHub, the package registries and the model providers the server \
+            lists as presets) or none (only the hosts cmux itself needs). Applies live, with no restart, and \
+            keeps the machine's own allowed ranges and domains. An agent may only choose none (turn access off). \
+            Returns machine_id, network_access, mode and applied (applied, pending or failed).
             """,
         "palette.cloud.deleteSnapshot": """
             Deletes a snapshot of the machine (--target machine:<id> --snapshot <snapshot id>). Destructive: \

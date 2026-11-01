@@ -1857,8 +1857,20 @@ CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch
 # A line that ends a statement (the header of the next block starts after it).
 STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
 HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
-# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
+# The loaded helper module (the same for every commit); shared by every run.
 BLOCKING_CONTEXT: dict[str, object] = {}
+# The judged head's threading doc, package manifest and UI targets, one copy per thread: measure() loads them and
+# its rules read them on the same thread, and check_own measures a merge's ranges at once on several threads, so a
+# shared copy let one range judge thread-doc by another range's doc (#30169: a listed thread refused, 1 run in 6).
+RUN_CONTEXT = threading.local()
+
+
+def run_context() -> dict[str, object]:
+    """This thread's head context (load_blocking_context fills it before the rules run)."""
+    context = getattr(RUN_CONTEXT, "values", None)
+    if context is None:
+        context = RUN_CONTEXT.values = {}
+    return context
 
 
 class Prefiltered:
@@ -1919,12 +1931,13 @@ def main_actor_scope():
 def ui_targets() -> set[str]:
     """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
     reads them."""
-    if "ui_targets" not in BLOCKING_CONTEXT:
-        manifest = BLOCKING_CONTEXT.get("manifest")
+    context = run_context()
+    if "ui_targets" not in context:
+        manifest = context.get("manifest")
         found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
                            manifest if isinstance(manifest, str) else "", re.S)
-        BLOCKING_CONTEXT["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
-    return BLOCKING_CONTEXT["ui_targets"]
+        context["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
+    return context["ui_targets"]
 
 
 def block_header(lines: list[str], number: int, code: str) -> str:
@@ -2101,7 +2114,7 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     def doc() -> dict[str, object]:
         """The doc's labels and allowances, read when a push adds a thread, queue or allowance to judge."""
         if not listed:
-            text = BLOCKING_CONTEXT.get("threading_doc")
+            text = run_context().get("threading_doc")
             if not isinstance(text, str):
                 raise RuntimeError(f"{THREADING_DOC} could not be read at the pushed head")
             listed.update(labels=doc_labels(text), allowances=set(re.findall(r"^\|\s*`(\w+)`\s*\|", text, re.M)))
@@ -2130,12 +2143,12 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
 
 
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open)."""
-    for key in ("threading_doc", "manifest", "ui_targets"):
-        BLOCKING_CONTEXT.pop(key, None)
+    """Keeps HEAD's threading doc and package manifest for the rules above, in this thread's run context (a
+    missing doc fails thread-doc open)."""
+    context = RUN_CONTEXT.values = {}
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
         if (head, path) in texts:
-            BLOCKING_CONTEXT[key] = texts[(head, path)]
+            context[key] = texts[(head, path)]
 
 BLOCKING_RULES = (
     Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait or a "
@@ -2454,7 +2467,60 @@ def check_failure(name: str, error: Exception) -> str:
 
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
     """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
-    return settle(*measure(repo, base, head))
+    return excepted(repo, head, *settle(*measure(repo, base, head)))
+
+
+# Dated, reviewed exceptions for a fact rule's hit on one file (a new App file that is not a move), read from HEAD
+# so CI judges the same file the push carries. An entry {"date", "rule", "path", "why", "author", "owner",
+# "receipt": "Review (<reviewer>): SHIP at <40-hex sha>", "expiry"} turns that rule's hits on PATH into a warning
+# until EXPIRY. Only EXCEPTABLE rules take one; the receipt's reviewer is not the author (arch-ratchet's escape).
+EXCEPTIONS = "plans/cmux-next/guardrail-exceptions.json"
+EXCEPTABLE = {"app-size", "app-type"}
+RECEIPT = re.compile(r"Review \((?P<who>[^()]+)\): SHIP at (?P<sha>[0-9a-f]{40})")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def exception_valid(entry: dict, today: str) -> bool:
+    """Whether ENTRY is a complete, independent, unexpired exception for an EXCEPTABLE rule on TODAY."""
+    if not isinstance(entry, dict) or entry.get("rule") not in EXCEPTABLE:
+        return False
+    if not all(isinstance(entry.get(k), str) and entry[k].strip() for k in ("path", "why", "author", "owner")):
+        return False
+    found = RECEIPT.fullmatch(str(entry.get("receipt") or "").strip())
+    if not found or found.group("who").strip().casefold() == entry["author"].strip().casefold():
+        return False
+    import datetime
+    try:  # real calendar dates: 2026-02-31 or 2026-00-00 allows nothing
+        date, expiry = (datetime.date.fromisoformat(str(entry.get(k) or "")) for k in ("date", "expiry"))
+        now = datetime.date.fromisoformat(today)
+    except ValueError:
+        return False
+    return bool(ISO_DATE.fullmatch(str(entry["date"])) and ISO_DATE.fullmatch(str(entry["expiry"]))) and date <= now <= expiry
+
+
+def excepted(repo: Path, head: str, refusals, warnings, today: str | None = None):
+    """REFUSALS less the hits an EXCEPTIONS entry at HEAD covers (those become warnings), and WARNINGS."""
+    import datetime
+    # Read only when a hit could be excused: a push with no such refusal starts no extra git process (the
+    # guardrails' cost is git process starts, WarningTests.test_a_typical_push_runs_git_a_fixed_number_of_times).
+    if not any(rule.id in EXCEPTABLE for rule, _ in refusals):
+        return refusals, warnings
+    today = today or datetime.date.today().isoformat()
+    text = git(repo, "show", f"{head}:{EXCEPTIONS}", check=False)
+    try:
+        entries = json.loads(text).get("exceptions", []) if text.strip() else []
+    except (ValueError, AttributeError):
+        return refusals, warnings + [("guardrails", f"{EXCEPTIONS} is not valid JSON; no exception applied")]
+    allowed = {(e["rule"], e["path"]) for e in entries if exception_valid(e, today)}
+    if not allowed:
+        return refusals, warnings
+    kept, warnings = [], list(warnings)
+    for rule, hits in refusals:
+        own = [h for h in hits if (rule.id, h.path) not in allowed]
+        warnings += [(rule.id, f"{h.path}:{h.number}: excepted by {EXCEPTIONS}: {h.text}") for h in hits if h not in own]
+        if own:
+            kept.append((rule, own))
+    return kept, warnings
 
 
 def settle(found: list[tuple[Rule, list[Added]]], warnings: list[tuple[str, str]]):
@@ -2582,7 +2648,7 @@ def check_own(repo: Path, base: str, head: str, before=()):
     with every warning hit's amount taken the same way, plus any rule that failed on a BEFORE range.
     """
     if not before:
-        return settle(*measure(repo, base, head))
+        return excepted(repo, head, *settle(*measure(repo, base, head)))
     push_range = load_push_range()
     # The ranges share most of their objects and each measure() waits on git most of the time: run them together
     # (the slowest real merge push paid 2 x 1.3 s one after the other).
@@ -2609,7 +2675,7 @@ def check_own(repo: Path, base: str, head: str, before=()):
             kept = [h for b in buckets if (h := own_net_hit(push_range, by_bucket.get(b), prior, b)) is not None]
         if kept:
             own.append((rule, kept))
-    return settle(own, warnings)
+    return excepted(repo, head, *settle(own, warnings))
 
 
 def own_net_hit(push_range, hit: NetHit | None, prior: list[list[Added]], bucket: str) -> NetHit | None:
@@ -2708,11 +2774,12 @@ class Ratchet:
     FactsCache keeps every analyzed content, so a warm push analyzes only new contents); the ratchet report
     prints how many. A caller that starts it before other work pays what is left of it at finish(), but the
     analysis shares the interpreter with that work, so it is not free beside CPU-bound scanners. It fails
-    open: a missing or broken script, an error or a run past WAIT_LIMIT is a warning and lets the push
-    through.
+    open on a missing or broken script or an error: a warning, and the push goes through. A slow run is not
+    an error: finish() waits for its answer. The 20 s wait that passed the push (2026-10-28, for the git
+    deadlock arch_counts._ObjectReader fixed) let 7c99189e2ce's app_lines +2 through on a busy Mac (TIP RED
+    1014, 2026-10-31); a hang is bounded by prepush-gate's watchdog (CMUX_NEXT_GATE_LIMIT_SECONDS), which
+    refuses the push and prints every thread's stack.
     """
-
-    WAIT_LIMIT = 20.0
 
     def __init__(self, repo: Path, ranges: list, scripts_dir: Path | None = None) -> None:
         self.out: list[str] = []
@@ -2746,11 +2813,8 @@ class Ratchet:
         """(the ratchet's report, whether it refuses the push)."""
         if self.thread is not None:
             started = time.monotonic()
-            self.thread.join(self.WAIT_LIMIT)
+            self.thread.join()
             self.waited = time.monotonic() - started
-            if self.thread.is_alive():
-                return (f"guardrails: WARNING: the arch ratchet ran past {self.WAIT_LIMIT:.0f}s; not applied to this "
-                        "push. Tell the Performance Lead with this line."), False
         lines = list(self.out)
         if self.error:
             lines.append(f"guardrails: WARNING: {self.error}; the arch ratchet was not applied to this push. Tell the "

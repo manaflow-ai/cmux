@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
 import { useNow } from "./subagents/SubagentGroup";
@@ -39,46 +39,71 @@ export function HostError({
 }
 
 /// Why the host could not hand the pane acpmux, once that is a failure (hostRetry.ts
-/// `hostErrorShows`: a refusal at once, a recovery only past its deadline). One line in the host's
-/// words with one small action, and no recovery steps: the pane keeps retrying on its own and the
-/// prompt stays in the composer (Leo, 2026-10-29: "GOD THESE FUCKING RECOVERY STEPS ARE SO FUCKING
-/// RETARDED"). The action is Restart acpmux when another binary's daemon holds this app's socket
-/// (`onRestart`, in flight while `restarting`), else Retry, which asks again now (`retrying` while
-/// it waits on the attempt in flight).
+/// `hostErrorShows`: a refusal at once, a recovery only past its deadline, a chat's machine that is
+/// not reachable only once it is really gone). One plain line, never red, with one small action and
+/// no recovery steps: the pane keeps retrying on its own and the prompt stays in the composer (Leo,
+/// 2026-10-29: "GOD THESE FUCKING RECOVERY STEPS ARE SO FUCKING RETARDED"). acpmux's own words (a
+/// code, link state, a command to run) are never the line: they are `detail`, shown only when the
+/// person opens Details (hostLine.ts, Leo 2026-10-30: "that's not the fucking right time to be
+/// showing that kind of fucking message"). The action is Restart acpmux when another binary's daemon
+/// holds this app's socket (`onRestart`, in flight while `restarting`), else Retry, which asks again
+/// now (`retrying` while it waits on the attempt in flight).
 export function HostUnavailableLine({
   message,
+  detail,
   retrying,
   onRetry,
   restarting,
   onRestart,
 }: {
   message: string;
+  detail?: string;
   retrying?: boolean;
   onRetry?(): void;
   restarting?: boolean;
   onRestart?(): void;
 }) {
   const t = useT();
+  const [open, setOpen] = useState(false);
+  const detailId = useId();
   return (
-    <div className="acpmux-host-line" role="alert">
-      <p
-        className="acpmux-host-line-message selectable"
-        // tooltip-allow: a long reason is cut to the line; its whole text is the tooltip
-        title={message}
-      >
-        {message}
-      </p>
-      {onRestart ? (
-        // A queued Retry holds Restart acpmux until its handshake settles (#27646).
-        <button type="button" onClick={onRestart} disabled={restarting || retrying}>
-          {t(restarting ? "host.restarting" : "host.restart")}
-        </button>
-      ) : (
-        onRetry && (
-          <button type="button" onClick={onRetry} disabled={retrying}>
-            {t(retrying ? "host.retryQueued" : "host.retry")}
+    <div className="acpmux-host-line-group" role="alert">
+      <div className="acpmux-host-line">
+        <p
+          className="acpmux-host-line-message selectable"
+          // tooltip-allow: a long reason is cut to the line; its whole text is the tooltip
+          title={message}
+        >
+          {message}
+        </p>
+        {onRestart ? (
+          // A queued Retry holds Restart acpmux until its handshake settles (#27646).
+          <button type="button" onClick={onRestart} disabled={restarting || retrying}>
+            {t(restarting ? "host.restarting" : "host.restart")}
           </button>
-        )
+        ) : (
+          onRetry && (
+            <button type="button" onClick={onRetry} disabled={retrying}>
+              {t(retrying ? "host.retryQueued" : "host.retry")}
+            </button>
+          )
+        )}
+        {detail && (
+          <button
+            type="button"
+            className="acpmux-host-line-details"
+            aria-expanded={open}
+            aria-controls={detailId}
+            onClick={() => setOpen((was) => !was)}
+          >
+            {t("host.details")}
+          </button>
+        )}
+      </div>
+      {detail && open && (
+        <p id={detailId} className="acpmux-host-line-detail selectable">
+          {detail}
+        </p>
       )}
     </div>
   );

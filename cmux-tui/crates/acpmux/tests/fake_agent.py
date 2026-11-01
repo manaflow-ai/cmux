@@ -13,6 +13,7 @@ Behaviour per prompt text:
   "cancel-errors" -> streams "running", then answers session/cancel with an error
   "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
                  session/cancel; answers end_turn after 60 s
+  "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
@@ -60,6 +61,13 @@ FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a r
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
 call through the ACP permission flow: announced, asked, run only after an allow.
+
+CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
+FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it starts) to <path>.
+"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
+FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
+has another process put it in background class (an outside cause, not its own call), answers that
+`initialize` with an error and stays alive, as a harness that fails its start at background class.
 """
 import base64
 import hashlib
@@ -369,6 +377,12 @@ def handle_prompt(rid, params):
     if sid in net_flaky:
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # Recovery fixtures: preserve the session, fail the first turn with the supplied
+    # provider error, then answer the continuation normally.
+    if text.startswith("recover-once: ") and sid not in failed_once:
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": text.removeprefix("recover-once: ")}})
         return
     # "cap-fail-once: X" fails that prompt once per session with the SR2 gateway's capacity
     # error (every pooled account exhausted for a moment); the session's next prompt runs.
@@ -822,6 +836,16 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "class-probe: <path>": a tool the turn runs, its pid to <path> (module docs).
+    if text.startswith("class-probe:"):
+        import subprocess
+        sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
+        out = text[len("class-probe:"):].strip()
+        with open(f"{out}.tmp", "w") as f:
+            f.write(json.dumps({"sleeper": sleeper.pid}))
+        os.replace(f"{out}.tmp", out)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "env: NAME" replies with that environment variable, for spawn-time checks.
     if text.startswith("env:"):
         name = text[4:].strip()
@@ -896,8 +920,11 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)"}})
         time.sleep(0.05)
         os._exit(0)
+    # "limit:": a usage limit (a sign-in failure with FAKE_AUTH_FAIL=1, which fails over where a
+    # usage limit waits for its reset, #27924).
     if text.startswith("limit:"):
-        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+        message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
         return
     # "big-output:N" answers with one message of N MiB: one update too large for a frame.
     if text.startswith("big-output:"):
@@ -1089,7 +1116,12 @@ def handle_prompt(rid, params):
     # "works-through-cancel" ignores every session/cancel and keeps calling tools, as a harness
     # that went on working after Stop (2026-10-29): a tool call every 100 ms, each titled with
     # its number and this process's pid, until it ends its turn by itself 60 s later.
-    if text == "works-through-cancel":
+    # "works-through-cancel-beside-background" does the same after starting background subagent
+    # bg-1, which outlives the turn (a Claude Agent call with run_in_background).
+    if text in ("works-through-cancel", "works-through-cancel-beside-background"):
+        if text == "works-through-cancel-beside-background":
+            update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-1", "name": "Background",
+                         "task": "Background audit", "background": True, "capabilities": {}})
         for n in range(600):
             update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
                          "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
@@ -1163,12 +1195,14 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
         time.sleep(3600)
         return
-    # "slow-limit": a usage limit after a second, then on the fallback profile (FAKE_FALLBACK=1)
-    # an answer (`hub/full_access_bound.rs`, a family message that fails over).
+    # "slow-limit": a usage limit after a second (a sign-in failure with FAKE_AUTH_FAIL=1, which
+    # fails over where a usage limit now waits for its reset), then on the fallback profile
+    # (FAKE_FALLBACK=1) an answer (`hub/full_access_bound.rs`, a family message that fails over).
     if text == "slow-limit":
         if os.environ.get("FAKE_FALLBACK") != "1":
             time.sleep(1)
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -1176,7 +1210,8 @@ def handle_prompt(rid, params):
     # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
     if text == "limit-then-hang":
         if os.environ.get("FAKE_FALLBACK") != "1":
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
@@ -1250,6 +1285,13 @@ def stdin_lines(early):
     yield from sys.stdin
 
 
+def own_pri():
+    """This process's scheduler base priority (`ps -o pri=`): 4 at background class."""
+    import subprocess
+    out = subprocess.run(["ps", "-o", "pri=", "-p", str(os.getpid())], capture_output=True, text=True)
+    return int(out.stdout.strip() or "0")
+
+
 def main():
     global LAST_MCP_SERVERS
     # `--fake-login` (the terminal sign-in): sign in and exit.
@@ -1292,12 +1334,24 @@ def main():
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
         if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
             continue
+        bg_once = os.environ.get("FAKE_BG_ONCE")
+        if m == "initialize" and bg_once and not os.path.exists(bg_once):
+            import subprocess
+            open(bg_once, "w").close()
+            # PRIO_DARWIN_PROCESS (4), PRIO_DARWIN_BG (0x1000), set from another process.
+            lower = "import ctypes, sys; sys.exit(ctypes.CDLL(None).setpriority(4, int(sys.argv[1]), 0x1000))"
+            subprocess.run([sys.executable, "-c", lower, str(os.getpid())], check=True)
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "start failed at background class"}})
+            continue
         if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
             sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
             sys.stderr.flush()
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
+            with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
+                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
         # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
         # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.
@@ -1564,8 +1618,22 @@ def main():
                     update(params.get("sessionId"), {"sessionUpdate": "config_option_update", "configOptions": was})
                 if params.get("configId") == "mode":
                     MODE_OPTION[params.get("sessionId")] = v
-                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null.
-                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1":
+                    # FAKE_OPTION_HOLD=<path>: a mode option change writes its value to
+                    # <path>.held and holds its answer while <path> exists (at most 30 s).
+                    hold = os.environ.get("FAKE_OPTION_HOLD")
+                    if hold and os.path.exists(hold):
+                        import time as pause  # main() binds `time` locally
+                        with open(hold + ".held.tmp", "w") as f:
+                            f.write(f"{v}\n")
+                        os.replace(hold + ".held.tmp", hold + ".held")
+                        until = pause.monotonic() + 30
+                        while os.path.exists(hold) and pause.monotonic() < until:
+                            pause.sleep(0.05)
+                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null;
+                # =mode: none for a mode option change only.
+                bare = os.environ.get("FAKE_BARE_OPTION_ANSWER")
+                bare_mode = bare == "mode" and params.get("configId") == "mode"
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1" or bare_mode:
                     send({"jsonrpc": "2.0", "id": rid, "result": {}})
                     continue
                 if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "null":

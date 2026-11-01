@@ -222,8 +222,9 @@ def dump(name, value):
 
 # The slow variant's daemon: each terminal's first 3 attaches fail, every attach waits 1 s.
 SLOW_ATTACH = "3:1000"
-# The quit deadline (QuitDeadline.engineStopLimit, 15 s) plus margin for a loaded mini.
-WEDGED_QUIT_BOUND = 30
+# The quit deadline (QuitDeadline.keepQuitLimit, 4 s after a keep quit is decided) plus
+# margin for a loaded mini.
+WEDGED_QUIT_BOUND = 10
 
 
 class App:
