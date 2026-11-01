@@ -94,15 +94,15 @@ async fn a_rejected_reservation_does_not_advance_shared_debt() {
     assert_eq!(guard.reserve(&StdMutex::default(), 1.0), Ok(Duration::from_millis(15_750)));
 }
 
-/// A small census-sized hub, with substantial metadata the activity walk copies.
+/// A dogfood-sized hub: 7,295 closed records must stay out of the live list index.
 fn scale_hub() -> Arc<Hub> {
     let store = crate::store::MemoryStore::default();
-    for n in 0..700 {
+    for n in 0..7_828 {
         let meta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": format!("scale-{n:04}"),
             "name": format!("scale-{n:04}"), "harness": "claude", "family": "claude",
             "agentSessionId": format!("chat-{n:04}"), "cwd": "/nonexistent",
-            "status": if n < 600 { "closed" } else { "idle" },
+            "status": if n < 7_295 { "closed" } else { "idle" },
             "createdAt": 1, "updatedAt": n + 1,
             "preview": "A short synthetic reply", "configOptions": [{"payload": "x".repeat(32_768)}]
         }))
@@ -122,8 +122,8 @@ async fn a_700_session_snapshot_sleeps_at_most_one_current_window() {
     guard.state.lock().await.pace =
         Pacer { ahead_to: Some(Instant::now() + Duration::from_secs(60)), period: window };
     let started = Instant::now();
-    let snapshot = guard.snapshot(&hub).await;
-    assert_eq!(snapshot.keys.len(), 700);
+    let snapshot = guard.snapshot_live(&hub).await;
+    assert_eq!(snapshot.keys.len(), 533);
     assert!(started.elapsed() <= window + Duration::from_millis(1), "{:?}", started.elapsed());
     eprintln!(
         "700-session snapshot: paced sleep={:?}, rows={}",
@@ -145,31 +145,120 @@ fn process_cpu() -> Duration {
     Duration::new(u64::try_from(value.tv_sec).unwrap(), u32::try_from(value.tv_nsec).unwrap())
 }
 
-/// Run manually with `--ignored --nocapture --test-threads=1`; no timing assertion.
+#[cfg(target_os = "linux")]
+fn resident_bytes() -> u64 {
+    let statm = std::fs::read_to_string("/proc/self/statm").expect("read process RSS");
+    let pages = statm.split_whitespace().nth(1).expect("RSS field").parse::<u64>().unwrap();
+    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as u64;
+    pages * page_size
+}
+
+/// Run manually with `--ignored --nocapture --test-threads=1`; no timing assertion. The same
+/// harness is used on the parent and indexed revisions for the PR's before/after table.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-#[ignore = "manual 700-session CPU and list-build measurement"]
-async fn measure_700_session_activity_and_lists() {
-    let hub = scale_hub();
-    let rounds = 20;
+#[ignore = "manual 7828-session CPU and list-build measurement"]
+async fn measure_7828_session_activity_and_lists() {
+    let rounds = 5;
+    let baseline = scale_hub();
     let start = std::time::Instant::now();
     let cpu = process_cpu();
     for _ in 0..rounds {
-        std::hint::black_box(hub.chat_activity());
+        let rows = baseline.all_session_summaries();
+        std::hint::black_box(rows.iter().find(|row| row["name"] == "scale-7827"));
     }
     eprintln!(
-        "700-session activity: {:.3} wall ms/change, {:.3} CPU ms/change ({rounds} index changes)",
+        "7828-session baseline locate (full walk): {:.3} wall ms/lookup, {:.3} CPU ms/lookup",
         start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
         (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
     );
     let start = std::time::Instant::now();
     let cpu = process_cpu();
     for _ in 0..rounds {
-        std::hint::black_box(Snapshot::build(&hub));
+        std::hint::black_box(baseline.all_session_summaries());
     }
     eprintln!(
-        "700-session unpaced list build: {:.3} wall ms/list, {:.3} CPU ms/list",
+        "7828-session baseline peers::all (full walk): {:.3} wall ms/list, {:.3} CPU ms/list",
         start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
         (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
+    );
+    let start = std::time::Instant::now();
+    let cpu = process_cpu();
+    #[cfg(target_os = "linux")]
+    let baseline_rss_before = resident_bytes();
+    for _ in 0..rounds {
+        std::hint::black_box(Snapshot::build(&baseline));
+    }
+    #[cfg(target_os = "linux")]
+    let baseline_rss_after = resident_bytes();
+    eprintln!(
+        "7828-session baseline snapshot (full walk): {:.3} wall ms/list, {:.3} CPU ms/list, {} retained RSS bytes",
+        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds),
+        {
+            #[cfg(target_os = "linux")]
+            {
+                baseline_rss_after.saturating_sub(baseline_rss_before)
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                0
+            }
+        }
+    );
+    let hub = scale_hub();
+    let start = std::time::Instant::now();
+    let cpu = process_cpu();
+    for _ in 0..rounds {
+        std::hint::black_box(hub.locate("scale-7827", false, false).unwrap());
+    }
+    eprintln!(
+        "7828-session indexed locate: {:.3} wall ms/lookup, {:.3} CPU ms/lookup",
+        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
+    );
+    let start = std::time::Instant::now();
+    let cpu = process_cpu();
+    for _ in 0..rounds {
+        std::hint::black_box(hub.live_session_summaries());
+    }
+    eprintln!(
+        "7828-session indexed peers::all (live index): {:.3} wall ms/list, {:.3} CPU ms/list",
+        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
+    );
+    let start = std::time::Instant::now();
+    let cpu = process_cpu();
+    for _ in 0..rounds {
+        std::hint::black_box(hub.chat_activity());
+    }
+    eprintln!(
+        "7828-session activity (7295 closed): {:.3} wall ms/change, {:.3} CPU ms/change ({rounds} index changes)",
+        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
+    );
+    let start = std::time::Instant::now();
+    let cpu = process_cpu();
+    #[cfg(target_os = "linux")]
+    let rss_before = resident_bytes();
+    for _ in 0..rounds {
+        std::hint::black_box(Snapshot::build_live(&hub));
+    }
+    #[cfg(target_os = "linux")]
+    let rss_after = resident_bytes();
+    eprintln!(
+        "7828-session indexed snapshot (live index): {:.3} wall ms/list, {:.3} CPU ms/list, {} retained RSS bytes",
+        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds),
+        {
+            #[cfg(target_os = "linux")]
+            {
+                rss_after.saturating_sub(rss_before)
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                0
+            }
+        }
     );
 }

@@ -31,19 +31,25 @@ impl Hub {
         }
         let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
         let shown = names_hosts.then_some(own.as_str());
-        let summaries = self.all_session_summaries();
+        let mut summaries = self.live_session_summaries();
         if bead_only {
             if !crate::beads::is_bead_id(query) {
                 return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
             }
-            let found = by_bead(&summaries, query);
+            let mut found = by_bead(&summaries, query);
+            if found.is_empty() {
+                // Closed records are retained for explicit history lookups, but are not part of
+                // the repeated live index walk.
+                summaries = self.all_session_summaries_including_closed();
+                found = by_bead(&summaries, query);
+            }
             if found.is_empty() {
                 return Err(RpcError::not_found(self.unfound(query, None, shown)));
             }
             let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
             return Ok(json!({"session": matches.first(), "matches": matches, "link": null}));
         }
-        let (link, found) = match crate::agent_link::find(query) {
+        let (mut link, mut found) = match crate::agent_link::find(query) {
             Some(Err(e)) => {
                 return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
             }
@@ -53,6 +59,21 @@ impl Hub {
             }
             None => (None, by_key(&summaries, query, &own)),
         };
+        if found.is_empty() {
+            // A name or id that explicitly asks for a closed chat is resolved on demand. The
+            // common live lookup above never walks those records.
+            summaries = self.all_session_summaries_including_closed();
+            (link, found) = match crate::agent_link::find(query) {
+                Some(Err(e)) => {
+                    return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
+                }
+                Some(Ok(link)) => {
+                    let found = by_link(&summaries, &link, &own);
+                    (Some(link), found)
+                }
+                None => (None, by_key(&summaries, query, &own)),
+            };
+        }
         if found.is_empty() {
             let e = RpcError::not_found(self.unfound(query, link.as_ref(), shown));
             // Close names only for a caller that may read them all: never a peer daemon's or a
