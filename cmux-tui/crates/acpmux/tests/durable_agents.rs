@@ -513,7 +513,8 @@ async fn a_subagent_running_across_a_restart_keeps_its_tag_after_adoption() {
     assert_eq!(entry["subagentNames"], json!(["Child"]), "{entry}");
     std::fs::write(&gate, b"go").unwrap();
     let update = daemon.wait_event(&session, "the child's call ending", |e| {
-        e["kind"] == "tool_call_update" && e["msg"].pointer("/params/update/toolCallId") == Some(&json!("cg-1"))
+        e["kind"] == "tool_call_update"
+            && e["msg"].pointer("/params/update/toolCallId") == Some(&json!("cg-1"))
     });
     assert_eq!(
         update["msg"].pointer("/params/_meta/acpmux/subagent"),

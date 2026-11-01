@@ -109,6 +109,57 @@ impl Hub {
         self.refresh_work_below(session);
     }
 
+    /// Before a daemon adopts `session`'s running host (`hosts.rs` `adopt_held`), its subagents
+    /// are rebuilt from the log, as the tap followed them live: which subagents the chat started,
+    /// so a child's next line is still tagged with its session id, and which still run, so the
+    /// summary still counts them. A new daemon started with none, and until each subagent's next
+    /// progress event its lines reached clients untagged, as the chat's own (a helper's grep read
+    /// as the chat still running grep after its turn ended). A harness start ends the background
+    /// subagents of the one before, and a turn start the foreground ones, as live.
+    pub(super) fn seed_subagents_from_log(&self, session: &Session) {
+        let meta = session.meta();
+        let mut tree = crate::subagents::SubagentTree::default();
+        tree.set_own(meta.agent_session_id.as_deref());
+        tree.set_roots(
+            meta.agent_session_id.iter().chain(&meta.retired_agent_session_ids).map(String::as_str),
+        );
+        let _ = self.store.scan_heads(&session.id, &mut |head| {
+            if head.dir == "mux" {
+                match head.kind {
+                    "host_started" | "stopped" | "exited" => tree.end_background(),
+                    "turn_started" => tree.end_foreground(),
+                    _ => {}
+                }
+                return true;
+            }
+            if head.dir != "in" || !names_subagents(head) {
+                return true;
+            }
+            let replay = head.kind.ends_with(".replay");
+            if let Some(mut e) = head.record()
+                && let Some(params) = e.msg.get_mut("params")
+            {
+                tree.annotate_live(params, !replay);
+            }
+            true
+        });
+        let (running_before, running_after) = {
+            let mut live = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            let before = live.running_count();
+            live.adopt(tree);
+            (before, live.running_count())
+        };
+        if running_after != running_before {
+            self.append(
+                session,
+                "mux",
+                super::views::SUBAGENTS_RUNNING,
+                json!({"count": running_after}),
+            );
+        }
+        self.refresh_work_below(session);
+    }
+
     /// Whether a background subagent of `session` runs, or one of its open sub-sessions works.
     fn works_below(&self, session: &Session) -> bool {
         if session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0 {
@@ -134,6 +185,16 @@ impl Hub {
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.get(&parent.started_by).filter(|p| p.id != session.id).cloned()
     }
+}
+
+/// Whether an agent's logged line may start, change or end a subagent (`SubagentTree::annotate`,
+/// replayed history included): a native subagent record, or Codex's legacy `spawnAgent` call or
+/// `_meta.codex.subagent` activity. Judged from the head, so a scan parses no other line.
+pub(super) fn names_subagents(head: &crate::store::RecordHead<'_>) -> bool {
+    let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
+    matches!(kind, "subagent_spawned" | "subagent_state_update" | "subagent_progress")
+        || (matches!(kind, "tool_call" | "tool_call_update")
+            && (head.may_contain(b"\"spawnAgent\"") || head.may_contain(b"\"subagent\":{")))
 }
 
 #[cfg(test)]
