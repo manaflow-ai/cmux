@@ -10,6 +10,8 @@
 // Two arms: `cold` selects B with no warning; `prefetched` first sends the host's hover signal
 // (`chat.prefetch`) and waits 500 ms, so B's newest page is already in memory (direct.ts `prefetch`).
 // The stand-in lists the methods the pane sent for the switch, so a slow arm shows what it asked for.
+// LATENCY=ms delays every answer, as a remote or busy daemon does (a local one answers in about 1 ms):
+// a switch that waits on several answers in turn shows it, one that draws from memory does not.
 //   bun bench/chat-switch.bench.ts [rounds=7] [turns=300]
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -24,6 +26,7 @@ if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || !Number.isInteger(TURNS) || TURNS
   console.error("usage: bun bench/chat-switch.bench.ts [rounds=7] [turns=300]");
   process.exit(2);
 }
+const LATENCY = Number(process.env.LATENCY ?? 0);
 const webviews = path.resolve(import.meta.dir, "..");
 const A = PAPERCUT_CHAT;
 const B = "0190a000-0000-7000-8000-00000000fc02";
@@ -87,7 +90,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
 
 const releases: [string, () => unknown][] = [];
 const release = async () => {
-  for (const [, stop] of releases.toReversed()) {
+  for (const [, stop] of [...releases].reverse()) {
     try {
       await stop();
     } catch {
@@ -108,7 +111,9 @@ try {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         calls.push({ method: message.method, at: Date.now(), sessionId: String(message.params?.sessionId ?? "") });
         if (message.id === undefined) return;
-        ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
+        const reply = JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) });
+        if (LATENCY > 0) setTimeout(() => ws.send(reply), LATENCY);
+        else ws.send(reply);
       },
     },
   });
@@ -149,8 +154,9 @@ try {
     await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 800)));
     if (prefetched) {
       await page.evaluate(
-        (id) => (window as unknown as { cmuxAcpmuxActions: Record<string, (p: unknown) => Promise<unknown>> })
-          .cmuxAcpmuxActions["chat.prefetch"]!({ sessionId: id }),
+        (id) =>
+          (window as unknown as { cmuxAcpmuxActions: Record<string, (p: unknown) => Promise<unknown>> })
+            .cmuxAcpmuxActions["chat.prefetch"]!({ sessionId: id }),
         B,
       );
       await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 500)));
@@ -219,8 +225,8 @@ try {
     return { ...got, sent: calls.map((call) => `${call.method}${call.sessionId === B ? " (B)" : ""}`) };
   };
 
-  const median = (values: number[]) => values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)]!;
-  console.log(`chat-switch: ${TURNS} turns per chat, median of ${ROUNDS}`);
+  const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
+  console.log(`chat-switch: ${TURNS} turns per chat, answers delayed ${LATENCY} ms, median of ${ROUNDS}`);
   console.log("arm | latest ms | settled ms | long tasks | long ms | layout shift");
   for (const [arm, prefetched] of [
     ["cold", false],
