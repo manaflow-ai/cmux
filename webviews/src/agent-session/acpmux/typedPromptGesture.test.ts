@@ -28,7 +28,7 @@ type Sent = { promptId?: string; ticket?: string; steer?: boolean };
 
 /// The pane with the host's `transport.gesture`: each reserve gets a ticket named for its promptId
 /// (`reserves` lists them in order); `gesture` false: the host has none to give (posted input).
-async function pane(gesture = true) {
+async function pane(gesture = true, pause = () => Promise.resolve()) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const reserves: string[] = [];
@@ -50,7 +50,7 @@ async function pane(gesture = true) {
   const sent: Sent[] = [];
   class Relay extends MockAcpmuxSocket {
     constructor() {
-      super(() => Promise.resolve());
+      super(pause);
       const self = this as unknown as { answer: (method: string, params: Record<string, any>) => Promise<unknown> };
       const answer = self.answer.bind(this);
       self.answer = (method, params) => {
@@ -132,6 +132,40 @@ test("a send that waits before it goes binds its gesture at once", async () => {
     expect(sent).toContainEqual({ promptId: "p-first", ticket: "ticket-p-first", steer: false });
     expect(sent).toContainEqual({ promptId: "p-second", ticket: "ticket-p-second", steer: true });
   } finally {
+    close();
+  }
+});
+
+test("page handoff waits for a queued prompt's ticket and daemon acceptance", async () => {
+  const turnGate = Promise.withResolvers<void>();
+  const { client, sent, close } = await pane(true, () => turnGate.promise);
+  const firstTaken = Promise.withResolvers<void>();
+  const ticket = Promise.withResolvers<string>();
+  const queuedTaken = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  let handedOff = 0;
+  const first = client.send("Keep working", [], "running", undefined, "first-ticket", false, firstTaken.resolve);
+  try {
+    await firstTaken.promise;
+    const queued = client.send("Then run tests", [], "queued", released.resolve, ticket.promise, false, () => {
+      handedOff += 1;
+      queuedTaken.resolve();
+    });
+    // The local queue frees the composer before the transport can take this prompt.
+    await released.promise;
+    expect(sent.map((prompt) => prompt.promptId)).toEqual(["running"]);
+    expect(handedOff).toBe(0);
+    ticket.resolve("queued-ticket");
+    await queuedTaken.promise;
+    expect(sent).toContainEqual({ promptId: "queued", ticket: "queued-ticket", steer: false });
+    expect(handedOff).toBe(1);
+    turnGate.resolve();
+    await Promise.all([first, queued]);
+    // A later RPC response must not hand the page off a second time.
+    expect(handedOff).toBe(1);
+  } finally {
+    turnGate.resolve();
+    ticket.resolve("queued-ticket");
     close();
   }
 });
