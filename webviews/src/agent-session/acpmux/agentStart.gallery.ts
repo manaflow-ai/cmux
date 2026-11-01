@@ -15,7 +15,8 @@ import { claudeModels, codexModels } from "./mockFixture";
 const prompt = "Run the sidebar tests and fix what fails.";
 const seeded = { transport: "mock", newSession: true, harness: "claude", prompt };
 /// The mock daemon's harnesses with the level a new chat starts on, as acpmux lists them
-/// (`_acpmux/harnesses` start), so the model chip names its effort while the agent starts too.
+/// (`_acpmux/harnesses` start), so the model chip names its effort while the agent starts too; with
+/// `mockStart.startMode` the access chip names the start mode the same way (`_acpmux/start_mode`).
 const startingHarnesses = [
   { id: "claude", name: "Claude Code", models: claudeModels, start: { effort: "medium", effortSource: "catalog" } },
   { id: "codex", name: "Codex", models: codexModels, start: { effort: "high", effortSource: "catalog" } },
@@ -54,19 +55,30 @@ const toReply: Play = async (ctx) => {
           ) >= 0.5,
       );
       if (moved.length === 0) continue;
-      const { node, previousRect: was, currentRect: now } = moved[0]!;
-      const name =
-        node instanceof view.Element
-          ? `${node.className.toString()} "${(node.getAttribute("aria-label") || node.textContent || "").trim().slice(0, 60)}"`
+      const from = moved.map(({ node, previousRect: was, currentRect: now }) => {
+        // Named by the nearest HTML element with a class (an icon's SVG has none of its own).
+        const named = (node instanceof view.Element ? node : node?.parentElement)?.closest("[class]:not(svg, svg *)");
+        const name = named
+          ? `${named.getAttribute("class")} "${(named.getAttribute("aria-label") || named.textContent || "").trim().slice(0, 60)}"`
           : "#text";
-      const delta = [now!.x - was!.x, now!.y - was!.y, now!.width - was!.width, now!.height - was!.height];
-      shifts.push({ value: entry.value, from: `${name} [${delta.map((d) => Math.round(d * 10) / 10).join(" ")}]` });
+        const delta = [now!.x - was!.x, now!.y - was!.y, now!.width - was!.width, now!.height - was!.height];
+        return `${name} [${delta.map((d) => Math.round(d * 10) / 10).join(" ")}]`;
+      });
+      shifts.push({ value: entry.value, from: from.join(" + ") });
     }
   });
   if (view.PerformanceObserver.supportedEntryTypes?.includes("layout-shift"))
     observer.observe({ type: "layout-shift", buffered: false });
   const line = () => doc.querySelector(".acpmux-thinking .cv-worked")?.getBoundingClientRect().top;
   const bubble = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
+  // The composer's chips keep their size too: a chip that grows moves the ones after it, which the
+  // layout-shift entry names by the chip that moved, not the one that grew.
+  const chips = () =>
+    [...doc.querySelectorAll(".acpmux-chips > *")].map((chip) => ({
+      text: (chip.textContent ?? "").trim(),
+      width: chip.getBoundingClientRect().width,
+    }));
+  const chipsAtSend = chips();
   // The line's top on every frame and mutation from the send until the first output.
   const tops: number[] = [];
   const track = () => {
@@ -89,6 +101,14 @@ const toReply: Play = async (ctx) => {
   if (bubble && moved && Math.abs(bubble.top - moved.top) > 1)
     problems.push(`the prompt moved ${Math.abs(bubble.top - moved.top).toFixed(1)} px`);
   const travel = tops.length ? Math.max(...tops) - Math.min(...tops) : 0;
+  const chipsAtReply = chips();
+  chipsAtReply.forEach((chip, index) => {
+    const was = chipsAtSend[index];
+    if (!was || Math.abs(was.width - chip.width) > 1)
+      problems.push(
+        `a composer chip changed while the agent started: "${was?.text ?? ""}" ${was?.width.toFixed(1) ?? "none"} px -> "${chip.text}" ${chip.width.toFixed(1)} px`,
+      );
+  });
   if (travel > 1) problems.push(`the line under the prompt moved ${travel.toFixed(1)} px while the agent started`);
   if (shifts.length > 0)
     problems.push(
@@ -123,7 +143,7 @@ export default agentPaneEntry({
       note: "Play: the agent takes 2.5 s to start, then answers. The prompt, the line and the composer keep their places.",
       ready: seeded,
       mockHarnesses: startingHarnesses,
-      mockStart: { delayMs: 2_500 },
+      mockStart: { delayMs: 2_500, startMode: true },
       snapshot: noChat([]),
       play: toReply,
     },
@@ -131,7 +151,7 @@ export default agentPaneEntry({
       note: "The agent is still starting: the prompt reads as sent, Thinking runs under it, and the composer offers Stop.",
       ready: seeded,
       mockHarnesses: startingHarnesses,
-      mockStart: { delayMs: 600_000 },
+      mockStart: { delayMs: 600_000, startMode: true },
       snapshot: noChat([]),
       play: sent,
     },
@@ -139,7 +159,7 @@ export default agentPaneEntry({
       note: "The agent could not start: the reason with Retry above the composer, and the prompt back in it to send again.",
       ready: seeded,
       mockHarnesses: startingHarnesses,
-      mockStart: { error: "Claude Code exited before it started (exit code 1)." },
+      mockStart: { error: "Claude Code exited before it started (exit code 1).", startMode: true },
       snapshot: noChat([]),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-switch-failed"), { capMs: 10_000 });
