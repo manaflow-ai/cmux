@@ -42,10 +42,11 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let period = try #require(Motion.indicators.period(.spinner))
-        // The media clock stops while the Mac sleeps; Unix time does not. The default clock counts
-        // from one offset per process, so a spinner started after a sleep (Unix time 7.3 s further
-        // along than the media clock says) still lands on the phase of one turning since before it
-        // (Leo 2026-11-01: "why did you desync these").
+        // The media clock stops while the Mac sleeps; Unix time does not. Read afresh per spinner
+        // (the old default), Unix time put one started after a sleep out of step with one turning
+        // since before it (Leo 2026-11-01: "why did you desync these"). The default clock now
+        // counts from the media clock alone on one offset per process, so the two spinners below,
+        // started 0.37 s apart on the media clock, share a phase whatever the wall clock did.
         let early = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 500 }))
         let late = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 500.37 }))
         let plan = StatusIndicatorPlan(glyph: .native, animation: .step, tint: .spinner)
