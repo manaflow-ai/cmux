@@ -1,4 +1,5 @@
 public import AppKit
+import os
 
 /// The Dock icon's unread badge (`notifications.dockBadge`): the label the app last showed, written
 /// to the tile only when it changes (writing an equal label would still ask the Dock).
@@ -48,24 +49,16 @@ public final class DockBadge {
         // Only the newest policy matters: a burst of flips settles on the last.
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             // KVO does not retain its observed object. Keep it alive until the token is invalidated,
-            // then release it even if the stream itself remains retained by a cancelled task.
-            let lifetime = ActivationPolicyObservationLifetime(app)
+            // then release it even if the stream itself remains retained by a cancelled task. The lock
+            // owns the reference, so the termination callback may drop it from any thread.
+            let lifetime = OSAllocatedUnfairLock<Object?>(uncheckedState: app)
             let token = app.observe(keyPath, options: [.new]) { source, _ in
                 continuation.yield(source[keyPath: keyPath])
             }
             continuation.onTermination = { _ in
                 token.invalidate()
-                lifetime.release()
+                lifetime.withLockUnchecked { $0 = nil }
             }
         }
     }
-}
-
-// crash-allow: initialized before publication; only the once-only termination callback releases its reference, after KVO invalidation.
-private nonisolated final class ActivationPolicyObservationLifetime<Object: NSObject>: @unchecked Sendable {
-    private var object: Object?
-
-    init(_ object: Object) { self.object = object }
-
-    func release() { object = nil }
 }

@@ -102,6 +102,7 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 # by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
 # (#21946). Committed copies collided in every pull request that touched a catalog.
 /webviews/src/**/generated/strings.json
+/webviews/src/ui/featureTips/tips.generated.json
 /webviews/src/pages/home-channels/generated/pane-strings.json
 /webviews/src/pages/changelog/generated/pane-strings.json
 /webviews/src/pages/diff/generated/locales/
@@ -117,7 +118,14 @@ Packages/macOS/CmuxNext/ws-no-color-gallery/
 Packages/macOS/CmuxNext/ws-no-color-gallery.tar
 Packages/macOS/CmuxNext/group-header-gallery/
 Packages/macOS/CmuxNext/group-header-gallery.tar
+Packages/macOS/CmuxNext/machine-link-gallery/
+Packages/macOS/CmuxNext/machine-link-gallery.tar
 Packages/macOS/CmuxNext/sidebar-look-gallery/
 Packages/macOS/CmuxNext/sidebar-look-gallery.tar
 Packages/macOS/CmuxNext/machines-section-gallery/
 Packages/macOS/CmuxNext/machines-section-gallery.tar
+Packages/macOS/CmuxNext/usage-warning-gallery/
+Packages/macOS/CmuxNext/usage-warning-gallery.tar
+
+# Spotlight exclusion marker that scripts/measure/quiet-host.sh writes in a fleet checkout
+.metadata_never_index

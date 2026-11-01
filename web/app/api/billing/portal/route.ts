@@ -21,7 +21,7 @@ import {
 } from "../../../../services/billing/personalPortal";
 import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
-import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 import {
   explicitTeamId,
   resolveTeamBillingAccess,

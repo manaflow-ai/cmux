@@ -123,6 +123,8 @@ enum HomeConversationStrings {
 
     /// The draft row's title and the page's name (Messages' "New Message").
     static var composeTitle: String { String(localized: "home.compose.title", defaultValue: "New Message", bundle: .module) }
+    /// The x on the list's New Message row and the action that discards the draft.
+    static var closeNewMessage: String { String(localized: "home.compose.close", defaultValue: "Close New Message", bundle: .module) }
     /// The To: field's VoiceOver label.
     static var composeSearch: String {
         String(localized: "home.compose.search", defaultValue: "Name or email address", bundle: .module)
@@ -181,6 +183,57 @@ enum HomeConversationStrings {
     static var inviteSend: String { String(localized: "home.invite.send", defaultValue: "Send Invite", bundle: .module) }
     static var invitePending: String { String(localized: "home.invite.pending", defaultValue: "Pending invites", bundle: .module) }
     static var inviteNonePending: String { String(localized: "home.invite.nonePending", defaultValue: "No pending invites.", bundle: .module) }
+
+    // MARK: Invite to Team
+
+    static func teamInviteTitle(_ team: String) -> String {
+        String(format: String(localized: "home.teamInvite.title", defaultValue: "Invite to %@", bundle: .module), team)
+    }
+    static func teamInviteBody(_ team: String) -> String {
+        String(format: String(localized: "home.teamInvite.body", defaultValue: "They get an email with a link to join %@.", bundle: .module), team)
+    }
+    static func inviteAddressToTeam(_ email: String, team: String) -> String {
+        String(format: String(localized: "home.teamInvite.row", defaultValue: "Invite %1$@ to %2$@", bundle: .module), email, team)
+    }
+    static var teamInviteChecking: String {
+        String(localized: "home.teamInvite.checking", defaultValue: "Checking the team’s plan…", bundle: .module)
+    }
+    static var teamInviteRequested: String {
+        String(localized: "home.teamInvite.requested",
+               defaultValue: "An agent asked to send this invite. Check the address before you send it.", bundle: .module)
+    }
+    static func teamInviteAlreadyMember(_ email: String) -> String {
+        String(format: String(localized: "home.teamInvite.alreadyMember", defaultValue: "%@ is already in the team.", bundle: .module), email)
+    }
+    static func teamInviteSendFailed(_ email: String) -> String {
+        String(format: String(localized: "home.teamInvite.sendFailed", defaultValue: "The invite email to %@ couldn’t be sent. Try again.",
+                              bundle: .module), email)
+    }
+    static var teamInviteCancelled: String {
+        String(localized: "home.teamInvite.cancelled", defaultValue: "The invite was not sent: the dialog was closed.", bundle: .module)
+    }
+    static var teamInviteNotAllowed: String {
+        String(localized: "home.teamInvite.notAllowed", defaultValue: "Only the team’s admins can invite people.", bundle: .module)
+    }
+
+    /// The confirmation line: what a join costs the team.
+    static func seatImpact(_ impact: HomeTeamSeatImpact) -> String {
+        switch impact {
+        case .paidSeat:
+            String(localized: "home.teamInvite.paidSeat", defaultValue: "When they join, the Team plan bills one more seat, prorated.",
+                   bundle: .module)
+        case .capped(let members, let limit):
+            String(format: String(localized: "home.teamInvite.capped", defaultValue: "The plan has room for %2$d members; %1$d are in the team now.",
+                                  bundle: .module), members, limit)
+        case .free:
+            String(localized: "home.teamInvite.free", defaultValue: "No charge: this team has no paid plan.", bundle: .module)
+        case .unknown:
+            String(localized: "home.teamInvite.unknown", defaultValue: "The team’s plan couldn’t be read. Joining may add a paid seat.",
+                   bundle: .module)
+        case .notAllowed:
+            teamInviteNotAllowed
+        }
+    }
 
     // MARK: New Chief
 

@@ -11,7 +11,8 @@ extension SidebarListViewComponents {
         case let .workspace(id)?:
             // Leo 2026-10-21 / Lawrence u8646: the menu is for the clicked row, or the whole selection when the
             // row is part of it; the selection and the shown workspace stay as they are (one rule with the ⋮ button).
-            target = SidebarRowMenu(list: self).target(for: id)
+            // A group's one row (`standsForGroup`) adds the group's menu (`SidebarRowMenu.menu(for:)`).
+            return SidebarRowMenu(list: self).menu(for: id)
         case let .group(id)?, let .emptyGroup(id)?:
             // A right-click on a group (or its empty row) shows its one flat menu at once, as Finder and Safari
             // do (Lawrence 2026-10-20: no second step through the editor's More row). A
@@ -19,10 +20,10 @@ extension SidebarListViewComponents {
             target = .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
+        case let .doneFold(fold)? where fold.kind == .archive:
+            target = .background // the Archive row belongs to no list
         case let .doneFold(fold)?, let .showMore(fold)?:
             target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
-        case let .tab(workspace, tab)?:
-            target = .tab(workspace, tab)
         case let .item(item)?:
             target = .layoutItem(LayoutItemID(item))
         case .block?, .status?:

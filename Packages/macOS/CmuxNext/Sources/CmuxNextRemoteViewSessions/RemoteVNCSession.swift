@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextRemoteView
 public import CmuxVNC
@@ -14,7 +15,10 @@ public final class RemoteVNCSession {
     public let source = RemoteVNCSource()
     /// The record's address; the Keychain key for its sign-in.
     public let endpoint: VNCEndpoint
-    private let store = RemoteVNCCredentialStore()
+    /// The app's one guard of the Keychain UI switch (``RemoteViewPageSession/useLoginKeychain(_:)``),
+    /// set before the first connect; without it no saved sign-in is read or saved.
+    var loginKeychain: LoginKeychain?
+    private var store: RemoteVNCCredentialStore? { loginKeychain.map(RemoteVNCCredentialStore.init(loginKeychain:)) }
     /// A Cloud machine's desktop: a fresh transport over the app's Cloud tunnel per session.
     private let makeTransport: (@Sendable () -> any RFBTransport)?
     private var demo: VNCDemoServer?
@@ -22,6 +26,8 @@ public final class RemoteVNCSession {
     private var demoStart: Task<Void, Never>?
     private var prompting = false
     private var closed = false
+    /// Stop (a hidden tab) until the next connect: a queued loss reconnects nothing meanwhile.
+    private var stopped = false
 
     /// `demoHost`: the reserved host name served by the loopback demo desktop.
     public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
@@ -52,7 +58,10 @@ public final class RemoteVNCSession {
     private var retry: Task<Void, Never>?
 
     private func reconnectAfterLoss() {
-        guard makeTransport != nil, !closed, retry == nil else { return }
+        guard makeTransport != nil, !closed, !stopped, retry == nil else { return }
+        // The loss is queued onto the main actor. A manual reconnect that ran first started a new
+        // session (its status is no longer this loss), so the queued loss schedules nothing.
+        guard case .ended(.connectionLost) = source.status.state else { return }
         let wait = Duration.seconds(min(10, 1 << min(lostTries, 3)))
         lostTries += 1
         scheduleRetry(after: wait)
@@ -73,8 +82,16 @@ public final class RemoteVNCSession {
     /// Test seam for the race where a manual reconnect supersedes an automatic retry.
     internal var hasPendingRetryForTesting: Bool { retry != nil }
 
+    /// The pending automatic retry, so a test can await its end instead of sleeping past it.
+    internal var pendingRetryForTesting: Task<Void, Never>? { retry }
+
     internal func scheduleAutomaticRetryForTesting(after wait: Duration) {
         scheduleRetry(after: wait)
+    }
+
+    /// Runs a lost-path callback that was queued before a manual reconnect.
+    internal func deliverQueuedLossForTesting() {
+        reconnectAfterLoss()
     }
 #endif
 
@@ -90,6 +107,7 @@ public final class RemoteVNCSession {
     /// Connects with the saved sign-in (or none; the host may not need one).
     public func connect() {
         guard !closed else { return }
+        stopped = false
         if let makeTransport {
             source.connect(to: endpoint, credentials: VNCCredentials(), transport: makeTransport()) { [weak self] in
                 Task { @MainActor in self?.lostTries = 0 }
@@ -97,7 +115,7 @@ public final class RemoteVNCSession {
             return
         }
         guard let demo else {
-            source.connect(to: endpoint, credentials: store.credentials(for: endpoint) ?? VNCCredentials())
+            source.connect(to: endpoint, credentials: store?.credentials(for: endpoint) ?? VNCCredentials())
             return
         }
         if let demoPort {
@@ -121,6 +139,7 @@ public final class RemoteVNCSession {
 
     /// Stop, a hidden tab.
     public func stop() {
+        stopped = true
         cancelRetry()
         source.stop()
     }
@@ -158,7 +177,7 @@ public final class RemoteVNCSession {
     private func promptForSignIn(in window: NSWindow?) {
         guard !prompting else { return }
         prompting = true
-        let saved = store.credentials(for: endpoint)
+        let saved = store?.credentials(for: endpoint)
         let spec = CmuxDialogSpec(
             title: RemoteVNCStrings.signInTitle(record.host),
             lines: [RemoteVNCStrings.signInMessage],
@@ -183,7 +202,7 @@ public final class RemoteVNCSession {
             }
             // Saved only once the host accepts them, so a typo never replaces a working sign-in.
             let store = store, endpoint = endpoint
-            source.connect(to: endpoint, credentials: credentials) { store.save(credentials, for: endpoint) }
+            source.connect(to: endpoint, credentials: credentials) { store?.save(credentials, for: endpoint) }
         }
     }
 

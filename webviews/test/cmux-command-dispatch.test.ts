@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { composerCommand, cmuxCommandRefusal, CMUX_COMMANDS } from "../src/agent-session/acpmux/cmuxCommands";
+import {
+  composerCommand,
+  cmuxCommandRefusal,
+  CMUX_COMMANDS,
+  harnessTakesToo,
+} from "../src/agent-session/acpmux/cmuxCommands";
 
 const state = {
   summary: true,
@@ -47,4 +52,21 @@ test("Claude terminal-only commands retain their harness and attachment boundary
   expect(composerCommand("/login", "claude")?.kind).toBe("cliOnly");
   expect(composerCommand("/login", "codex")).toBeUndefined();
   expect(composerCommand("/login", "claude", 1)).toBeUndefined();
+});
+
+test("GUI commands the harness also takes are cmux's, never refused, and sent as typed without a host", () => {
+  for (const text of ["/model", "/model opus", "/fast", "/context", "/plan", "/plan explain"]) {
+    expect(refusal(text)).toBeUndefined();
+    const command = composerCommand(text, "claude");
+    if (command?.kind !== "cmux") throw new Error(`Missing owned command for ${text}`);
+    expect(harnessTakesToo(command.command)).toBe(true);
+  }
+  for (const text of ["/import", "/status", "/btw question", "/side", "/fork", "/continue"]) {
+    const command = composerCommand(text, "claude");
+    if (command?.kind !== "cmux") throw new Error(`Missing owned command for ${text}`);
+    expect(harnessTakesToo(command.command)).toBe(false);
+  }
+  // A bare Claude `/model` opens cmux's picker; it is no longer a terminal-only command.
+  expect(composerCommand("/model", "claude")?.kind).toBe("cmux");
+  expect(composerCommand("/config", "claude")?.kind).toBe("cliOnly");
 });

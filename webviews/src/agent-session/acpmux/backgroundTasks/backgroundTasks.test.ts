@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import type { BackgroundCommand } from "../inspector/processes";
+import type { BackgroundCommand } from "../session-info/processes";
 import type { StartedSession } from "../started/startedSessions";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
-import { anyRunning, backgroundGroups, finishedGroupIds, type TaskCache } from "./backgroundTasks";
+import { workflowPaneId } from "../summary/workflowTranscript";
+import { anyRunning, backgroundGroups, clearKey, finishedGroupIds, type TaskCache } from "./backgroundTasks";
 
 const agent = (id: string, fields: Partial<Subagent> = {}): Subagent => ({
   id,
@@ -108,6 +109,79 @@ describe("backgroundGroups", () => {
     expect(groups[0]!.running[1]).toMatchObject({ agentId: "c", title: "Grep", stop: { kind: "agent", id: "c" } });
   });
 
+  test("a workflow nested under an agent lists its started agents, each opening its transcript", () => {
+    const workflow = agent("wf", {
+      parent: "a",
+      kind: "workflow",
+      runId: "wf_run",
+      startedAt: 1_300,
+      workflowAgents: new Map([
+        [1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }],
+        [2, { index: 2, label: "later", state: "queued" }],
+      ]),
+    });
+    const groups = backgroundGroups(input([group([agent("a")])], { a: [group([workflow])] }, { sessionId: "chat" }));
+    expect(groups.map((g) => g.id)).toEqual(["agent:a"]);
+    const critic = groups[0]!.running.find((task) => task.title === "critic");
+    expect(critic?.workflow?.pane).toBe(workflowPaneId({ sessionId: "chat", runId: "wf_run", agentId: "crit" }));
+    // The nested workflow's own line stops the whole run, as the workflow pane's Stop does.
+    expect(groups[0]!.running.find((task) => task.id === "wf")).toMatchObject({ stop: { kind: "agent", id: "wf" } });
+  });
+
+  test("a workflow's agents carry no stop of their own; the workflow's line stops the run", () => {
+    const workflow = agent("wf", {
+      kind: "workflow",
+      runId: "wf_run",
+      workflowAgents: new Map([
+        [1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }],
+      ]),
+    });
+    const [only] = backgroundGroups(input([group([workflow])], {}, { sessionId: "chat" }));
+    expect(only).toMatchObject({ stop: { kind: "agent", id: "wf" } });
+    expect(only!.agentId).toBeUndefined();
+    expect(only!.running.map((task) => task.stop)).toEqual([undefined]);
+  });
+
+  test("a paused workflow reads stopped: no spinner, no clock, no stop, and Clear finished clears it", () => {
+    const workflow = agent("wf", {
+      kind: "workflow",
+      runId: "wf_run",
+      paused: true,
+      workflowAgents: new Map([
+        [1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }],
+      ]),
+    });
+    const groups = backgroundGroups(input([group([workflow])], {}, { sessionId: "chat" }));
+    expect(groups[0]).toMatchObject({ state: "stopped", running: [] });
+    expect(groups[0]!.stop).toBeUndefined();
+    expect(groups[0]!.finished.map((task) => task.state)).toEqual(["stopped"]);
+    expect(anyRunning(groups)).toBe(false);
+    expect(finishedGroupIds(groups)).toEqual([clearKey(groups[0]!)]);
+  });
+
+  test("a workflow that ended (a cancel, the harness exiting) leaves none of its agents running", () => {
+    const workflow = agent("wf", {
+      kind: "workflow",
+      runId: "wf_run",
+      state: "cancelled",
+      endedAt: 5_000,
+      workflowAgents: new Map([
+        [1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }],
+        [2, { index: 2, label: "judge", agentId: "judge", state: "completed", startedAt: 1_500, elapsedMs: 100 }],
+      ]),
+    });
+    const groups = backgroundGroups(input([group([workflow])], {}, { sessionId: "chat" }));
+    expect(groups[0]!.running).toEqual([]);
+    expect(groups[0]!.finished.map((task) => [task.title, task.state])).toEqual(
+      expect.arrayContaining([
+        ["critic", "stopped"],
+        ["judge", "done"],
+      ]),
+    );
+    expect(anyRunning(groups)).toBe(false);
+    expect(finishedGroupIds(groups)).toEqual([clearKey(groups[0]!)]);
+  });
+
   test("an agent that ended while a nested agent still runs stays live: ordered with the running, never cleared", () => {
     const rows = [
       group([
@@ -119,9 +193,10 @@ describe("backgroundGroups", () => {
     const views = { parent: [group([agent("child", { parent: "parent", startedAt: 600 })])] };
     const groups = backgroundGroups(input(rows, views));
     expect(groups.map((g) => g.id)).toEqual(["agent:parent", "agent:busy", "agent:done"]);
-    expect(finishedGroupIds(groups)).toEqual(["agent:done"]);
+    expect(finishedGroupIds(groups)).toEqual([clearKey(groups.find((g) => g.id === "agent:done")!)]);
     expect(anyRunning(groups)).toBe(true);
-    const cleared = backgroundGroups(input(rows, views, { dismissed: new Set(["agent:parent", "agent:done"]) }));
+    const dismissed = new Set(groups.filter((g) => g.id !== "agent:busy").map(clearKey));
+    const cleared = backgroundGroups(input(rows, views, { dismissed }));
     expect(cleared.map((g) => g.id)).toEqual(["agent:parent", "agent:busy"]);
   });
 
@@ -156,6 +231,14 @@ describe("backgroundGroups", () => {
       input(rows, {}, { dismissed: new Set(finishedGroupIds(backgroundGroups(input(rows)))) }),
     );
     expect(cleared.map((g) => g.id)).toEqual(["agent:early", "agent:late"]);
+  });
+
+  test("a cleared group that runs again and ends again shows again", () => {
+    const first = [group([agent("a", { state: "completed", startedAt: 1_000, endedAt: 2_000 })])];
+    const dismissed = new Set(finishedGroupIds(backgroundGroups(input(first))));
+    expect(backgroundGroups(input(first, {}, { dismissed }))).toEqual([]);
+    const again = [group([agent("a", { state: "completed", startedAt: 5_000, endedAt: 6_000 })])];
+    expect(backgroundGroups(input(again, {}, { dismissed })).map((g) => g.id)).toEqual(["agent:a"]);
   });
 
   test("the chat's background commands are one group under the chat's name, a registry command stoppable", () => {

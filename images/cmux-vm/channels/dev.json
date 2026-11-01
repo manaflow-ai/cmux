@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "env": "dev",
-  "snapshot": "cmuxnp-dev-vmimg-ci-40660501453-1",
-  "snapshot_id": "sh-34faaea346be4c5d986ee0274a32d5cc",
+  "snapshot": "cmuxnp-dev-vmimg-ci-41198930272-1",
+  "snapshot_id": "sh-017bf4cb82844d91adbe6fccbd6e509c",
   "freestyle_account": "cmux-next dev (freestyle-cmux-next-dev-20261004)",
   "source_sha": "9a69d6576a7a",
   "bake": "images/cmux-vm/bake.ts --agent-tools (local run, cmux-next dev key; bead cx-3bi.29): one boot unit cmux-host.service = cmux host run (bind agent, session host supervisor, Cloud agent role); /etc/cmux/host.json freestyle-edge carrier, no secret; CMUX_TUI_HOST_SCOPES=systemd; no Bun vm-agent, no cmux-devbox-boot",
@@ -13,8 +13,8 @@
   "smoke": "PASSED 2026-10-08 (smoke.ts 2 clones with the bind probe)",
   "worker": "development Worker deployed from feat-cmux-next with CLOUD_FREESTYLE_SNAPSHOT=cmuxnp-dev-vmimg-hostrun3 (bead cx-3bi.29, coordinator decision 2026-10-08)",
   "previous": {
-    "snapshot": "cmuxnp-dev-vmimg-ci-40270232246-1",
-    "snapshot_id": "sh-305c4f86261349909f5b0330781b7623"
+    "snapshot": "cmuxnp-dev-vmimg-ci-41026036265-1",
+    "snapshot_id": "sh-0afbb63e9a6046b4a58068dfe30a5bc7"
   },
   "backend_var": "CLOUD_FREESTYLE_SNAPSHOT for ENVIRONMENT=development (backend lead sets it; prefix cmuxnp-dev-vmimg- is enforced)",
   "also_kept": "cmuxnp-dev-vmimg-auto4-71d9a47 (sh-e4aab9ea589146abb98e356574ffe2de), superseded by auto5; cmuxnp-dev-vmimg-auto5-de18da6 (sh-d16c97b11a404bf9a1a9849bd0f073bb), superseded by auto6; cmuxnp-dev-vmimg-auto6-c9693f8 (sh-94ef280de5674a52adf18831289c37f1), superseded by auto7; cmuxnp-dev-vmimg-auto7-5c5cf35 (sh-42ecf781e5a1460b991c7bff18ae4caf), superseded by auto8; cmuxnp-dev-vmimg-agenttools3 (sh-538ea0742b344e04ae19eb3438a2afe6), superseded by agenttools5 (no cua-video refusal); cmuxnp-dev-vmimg-agenttools5 (sh-e64294bf57394cd397ba37951eeb6a52), superseded by hostrun3",
@@ -958,21 +958,75 @@
           ]
         }
       ]
+    },
+    {
+      "var": "CLOUD_FREESTYLE_SNAPSHOT",
+      "snapshot": "cmuxnp-dev-vmimg-ci-41026036265-1",
+      "snapshot_id": "sh-0afbb63e9a6046b4a58068dfe30a5bc7",
+      "lock_sha256": "3fd5d362ee0ebd9f1c7297f23d7f7d834f4365794ebbd6e94f4bc65ca5be934c",
+      "source_sha": "4154db069252d71324c3bfc1edbc899a8be7b695",
+      "run": 41026036265,
+      "baked_at": "2026-10-30T08:31:35Z",
+      "bake": "images/cmux-vm/bake.ts --agent-tools (CI run 41026036265)",
+      "smoke": {
+        "result": "PASSED",
+        "at": "2026-10-30T08:31:35Z",
+        "detail": "smoke.ts --clones 5 (CI run 41026036265): 23 checks passed"
+      },
+      "promotion_smokes": [
+        {
+          "channel": "dev",
+          "snapshot_id": "sh-0afbb63e9a6046b4a58068dfe30a5bc7",
+          "result": "PASSED",
+          "at": "2026-10-30T08:43:03.272Z",
+          "clones": [
+            "vm-4717be7d23dd4d2794c8889cd4b9a924",
+            "vm-864027597a27448992d7ca09be8d8d01"
+          ]
+        }
+      ]
+    },
+    {
+      "var": "CLOUD_FREESTYLE_SNAPSHOT",
+      "snapshot": "cmuxnp-dev-vmimg-ci-41198930272-1",
+      "snapshot_id": "sh-017bf4cb82844d91adbe6fccbd6e509c",
+      "lock_sha256": "c276e8b9d078a0a7c7d492c4581548242e2c990beb7549736d0da92e096f7e4b",
+      "source_sha": "8710f2366d23533b5ecaf44896ed8e75576dcccf",
+      "run": 41198930272,
+      "baked_at": "2026-10-31T12:07:32Z",
+      "bake": "images/cmux-vm/bake.ts --agent-tools (CI run 41198930272)",
+      "smoke": {
+        "result": "PASSED",
+        "at": "2026-10-31T12:07:32Z",
+        "detail": "smoke.ts --clones 5 (CI run 41198930272): 23 checks passed"
+      },
+      "promotion_smokes": [
+        {
+          "channel": "dev",
+          "snapshot_id": "sh-017bf4cb82844d91adbe6fccbd6e509c",
+          "result": "PASSED",
+          "at": "2026-10-31T12:12:01.429Z",
+          "clones": [
+            "vm-f62fde5541c24b298b4ac7c3e677a2c7",
+            "vm-eeba79b0bb3445f694284a8e331ac25f"
+          ]
+        }
+      ]
     }
   ],
   "previous_notes": "cmuxnp-dev-vmimg-hostrun4 (sh-c643b05f40d8486eb862b753306fa803; Worker 2463f0a9-bdd3-46a1-afd9-1742bd417a1e): reports held by the send-time window, superseded. Before it: cmuxnp-dev-vmimg-hostrun3 (sh-584ab926a57d4b178ae605bc445fdfbc; Worker 10e9e45b-9383-4a8a-9942-3bece4e605b3): Cloud worker crash on the first agent socket client, superseded. Before it: cmuxnp-dev-vmimg-agenttools5 (sh-e64294bf57394cd397ba37951eeb6a52; Worker version 7e29392f-4f88-4236-8f64-abca96b2132f): rollback, kept. Before it: cmuxnp-dev-vmimg-auto8-db3743e (sh-2edc51e3a9cb417d89ed7e7159effb0b; Worker version e0fd070e-7914-4377-b51f-18e5268fec02): rollback, kept",
   "var": "CLOUD_FREESTYLE_SNAPSHOT",
-  "promoted_at": "2026-10-28T09:09:52.440Z",
+  "promoted_at": "2026-10-31T12:12:01.429Z",
   "promoted_by": "runner@ip-172-31-73-130",
   "promotion": {
     "smoke": {
       "result": "PASSED",
-      "at": "2026-10-28T09:09:52.440Z",
+      "at": "2026-10-31T12:12:01.429Z",
       "clones": [
-        "vm-9f6c9ae369044f90aeb129bc0c1fb63c",
-        "vm-1245e592fbf34623a078d603c1e6388a"
+        "vm-f62fde5541c24b298b4ac7c3e677a2c7",
+        "vm-eeba79b0bb3445f694284a8e331ac25f"
       ],
-      "detail": "exit 0; report /tmp/cmux-promote-promote202610280907-4E8WZa/smoke-promote202610280907.json"
+      "detail": "exit 0; report /tmp/cmux-promote-promote202610311209-KtKiIo/smoke-promote202610311209.json"
     }
   },
   "team_vm": {

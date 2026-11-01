@@ -3,7 +3,8 @@
 //! else would be useful to show in the workspace ... a column to the right to
 //! show a browser preview or a diff"). A subagent's report that names landed
 //! commits, pages or preview files reaches the Chief with a `<show>` block
-//! that opens each in the right column; `show.afterReport` turns it off.
+//! that opens each in the subagent's workspace or a new one; `show.afterReport`
+//! turns it off.
 
 mod common;
 
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant};
 use common::*;
 use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::Input;
-use optchat_chief::daemon::OpError;
+use optchat_chief::daemon::{DaemonEvent, OpError};
 use optchat_chief::show;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::Orchestrator;
@@ -21,31 +22,44 @@ use serde_json::{Value, json};
 
 const REPORT: &str = "Landed 1a2b3c4d5e6..9f8e7d6c5b4 on feat-cmux-next ([9f8e7d6](https://github.com/manaflow-ai/cmux/commit/9f8e7d6c5b4a)). Gallery: [index.html](file:///Users/me/fun/My%20Gallery/index.html), board at http://127.0.0.1:55999/.";
 
+/// Lawrence 2026-10-31: "by default chief should link to workspaces, and
+/// 'set up workspaces' properly". With no subagent workspace (the Chief's own
+/// work, a headless subagent), the block makes one new workspace named for
+/// the work and opens each item there; never Home's right column.
 #[test]
-fn a_landed_range_becomes_a_compare_page_in_the_right_column() {
+fn without_a_subagent_workspace_done_work_opens_in_a_new_workspace() {
     let block = show::block(REPORT).expect("the report names things to show");
     assert!(
         block.starts_with("<show>") && block.ends_with("</show>"),
         "{block}"
     );
     assert!(
-        block.contains("cmux browser right navigate https://github.com/manaflow-ai/cmux/compare/1a2b3c4d5e6...9f8e7d6c5b4"),
+        block.contains("cmux --json workspace create --name"),
         "{block}"
     );
     assert!(
-        block.contains("cmux browser right navigate http://127.0.0.1:55999/"),
+        block.contains("tab create browser --workspace <ws_…> --url https://github.com/manaflow-ai/cmux/compare/1a2b3c4d5e6...9f8e7d6c5b4"),
         "{block}"
     );
-    // `right navigate` takes the URL as a word: `--url` is a usage error there (the
-    // default Chief copied this hint 18 times from Oct 20 to 26; 17 got "cmux: usage").
-    assert!(!block.contains("navigate --url"), "{block}");
+    assert!(
+        block.contains("tab create browser --workspace <ws_…> --url http://127.0.0.1:55999/"),
+        "{block}"
+    );
     assert!(
         block.contains("--path '/Users/me/fun/My Gallery/index.html' --where tab"),
         "{block}"
     );
+    assert!(
+        !block.contains("browser right"),
+        "never Home's column: {block}"
+    );
+    assert!(!block.contains("navigate --url"), "{block}");
     // The commit link is covered by the diff line, not a page of its own.
     assert!(!block.contains("- page https://github.com"), "{block}");
-    assert!(block.contains("never the dock"), "{block}");
+    assert!(
+        block.contains("cmux://workspace/ws_"),
+        "links the workspace: {block}"
+    );
 }
 
 #[test]
@@ -413,6 +427,188 @@ fn reconnect_to_a_port_without_runs_discards_unsupported_pending_reports() {
 }
 
 #[test]
+fn a_legacy_channel_spawn_recovers_its_report_route_after_restart() {
+    legacy_channel_report(false, false, false);
+}
+
+#[test]
+fn a_legacy_main_dm_followup_never_projects_into_the_original_channel() {
+    legacy_channel_report(true, false, false);
+}
+
+#[test]
+fn a_consumed_legacy_assignment_resumed_before_upgrade_never_projects_again() {
+    for finished_before_upgrade in [false, true] {
+        legacy_channel_report(false, true, finished_before_upgrade);
+    }
+}
+
+fn legacy_channel_report(
+    main_followup: bool,
+    consumed_before_upgrade: bool,
+    finished_before_upgrade: bool,
+) {
+    use optchat_chief::state::{SpawnRecord, StateFile};
+
+    for retain_side_ids in [true, false] {
+        let mut h = Harness::new(default_script());
+        h.connect();
+        h.add_side("conv_channel", "user_channel");
+        let question = h.post_side("conv_channel", "user_channel", "Check this channel's work.");
+        h.wake(&[("conv_channel", question.seq)]);
+        h.settle();
+        let turn = h.owner.lock().unwrap().runs.last().unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let followup_answers = if main_followup {
+            let followup = h.say("user_local", "Now check this private follow-up.");
+            h.settle();
+            // Legacy tell retained these ids but not the follow-up's route.
+            vec![followup.id]
+        } else {
+            Vec::new()
+        };
+        let file = StateFile::new(&h.dir.path().join("host.json")).attach(h.chat.clone());
+        let mut state = file.load();
+        // This is the pre-upgrade on-disk shape: neither routing field exists.
+        let legacy: SpawnRecord = serde_json::from_value(json!({
+            "turn": turn, "answers": [question.id], "started_ms": 1,
+            "delivered": consumed_before_upgrade,
+            "subs": [{"id": "a1", "session_id": "legacy-sub",
+                "status": if finished_before_upgrade { "done" } else { "running" },
+                "report": if finished_before_upgrade { Some("Standalone work is complete.") } else { None },
+                "run_ms": 1, "answers": followup_answers}]
+        }))
+        .unwrap();
+        assert!(legacy.conversation.is_none());
+        assert!(legacy.subs[0].report_run.is_none());
+        state.spawns.insert("legacy-spawn".into(), legacy);
+        if !retain_side_ids {
+            state.side.clear();
+        }
+        file.save(&state).unwrap();
+        drop(file);
+        let Harness {
+            dir,
+            owner,
+            brain,
+            chat,
+            ..
+        } = h;
+        drop(brain);
+        drop(chat);
+        let mut h = Harness::in_dir(dir, default_script(), owner);
+        // The subagent is still running across the upgrade. Connect the owner
+        // without announcing an empty agent inventory (which declares it gone).
+        let conversation = h.owner.lock().unwrap().summary.clone().unwrap();
+        h.brain.step(Input::from(DaemonEvent::Up {
+            port: Box::new(FakeDaemon(h.owner.clone())),
+            conversation,
+            reconnect: Box::new(|| {}),
+        }));
+        h.agents.set_events(
+            "legacy-sub",
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "agent_message_chunk",
+                    json!({"content": {"type": "text", "text": "Channel work is complete."}}),
+                ),
+                json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+            ],
+        );
+        h.brain
+            .step(Input::from(AgentEvent::SessionChanged(idle("legacy-sub"))));
+        if !consumed_before_upgrade {
+            assert_eq!(
+                h.brain.state().spawns["legacy-spawn"]
+                    .conversation
+                    .as_deref(),
+                Some("conv_channel"),
+                "migration marks provenance for an outstanding legacy assignment"
+            );
+        }
+        let owner = h.owner.lock().unwrap();
+        let reports: Vec<_> = owner
+            .run_steps
+            .iter()
+            .filter(|(_, _, steps)| steps.iter().any(|step| step["kind"] == "note"))
+            .collect();
+        if main_followup || consumed_before_upgrade {
+            assert!(
+                reports.is_empty(),
+                "an unknown follow-up or consumed assignment must not leak into the channel"
+            );
+            assert!(
+                h.brain.state().spawns["legacy-spawn"].subs[0]
+                    .report
+                    .is_some(),
+                "the report remains available for Chief delivery"
+            );
+            continue;
+        }
+        assert_eq!(reports.len(), 1, "the legacy report must be visible");
+        let (conversation, run, steps) = reports[0];
+        assert_eq!(conversation, "conv_channel");
+        assert_eq!(run["answers"], json!([question.id]));
+        assert_eq!(run["id"], optchat_chief::run::report_run_id(&turn));
+        assert_eq!(steps[0]["text"], "[a1] Channel work is complete.");
+        drop(owner);
+
+        // Once Chief consumes the migrated assignment, a standalone agent run
+        // must not infer that old route again from the still-retained log.
+        h.brain
+            .step(Input::from(AgentEvent::Up(vec![idle("legacy-sub")])));
+        h.settle();
+        assert!(
+            h.brain.state().spawns["legacy-spawn"].subs[0]
+                .report_run
+                .is_none()
+        );
+        let notes_before = h
+            .owner
+            .lock()
+            .unwrap()
+            .run_steps
+            .iter()
+            .flat_map(|(_, _, steps)| steps)
+            .filter(|step| step["kind"] == "note")
+            .count();
+        let mut resumed = idle("legacy-sub");
+        resumed.status = cmux_chief::acp::SessionStatus::Running;
+        h.brain
+            .step(Input::from(AgentEvent::SessionChanged(resumed)));
+        h.agents.append_events(
+            "legacy-sub",
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "agent_message_chunk",
+                    json!({"content": {"type": "text", "text": "Unassigned work is complete."}}),
+                ),
+                json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+            ],
+        );
+        h.brain
+            .step(Input::from(AgentEvent::SessionChanged(idle("legacy-sub"))));
+        let notes_after = h
+            .owner
+            .lock()
+            .unwrap()
+            .run_steps
+            .iter()
+            .flat_map(|(_, _, steps)| steps)
+            .filter(|step| step["kind"] == "note")
+            .count();
+        assert_eq!(
+            notes_after, notes_before,
+            "a consumed legacy route was inferred twice"
+        );
+    }
+}
+
+#[test]
 fn a_legacy_spawn_without_a_route_delivers_but_does_not_project_into_home() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
@@ -549,4 +745,31 @@ fn a_restart_redelivers_a_done_report_saved_before_deliver() {
         "the persisted Done report was not redelivered: {:?}",
         owner.run_steps
     );
+}
+
+/// Lawrence (Oct 29): "diff should have been opened in a845 workspace. so it
+/// can just make link that goes to workspace/diff." A subagent with a cmux
+/// workspace gets its diff and previews opened there, as new tabs, and the
+/// Chief links that tab.
+#[test]
+fn a_subagent_with_a_workspace_shows_its_work_there() {
+    let block = show::block_in(REPORT, Some("ws_0123abcd")).expect("things to show");
+    assert!(
+        block.contains("tab create browser --workspace ws_0123abcd --url https://github.com/manaflow-ai/cmux/compare/1a2b3c4d5e6...9f8e7d6c5b4"),
+        "{block}"
+    );
+    assert!(
+        block.contains("tab create browser --workspace ws_0123abcd --url http://127.0.0.1:55999/"),
+        "{block}"
+    );
+    assert!(
+        block.contains("cmux pane list --workspace ws_0123abcd"),
+        "{block}"
+    );
+    assert!(
+        !block.contains("browser right"),
+        "never Home's column: {block}"
+    );
+    assert!(block.contains("link"), "the Chief links the tab: {block}");
+    assert_eq!(show::block_in(REPORT, None), show::block(REPORT));
 }

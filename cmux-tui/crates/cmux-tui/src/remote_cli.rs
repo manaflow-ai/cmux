@@ -1228,7 +1228,41 @@ async fn next_rpc_input(
     }
 }
 
+/// `cmux rpc action.list '{}'`: the old cmux's app socket call, which agents still write
+/// (tests/tool-evals r4a: GPT 6 Astra ran it 54 times). Here `rpc` is a remote session's
+/// workspace RPC and would wait for a daemon, so such a call names the app commands instead.
+/// A route host (`box.local`) is not one: the method's last word is a verb, or JSON follows.
+fn app_method_call(args: &[String]) -> bool {
+    let Some(method) = args.first() else { return false };
+    let words: Vec<&str> = method.split('.').collect();
+    let shaped = words.len() >= 2
+        && words.iter().all(|word| {
+            !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        });
+    let verb = matches!(
+        words.last().copied(),
+        Some(
+            "list"
+                | "get"
+                | "run"
+                | "describe"
+                | "search"
+                | "request"
+                | "call"
+                | "ping"
+                | "identify"
+        )
+    );
+    shaped && (verb || args.get(1).is_some_and(|next| next.trim_start().starts_with('{')))
+}
+
 fn run_rpc(args: &[String]) -> anyhow::Result<()> {
+    if let Some(method) = args.first().filter(|_| app_method_call(args)) {
+        return Err(anyhow!(catalog().local_server.unknown_scope(
+            &format!("rpc {method}"),
+            Some("cmux action list` / `cmux action run <id>` (app actions), `cmux app identify"),
+        )));
+    }
     let mut flags = parse_connect_flags(args)?;
     let single = flags.rpc_request.take();
     let connected = start_connected(flags)?;
