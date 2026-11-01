@@ -193,6 +193,7 @@ extension RemoteTmuxControlConnection {
         deferredPaneVisibleRepaints.removeAll(keepingCapacity: false)
         pendingReconnectSeedIDs.removeAll(keepingCapacity: false)
         pendingReconnectPaneIDs.removeAll(keepingCapacity: false)
+        discardQueuedPaneSeeds()
     }
 
     func discardPendingPaneSeeds(keeping livePanes: Set<Int>) {
@@ -210,7 +211,11 @@ extension RemoteTmuxControlConnection {
         deferredPaneSeedBudgetRecoveryPaneIDs.formIntersection(livePanes)
         deferredPaneVisibleRepaints.formIntersection(livePanes)
         pendingReconnectPaneIDs.removeAll { !livePanes.contains($0) }
-        for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+        queuedPaneSeedPaneIDs.removeAll { !livePanes.contains($0) }
+        for seedID in removedSeedIDs {
+            resolveReconnectSeed(seedID)
+            resolveQueuedPaneSeed(seedID)
+        }
     }
 
     func discardPendingPaneSeeds(paneId: Int) {
@@ -221,7 +226,11 @@ extension RemoteTmuxControlConnection {
         pendingPaneVisibleRepaintSeedIDs[paneId] = nil
         deferredPaneVisibleRepaints.remove(paneId)
         pendingReconnectPaneIDs.removeAll { $0 == paneId }
-        for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+        queuedPaneSeedPaneIDs.removeAll { $0 == paneId }
+        for seedID in removedSeedIDs {
+            resolveReconnectSeed(seedID)
+            resolveQueuedPaneSeed(seedID)
+        }
     }
 
     private func completePaneSeedLifecycle(paneId: Int, seedID: UUID) {
@@ -238,6 +247,7 @@ extension RemoteTmuxControlConnection {
             pendingReconnectSeedIDs.insert(followUpSeedID)
         }
         resolveReconnectSeed(seedID)
+        resolveQueuedPaneSeed(seedID)
     }
 
     private func startDeferredPaneVisibleRepaintIfNeeded(paneId: Int) -> UUID? {
@@ -333,6 +343,10 @@ extension RemoteTmuxControlConnection {
             }
             deferredPaneSeedBudgetRecoveryPaneIDs.remove(paneId)
         }
+        // A queued pane the budget refused was handed over here, and the panes queued behind
+        // it may have no queued seed in flight to start them when it finishes. The budget
+        // that just let recoveries through is the edge that lets them through too.
+        pumpQueuedPaneSeeds()
     }
 
     /// Defers recovery out of the failing reservation and coalesces duplicate requests.
