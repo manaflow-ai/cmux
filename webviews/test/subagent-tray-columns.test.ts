@@ -200,14 +200,23 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           await more.click();
           expect(await more.getAttribute("aria-expanded")).toBe("true");
 
-          // Give the list a row of room again, then reach a running line's Stop inside its scroller:
-          // its menu (#28533). A clipped tray or a footer overlay must not cover the line's hit target.
-          await page.evaluate(() => {
+          // Give the list room for one whole running line again, then reach its Stop inside the
+          // scroller: its menu (#28533). A clipped tray or a footer overlay must not cover the line's
+          // hit target. A narrow line is two rows (its time and state wrap under its name), so one
+          // header's height of list is not a line: grow the dock until the list holds the whole line
+          // (the squeezed composer takes its own height back first).
+          const room = await page.evaluate(() => {
             const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+            const list = dock.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
+            const line = list.querySelector<HTMLElement>('.acpmux-agent-line[data-status="running"]')!;
             const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-            const height = Number.parseFloat(dock.style.maxHeight);
-            dock.style.maxHeight = `${height + 2 * header.getBoundingClientRect().height}px`;
+            const step = header.getBoundingClientRect().height;
+            for (let tries = 0; tries < 12 && list.clientHeight < line.offsetHeight; tries++) {
+              dock.style.maxHeight = `${Number.parseFloat(dock.style.maxHeight) + step}px`;
+            }
+            return { list: list.clientHeight, line: line.offsetHeight };
           });
+          expect(room.list).toBeGreaterThanOrEqual(room.line);
           expect(await page.locator(".acpmux-running-tray .acpmux-agent-line__stop-slot > button").count()).toBe(0);
           const stop = page
             .locator(
