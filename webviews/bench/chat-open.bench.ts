@@ -186,8 +186,11 @@ try {
     scriptKiB: number;
     scripts: string[];
   };
-  const open = async (): Promise<Round> => {
+  const open = async (rail = "compact"): Promise<Round> => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    await page.addInitScript((rail) => {
+      localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
+    }, rail);
     await page.addInitScript((latestText) => {
       const state = { firstRow: 0, latest: 0, activity: 0, longTasks: 0, longMs: 0, shift: 0, top: -1, drift: 0 };
       (window as unknown as { __open: typeof state }).__open = state;
@@ -301,37 +304,48 @@ try {
     for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`${ms.toFixed(1)}\t${key}`);
     await page.close();
   }
-  await open(); // warm the page's caches
-  const rounds: Round[] = [];
-  for (let round = 0; round < ROUNDS; round += 1) rounds.push(await open());
-  const median = (pick: (r: Round) => number) => [...rounds.map(pick)].sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
-  console.log(`chat-open: ${TURNS} turns, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`);
-  console.log(
-    "boot: page DOMContentLoaded ms | socket opened ms | initialize arrived ms | watch arrived ms | script KiB (decoded)",
-  );
-  console.log(
-    [
-      median((r) => r.dcl).toFixed(0),
-      median((r) => r.socket).toFixed(0),
-      median((r) => r.initialize).toFixed(0),
-      median((r) => r.watch).toFixed(0),
-      median((r) => r.scriptKiB).toFixed(0),
-    ].join(" | "),
-  );
-  console.log(`scripts loaded (${rounds[0]!.scripts.length}): ${rounds[0]!.scripts.slice(0, 12).join(", ")}`);
-  console.log("attach ms | firstRow ms | latest ms | settled ms | long tasks | long ms | layout shift | scroll moves after latest");
-  console.log(
-    [
-      median((r) => r.attach).toFixed(0),
-      median((r) => r.firstRow).toFixed(0),
-      median((r) => r.latest).toFixed(0),
-      median((r) => r.settled).toFixed(0),
-      median((r) => r.longTasks).toFixed(0),
-      median((r) => r.longMs).toFixed(0),
-      median((r) => r.shift).toFixed(4),
-      median((r) => r.drift).toFixed(0),
-    ].join(" | "),
-  );
+  // ARMS=off,compact: the thread rail's layout per arm (compact is the default), interleaved in
+  // alternating order so drift hits every arm alike.
+  const arms = process.env.ARMS?.split(",") ?? ["compact"];
+  await open(arms[0]); // warm the page's caches
+  const byArm = new Map<string, Round[]>(arms.map((arm) => [arm, []]));
+  for (let round = 0; round < ROUNDS; round += 1)
+    for (const arm of round % 2 ? [...arms].reverse() : arms) byArm.get(arm)!.push(await open(arm));
+  for (const [arm, rounds] of byArm) {
+    const median = (pick: (r: Round) => number) =>
+      [...rounds.map(pick)].sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
+    console.log(
+      `chat-open [rail ${arm}]: ${TURNS} turns, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
+    );
+    console.log(
+      "boot: page DOMContentLoaded ms | socket opened ms | initialize arrived ms | watch arrived ms | script KiB (decoded)",
+    );
+    console.log(
+      [
+        median((r) => r.dcl).toFixed(0),
+        median((r) => r.socket).toFixed(0),
+        median((r) => r.initialize).toFixed(0),
+        median((r) => r.watch).toFixed(0),
+        median((r) => r.scriptKiB).toFixed(0),
+      ].join(" | "),
+    );
+    console.log(`scripts loaded (${rounds[0]!.scripts.length}): ${rounds[0]!.scripts.slice(0, 12).join(", ")}`);
+    console.log(
+      "attach ms | firstRow ms | latest ms | settled ms | long tasks | long ms | layout shift | scroll moves after latest",
+    );
+    console.log(
+      [
+        median((r) => r.attach).toFixed(0),
+        median((r) => r.firstRow).toFixed(0),
+        median((r) => r.latest).toFixed(0),
+        median((r) => r.settled).toFixed(0),
+        median((r) => r.longTasks).toFixed(0),
+        median((r) => r.longMs).toFixed(0),
+        median((r) => r.shift).toFixed(4),
+        median((r) => r.drift).toFixed(0),
+      ].join(" | "),
+    );
+  }
 } finally {
   await release();
 }
