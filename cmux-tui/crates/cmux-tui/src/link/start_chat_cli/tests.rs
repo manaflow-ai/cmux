@@ -1492,6 +1492,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         (403, "workspace_machine.not_admitted", "workspace_machine.not_admitted"),
         (401, "workspace_machine.unconfigured", "workspace_machine.unconfigured"),
         (404, "machine.snapshot.not_found", "machine.snapshot.not_found"),
+        (503, "workspace_machine.not_admitted", "workspace_machine.not_admitted"),
     ] {
         let denied = |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status, code }) };
         let answer =
@@ -1516,9 +1517,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         json!("unreachable")
     );
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
-    // Current platform code is ambiguous: this status also covers a missing provider offer.
-    // Keep the compatibility fallback until the backend separates that from quota denials.
-    assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.not_admitted" }));
+    // A rejected placement must not be retried through another machine-creation path.
+    assert!(!made_no_machine(&E::Status { status: 503, code: "workspace_machine.not_admitted" }));
     assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
     assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
 }
