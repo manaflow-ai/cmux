@@ -31,7 +31,12 @@ fn a_replay_without_a_visible_image_lays_its_text_out_once() {
     let before = layouts();
     let _ = term.vt_replay_bounded(15 * 1024 * 1024).unwrap();
     assert_eq!(layouts() - before, 1, "the text was laid out more than once");
-    // The theme-portable replay a byte mirror gets on attach and resize.
+}
+
+/// The theme-portable replay is the one a byte mirror gets on attach and resize.
+#[test]
+fn a_theme_portable_replay_without_a_visible_image_lays_its_text_out_once() {
+    let mut term = terminal_with(120, 40, &history_text(10_000));
     let before = layouts();
     let _ = term.vt_replay_bounded_theme_portable_with_aliases(15 * 1024 * 1024).unwrap();
     assert_eq!(layouts() - before, 1, "the theme-portable text was laid out more than once");
