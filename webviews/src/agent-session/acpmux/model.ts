@@ -268,6 +268,9 @@ export type AcpmuxRow = {
   /// `lead`: the first queued message, which explains a Stop hold for the run.
   /// `heldByStop`: the person's Stop holds it (QueuedPrompt `heldByStop`).
   queuedMessage?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
+  /// A flattened inbox delivery that came from a queued message. Keep the source queue target
+  /// separate from `queuedMessage` so one wrapper prompt does not become every delivery's identity.
+  inboxQueue?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;

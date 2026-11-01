@@ -120,6 +120,10 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
   const children: AcpmuxRow[] = [];
   for (const thread of notice.threads ?? []) {
     for (const [index, delivery] of inboxDeliveries(thread).entries()) {
+      // A queued inbox wrapper has one queue target for the whole notice. Keep that target on the
+      // first synthetic row only, so the pending group retains Send now/Dismiss without repeating
+      // the same menu on every delivery.
+      const queueSource = row.queuedMessage && children.length === 0 ? row.queuedMessage : undefined;
       children.push({
         id: `${row.id}:inbox:${thread.id}:${index}`,
         version: row.version,
@@ -129,6 +133,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
         untyped: true,
         inboxDelivery: true,
         ...(row.steer ? { steer: row.steer } : {}),
+        ...(queueSource ? { inboxQueue: queueSource } : {}),
         ...(!thread.messages?.length
           ? {
               inboxThread: {

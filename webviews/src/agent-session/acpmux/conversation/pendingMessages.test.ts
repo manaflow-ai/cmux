@@ -251,12 +251,15 @@ test("a waiting wrapper prompt id does not deduplicate its individual deliveries
     kind: "user",
     steer: "waiting",
     steerPromptId: "wrapper-prompt",
+    queuedMessage: { promptId: "wrapper-prompt" },
     text,
     incoming: { kind: "message", message: { name: "inbox", text, raw: `[inbox] ${text}` } },
   };
   const group = pendingMessagesRow([wrapper], [])!;
   expect(group.pendingMessages?.displayRows).toHaveLength(13);
-  expect(group.pendingMessages?.displayRows?.every((row) => row.queuedMessage === undefined)).toBe(true);
+  const display = group.pendingMessages?.displayRows ?? [];
+  expect(display.every((row) => row.queuedMessage === undefined)).toBe(true);
+  expect(display.filter((row) => row.inboxQueue?.promptId === "wrapper-prompt")).toHaveLength(1);
 });
 
 test("turn shaping keeps all expanded waiting deliveries in the pending group", async () => {

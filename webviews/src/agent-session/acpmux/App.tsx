@@ -61,6 +61,7 @@ import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
   QueuedMessageCard,
   SteerWaitingActions,
+  WaitingMessageMenu,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
@@ -323,7 +324,7 @@ import {
 } from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
+import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
@@ -409,7 +410,9 @@ import {
   THINKING,
   WORKED,
   messageRevealTarget,
+  openViewTurnFold,
   toggleTurnFold,
+  toggleViewTurnFold,
   turnFoldFor,
   turnFooterFrom,
   WORKING,
@@ -488,6 +491,7 @@ import { configureQuickActions, quickActions, type QuickActionMode } from "./hea
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
+import { transcriptViewRow, wrapOutputRow } from "./header/transcriptViewRow";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
@@ -516,6 +520,8 @@ import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
+import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
+import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
@@ -1186,6 +1192,7 @@ const MessageRow = memo(
             onOpen={openSenderChat}
             readThread={readInboxThread}
             githubRepository={githubRepository}
+            actions={row.inboxQueue ? <InboxQueueActions queue={row.inboxQueue} version={row.version} /> : undefined}
           />
         </div>
       );
@@ -1657,6 +1664,33 @@ const QueuedMessageRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
+/// A queued inbox wrapper has one queue target for the whole notice. Keep its Send now/Dismiss
+/// controls beside the first flattened preview row without turning every delivery into a queue row.
+const InboxQueueActions = memo(function InboxQueueActions({
+  queue,
+  version,
+}: {
+  queue: NonNullable<AcpmuxRow["inboxQueue"]>;
+  version: number;
+}) {
+  const act = useContext(TurnActionsContext).queuedMessages?.();
+  const [sentAt, setSentAt] = useState<number>();
+  const fail = () => undefined;
+  return (
+    <span className="cv-received-actions">
+      <MessageFooterRow>
+        <WaitingMessageMenu
+          sendNow={
+            act && !queue.next && sentAt !== version
+              ? () => void act.steer(queue.promptId).then((ok) => ok && setSentAt(version), fail)
+              : undefined
+          }
+          dismiss={act ? () => void act.remove(queue.promptId).catch(fail) : undefined}
+        />
+      </MessageFooterRow>
+    </span>
+  );
+});
 /// The messages that wait for the agent, as one group (conversation/PendingMessagesCard.tsx): each
 /// message draws in it as its own row draws alone.
 const PendingMessagesRow = memo(
@@ -1665,29 +1699,12 @@ const PendingMessagesRow = memo(
       message.kind === LANE_NOTICE_BATCH ? (
         <LaneNoticeBatch row={message} renderMessage={renderMessage} />
       ) : message.inboxThread ? (
-        <div className="cv-incoming">
-          <InboxNoticeCard
-            rowId={message.id}
-            messageAt={message.at}
-            notice={{
-              threads: [
-                {
-                  threadId: message.inboxThread.threadId,
-                  label: message.inboxThread.label ?? "",
-                  from: [message.inboxThread.sender],
-                  count: message.inboxThread.count,
-                  preview: message.inboxThread.preview,
-                  blocker: false,
-                  promptIds: [...message.inboxThread.promptIds],
-                  ...(message.inboxThread.fromSession ? { fromSession: message.inboxThread.fromSession } : {}),
-                },
-              ],
-            }}
-            onOpen={openSenderChat}
-            readThread={readInboxThread}
-            githubRepository={props.githubRepository}
-          />
-        </div>
+        <MessageRow {...props} row={message} />
+      ) : message.inboxQueue ? (
+        <QueuedMessageRow
+          {...props}
+          row={{ ...message, queuedMessage: message.inboxQueue }}
+        />
       ) : message.kind === QUEUED_MESSAGE ? (
         <QueuedMessageRow {...props} row={message} />
       ) : (
@@ -2469,7 +2486,7 @@ export function VirtualTranscript({
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
-  expanded: Set<string>;
+  expanded: Folds;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
   /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
@@ -5664,6 +5681,9 @@ function AcpmuxPane() {
   }, [snapshot.missingSession, snapshot.missingReason]);
   const stopContinuing = useCallback(() => setContinuing(false), []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /// The "Worked for" folds the reader toggled in Thinking or Verbose, per view: those views open
+  /// every finished turn's fold (conversation/viewFolds.ts), so a toggle there closes one.
+  const [viewToggles, setViewToggles] = useState<ReadonlyMap<TranscriptView, ReadonlySet<string>>>(() => new Map());
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
   const [subagentView, setSubagentView] = useState<string>();
   /// The subagent this pane was opened on (a `subagent:` reveal, subagents/subagentPanes.ts), shown
@@ -6166,6 +6186,14 @@ function AcpmuxPane() {
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // The open folds as the shown chat's transcript view draws them: Normal is `expanded` itself;
+  // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
+  // One object per view, set or toggle change, so the turns are not reshaped per event.
+  const chatView = useTranscriptView(shownSessionId);
+  const chatViewRef = useRef(chatView);
+  chatViewRef.current = chatView;
+  const viewToggled = viewToggles.get(chatView) ?? NO_FOLD_TOGGLES;
+  const folds = useMemo(() => viewFolds(chatView, expanded, viewToggled), [chatView, expanded, viewToggled]);
   const freshAgents = useMemo(
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
@@ -6211,14 +6239,14 @@ function AcpmuxPane() {
   const childRows = useMemo(() => {
     if (workflowTranscript.rows) return workflowTranscript.rows;
     if (!subagentView) return undefined;
-    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName);
+    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, folds, chatName);
     const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
     return view && (withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[]);
   }, [
     subagentView,
     snapshot.rows,
     snapshot.subagentViews,
-    expanded,
+    folds,
     chatName,
     subagentTray,
     workflowLabsEnabled,
@@ -6371,7 +6399,7 @@ function AcpmuxPane() {
       const last = lastTurns.current;
       const turns = turnViewFrom(
         rows,
-        expanded,
+        folds,
         {
           working: snapshot.isWorking,
           clockOffset: snapshot.clockOffsetMs,
@@ -6389,7 +6417,7 @@ function AcpmuxPane() {
       // Expand inbox summaries only after turn shaping. Source rows remain the semantic anchors
       // for turn boundaries, retries and queue actions; this is a display-only projection.
       const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
-      const subagents = subagentRowsFrom(displayRows, expanded, last?.subagents);
+      const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
@@ -6398,7 +6426,7 @@ function AcpmuxPane() {
     childRows,
     sourceRows,
     started,
-    expanded,
+    folds,
     snapshot.isWorking,
     snapshot.clockOffsetMs,
     codexRuns,
@@ -6568,15 +6596,23 @@ function AcpmuxPane() {
   // The open folds are each chat's own (row ids such as `subagents-<seq>` repeat across chats):
   // the chats shown before keep theirs here for a switch back.
   const [chatFolds, setChatFolds] = useState<
-    ReadonlyMap<string, { expanded: Set<string>; opened: ReadonlySet<string> }>
+    ReadonlyMap<
+      string,
+      {
+        expanded: Set<string>;
+        opened: ReadonlySet<string>;
+        viewToggles: ReadonlyMap<TranscriptView, ReadonlySet<string>>;
+      }
+    >
   >(() => new Map());
   if (subagentChat !== shownSessionId) {
     setSubagentChat(shownSessionId);
     setSubagentView(undefined);
     const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
     if (subagentChat !== undefined)
-      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups }));
+      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups, viewToggles }));
     setExpanded(kept?.expanded ?? new Set());
+    setViewToggles(kept?.viewToggles ?? new Map());
     setOpenedGroups(kept?.opened ?? new Set());
   }
   // A group of subagents starts open while its agents run in the working turn, in the render that
@@ -6606,10 +6642,18 @@ function AcpmuxPane() {
   // through `findRef`.
   const findRef = useRef<ChatFind | undefined>(undefined);
   const diffFindRef = useRef<DiffFindHandle | undefined>(undefined);
-  const openFold = useCallback(
-    (fold: string) => setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold))),
-    [],
-  );
+  const openFold = useCallback((fold: string) => {
+    const view = chatViewRef.current;
+    // Thinking and Verbose open a turn's fold unless the reader closed it there: forget that close.
+    if (view !== "normal" && isWorkedFold(fold))
+      setViewToggles((current) => {
+        const toggled = current.get(view);
+        if (!toggled) return current;
+        const next = openViewTurnFold(turnRowsRef.current, toggled, fold);
+        return next === toggled ? current : new Map(current).set(view, next);
+      });
+    else setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
+  }, []);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   // The ··· menu's Text & Width popover (ChatDisplaySettings.tsx), anchored to the menu button.
   const [displayAnchor, setDisplayAnchor] = useState<HTMLElement | null>(null);
@@ -8454,6 +8498,14 @@ function AcpmuxPane() {
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
+  // The host failed before its handshake: the chat view (its error card and composer) takes the
+  // New Tab page's place until a retry answers, then gives it back (`showNewTab`). What was typed
+  // goes along each way (the page's `onLeaveDraft`, `takeDraft`); before, it was dropped both ways.
+  // `composerStoodIn`: the chat view stands in for a New Tab page now (the host failed before its
+  // handshake while the tab is a New Tab page). Set from that state each render, and cleared once
+  // the handshake is done (below): the page that comes back right then takes the draft, and no
+  // later page (another New Tab adopted into this pane, a chat's own recovery) ever does.
+  const composerStoodIn = useRef(false);
   /// Whether `hostError` is said (one line above the composer, hostRetry.ts `hostErrorShows`): a
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
@@ -10823,18 +10875,22 @@ function AcpmuxPane() {
       : projectFilesRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
           ignoreFailure(callNative("project.addFiles", { cwd, name })),
         );
+    const display = {
+      key: "display",
+      label: t("chatDisplay.menu"),
+      onSelect: () =>
+        setDisplayAnchor(
+          Array.from(document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")).find(
+            (button) => button.getAttribute("aria-label") === t("chatMenu.open"),
+          ) ?? document.querySelector<HTMLElement>(".acpmux-header-tools"),
+        ),
+    };
+    // Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output) and
+    // Text & Width… under them in one submenu (header/transcriptViewRow.ts): the menu is full
+    // height, and a row more pushes Archive off it.
+    const transcriptView = transcriptViewRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
     const tools: ChatMenuItem[] = [
-      {
-        key: "display",
-        label: t("chatDisplay.menu"),
-        icon: "site.permission.localfonts",
-        onSelect: () =>
-          setDisplayAnchor(
-            Array.from(document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")).find(
-              (button) => button.getAttribute("aria-label") === t("chatMenu.open"),
-            ) ?? document.querySelector<HTMLElement>(".acpmux-header-tools"),
-          ),
-      },
+      transcriptView ?? { ...display, icon: "site.permission.localfonts" },
       ...replay,
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
@@ -10885,6 +10941,7 @@ function AcpmuxPane() {
           label: t("chatMenu.rename"),
           icon: "action.edit",
           shortcutAction: HEADER_ACTIONS.rename,
+          accelerator: "R",
           onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
         },
         {
@@ -11058,6 +11115,39 @@ function AcpmuxPane() {
     (newTabStartPage === newTabGeneration ||
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
+  if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
+  // The handshake is done: the page that came back in that render took the draft (`takeDraft`
+  // runs as it mounts, before this effect); an existing chat's recovery has no page to give it to.
+  useEffect(() => {
+    if (handshaken) composerStoodIn.current = false;
+  }, [handshaken]);
+  /// The New Tab page (either template) goes with its draft unsent, and the chat view takes its
+  /// place: the tab's run, found by a read, or the chat view standing in before the handshake (a
+  /// host that failed early). The draft goes to the chat view's composer.
+  const leaveNewTabDraft = (text: string, attachments: ComposerAttachment[]) => {
+    // A Sandboxed send from the page already took its prompt (or held it back).
+    const handed = newTabSandboxSent.current;
+    newTabSandboxSent.current = false;
+    if (handed) return;
+    const draft = { text: text.trim() ? text : "", attachments };
+    const view = sandbox.view();
+    if (view && !sandboxRetryable(view)) {
+      heldBack.current = [...(heldBack.current ?? []), draft];
+      setSandboxDraftMoved(true);
+      return;
+    }
+    // After the handshake the page goes for a chat it started (its prompt sent) or one picked; a
+    // submit queued for the handshake still sends its prompt itself.
+    if (handshakenRef.current || pendingSubmits.current.length > 0) return;
+    restoreComposerDraft(composerHandle, heldBack, draft.text, draft.attachments);
+  };
+  /// A page coming back after the chat view stood in for it: what that composer held, as its draft.
+  const takeNewTabDraft = () => {
+    if (!composerStoodIn.current) return undefined;
+    const waiting = composerHandle.current?.draft() ?? heldBack.current?.pop();
+    if (heldBack.current?.length === 0) heldBack.current = undefined;
+    return waiting;
+  };
   // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
   // the reload hold in the parent until the page is visible and its own effects reconnect.
   useWebSwapHold(showNewTab && harnessesOpen ? "newtab.setup" : null);
@@ -11367,10 +11457,16 @@ function AcpmuxPane() {
     chooseFolder,
   ]);
   // Stable: memoized transcript rows compare it.
-  const toggleActivity = useCallback(
-    (id: string) => setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id)),
-    [],
-  );
+  const toggleActivity = useCallback((id: string) => {
+    const view = chatViewRef.current;
+    // In Thinking and Verbose a turn's "Worked for" is open unless toggled there (viewFolds.ts):
+    // the reader's open or close overrides the view, and Normal's own folds stay as they were.
+    if (view !== "normal" && isWorkedFold(id))
+      setViewToggles((current) =>
+        new Map(current).set(view, toggleViewTurnFold(turnRowsRef.current, current.get(view) ?? NO_FOLD_TOGGLES, id)),
+      );
+    else setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id));
+  }, []);
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
@@ -11495,7 +11591,7 @@ function AcpmuxPane() {
                                                       ? undefined
                                                       : (anchor) => postScrollAnchor(shownSessionId, anchor)
                                                   }
-                                                  expanded={expanded}
+                                                  expanded={folds}
                                                   showMinimap={minimapVisible}
                                                   reveal={childRows ? undefined : revealRow}
                                                   coldOpen={!childRows && opened.cold ? opened.open : undefined}
@@ -11843,6 +11939,9 @@ function AcpmuxPane() {
             <SwitchNotice
               switching={snapshot.switching}
               onRetry={() => void callNative("chat.harness.retry")}
+              // The refused prompt is back in the composer; a chat on another machine starts only
+              // with a send, so the share's retry sends it again (as Trust's answer does).
+              onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
               onAction={(action) => {
                 // A fresh chat on another machine has no summary yet: its connection's origin, or a
                 // folder list its host marked as that machine's, says where it runs.
@@ -12594,16 +12693,8 @@ function AcpmuxPane() {
                   }}
                   key={newTabGeneration}
                   environments
-                  // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
-                  onLeaveDraft={(text, attachments) => {
-                    // A Sandboxed send from the page already took its prompt (or held it back).
-                    const handed = newTabSandboxSent.current;
-                    newTabSandboxSent.current = false;
-                    const view = sandbox.view();
-                    if (handed || !view || sandboxRetryable(view)) return;
-                    heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
-                    setSandboxDraftMoved(true);
-                  }}
+                  onLeaveDraft={leaveNewTabDraft}
+                  takeDraft={takeNewTabDraft}
                   {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                     ? {
                         runMode: sandboxModeRows,
@@ -12780,6 +12871,8 @@ function AcpmuxPane() {
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+              onLeaveDraft={leaveNewTabDraft}
+              takeDraft={takeNewTabDraft}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
             <ReplayScreen
@@ -12799,7 +12892,8 @@ function AcpmuxPane() {
                 <VirtualTranscript
                   rows={rows}
                   sessionId={`replay:${replaying}`}
-                  expanded={expanded}
+                  // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
+                  expanded={folds}
                   showMinimap={minimapVisible}
                   registry={registry}
                   onToggleActivity={toggleActivity}
