@@ -67,6 +67,7 @@ extension PaletteModel {
             guard query.isEmpty else { return false }
             // A tree page goes up first; at its top Backspace pops it.
             if leaveLevel() { return true }
+            if removeLastToken() { return true }
             send(.backspaceOnEmpty)
         case .enterRow:
             _ = enterSelectedRow()
@@ -78,6 +79,13 @@ extension PaletteModel {
             return false
         }
         return true
+    }
+
+    /// Runs the Cmd-W that waited on a search, now that it delivered.
+    func closeIfPending() {
+        guard pendingClose else { return }
+        pendingClose = false
+        handle(.closeItem)
     }
 
     /// Cmd-W. With the selected row's close command: runs it, keeps the
@@ -117,6 +125,7 @@ extension PaletteModel {
         let placed = sections.flatMap { section in section.rows.map { (id: $0.id, section: section.section.id) } }
         guard performClose(command, rowID: item.id) else { return }
         if let next = Self.selection(afterRemoving: item.id, from: placed) { send(.select(next)) }
+        else { send(.clearSelection) }
         reload()
     }
 
@@ -241,7 +250,12 @@ extension PaletteModel {
 
     func moveSelection(by delta: Int, wrap: Bool) {
         let rows = self.rows
-        guard !rows.isEmpty else { return }
+        guard !rows.isEmpty else {
+            // Even an empty-list navigation key is explicit navigation: release
+            // an exhausted-section suppression before a later batch arrives.
+            send(.move(delta))
+            return
+        }
         let currentIndex = rows.firstIndex { $0.id == selectedRowID } ?? -1
         var next = currentIndex + delta
         if wrap {
@@ -254,7 +268,11 @@ extension PaletteModel {
 
     func selectRow(at index: Int, scroll: Bool) {
         let rows = self.rows
-        guard rows.indices.contains(index) else { return }
+        guard rows.indices.contains(index) else {
+            // Home/End on an empty page still count as explicit navigation.
+            send(.move(0))
+            return
+        }
         send(.select(rows[index].id))
         if scroll { scrollRequest += 1 }
     }

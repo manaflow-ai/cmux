@@ -98,6 +98,24 @@ public struct SidebarDocMachines {
         }
     }
 
+    /// Draws the sidebar document the daemon's launch snapshot saved (`data`, `LaunchSnapshot.sidebarDoc`) now, in the
+    /// turn the first window's sidebar seeds, so the Pinned band is in its first frame rather than after the daemon's
+    /// `sidebar.get` (10.5 s after an update on a 41 GB registry, Lawrence 2026-10-29). `shown` gets its band layout.
+    /// The daemon's first load replaces it; a daemon that connects without the document (`serves` false) drops it.
+    public func showLaunchSnapshot(_ data: Data, in store: SidebarDocStore, connected: @escaping @MainActor () -> Bool,
+                                   serves: @escaping @MainActor () -> Bool, shown: @MainActor (SidebarLayoutDocument?) -> Void) {
+        guard store.loadProvisional(data) else { return }
+        store.show(live: liveRefs())
+        shown(store.shown?.layout)
+        // task-owner: the app's services; ends at the first connection (event-driven, Observation)
+        Task { [weak store] in
+            for await isConnected in ObservationStream({ connected() }) where isConnected {
+                if !serves() { store?.dropProvisional() }
+                return
+            }
+        }
+    }
+
     /// Link rows draw the favicon at their item's icon address. An open tab's favicon address can change while its image
     /// is cached already (no favicon `revision`): this watches the addresses too (`byOrigin`, one origin -> favicon table
     /// read once per change) and stores them on the link items; `faviconKey` is a page's origin key.

@@ -208,6 +208,57 @@ impl Client {
         Ok(reply)
     }
 
+    /// The whole session list `m` (`_acpmux/sessions` or `_acpmux/watch`) answers for `params`
+    /// with no `limit`: every page of it. A list too large for one message comes in pages, each
+    /// with the `nextCursor` of the rest (`server/list_reply.rs`), read here with
+    /// `_acpmux/sessions` and the same filters. The pages go in an order updates do not change,
+    /// so their rows are sorted back newest first, as one reply lists them; the result is one
+    /// `{sessions}`. A cursor that comes again, or a page with no `sessions`, is an error,
+    /// never a loop or a short list. With a `limit`, the one page it asks for.
+    pub async fn whole_list(&self, m: &str, params: Value) -> Result<Value> {
+        if params.get("limit").is_some_and(|limit| !limit.is_null()) {
+            return self.request(m, params).await;
+        }
+        let mut reply = self.request(m, params.clone()).await?;
+        let mut rest = params;
+        if let Some(p) = rest.as_object_mut() {
+            p.remove("enabled");
+        }
+        let mut seen = std::collections::HashSet::new();
+        while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
+            let cursor = match cursor {
+                Value::String(cursor) => cursor,
+                Value::Null => break,
+                other => anyhow::bail!("{m}: the daemon gave the page cursor {other}"),
+            };
+            if !seen.insert(cursor.clone()) {
+                anyhow::bail!("{m}: the daemon gave the page cursor {cursor:?} twice");
+            }
+            if !rest.set("cursor", Value::String(cursor.clone())) {
+                anyhow::bail!(
+                    "{m}: the params {rest} are not an object, so no page after cursor {cursor:?}"
+                );
+            }
+            let mut page = self.request(method::MUX_SESSIONS, rest.clone()).await?;
+            let (Some(Value::Array(rows)), Some(all)) = (
+                page.get_mut("sessions").map(Value::take),
+                reply.get_mut("sessions").and_then(Value::as_array_mut),
+            ) else {
+                anyhow::bail!("{m}: the page after cursor {cursor:?} lists no sessions");
+            };
+            all.extend(rows);
+            if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
+                reply.set("nextCursor", next);
+            }
+        }
+        if !seen.is_empty()
+            && let Some(rows) = reply.get_mut("sessions").and_then(Value::as_array_mut)
+        {
+            crate::hub::session_pages::sort_session_summaries(rows);
+        }
+        Ok(reply)
+    }
+
     /// A `session/new` that is never its caller's child: an ephemeral run (`acpmux run
     /// --ephemeral`, an agent's probe, `probe_prompt.rs`) is no subagent.
     pub async fn request_parentless(&self, m: &str, mut params: Value) -> Result<Value> {
@@ -365,8 +416,8 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         (None, _, false) => "the daemon was shut down".to_owned(),
     };
     let build = match daemon_build {
-        Some(b) if b != crate::hub::BUILD => {
-            format!(" It ran build {b}; this command is build {}.", crate::hub::BUILD)
+        Some(b) if b != crate::hub::build() => {
+            format!(" It ran build {b}; this command is build {}.", crate::hub::build())
         }
         _ => String::new(),
     };

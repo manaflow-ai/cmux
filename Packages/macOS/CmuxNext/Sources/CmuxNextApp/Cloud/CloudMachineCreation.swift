@@ -49,15 +49,47 @@ final class CloudMachineCreation: Identifiable {
     private(set) var machineConfig: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
+    /// What opens the ready machine's workspace instead of the flow's own (the Cloud toggle's,
+    /// in a copied folder); kept here so a Retry from any surface opens the same one.
+    @ObservationIgnored var open: (@MainActor (CloudMachineSession) async throws -> String)?
     /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
     /// the same idempotency key.
     private(set) var request: CloudMachineRequest
+    /// The name the first app server attempt sent (``CloudService/createMachine``): the one asked for, else
+    /// a readable default. Every Retry sends the same one, since an approval holds the exact params. Not
+    /// part of ``request``: a named request is a request option the app server's create refuses.
+    var pinnedMachineName: String?
 
     /// The create went to the server once, to `team`: a Retry may find the machine it made, and
     /// goes to that same team.
     func markRequestSent(team: String?) {
         if !request.wasSent { request.team = team }
         request.wasSent = true
+    }
+
+    /// The person answered approval `request` for `key`; nothing when the creation moved on to another key.
+    func markApproved(_ request: String, key: String) {
+        guard self.request.idempotencyKey == key else { return }
+        self.request.approvedRequest = request
+    }
+
+    /// An attempt with `key` is about to answer approval `request`; nothing when the creation moved on to another key.
+    func markAnswering(_ request: String, key: String) {
+        guard self.request.idempotencyKey == key else { return }
+        self.request.answeringRequest = request
+    }
+
+    /// The server refused the create outright and made no machine (``CloudService/isDefinitiveRefusal(_:)``):
+    /// the key's stored answer is that refusal, so a Retry after the person fixes it (frees a slot,
+    /// upgrades) needs a new key, which may also go to another team.
+    /// Only for the key the refused attempt sent: a Retry that started meanwhile keeps its own.
+    func renewKey(replacing key: String) {
+        guard request.idempotencyKey == key else { return }
+        request.idempotencyKey = UUID().uuidString
+        request.wasSent = false
+        request.team = nil
+        request.approvedRequest = nil
+        request.answeringRequest = nil
     }
 
     init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
@@ -191,7 +223,7 @@ final class CloudMachineCreation: Identifiable {
         startedAt = now
         readyAfter = nil
         planRefusal = nil
-        if session == nil { phase = .requesting }
+        phase = session == nil ? .requesting : .created
     }
 }
 
@@ -303,9 +335,12 @@ struct CloudCreationFlow {
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
+    /// `open`, when given, opens the machine's workspace instead of ``open`` (on every Retry too).
     @discardableResult
-    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest(),
+               open: (@MainActor (CloudMachineSession) async throws -> String)? = nil) -> CloudMachineCreation {
         let creation = creations.begin(window: window?.id, session: existing, request: request)
+        creation.open = open
         if let window {
             window.page = nil
             window.cloudCreation = creation.id
@@ -329,7 +364,7 @@ struct CloudCreationFlow {
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, bootstrap = bootstrap, creations = creations, planRequired = planRequired
+        let create = create, open = creation.open ?? open, show = show, bootstrap = bootstrap, creations = creations, planRequired = planRequired
         let startedByPerson = startedByPerson
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in

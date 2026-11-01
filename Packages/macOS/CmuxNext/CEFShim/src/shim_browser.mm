@@ -3,6 +3,10 @@
 
 #import <AppKit/AppKit.h>
 
+#include <cstring>
+#include <string>
+
+#include "devtools_message_id.h"
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
 #include "shim_internal.h"
@@ -71,6 +75,10 @@ void cmux_shim_go_forward(int browser_id) {
 
 void cmux_shim_reload(int browser_id) {
   if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->Reload();
+}
+
+void cmux_shim_reload_ignore_cache(int browser_id) {
+  if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->ReloadIgnoreCache();
 }
 
 int cmux_shim_unresponsive_reply(int browser_id, int terminate) {
@@ -192,20 +200,23 @@ int cmux_shim_try_close(int browser_id) {
 
 int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
-  if (!host || !method) {
+  const size_t params_size = params_json ? std::strlen(params_json) : 0;
+  if (!host || !IsDevToolsMethodName(method) || (params_size > 0 && !IsOneJSONObject(params_json, params_size))) {
     return 0;
   }
-  CefRefPtr<CefDictionaryValue> params;
-  if (params_json && *params_json) {
-    CefRefPtr<CefValue> value = CefParseJSON(params_json, JSON_PARSER_RFC);
-    if (!value || value->GetType() != VTYPE_DICTIONARY) {
-      return 0;
-    }
-    params = value->GetDictionary();
-  }
   // An explicit id below 2^30 (the raw-send range starts there).
-  int id = NextInternalDevToolsId(browser_id);
-  return id ? host->ExecuteDevToolsMethod(id, method, params) : 0;
+  const int id = NextInternalDevToolsId(browser_id);
+  if (!id) return 0;
+  // The message CefBrowserHost::ExecuteDevToolsMethod would make, with the
+  // host's parameters text as it is. ExecuteDevToolsMethod needs them parsed
+  // (CefParseJSON, through UTF-16) into a CefDictionaryValue, which CEF then
+  // writes back to JSON: for an app page's script batch that cost 61-104 ms
+  // of this thread, the app's main thread (hang records v2.2.9 seq 565,
+  // v2.2.10 seq 410). Chromium parses the message once, as for any DevTools
+  // client, and its result still reaches OnDevToolsMethodResult
+  // (ForwardDevToolsMessage passes ids below 2^30 on).
+  const std::string message = DevToolsCallMessage(id, method, params_json, params_size);
+  return host->SendDevToolsMessage(message.data(), message.size()) ? id : 0;
 }
 
 char* cmux_shim_ext_actions(int browser_id, int icon_px) {

@@ -18,7 +18,8 @@ import WebKit
 /// seeds a turn that edits three files instead, for the changes view, and `"short"` one-line
 /// turns answered "ok N", for the thread minimap's density, and `"incoming"` received agent
 /// messages, for the received-message card, and `"shared"` a shared chat, for chat multiplayer's
-/// authors, answered-by, header faces and typing line), `fling` (`seconds`,
+/// authors, answered-by, header faces and typing line, and `"subagents"` the subagent tray's life,
+/// one step per `count`, with `agents` subagents started, 2 by default), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
@@ -32,11 +33,17 @@ import WebKit
 /// the chat automation verbs (webviews automation.ts; each runs the page
 /// action a click or key runs, so a no-activate window can be driven end to
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
-/// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
-/// `decision`), `open_changes` (the latest turn's changes view),
+/// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `compose_send` (`text`: the
+/// composer's own Return, so a new chat with Cloud picked starts on a Cloud machine), `run_mode` (`mode`:
+/// `persistent`, `sandboxed` or `cloud`, the run row's pick; omitted reads it), `answer_permission` (`option`, `allow`,
+/// `decision`), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
+/// `.acpmux-attach-input`: the composer's file input gets those files as a pick in Chromium's open panel),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
-/// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
-/// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
+/// `readiness` (page body, transcript and composer metrics), `cloud_auth` (the native
+/// `cloudMachine.list` reply consumed by the picker), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
+/// or `text`: a native click on that element, DebugAgentPaneClick), `open_subagent` (`index`, from 1, and `focus`, default
+/// false: the `subagents` fixture's subagent at `index` opens in its own pane as a tray click's `chat.subagentPane` opens
+/// it, DebugAgentPaneSubagent), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on), or `inspector` (`open` sets its visibility;
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
@@ -54,6 +61,7 @@ enum DebugAgentPane {
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
+        "compose_send": "composeSend", "run_mode": "runMode",
         "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch",
     ]
 
@@ -61,7 +69,7 @@ enum DebugAgentPane {
     /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
     /// pick or an answer as the user's, and automation reaches what a person sees (the trust
     /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
-    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder"]
+    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder", "compose_send", "run_mode"]
 
     static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
         if userVerbs.contains(action) { gestures.record() }
@@ -174,6 +182,10 @@ enum DebugAgentPane {
         if action == "readiness" {
             return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
         }
+        if action == "cloud_auth" {
+            let reply = await view.model.respond(to: .cloudMachine(.list))
+            return .object(["pane": .string(pane), "reply": JSONValue(foundation: reply) ?? .null])
+        }
         if action == "close_menus" {
             let script = """
             const target = document.activeElement || document.body;
@@ -200,14 +212,20 @@ enum DebugAgentPane {
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
-        if action == "hover" {
-            return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
-        }
+        if action == "set_files" {
+            return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
+        if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
+        if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
+        if action == "open_subagent" {
+            return await DebugAgentPaneSubagent.open(params, pane: pane, model: view.model) {
+                (try? await view.callPageScript(DebugAgentPaneSubagent.pageSessionScript)) as? String
+            }
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, engine, focus_composer, composer_focused, click, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
@@ -296,7 +314,9 @@ enum DebugAgentPane {
     private static func arguments(_ action: String, _ params: [String: JSONValue]) -> [Any] {
         switch action {
         case "seed_rows":
-            return [params["count"]?.intValue ?? 5000, params["fixture"]?.stringValue.map { $0 as Any } ?? NSNull()]
+            // `agents`: how many subagents the `subagents` fixture starts (2 when omitted).
+            return [params["count"]?.intValue ?? 5000, params["fixture"]?.stringValue.map { $0 as Any } ?? NSNull(),
+                    params["agents"]?.intValue.map { $0 as Any } ?? NSNull()]
         case "fling":
             var options: [String: Any] = ["wait": params["wait"]?.boolValue == true]
             if let nominal = params["nominal_ms"]?.doubleValue { options["nominal_ms"] = nominal }
@@ -323,8 +343,10 @@ enum DebugAgentPane {
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
-        case "send_prompt":
+        case "send_prompt", "compose_send":
             return [params["text"]?.stringValue ?? ""]
+        case "run_mode":
+            return [params["mode"]?.stringValue ?? NSNull()]
         case "new_chat":
             return [params["harness"]?.stringValue ?? NSNull(), params["cwd"]?.stringValue ?? NSNull()]
         case "set_model":

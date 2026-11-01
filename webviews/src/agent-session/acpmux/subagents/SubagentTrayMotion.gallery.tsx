@@ -86,6 +86,14 @@ export default componentEntry<Props>({
       note: "Empty chat, nothing played yet: press Start subagent, New message, the header and End all to watch each motion.",
       props: {},
     },
+    "line-joins": {
+      note: "Two subagents running, list open: a third starts and its line rises into the list on the same entrance as a new transcript row (cv-enter), not the popup's.",
+      props: { start: 2 },
+      play: async (ctx) => {
+        await ctx.click(stage("start"));
+        await ctx.waitFor(() => lines(ctx) === 3);
+      },
+    },
     "two-running": {
       note: "Two subagents running: the header's spinner turns, and folding or opening the list moves its height on the shared fold.",
       props: { start: 2 },

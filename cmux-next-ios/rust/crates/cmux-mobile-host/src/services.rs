@@ -1,6 +1,7 @@
 //! Link services (PROTOCOL.md "Services"). Default deny: a service not
 //! listed here is closed with `unknown_service`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -12,10 +13,12 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::chief_policy::ChiefPolicy;
+use crate::cloud_acp::{Adapter as CloudAcpAdapter, Effects as CloudAcpEffects};
 use crate::config::{AcpmuxTarget, ServiceConfig};
 use crate::control;
 use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
@@ -77,11 +80,15 @@ pub async fn serve(
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
-        "file" => file(&config, &args, &sender).await,
+        "cloud-directory" => cloud_directory(&sender, &args).await,
+        "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
+        "file" => file(&config, &args, &sender, false).await,
+        "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
+        "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -122,7 +129,10 @@ impl Refusal {
 pub const LINK_PROTOCOL: u32 = 2;
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
-pub const CAPABILITIES: [&str; 1] = ["removal-v1"];
+/// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
+/// reaches a port on this Mac's loopback).
+pub const CAPABILITIES: [&str; 5] =
+    ["removal-v1", "file-preview-v1", "localhost-forward-v1", "cloud-directory-v1", "cloud-acpmux-v1"];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
@@ -157,6 +167,207 @@ async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), R
         "capabilities": capabilities(config),
     });
     let _ = sender.send(Bytes::from(reply.to_string())).await;
+    Ok(())
+}
+
+fn cloud_id(value: Option<&Value>, name: &str) -> Result<String, Refusal> {
+    let Some(value) = value.and_then(Value::as_str) else {
+        return Err(Refusal::new("bad_request", format!("{name} is required")));
+    };
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 160
+        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    {
+        return Err(Refusal::new("bad_request", format!("invalid {name}")));
+    }
+    Ok(value.to_owned())
+}
+
+/// Return only authenticated Cloud machines. Carrier paths and owner markers
+/// are never exposed to the phone.
+async fn cloud_directory(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> {
+    if !args.is_object() || args.as_object().is_some_and(|object| !object.is_empty()) {
+        return Err(Refusal::new("bad_request", "cloud-directory takes no arguments"));
+    }
+    let links =
+        control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
+    let mut counts = HashMap::<(String, String), usize>::new();
+    for link in &links {
+        *counts.entry((link.machine_id.clone(), link.team_id.clone())).or_default() += 1;
+    }
+    let machines = links
+        .into_iter()
+        .filter(|link| link.owner && counts.get(&(link.machine_id.clone(), link.team_id.clone())) == Some(&1))
+        .map(|link| serde_json::json!({"machine_id": link.machine_id, "team_id": link.team_id, "name": link.name}))
+        .collect::<Vec<_>>();
+    sender
+        .send(Bytes::from(serde_json::json!({"machines": machines}).to_string()))
+        .await
+        .map_err(|_| Refusal::new("closed", "phone channel closed"))
+}
+
+/// Open an authenticated Cloud carrier. The phone supplies ids only; the app
+/// resolves the current owner link and socket, then the carrier's scoped ACP
+/// adapter applies Web/phone mode and approval policy.
+async fn cloud_acpmux(
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+    args: &Value,
+) -> Result<(), Refusal> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| Refusal::new("bad_request", "cloud-acpmux arguments must be an object"))?;
+    if object.keys().any(|key| key != "machine_id" && key != "team_id") {
+        return Err(Refusal::new("bad_request", "cloud-acpmux accepts only machine_id and team_id"));
+    }
+    let machine_id = cloud_id(object.get("machine_id"), "machine_id")?;
+    let team_id = cloud_id(object.get("team_id"), "team_id")?;
+    let links =
+        control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
+    let mut matches = links
+        .into_iter()
+        .filter(|link| link.machine_id == machine_id && link.team_id == team_id)
+        .collect::<Vec<_>>();
+    if matches.len() != 1 || !matches[0].owner {
+        return Err(Refusal::new(
+            "forbidden",
+            "Cloud machine is not an unambiguous authenticated owner link",
+        ));
+    }
+    let link = matches.pop().expect("one link checked above");
+    let path =
+        link.socket.ok_or_else(|| Refusal::new("unavailable", "Cloud machine link has no carrier socket"))?;
+    if !path.is_absolute() {
+        return Err(Refusal::new("unavailable", "Cloud machine link has an invalid carrier socket"));
+    }
+    let socket = UnixStream::connect(&path)
+        .await
+        .map_err(|error| Refusal::new("unavailable", format!("Cloud carrier unavailable: {error}")))?;
+    let (read, mut write) = socket.into_split();
+    let mut read = BufReader::new(read);
+    timeout(Duration::from_secs(5), cloud_mobile_handshake(&mut read, &mut write))
+        .await
+        .map_err(|_| Refusal::new("timeout", "Cloud carrier handshake timed out"))??;
+    let mut native_line = Vec::new();
+    let mut phone_message = MessageAssembler::default();
+    let mut adapter = CloudAcpAdapter::new(machine_id.clone(), team_id.clone());
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        tokio::select! {
+            event = receiver.recv() => match event {
+                Some(ChannelEvent::Data(bytes)) => {
+                    let Some(message) = phone_message.push(&bytes)? else { continue; };
+                    let request: Value = serde_json::from_str(message.as_str())
+                        .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
+                    let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+                    if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                }
+                Some(ChannelEvent::Closed(_)) | None => break,
+            },
+            native = read_cloud_line(&mut read, &mut native_line) => {
+                let line = native?;
+                let response: Value = serde_json::from_slice(&line)
+                    .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
+                let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
+                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+            }
+            _ = tick.tick() => {
+                let effects = adapter.expire();
+                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+            }
+        }
+    }
+    Ok(())
+}
+
+const MAX_CLOUD_NATIVE_LINE: usize = 8 * 1024 * 1024;
+
+// The app already dialed the authenticated native carrier. Identify the VM's
+// supported policy before marking this connection mobile; an old daemon may
+// accept unknown client capabilities without enforcing them.
+async fn cloud_mobile_handshake<R, W>(read: &mut R, write: &mut W) -> Result<(), Refusal>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    for request in [
+        serde_json::json!({"cmd":"identify","id":"cloud-mobile-identify"}),
+        serde_json::json!({"cmd":"set-client-info","id":"cloud-mobile-host",
+            "kind":"ios","device_kind":"iphone",
+            "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}),
+    ] {
+        write
+            .write_all(request.to_string().as_bytes())
+            .await
+            .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        let bytes = read_cloud_line(read, &mut Vec::new()).await?;
+        let response: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid handshake"))?;
+        if response.get("id") != request.get("id")
+            || response.get("ok").and_then(Value::as_bool) != Some(true)
+        {
+            return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat handshake"));
+        }
+        if request["cmd"] == "identify"
+            && !response
+                .pointer("/data/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|caps| caps.iter().any(|cap| cap == "cloud-mobile-chat-v1"))
+        {
+            return Err(Refusal::new(
+                "forbidden",
+                "Cloud machine does not support phone prompt restrictions",
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn read_cloud_line<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+) -> Result<Vec<u8>, Refusal> {
+    loop {
+        let chunk =
+            reader.fill_buf().await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        if chunk.is_empty() {
+            return Err(Refusal::new("unavailable", "Cloud carrier closed"));
+        }
+        let newline = chunk.iter().position(|byte| *byte == b'\n');
+        let take = newline.unwrap_or(chunk.len());
+        if line.len().saturating_add(take) > MAX_CLOUD_NATIVE_LINE {
+            return Err(Refusal::new("bad_request", "Cloud carrier line is too large"));
+        }
+        line.extend_from_slice(&chunk[..take]);
+        reader.consume(take + usize::from(newline.is_some()));
+        if newline.is_some() {
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            return Ok(std::mem::take(line));
+        }
+        // Keep the accumulated bytes outside the future. If select! cancels this
+        // read while a phone frame arrives, the next poll resumes from this exact
+        // partial line instead of dropping it.
+    }
+}
+
+async fn apply_cloud_effects(
+    write: &mut tokio::net::unix::OwnedWriteHalf,
+    sender: &ChannelSender,
+    effects: CloudAcpEffects,
+) -> Result<(), ()> {
+    for value in effects.to_native {
+        let bytes = serde_json::to_vec(&value).map_err(|_| ())?;
+        write.write_all(&bytes).await.map_err(|_| ())?;
+        write.write_all(b"\n").await.map_err(|_| ())?;
+    }
+    for value in effects.to_phone {
+        let bytes = serde_json::to_vec(&value).map_err(|_| ())?;
+        sender.send(Bytes::from(bytes)).await.map_err(|_| ())?;
+    }
     Ok(())
 }
 
@@ -285,6 +496,10 @@ async fn chief(
     splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
 }
 
+/// Bound an unanswered ordered command; its splice closes on expiry. Terminal
+/// sends, long-running `wait-for` reads and close handling never wait on this timer.
+const SIDE_COMPLETION_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Splices one phone channel to a daemon socket. Responses and refusals
 /// reach the phone as whole lines, never interleaved.
 async fn splice(
@@ -312,6 +527,12 @@ async fn splice(
     let _active = claims.then(crate::size_release::ActiveSplice::begin);
     let pending = Arc::new(crate::size_release::PendingReleases::default());
 
+    let side_completion = Arc::new(crate::side_completion::SideCompletion::default());
+    // Clear pending mutation authority before the service closes, even if its
+    // child tasks have only been scheduled for cancellation.
+    let _completion_scope = side_completion.scope();
+    let completed = Arc::clone(&side_completion);
+
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
@@ -327,8 +548,61 @@ async fn splice(
                     if answers.answer(&line) {
                         continue;
                     }
+                    let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
                     if daemon_lines.send(line).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    // Cold/invalidated side queries wait only in this bounded worker. `send`
+    // continues on the input task while the cache refreshes on its own socket.
+    let cache = terminal_folders.clone().map(crate::workspace_cache::WorkspaceCache::start);
+    let (side_tx, mut side_rx) = mpsc::channel::<(Vec<u8>, Verdict)>(256);
+    let (ready_tx, mut side_ready) = mpsc::channel::<Verdict>(256);
+    let side_cache = cache.clone();
+    // JoinSet also aborts this worker if the service future is cancelled.
+    let mut side_workers = tokio::task::JoinSet::new();
+    side_workers.spawn(async move {
+        while let Some((line, verdict)) = side_rx.recv().await {
+            let Some(cache) = &side_cache else { return };
+            if let Some((tree, personal, layout)) = side_requirements(&line) {
+                cache.wait_for(tree, personal, layout).await;
+            }
+            let verdict = owned_check(cache, &line, verdict);
+            match verdict {
+                Verdict::Refuse(answer) => {
+                    if ready_tx.send(Verdict::Refuse(answer)).await.is_err() {
+                        return;
+                    }
+                }
+                _ => {
+                    // A terminal-output wait is a read, not a mutation barrier.
+                    // Forward it in order after earlier mutations, then let the
+                    // daemon own its requested timeout while later commands run.
+                    // Its response keeps the original ID and needs no cache invalidation.
+                    if is_terminal_wait(&line) {
+                        if ready_tx.send(Verdict::Rewrite(line)).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                    let changes_state = changes_cached_state(&line);
+                    let line = with_pane_folder(cache.tree().as_deref(), line);
+                    let Some((line, completion)) =
+                        side_completion.prepare(line, changes_state.then(|| cache.clone()))
+                    else {
+                        return;
+                    };
+                    if ready_tx.send(Verdict::Rewrite(line)).await.is_err() {
+                        return;
+                    }
+                    // Only this worker waits. Terminal sends, daemon replies,
+                    // close handling and size release remain live on their tasks.
+                    if !matches!(tokio::time::timeout(SIDE_COMPLETION_WAIT, completion).await, Ok(Ok(()))) {
                         return;
                     }
                 }
@@ -345,6 +619,23 @@ async fn splice(
         let mut sized = crate::size_release::SizeClaims::default();
         loop {
             let event = tokio::select! {
+                ready = side_ready.recv(), if claims => {
+                    let Some(ready) = ready else { return };
+                    match ready {
+                        Verdict::Rewrite(mut line) => {
+                            sized.observe(&line);
+                            line.push(b'\n');
+                            if daemon_write.write_all(&line).await.is_err() { return; }
+                        }
+                        Verdict::Refuse(answer) => {
+                            let mut answer = answer.into_bytes();
+                            answer.push(b'\n');
+                            if refusals.send(answer).await.is_err() { return; }
+                        }
+                        Verdict::Forward => unreachable!("side worker returns the checked line"),
+                    }
+                    continue;
+                }
                 event = receiver.recv() => event,
                 // hostd is stopping (iPhone connections off, the app quitting).
                 () = async { drop(stopping.wait_for(|stopping| *stopping).await) }, if claims => {
@@ -376,16 +667,8 @@ async fn splice(
                 if let Some(canonical) = canonical {
                     line = canonical;
                 }
-                // The daemon lane: the phone's objects confirmed by the Mac's own state.
-                let verdict = match (&terminal_folders, verdict) {
-                    (Some(path), Verdict::Forward) => owned_check(path, line.clone(), Verdict::Forward).await,
-                    (Some(path), Verdict::Rewrite(checked)) => {
-                        owned_check(path, checked.clone(), Verdict::Rewrite(checked)).await
-                    }
-                    (_, verdict) => verdict,
-                };
-                // A reply to a terminal notification: hostd answers it itself
-                // (the daemon has no such command), into that terminal only.
+                // A reply to a terminal notification is answered locally. Keep it
+                // in the input task so it cannot be confused with an ordinary rewrite.
                 if matches!(verdict, Verdict::Forward)
                     && let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone)
                     && is_notification_reply(&line)
@@ -404,11 +687,28 @@ async fn splice(
                     }
                     continue;
                 }
+                // Preserve ordering for commands/mutations. Only explicit terminal
+                // input bypasses a side query waiting for its cached snapshots.
+                let checked = match &verdict {
+                    Verdict::Forward => Some(&line),
+                    Verdict::Rewrite(checked) => Some(checked),
+                    Verdict::Refuse(_) => None,
+                };
+                if claims
+                    && checked.is_some_and(|line| !is_terminal_input(line) && !is_notification_reply(line))
+                {
+                    let request = checked.unwrap().clone();
+                    if side_tx.try_send((request, verdict)).is_err() {
+                        let mut answer = side_busy(&line).into_bytes();
+                        answer.push(b'\n');
+                        if refusals.send(answer).await.is_err() {
+                            return;
+                        }
+                    }
+                    continue;
+                }
                 match verdict {
                     Verdict::Forward => {
-                        if let Some(path) = &terminal_folders {
-                            line = with_pane_folder(path, line).await;
-                        }
                         if claims {
                             sized.observe(&line);
                         }
@@ -418,9 +718,6 @@ async fn splice(
                         }
                     }
                     Verdict::Rewrite(mut line) => {
-                        if let Some(path) = &terminal_folders {
-                            line = with_pane_folder(path, line).await;
-                        }
                         if claims {
                             sized.observe(&line);
                         }
@@ -492,9 +789,46 @@ async fn splice(
             }
         }
     }
+    side_workers.abort_all();
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+fn is_terminal_wait(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line)
+        .ok()
+        .is_some_and(|request| request.get("cmd").and_then(Value::as_str) == Some("wait-for"))
+}
+
+/// Reads do not dirty the cached state. Unknown operations conservatively do.
+fn changes_cached_state(line: &[u8]) -> bool {
+    let Ok(request) = serde_json::from_slice::<Value>(line) else { return true };
+    !request.get("cmd").and_then(Value::as_str).is_some_and(|cmd| {
+        cmd.starts_with("list-") || matches!(cmd, "identify" | "set-client-info" | "subscribe")
+    })
+}
+
+fn side_busy(line: &[u8]) -> String {
+    let request = serde_json::from_slice::<Value>(line).unwrap_or(Value::Null);
+    let id = request.get("id");
+    if request.get("protocol").and_then(Value::as_str) == Some("cmux.protocol/2") {
+        serde_json::json!({"id":id, "protocol":"cmux.protocol/2", "type":"response", "ok":false,
+            "error":{"code":"busy", "message":"too many pending side requests", "retryable":true}})
+        .to_string()
+    } else {
+        crate::policy::error_line(id, "busy", "too many pending side requests")
+    }
+}
+
+/// Text, named keys, and clear-history (which can write a fallback key) share
+/// the input path, preserving wire order while bypassing workspace queries.
+fn is_terminal_input(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line).ok().is_some_and(|v| {
+        matches!(v.get("cmd").and_then(Value::as_str), Some("send" | "send-key" | "clear-history"))
+            && (v.get("surface").and_then(Value::as_u64).is_some()
+                || v.get("terminal_id").and_then(Value::as_str).is_some())
+    })
 }
 
 /// Whether `line` is a `notification-reply` request.
@@ -785,9 +1119,6 @@ pub fn confine(roots: &[PathBuf], requested: &Path) -> Result<PathBuf, Refusal> 
     Ok(resolved)
 }
 
-/// Largest file the `file` service streams (artifact previews, not transfers).
-pub const MAXIMUM_FILE_BYTES: u64 = 64 << 20;
-
 /// The open file's real path (`F_GETPATH`) must still be inside a root.
 #[cfg(target_vendor = "apple")]
 fn confine_open(roots: &[PathBuf], file: &tokio::fs::File) -> Result<(), Refusal> {
@@ -872,10 +1203,16 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
     roots
 }
 
-/// `file`: stream one regular file inside a workspace root, then close
-/// with `eof`. The roots are the Chat Folders, then (only when the file is
-/// outside them) the Mac's workspace folders as they are now.
-async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
+/// `file`: stream one regular file of any size inside a workspace root, then
+/// close with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now. `file-preview`
+/// prepends metadata from the same open descriptor before streaming those bytes.
+async fn file(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+    preview_metadata: bool,
+) -> Result<(), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
@@ -895,7 +1232,7 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     };
     // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
     // refuse anything that is not a regular file.
-    let mut file = tokio::fs::OpenOptions::new()
+    let file = tokio::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK)
         .open(&resolved)
@@ -908,9 +1245,19 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
     }
-    if metadata.len() > MAXIMUM_FILE_BYTES {
-        return Err(Refusal::new("too_large", "file is larger than 64 MiB"));
+    // A distinct service keeps old hosts' raw file bytes from being mistaken for
+    // metadata. Read the size from this descriptor, after all confinement checks,
+    // so the phone can check free storage before accepting the file's contents.
+    if preview_metadata
+        && sender.send(Bytes::from(serde_json::json!({"size": metadata.len()}).to_string())).await.is_err()
+    {
+        return Ok(());
     }
+    // Any size streams (Leo: "arbitrarily large files of any type"): one buffer at a time,
+    // each send waiting for room in the channel's bounded queue, so memory stays bounded
+    // whatever the file's size. The read stops at the size the file had when it was
+    // opened, so a file that keeps growing (a log) still ends.
+    let mut file = file.take(metadata.len());
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
         let read = file.read(&mut buffer).await.map_err(|e| Refusal::new("io", e.to_string()))?;
@@ -1039,56 +1386,59 @@ async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
         .await
 }
 
-/// The daemon at `path`'s `list-personal` reply: the person's sidebar order and groups (at most 5 s).
-async fn list_personal(path: &Path) -> Result<Value, Refusal> {
-    daemon_query(
-        path,
-        b"{\"cmd\":\"list-personal\",\"id\":\"cmux-mobile-personal\"}\n",
-        "cmux-mobile-personal",
-    )
-    .await
+/// Which cached views a side request needs. Ordinary keystrokes bypass this
+/// worker; a cold workspace/group lookup cannot hold terminal input.
+fn side_requirements(line: &[u8]) -> Option<(bool, bool, bool)> {
+    use crate::policy::Ownership;
+    match crate::policy::ownership(line) {
+        Some(Ownership::PersonalWorkspace { .. }) => Some((true, false, false)),
+        Some(Ownership::PinnedWorkspaceTile { .. }) => Some((false, false, true)),
+        Some(Ownership::OwnGroup { .. }) => Some((true, true, false)),
+        Some(Ownership::PlaceWorkspace { group, .. }) => Some((true, group.is_some(), false)),
+        None => serde_json::from_slice::<Value>(line)
+            .ok()
+            .filter(|v| {
+                v.get("cmd").and_then(Value::as_str) == Some("new-tab")
+                    && v.get("pane").and_then(Value::as_u64).is_some()
+            })
+            .map(|_| (true, false, false)),
+    }
 }
 
-/// The verdict for a line the policy let through, once the Mac's own state
-/// (read on a separate connection) confirms the phone's object
-/// (`policy::ownership`); a refusal otherwise, or when the Mac cannot answer.
-async fn owned_check(path: &Path, line: Vec<u8>, verdict: Verdict) -> Verdict {
+/// Confirm ownership against the live cache; a missing/invalid snapshot never
+/// grants access. Snapshot refresh runs separately from keystroke forwarding.
+fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verdict: Verdict) -> Verdict {
     use crate::policy::{
         Ownership, is_pinned_workspace_tile, lists_workspace, not_owned, ownership, owns_group,
         owns_personal_workspace, registry_id,
     };
-    let Some(what) = ownership(&line) else { return verdict };
+    let Some(what) = ownership(line) else { return verdict };
+    let tree = cache.tree();
     let owned = match &what {
         Ownership::PersonalWorkspace { session, key } => {
-            list_workspaces(path).await.is_ok_and(|reply| owns_personal_workspace(&reply, session, key))
+            tree.as_ref().is_some_and(|reply| owns_personal_workspace(reply, session, key))
         }
         Ownership::PinnedWorkspaceTile { item } => {
-            let request = b"{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"cmux-mobile-layout\",\"operation\":\"sidebar_layout.get\",\"params\":{\"machine\":\"current\",\"session\":\"current\"}}\n";
-            daemon_query(path, request, "cmux-mobile-layout")
-                .await
-                .is_ok_and(|reply| is_pinned_workspace_tile(&reply, item))
+            cache.layout().as_ref().is_some_and(|reply| is_pinned_workspace_tile(reply, item))
         }
-        Ownership::OwnGroup { group } => match list_workspaces(path).await {
-            Ok(tree) => match registry_id(&tree) {
-                Some(registry) => {
-                    list_personal(path).await.is_ok_and(|personal| owns_group(&personal, registry, group))
+        Ownership::OwnGroup { group } => tree.as_ref().is_some_and(|tree| {
+            registry_id(tree).is_some_and(|registry| {
+                cache.personal().as_ref().is_some_and(|personal| owns_group(personal, registry, group))
+            })
+        }),
+        Ownership::PlaceWorkspace { workspace, group } => tree.as_ref().is_some_and(|tree| {
+            lists_workspace(tree, workspace)
+                && match (group, registry_id(tree)) {
+                    (None, _) => true,
+                    (Some(group), Some(registry)) => cache
+                        .personal()
+                        .as_ref()
+                        .is_some_and(|personal| owns_group(personal, registry, group)),
+                    (Some(_), None) => false,
                 }
-                None => false,
-            },
-            Err(_) => false,
-        },
-        Ownership::PlaceWorkspace { workspace, group } => match list_workspaces(path).await {
-            Ok(tree) if lists_workspace(&tree, workspace) => match (group, registry_id(&tree)) {
-                (None, _) => true,
-                (Some(group), Some(registry)) => {
-                    list_personal(path).await.is_ok_and(|personal| owns_group(&personal, registry, group))
-                }
-                (Some(_), None) => false,
-            },
-            _ => false,
-        },
+        }),
     };
-    if owned { verdict } else { Verdict::Refuse(not_owned(&line, &what)) }
+    if owned { verdict } else { Verdict::Refuse(not_owned(line, &what)) }
 }
 
 /// One request on a fresh connection to the daemon socket, its reply (`id` matched).
@@ -1149,15 +1499,15 @@ pub fn pane_folder(reply: &Value, pane: u64, home: Option<&Path>) -> Option<Stri
 
 /// A phone's `new-tab` (no `cwd`: the policy refuses one) gets the Mac's choice of
 /// folder for `pane` ([`pane_folder`]); any other line passes as is.
-async fn with_pane_folder(path: &Path, line: Vec<u8>) -> Vec<u8> {
+fn with_pane_folder(reply: Option<&Value>, line: Vec<u8>) -> Vec<u8> {
     let Ok(Value::Object(mut object)) = serde_json::from_slice::<Value>(&line) else { return line };
     if object.get("cmd").and_then(Value::as_str) != Some("new-tab") || object.contains_key("cwd") {
         return line;
     }
     let Some(pane) = object.get("pane").and_then(Value::as_u64) else { return line };
-    let Ok(reply) = list_workspaces(path).await else { return line };
+    let Some(reply) = reply else { return line };
     let home = std::env::var_os("HOME").and_then(|h| std::fs::canonicalize(h).ok());
-    let Some(folder) = pane_folder(&reply, pane, home.as_deref()) else { return line };
+    let Some(folder) = pane_folder(reply, pane, home.as_deref()) else { return line };
     object.insert("cwd".into(), Value::String(folder));
     serde_json::to_vec(&Value::Object(object)).unwrap_or(line)
 }
@@ -1365,37 +1715,24 @@ mod tests {
         assert!(browser_urls_in(&serde_json::json!({"ok": false})).is_empty());
     }
 
-    /// End to end through a fake daemon: the phone's `new-tab` leaves with the pane's
-    /// folder; a line that names one, or another command, is untouched.
-    #[tokio::test]
-    async fn a_phones_new_tab_line_gets_the_macs_folder() {
+    /// The forwarding loop uses the cached tree and does no socket I/O.
+    #[test]
+    fn a_phones_new_tab_line_gets_the_macs_folder() {
         let base = tempfile::tempdir().unwrap();
         let project = std::fs::canonicalize(base.path()).unwrap().join("project");
         std::fs::create_dir_all(&project).unwrap();
-        let socket = base.path().join("d.sock");
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        let folder = project.to_str().unwrap().to_owned();
-        std::thread::spawn(move || {
-            for conn in listener.incoming().flatten() {
-                use std::io::{BufRead, Write};
-                let mut out = conn.try_clone().unwrap();
-                let mut line = String::new();
-                if std::io::BufReader::new(conn).read_line(&mut line).is_ok() {
-                    let reply = serde_json::json!({"id": "cmux-mobile-upload", "data": {"workspaces": [{"screens": [{"panes": [
-                        {"id": 3, "active_tab": 0, "tabs": [{"cwd": folder}]}]}]}]}});
-                    let _ = writeln!(out, "{reply}");
-                }
-            }
-        });
-        let line =
-            with_pane_folder(&socket, br#"{"id":1,"cmd":"new-tab","pane":3,"cols":80,"rows":24}"#.to_vec())
-                .await;
+        let reply = serde_json::json!({"data": {"workspaces": [{"screens": [{"panes": [
+            {"id": 3, "active_tab": 0, "tabs": [{"cwd": project}]}]}]}]}});
+        let line = with_pane_folder(
+            Some(&reply),
+            br#"{"id":1,"cmd":"new-tab","pane":3,"cols":80,"rows":24}"#.to_vec(),
+        );
         let sent: Value = serde_json::from_slice(&line).unwrap();
         assert_eq!(sent["cwd"].as_str(), project.to_str());
         let own = br#"{"id":2,"cmd":"new-tab","pane":3,"cwd":"/x"}"#.to_vec();
-        assert_eq!(with_pane_folder(&socket, own.clone()).await, own);
+        assert_eq!(with_pane_folder(Some(&reply), own.clone()), own);
         let other = br#"{"id":3,"cmd":"select-tab","surface":1}"#.to_vec();
-        assert_eq!(with_pane_folder(&socket, other.clone()).await, other);
+        assert_eq!(with_pane_folder(Some(&reply), other.clone()), other);
     }
 
     #[test]
@@ -1436,12 +1773,32 @@ mod tests {
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
         };
-        assert_eq!(capabilities(&config), ["removal-v1"]);
+        assert_eq!(
+            capabilities(&config),
+            [
+                "removal-v1",
+                "file-preview-v1",
+                "localhost-forward-v1",
+                "cloud-directory-v1",
+                "cloud-acpmux-v1"
+            ]
+        );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
-        assert_eq!(capabilities(&config), ["removal-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]);
+        assert_eq!(
+            capabilities(&config),
+            [
+                "removal-v1",
+                "file-preview-v1",
+                "localhost-forward-v1",
+                "cloud-directory-v1",
+                "cloud-acpmux-v1",
+                BROWSER_STREAM,
+                BROWSER_VIDEO_TRACK
+            ]
+        );
     }
 
     #[test]
@@ -1479,6 +1836,60 @@ mod tests {
         );
         assert_eq!(assembler.push(br#"{"b":1}"#).unwrap().as_deref(), Some(r#"{"b":1}"#));
         assert_eq!(assembler.push(b"not json").unwrap_err().code, "bad_request");
+    }
+
+    #[tokio::test]
+    async fn cloud_handshake_refuses_old_daemons_before_sending_mobile_commands() {
+        for (caps, allowed) in [
+            (serde_json::json!([]), false),
+            (serde_json::json!(["agent-session-tabs-v1"]), false),
+            (serde_json::json!(["cloud-mobile-chat-v1"]), true),
+        ] {
+            let replies = format!(
+                "{}\n{}\n",
+                serde_json::json!({"id":"cloud-mobile-identify","ok":true,"data":{"capabilities":caps}}),
+                serde_json::json!({"id":"cloud-mobile-host","ok":true})
+            );
+            let mut read = std::io::Cursor::new(replies.into_bytes());
+            let mut write = Vec::new();
+            let result = cloud_mobile_handshake(&mut read, &mut write).await;
+            assert_eq!(result.is_ok(), allowed);
+            let commands: Vec<Value> = String::from_utf8(write)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(commands[0]["cmd"], "identify");
+            assert_eq!(commands.len(), if allowed { 2 } else { 1 });
+            if allowed {
+                assert_eq!(commands[1]["capabilities"][0], "cloud-mobile-chat-v1");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cloud_native_line_preserves_partial_data_when_read_is_cancelled() {
+        let (mut writer, reader) = tokio::io::duplex(64);
+        writer.write_all(b"{\"id\":1").await.unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut partial = Vec::new();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(5), read_cloud_line(&mut reader, &mut partial),)
+                .await
+                .is_err()
+        );
+        assert_eq!(partial, br#"{"id":1"#);
+        writer.write_all(b"}\n").await.unwrap();
+        assert_eq!(read_cloud_line(&mut reader, &mut partial).await.unwrap(), br#"{"id":1}"#);
+    }
+
+    #[tokio::test]
+    async fn cloud_native_line_rejects_oversize_before_newline() {
+        let (mut writer, reader) = tokio::io::duplex(MAX_CLOUD_NATIVE_LINE + 16);
+        writer.write_all(&vec![b'x'; MAX_CLOUD_NATIVE_LINE + 1]).await.unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut partial = Vec::new();
+        assert_eq!(read_cloud_line(&mut reader, &mut partial).await.unwrap_err().code, "bad_request");
     }
 
     #[test]

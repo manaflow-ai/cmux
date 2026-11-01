@@ -265,6 +265,138 @@
         }
       }
     },
+    "runs.error.cloudUnavailable": {
+      "comment": "cmux run --sandboxed and cmux vm token refusal: Cloud may not be called here (a managed team missing, or a local-only backend).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud غير متاح لهذا الحساب أو الفريق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud nije dostupan za ovaj račun ili tim."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud er ikke tilgængelig for denne konto eller dette team."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ist für dieses Konto oder Team nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud is not available for this account or team."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud no está disponible para esta cuenta o equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud n’est pas disponible pour ce compte ou cette équipe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud non è disponibile per questo account o team."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントまたはチームでは cmux Cloud を利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud មិនអាចប្រើបានសម្រាប់គណនី ឬក្រុមនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정 또는 팀에서는 cmux Cloud를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud er ikke tilgjengelig for denne kontoen eller dette teamet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud nie jest dostępny dla tego konta lub zespołu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux Cloud não está disponível para esta conta ou equipe."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud недоступен для этой учётной записи или команды."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ไม่พร้อมใช้งานสำหรับบัญชีหรือทีมนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud bu hesap veya ekip için kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud недоступний для цього облікового запису або команди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud không khả dụng cho tài khoản hoặc nhóm này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户或团队无法使用 cmux Cloud。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號或團隊無法使用 cmux Cloud。"
+          }
+        }
+      }
+    },
     "runs.error.idRequired": {
       "comment": "runs.wait or runs.cancel refusal when no Run id was given.",
       "extractionState": "manual",
@@ -525,138 +657,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ảnh đó không phải ảnh VM của cmux Cloud. Bỏ --image để dùng ảnh cơ sở."
-          }
-        }
-      }
-    },
-    "runs.error.labsOff": {
-      "comment": "cmux run --sandboxed refusal while the Labs preview flag is off.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sandbox-Läufe sind eine Vorschau. Aktiviere Einstellungen > Erweitert > Labs > Vorschaufunktionen anzeigen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les exécutions isolées sont en aperçu. Activez Réglages > Avancé > Labs > Afficher les fonctions en aperçu."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التشغيلات المعزولة ميزة تجريبية. فعّل الإعدادات > متقدم > المختبرات > إظهار الميزات التجريبية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las ejecuciones aisladas son una vista previa. Activa Ajustes > Avanzado > Labs > Mostrar funciones en vista previa."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沙箱執行仍為預覽功能。請開啟「設定 > 進階 > Labs > 顯示預覽功能」。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沙箱运行仍是预览功能。请打开“设置 > 高级 > Labs > 显示预览功能”。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "샌드박스 실행은 미리보기 기능입니다. 설정 > 고급 > Labs > 미리보기 기능 표시를 켜세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サンドボックス実行はプレビュー機能です。設定 > 詳細 > Labs > プレビュー機能を表示 をオンにしてください。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Izolirana izvršavanja su pregled. Uključite Postavke > Napredno > Labs > Prikaži funkcije u pregledu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sandkassekørsler er en forhåndsvisning. Slå Indstillinger > Avanceret > Labs > Vis forhåndsvisningsfunktioner til."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le esecuzioni isolate sono un’anteprima. Attiva Impostazioni > Avanzate > Labs > Mostra funzioni in anteprima."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការដំណើរការក្នុង sandbox ជាការមើលជាមុន។ បើក ការកំណត់ > កម្រិតខ្ពស់ > Labs > បង្ហាញមុខងារមើលជាមុន។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sandkassekjøringer er en forhåndsvisning. Slå på Innstillinger > Avansert > Labs > Vis forhåndsvisningsfunksjoner."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uruchomienia w piaskownicy to wersja zapoznawcza. Włącz Ustawienia > Zaawansowane > Labs > Pokaż funkcje w wersji zapoznawczej."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Execuções isoladas são uma prévia. Ative Ajustes > Avançado > Labs > Mostrar recursos em prévia."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запуски в песочнице — предварительная функция. Включите «Настройки > Дополнительно > Labs > Показывать предварительные функции»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การรันในแซนด์บ็อกซ์เป็นฟีเจอร์ตัวอย่าง เปิด การตั้งค่า > ขั้นสูง > Labs > แสดงฟีเจอร์ตัวอย่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Korumalı çalıştırmalar önizlemedir. Ayarlar > Gelişmiş > Labs > Önizleme Özelliklerini Göster'i açın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запуски в пісочниці — попередня функція. Увімкніть «Налаштування > Додатково > Labs > Показувати попередні функції»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chạy trong hộp cát là tính năng xem trước. Bật Cài đặt > Nâng cao > Labs > Hiện tính năng xem trước."
           }
         }
       }
@@ -1977,6 +1977,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Lượt chạy đã hết thời gian"
+          }
+        }
+      }
+    },
+    "vm.token.error.noTeam": {
+      "comment": "cmux vm token create refusal: the signed-in user has no team chosen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a cmux team in the cmux app first."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle zuerst ein cmux-Team in der cmux-App."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez d’abord une équipe cmux dans l’app cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر فريق cmux في تطبيق cmux أولاً."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige primero un equipo de cmux en la app de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在 cmux App 中選擇 cmux 團隊。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 cmux App 中选择 cmux 团队。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 cmux 앱에서 cmux 팀을 선택하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まず cmux アプリで cmux チームを選択してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo odaberi cmux tim u cmux aplikaciji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg først et cmux-team i cmux-appen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli prima un team cmux nell’app cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមជ្រើសរើសក្រុម cmux នៅក្នុងកម្មវិធី cmux ជាមុនសិន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg et cmux-team i cmux-appen først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najpierw wybierz zespół cmux w aplikacji cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha primeiro uma equipe do cmux no app cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала выберите команду cmux в приложении cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกทีม cmux ในแอป cmux ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce cmux uygulamasında bir cmux ekibi seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу виберіть команду cmux у застосунку cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy chọn một nhóm cmux trong ứng dụng cmux trước."
+          }
+        }
+      }
+    },
+    "vm.token.error.unreachable": {
+      "comment": "cmux vm token create refusal: vm.cmux.dev did not answer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux VM service didn't answer. Try again in a moment."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der cmux-VM-Dienst hat nicht geantwortet. Versuche es gleich noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de VM cmux n’a pas répondu. Réessayez dans un instant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تستجب خدمة الأجهزة الافتراضية في cmux. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de VM de cmux no respondió. Inténtalo de nuevo en un momento."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VM 服務沒有回應。請稍後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VM 服务没有响应。请稍后再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VM 서비스가 응답하지 않습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VM サービスから応答がありません。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VM usluga nije odgovorila. Pokušaj ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VM-tjenesten svarede ikke. Prøv igen om lidt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio VM di cmux non ha risposto. Riprova tra un momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវា VM របស់ cmux មិនបានឆ្លើយតបទេ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VM-tjenesten svarte ikke. Prøv igjen om litt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa VM cmux nie odpowiedziała. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de VM do cmux não respondeu. Tente de novo em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба VM cmux не ответила. Повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการ VM ของ cmux ไม่ตอบสนอง ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VM hizmeti yanıt vermedi. Biraz sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба VM cmux не відповіла. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ VM của cmux không phản hồi. Hãy thử lại sau giây lát."
           }
         }
       }

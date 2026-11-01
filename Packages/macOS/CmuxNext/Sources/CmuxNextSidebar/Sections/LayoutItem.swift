@@ -24,6 +24,9 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     /// The Chief (Leo 2026-10-20): its conversation, its status and its subagents under it. Not in
     /// the default layout; Add to Sidebar adds it.
     case chief
+    /// The Automations page (docs/automations-platonic-ideal.md section 8, option A): scheduled
+    /// prompts and commands on this Mac and cmux Cloud. Not in the default layout; Add to Sidebar adds it.
+    case automations
 }
 
 /// What an item points at: a kind and a string value. Kinds this client

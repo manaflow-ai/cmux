@@ -284,16 +284,13 @@
   place-items: center;
   font-weight: 600;
   color: var(--page-text-2);
-  background: linear-gradient(145deg, var(--page-selection), var(--page-hover));
+  background: var(--page-hover);
   border: 1px solid var(--page-separator);
 }
 
 .apps-badge {
   display: inline-block;
   font-size: var(--text-caption);
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
@@ -514,6 +511,7 @@
 }
 
 .apps-scopes,
+.apps-deploy-targets,
 .apps-versions {
   list-style: none;
   margin: 0;
@@ -530,9 +528,17 @@
   align-items: baseline;
 }
 
-.apps-versions li {
+.apps-versions li,
+.apps-deploy-targets li {
   display: flex;
   gap: 10px;
+  align-items: baseline;
+}
+
+/* A deployed app's instance under its id: where it runs, as the owner reports it. */
+.apps-instance {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
 }
 
 .apps-version {

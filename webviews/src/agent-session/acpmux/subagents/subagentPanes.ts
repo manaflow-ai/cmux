@@ -4,13 +4,15 @@
 // subagent's view (a `revealTurn` of `subagent:<id>`). A host that opens none (the gallery, the
 // floating chat, an older app) shows the subagent in this pane instead.
 //
-// A chat pane opens a pane by itself for each subagent its chat starts while the pane shows it,
-// only once the user turned that on (the summary card's switch, kept in localStorage). It is off
-// by default: agent work starts many subagents, and a split for each crowded the workspace. A
-// click on a subagent still opens its pane. The subagents a chat already had when the pane first
-// showed it open none: they are history.
+// Subagents open in panes only once the user turned that on (the summary card's switch, kept in
+// localStorage). It is off by default: agent work starts many subagents, and a split for each
+// crowded the workspace. While it is off, a click on a subagent (a group line, a card row, the
+// agents pill) shows it in the chat's own pane. While it is on, a click opens its pane, and a chat
+// pane opens one by itself for each subagent its chat starts while the pane shows it. The
+// subagents a chat already had when the pane first showed it open none: they are history.
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
+import type { Subagent } from "./subagentFold";
 import { subagentsIn } from "./subagentRows";
 
 /// The `revealTurn` prefix that opens a pane on a subagent's view.
@@ -58,14 +60,49 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/// Asks the app for subagent `id`'s pane; false when it opened none.
-export async function openSubagentPane(call: Call, id: string, focus: boolean): Promise<boolean> {
+/// The name subagent `agent`'s pane tab shows: its own (its task; the Agent tool's description), else
+/// `fallback` ("Subagent of" the chat). Leo 2026-10-30: "the sidebar tab shouldn't just be named claude
+/// sr2 coord if you can just say it's SUbagent of sr2 coord".
+export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefined, fallback: string): string {
+  const own = agent?.name?.trim();
+  return own && own !== agent?.id ? own : fallback;
+}
+
+/// Asks the app for subagent `id`'s pane; false when it opened none. `title` is the subagent's own
+/// name, which the pane's tab shows instead of the chat's (Leo 2026-10-30: "subagents shouldn't be
+/// tab-named the exact same as the parent").
+export async function openSubagentPane(call: Call, id: string, focus: boolean, title?: string): Promise<boolean> {
   try {
-    const reply = await call("chat.subagentPane", { subagent: id, focus });
+    const reply = await call("chat.subagentPane", title ? { subagent: id, focus, title } : { subagent: id, focus });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
     return false;
   }
+}
+
+/// Shows subagent `id`: in a pane of its own (focused with `focus`) only while `panes` (the switch)
+/// is on and this is the chat's pane (`inSubagentPane` false), else in this pane (`here`) when the
+/// person asked (`focus`; a subagent's pane always shows it). A host that opens no pane shows it
+/// here too when the person asked. Settles once it has shown it.
+export async function showSubagent(
+  call: Call,
+  id: string,
+  focus: boolean,
+  options: {
+    panes: boolean;
+    inSubagentPane: boolean;
+    here: (id: string) => void;
+    beforeOpen?: () => void;
+    title?: string;
+  },
+): Promise<void> {
+  if (options.inSubagentPane || !options.panes) {
+    if (focus || options.inSubagentPane) options.here(id);
+    return;
+  }
+  options.beforeOpen?.();
+  const opened = await openSubagentPane(call, id, focus, options.title);
+  if (!opened && focus) options.here(id);
 }
 
 /// Opens a pane for each subagent the chat `sessionId` starts from now on (its own, not nested

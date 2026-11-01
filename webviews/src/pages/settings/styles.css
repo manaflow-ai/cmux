@@ -170,6 +170,26 @@ mark {
   gap: 1px;
 }
 
+/* A titled run of categories (Look and Feel, AI, ...); the space above each header separates the
+   runs, so no divider line is needed. */
+/* Its links keep the list's own rhythm: the section is a column with no gap of its own. */
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-section + .sidebar-section { margin-top: 14px; }
+
+.sidebar-section-title {
+  margin: 0;
+  padding: 0 8px 4px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
 .section-link {
   display: flex;
   align-items: center;
@@ -855,6 +875,11 @@ mark {
   margin-top: 8px;
 }
 
+.clear-browsing-data-error {
+  flex-basis: 100%;
+  min-width: 0;
+}
+
 .host-toggle {
   width: 100%;
   padding: 0;
@@ -918,6 +943,32 @@ mark {
   width: 240px;
 }
 
+/* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
+.host-field[data-clear-browsing-data] {
+  flex-wrap: wrap;
+}
+
+.host-field[data-clear-browsing-data] > .row-help {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: normal;
+  text-overflow: clip;
+}
+
+.host-field[data-clear-browsing-data] > .field {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.host-field[data-clear-browsing-data] > .host-actions {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .host-swatches {
   display: inline-flex;
   gap: 6px;
@@ -963,10 +1014,14 @@ mark {
   padding: 4px 0 0;
 }
 
+.accounts-row {
+  --accounts-mark-width: 20px;
+}
+
 .accounts-mark {
   display: inline-flex;
   flex: none;
-  width: 20px;
+  width: var(--accounts-mark-width);
 }
 
 .accounts-status {
@@ -1000,7 +1055,7 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Under the title: the mark's 20 px plus the row's 20 px gap (layout.css .row-main). */
+  /* Under the title: the mark plus the row's gap; refined.css sets it from --row-main-gap. */
   padding: 6px 0 0 40px;
 }
 
@@ -1010,6 +1065,61 @@ mark {
 
 .accounts-form > .field {
   max-width: 320px;
+}
+
+/* Teams: a team row has no provider mark, so its details start under the title. */
+.accounts-team-body {
+  padding-left: 0;
+}
+
+/* New Team is the row itself, not details under a title: its title starts where a team's name does. */
+.accounts-team-create,
+.accounts-team-create > .accounts-form {
+  padding-top: 0;
+}
+
+.accounts-team-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accounts-badge {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  font-weight: 400;
+  line-height: var(--text-caption--line-height);
+  color: var(--muted-text);
+}
+
+.accounts-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+}
+
+.accounts-fact {
+  display: flex;
+  /* The label is smaller than its value: share a baseline, not a top edge. */
+  align-items: baseline;
+  gap: 8px;
+}
+
+.accounts-fact > dd {
+  margin: 0;
+}
+
+.accounts-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.accounts-team-role {
+  margin-left: auto;
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
@@ -1719,4 +1829,302 @@ mark {
   color: var(--muted-text);
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* Settings > Menus (ContextMenusCard): the list of menus beside the chosen menu, drawn as a menu.
+   Rows reorder by drag (data-drop marks where a row lands) or by their buttons, which show on
+   hover and keyboard focus. */
+.menus-editor {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  gap: var(--ds-space-4);
+  align-items: start;
+}
+
+.menus-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  position: sticky;
+  top: 0;
+}
+
+.menus-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.menus-area-title {
+  margin: 0 0 3px 8px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.menus-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.menus-list-item:hover {
+  background: var(--input-bg);
+}
+
+.menus-list-item[aria-current] {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.menus-list-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.menus-edited {
+  margin-inline-start: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.menus-detail {
+  min-width: 0;
+}
+
+.menus-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menus-detail-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.menus-detail-spacer {
+  flex: 1;
+}
+
+.menus-help {
+  margin: 4px 0 10px;
+}
+
+/* The menu itself: a rounded panel of 24 px rows, as macOS draws a context menu. */
+.menu-preview {
+  list-style: none;
+  margin: 0;
+}
+
+.menu-preview {
+  padding: var(--ds-space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  /* A context menu's own surface (WebTheme's --surface-popup) and drop, so it reads as the menu. */
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+  max-width: 420px;
+  position: relative;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+  padding: 0 var(--ds-space-1);
+  border-radius: 5px;
+  position: relative;
+}
+
+/* A row lights on hover, but never while the pointer is on one of its own buttons: then only that
+   button lights (a hover covers only its control). The exclusion sits in :where() so the rule keeps
+   .menu-row:hover's weight and a dragged row's opaque fill (below) still wins. */
+.menu-row:where(:hover:not(:has(.icon-button:hover))),
+.menu-row:focus-within {
+  background: var(--input-bg);
+}
+
+/* While a row is dragged it follows the pointer and the rows it passes slide apart to open the gap
+   where it lands (transforms only, no layout); hover washes and row buttons stay off so nothing
+   flashes under the pointer. */
+.menu-preview[data-reordering] .menu-row:not([data-dragging]):hover {
+  background: none;
+}
+
+.menu-preview[data-reordering] .menu-row .menu-row-actions {
+  opacity: 0;
+}
+
+.menu-preview[data-reordering] > .menu-row:not([data-dragging]) {
+  transition: transform var(--motion-in) var(--motion-ease);
+}
+
+.menu-row[data-dragging] {
+  z-index: var(--layer-raised);
+  /* Opaque: the rows it passes never show through its title. */
+  background: var(--surface-popup);
+  box-shadow:
+    inset 0 0 0 100vmax var(--accent-soft),
+    var(--elevation-2);
+  cursor: grabbing;
+}
+
+.menu-row[data-drop-into] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.menu-row-grip {
+  display: inline-flex;
+  color: var(--soft-text);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.menu-preview[data-reordering] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.menu-row-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.menu-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.menu-disclosure {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.menu-row-chevron {
+  color: var(--muted-text);
+}
+
+.menu-row-actions {
+  display: inline-flex;
+  opacity: 0;
+}
+
+.menu-row:hover .menu-row-actions,
+.menu-row:focus-within .menu-row-actions,
+.menu-row:has([data-popup-open]) .menu-row-actions {
+  opacity: 1;
+}
+
+.menu-separator .menu-separator-line {
+  flex: 1;
+  height: 0;
+  margin: 0 6px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.menu-row-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.menu-row[data-hidden] .menu-row-body > :not(.menu-row-actions):not(.menu-row-grip) {
+  opacity: 0.45;
+}
+
+.menu-row-badge {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+button.menu-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.menu-twisty {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-inline-start: -2px;
+  color: var(--muted-text);
+}
+
+.menu-twisty-closed {
+  transform: rotate(-90deg);
+}
+
+.menu-rename {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+}
+
+.menus-move-picker {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  max-width: 420px;
+  padding: var(--ds-space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+}
+
+@media (max-width: 640px) {
+  .menus-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .menus-list {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+.menus-failure {
+  margin: 0 0 10px;
+  color: var(--danger);
+  font-size: var(--text-detail);
+}
+
+/* Live storage and phone totals, plus editable numeric tokens, keep equal-width digits. */
+.backdrop-own-bar > .row-help,
+[data-card="mobile"] > .rows:first-of-type > [data-action-row]:first-child .row-help,
+.number-list .token,
+.number-list .token-input {
+  font-variant-numeric: tabular-nums;
 }

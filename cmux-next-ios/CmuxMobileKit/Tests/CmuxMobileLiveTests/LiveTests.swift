@@ -19,7 +19,7 @@ import Testing
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .turnTLS)) == [])
         #expect(machine.phase == .connected(.wireGuard, .turnTLS, rttMillis: nil))
         _ = machine.handle(.linkUpdated(generation: 1, path: .turnTLS, rttMillis: 27))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 27 ms")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
     }
 
     @Test func offlineMacIsNotDialed() {
@@ -40,7 +40,7 @@ import Testing
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
         #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
         #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
-        #expect(machine.phase.statusLine(macName: "Studio") == "WebRTC failed: ICE timed out · retrying in 1 s")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Reconnecting…")
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
         #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
@@ -69,7 +69,7 @@ import Testing
         #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.relayOnly)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WebRTC relay (TURN)")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
     }
 
     /// Settings → Developer "Block UDP": a change redials, like relay only.
@@ -81,7 +81,7 @@ import Testing
         #expect(machine.handle(.blockUDP(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         #expect(machine.blockUDP)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS)")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
         // WebRTC ignores it: a change there does not redial.
         var webRTC = LinkMachine(transport: .webRTC)
         _ = webRTC.handle(.target(mac))
@@ -626,7 +626,7 @@ private struct LinkOf: MacLinkDialer {
             let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
             let cmd = (object["cmd"] as? String ?? "")
-            seen.append(cmd, object["name"] as? String)
+            seen.append(cmd, (object["name"] ?? object["url"]) as? String)
             let line: String
             switch cmd {
             case "new-workspace" where refuse:
@@ -692,6 +692,26 @@ private struct LinkOf: MacLinkDialer {
         #expect(log.contains("new-browser-tab"))
         let real = try #require(store.workspace(id: placeholder.id))
         #expect(store.openingTab(for: real)?.id == "s11")
+    }
+
+    /// A web link tapped in a terminal opens a cmux browser tab at that page beside it, in
+    /// the same workspace (the Mac's Cmd-click): `new-browser-tab {url, pane}`. Only web links.
+    @Test func aTappedLinkOpensABrowserTabBesideTheTerminal() async throws {
+        let log = CommandLog()
+        let (store, creator, _) = try await connected(false, log)
+        _ = try #require(creator.create())
+        await creator.settle()
+        let workspace = try #require(store.workspace(id: "wk2"))
+        let terminal = try #require(workspace.tabs.first { $0.id == "s10" })
+        let url = try #require(URL(string: "https://cmux.com/docs"))
+        let opened = try await creator.backend.openLink(url, besides: terminal, in: workspace)
+        #expect(log.names["new-browser-tab"] == "https://cmux.com/docs")
+        #expect(opened.id == "s11")
+        #expect(opened.kind == .browser)
+        let file = try #require(URL(string: "file:///etc/passwd"))
+        await #expect(throws: WorkspaceCreationError.self) {
+            _ = try await creator.backend.openLink(file, besides: terminal, in: workspace)
+        }
     }
 
     @Test func refusalRemovesThePlaceholder() async throws {
@@ -1075,16 +1095,58 @@ final class Seen: @unchecked Sendable {
 @Suite struct ProbeRaceTests {
     /// A ping that ignores cancellation (the FFI ping on a link the Mac
     /// already dropped) must not hold the probe past its timeout.
-    @Test func timeoutWinsOverAnUncancellablePing() async {
-        let start = ContinuousClock.now
-        let result = await LinkController.race(timeout: .milliseconds(50), clock: ContinuousClock()) {
+    /// A ping that ignores cancellation and answers only when the test lets
+    /// it (or after `fallback`, so a race that waits for it fails instead
+    /// of hanging the run).
+    final class HeldPing: @unchecked Sendable {
+        private let lock = NSLock()
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var released = false
+        private var answered = false
+
+        init(fallback: Duration) {
+            let seconds = Double(fallback.components.seconds) + Double(fallback.components.attoseconds) / 1e18
+            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [self] in release() }
+        }
+
+        /// The ping itself: ignores cancellation, returns once released.
+        func ping() async -> Int {
             await withCheckedContinuation { continuation in
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { continuation.resume() }
+                let resumeNow = lock.withLock {
+                    if released { return true }
+                    waiter = continuation
+                    return false
+                }
+                if resumeNow { continuation.resume() }
             }
+            lock.withLock { answered = true }
             return 7
         }
-        #expect(ContinuousClock.now - start < .seconds(1))
-        guard case .failure(let error) = result else { Issue.record("expected a timeout"); return }
+
+        func release() {
+            let waiting = lock.withLock {
+                released = true
+                defer { waiter = nil }
+                return waiter
+            }
+            waiting?.resume()
+        }
+
+        var hasAnswered: Bool { lock.withLock { answered } }
+    }
+
+    /// The property is an ordering: the timeout result comes back while the
+    /// ping is still unanswered. A wall-clock bound around the call measured
+    /// the simulator's scheduling instead (1.01 s against 1 s in a loaded
+    /// full-kit run), not the race.
+    @Test func timeoutWinsOverAnUncancellablePing() async {
+        let ping = HeldPing(fallback: .seconds(30))
+        let result = await LinkController.race(timeout: .milliseconds(50), clock: ContinuousClock()) {
+            await ping.ping()
+        }
+        #expect(!ping.hasAnswered, "the race returned only after the uncancellable ping answered")
+        ping.release()
+        guard case .failure(let error) = result else { Issue.record("expected a timeout, got \(result)"); return }
         #expect((error as? LinkError)?.code == "timeout")
     }
 
@@ -1250,5 +1312,41 @@ final class Seen: @unchecked Sendable {
         #expect(tabs.map(\.id) == ["s12"])
         #expect(tabs.first?.kind == .simulator && tabs.first?.title == "Simulator")
         #expect(tabs.first?.systemImage == "iphone")
+    }
+}
+
+// MARK: Title events
+
+@MainActor
+@Suite struct TitleActivityTests {
+    /// A shell sets its terminal title again and again with the same text: only a new
+    /// title is activity. Each repeat stamped the workspace as active now, re-listed it
+    /// and republished every workspace to the store (a whole-list update for nothing).
+    @Test func aRepeatedTitleIsNotActivity() async throws {
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        sync.handle(.titleChanged(surface: 5, title: "zsh"))
+        let first = try #require(sync.activity[5])
+        sync.handle(.titleChanged(surface: 5, title: "zsh"))
+        #expect(sync.activity[5] == first)
+        #expect(sync.titleEventsIgnored == 1)
+        sync.handle(.titleChanged(surface: 5, title: "vim"))
+        #expect(sync.titleEventsIgnored == 1)
+        // Another surface's first title is activity.
+        sync.handle(.titleChanged(surface: 6, title: "zsh"))
+        #expect(sync.activity[6] != nil)
+        #expect(sync.titleEventsIgnored == 1)
+    }
+
+    /// Review P1 (#27664): a title event the latest snapshot already covers is dropped. It was
+    /// recorded as the surface's last title first, so the next real event with the same text
+    /// was taken for a repeat and never counted as activity.
+    @Test func aCoveredTitleEventDoesNotHideTheNextRealOne() {
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        sync.snapshotSequence = 10
+        sync.handle(.titleChanged(surface: 5, title: "vim"), sequence: 9)
+        #expect(sync.activity[5] == nil, "an event the snapshot covers is not activity")
+        sync.handle(.titleChanged(surface: 5, title: "vim"), sequence: 11)
+        #expect(sync.activity[5] != nil, "the real event after the snapshot is activity")
+        #expect(sync.titleEventsIgnored == 0)
     }
 }

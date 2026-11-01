@@ -1,4 +1,4 @@
-/* A Claude workflow's dot per agent, in the Session Info panel (inspector/WorkflowTasks.tsx) and the
+/* A Claude workflow's dot per agent, in the Session Info panel (session-info/WorkflowTasks.tsx) and the
    transcript card (summary/WorkflowCard.tsx): done is filled, running the accent, queued an outline,
    failed red. Fixed size, so a change of state never moves the rows. */
 .acpmux-workflow-dots {

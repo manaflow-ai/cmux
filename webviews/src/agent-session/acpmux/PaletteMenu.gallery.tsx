@@ -37,7 +37,9 @@ const editSearch: Play = async (ctx) => {
   assertSearchAnchor();
 };
 
-function Fixture({ variant }: { variant: string }) {
+type PaletteMenuVariant = "keyboard" | "balanced" | "tools" | "sessions";
+
+function Fixture({ variant }: { variant: PaletteMenuVariant }) {
   const t = useT();
   // Catalog-shaped fixture rows; the rendered component and dispatch path are the real + menu.
   const sections = paletteSections(
@@ -104,7 +106,7 @@ function Fixture({ variant }: { variant: string }) {
   );
 }
 
-export default componentEntry<{ variant: string }>({
+export default componentEntry<{ variant: PaletteMenuVariant }>({
   id: "agent-pane.composer-plus-menu",
   title: "Composer plus: tools, apps, sessions and tabs",
   area: "Agent pane",

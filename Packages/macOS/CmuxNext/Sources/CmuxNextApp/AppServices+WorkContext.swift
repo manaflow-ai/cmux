@@ -18,7 +18,7 @@ extension AppServices {
         if agentTabs.isAgentTab(tab) {
             guard !agentTabs.isNewTabPage(tab) else { return nil }
             kind = .chat
-        } else if locateTab(tab)?.0.kind == .pty {
+        } else if locateTabOnAnyMachine(tab)?.0.kind == .pty {
             kind = .terminal
         } else {
             return nil
@@ -45,7 +45,7 @@ extension AppServices {
         let current = tab.flatMap { tab in workEntry(tab.id, workspace: workspace?.id ?? "", window: window ?? "") }
         return workContext.resolve(current: current, workspace: workspace?.id, window: window,
                                    workspaceHasWork: workspace.map { holdsWork($0) } ?? true, kinds: kinds) { entry in
-            guard let (tab, pane) = locateTab(entry.tab), self.daemon(for: pane) === self.daemon else { return nil }
+            guard let (tab, pane) = locateTab(entry.tab, onMachine: machines.local.machineID), self.daemon(for: pane) === self.daemon else { return nil }
             return value(tab)
         }
     }

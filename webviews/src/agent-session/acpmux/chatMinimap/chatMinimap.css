@@ -46,7 +46,7 @@
 /* Session Info floating over the chat's right side (design/session-info.md): the minimap steps
    aside while it is open, so neither lies over the other. Pushing, the chat narrows beside it and
    the minimap stays at the chat's new edge. */
-.acpmux-shell[data-inspector-chat-placement="overlay"] .acpmux-chat-minimap {
+.acpmux-shell[data-session-info-chat-placement="overlay"] .acpmux-chat-minimap {
   visibility: hidden;
 }
 /* The streaming reply's place while the minimap is frozen (ChatMinimap.tsx): a grey block with a soft

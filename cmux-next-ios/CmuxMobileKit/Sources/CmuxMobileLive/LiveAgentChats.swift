@@ -70,7 +70,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         // A tab of this workspace already shows it: that tab, never a second one.
         if let shown = workspace.tabs.first(where: { tree.agentTabs[$0.id]?.session == chat.id }) { return shown }
         guard let pane = tree.panes[workspace.id] else {
-            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes")
         }
         do {
             let reply = try await client.request("new-conversation-tab", params: [
@@ -132,7 +132,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
             throw WorkspaceCreationError("Not connected")
         }
         guard let session = tree.agentTabs[tab.id]?.session else {
-            throw WorkspaceCreationError("This chat hasn't started yet.", isForPerson: true)
+            throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
         }
         guard let place = tree.tabPlaces[tab.id] ?? tree.panes[workspace.id].map({ DaemonTree.TabPlace(pane: $0, index: 0) }) else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")
@@ -183,7 +183,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     private func readyAcpmux(_ macID: String) throws -> AcpmuxHub {
         guard canManage(on: macID) else { throw WorkspaceCreationError("Not connected") }
         guard let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true)
+            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         }
         return acpmux
     }

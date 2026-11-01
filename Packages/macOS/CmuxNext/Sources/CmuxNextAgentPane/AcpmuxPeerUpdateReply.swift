@@ -24,11 +24,19 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         case held
         /// The CLI's ssh probe of the peer failed (`failed` with reason `unreachable`, its first
         /// step): the peer dropped off the network after the app read its build; nothing changed.
-        /// Not final: asked again later. Also `failed` with reason `updateRunning` (another update
+        /// Not final: asked again later. Also `failed` with reason `lockLost` (the connection
+        /// holding the update's lease dropped, so the CLI changed nothing more; the next turn reads
+        /// the peer's build again). Also `failed` with reason `updateRunning` (another update
         /// holds the host's lock; nothing changed) reads as ``busy``. Every other `failed` reason
         /// (`unsupportedPlatform`, `pushFailed`, `pushMismatch`, `restartFailed`, the hand-written
-        /// unit's refusals, ...) stays a failure: retrying the same build would fail the same way.
+        /// unit's refusals, ...) stays a failure: retrying the same build would fail the same way,
+        /// unless its error is ssh's own word that it never connected (``sshNeverConnected(_:)``),
+        /// or that the binary's upload lost its connection (``uploadLostConnection(_:)``):
+        /// nothing changed on the peer, so that is ``unreachable`` too.
         case unreachable
+        /// The CLI run was cut short by a signal before it printed a reply (the local daemon
+        /// restarted under it, or it was killed): no answer about the peer. Not final: asked again.
+        case interrupted
         case failed
     }
 
@@ -73,12 +81,45 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         case "failed":
             switch (try? container.decodeIfPresent(String.self, forKey: .reason)) ?? nil {
             case "cloudMachine": outcome = .cloudMachine
-            case "unreachable": outcome = .unreachable
+            // `lockLost`: the connection holding the update's lease dropped, and the CLI changed
+            // nothing more (acpmux `host_update.rs`): the peer went away mid-update, so offline.
+            case "unreachable", "lockLost": outcome = .unreachable
             case "updateRunning": outcome = .busy
+            // Only a step before anything was installed (the upload, or no step named): a later
+            // step's lost or refused connection (`restartFailed`, `noAnswer`, ...) may have changed
+            // the peer, so it shows.
+            case "pushFailed", nil: outcome = error.map(Self.offline) == true ? .unreachable : .failed
             default: outcome = .failed
             }
         default: outcome = .failed
         }
+    }
+
+    /// Whether `error` is ssh failing before it reached the peer (`ssh: connect to host H port 22:
+    /// Operation timed out`, `Could not resolve hostname`, no banner): nothing ran there, so the
+    /// peer is offline, not broken. Read from the text since the upload reports its own reason
+    /// (`pushFailed`) with the same ssh words; read only for the upload or no named step.
+    static func sshNeverConnected(_ error: String) -> Bool {
+        let text = error.lowercased()
+        return ["ssh: connect to host ", "ssh: could not resolve hostname", "connection timed out during banner exchange"]
+            .contains { text.contains($0) }
+    }
+
+    /// Whether the binary's upload lost its connection part way (`scp to H failed: client_loop:
+    /// send disconnect: Broken pipe`, `lost connection`): the copy goes to a staging folder the
+    /// next push clears, and nothing is installed until it runs, so the peer is unchanged and
+    /// offline, not broken. Only the upload: a later step's dropped connection may have changed
+    /// the peer.
+    static func uploadLostConnection(_ error: String) -> Bool {
+        let text = error.lowercased()
+        guard text.hasPrefix("scp to ") else { return false }
+        return ["lost connection", "connection closed", "broken pipe", "connection reset by", "client_loop: send disconnect"]
+            .contains { text.contains($0) }
+    }
+
+    /// The peer is offline (``sshNeverConnected(_:)`` or ``uploadLostConnection(_:)``).
+    static func offline(_ error: String) -> Bool {
+        sshNeverConnected(error) || uploadLostConnection(error)
     }
 
     /// The reply for `peer` in `output`: `--json` prints `{"updated": [ROW...], "peers": [...]}`

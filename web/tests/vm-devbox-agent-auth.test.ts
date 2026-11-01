@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/vmGuestEnv";
 import { resolveVmGuestKind } from "../services/vms/vmKind";
-import { runChild } from "./helpers/run-child";
+import { runChild, runChildOk } from "./helpers/run-child";
 
 // Each coding agent on a Cloud machine signs in one of two ways: the team's
 // CodeRouter accounts, or the user's own sign-in (Claude Code /login, codex
@@ -393,6 +393,187 @@ describe("Codex sign-in precedence", () => {
   });
 });
 
+// The trust-state labels of every Codex hook event `cmux-tui agent hook
+// install codex` writes (CODEX_EVENTS in cmux-tui-hooks, 11 today), as Codex
+// keys them: `<hooks.json>:<snake_case event>:0:0`. Read from the installer,
+// so a new event is covered without editing this list.
+const CODEX_HOOK_LABELS = (() => {
+  const installer = readFileSync(path.join(import.meta.dirname, "../../cmux-tui/crates/cmux-tui-hooks/src/lib.rs"), "utf8");
+  const events = /const CODEX_EVENTS: &\[&str\] = &\[([^\]]*)\];/.exec(installer)?.[1];
+  if (!events) throw new Error("CODEX_EVENTS is gone from cmux-tui-hooks; point this test at its new home");
+  return [...events.matchAll(/"([A-Za-z]+)"/g)].map(([, event]) => event.replace(/(?<!^)([A-Z])/g, "_$1").toLowerCase());
+})();
+
+describe("Codex hook trust in the shared team CODEX_HOME", () => {
+  const codexTeam = (m: Machine) => path.join(m.home, ".config/cmux/codex-team");
+  const defaultConfig = (m: Machine) => path.join(m.home, ".codex/config.toml");
+
+  /** A team machine whose default ~/.codex holds cmux's hooks.json, as the bake leaves it. */
+  function teamMachine(homeName?: string): Machine {
+    const m = machine(homeName);
+    mkdirSync(path.join(m.home, ".codex"), { recursive: true });
+    writeFileSync(path.join(m.home, ".codex/hooks.json"), "{}\n");
+    writeFileSync(m.kind, "team\n");
+    return m;
+  }
+
+  /** The bake's trust entry for every cmux hook (hash `<tag>:<label>`), plus `extra` TOML; returns key -> hash. */
+  function bakeTrust(m: Machine, tag: string, extra: string[] = []): Record<string, string> {
+    const trusted = Object.fromEntries(
+      CODEX_HOOK_LABELS.map((label) => [`${path.join(m.home, ".codex/hooks.json")}:${label}:0:0`, `${tag}:${label}`]),
+    );
+    const lines = Object.entries(trusted).flatMap(([key, hash]) => [`[hooks.state.${JSON.stringify(key)}]`, `trusted_hash = ${JSON.stringify(hash)}`, ""]);
+    writeFileSync(defaultConfig(m), [...lines, ...extra].join("\n"));
+    return trusted;
+  }
+
+  /** Replaces one baked entry's trusted_hash line in the default config with `line`. */
+  function breakEntry(m: Machine, trusted: Record<string, string>, key: string, line: string): void {
+    const text = readFileSync(defaultConfig(m), "utf8");
+    const hashLine = `trusted_hash = ${JSON.stringify(trusted[key])}`;
+    expect(text).toContain(hashLine);
+    writeFileSync(defaultConfig(m), text.replace(hashLine, line));
+  }
+
+  /** A TOML file as a strict parser (Python's tomllib) reads it. */
+  async function readToml(file: string): Promise<{ model_provider?: string; model_providers?: Record<string, Record<string, unknown>>; hooks?: { state?: Record<string, unknown> } }> {
+    const result = await runChild("python3", ["-I", "-c", "import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], 'rb'))))", file]);
+    expect(result.stderr).toBe("");
+    return JSON.parse(result.stdout);
+  }
+
+  /** Every key -> trusted_hash the team config holds, after checking its provider block is whole. */
+  async function teamTrust(file: string): Promise<Record<string, unknown>> {
+    const config = await readToml(file);
+    expect(config.model_provider).toBe("cmux");
+    expect(config.model_providers?.cmux).toEqual({
+      name: "cmux",
+      base_url: `${ORIGIN}/v1`,
+      env_key: "OPENAI_API_KEY",
+      wire_api: "responses",
+      requires_openai_auth: false,
+      supports_websockets: false,
+    });
+    return Object.fromEntries(Object.entries(config.hooks?.state ?? {}).map(([key, entry]) => [key, (entry as { trusted_hash?: unknown }).trusted_hash]));
+  }
+
+  /** A team codex launch whose stderr may carry the publish's log lines. */
+  async function launchLogged(m: Machine) {
+    const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.codex} --resume x`], { env: bootEnv(m) });
+    expect(result.status).toBe(0);
+    expect(parse(result.stdout).CODEX_HOME).toBe(codexTeam(m));
+    return result.stderr;
+  }
+
+  test("every hook the default home trusts is trusted in the team home", async () => {
+    // Codex app-server `hooks/list` is not on Linux CI; this checks the config
+    // Codex reads that trust from, entry by entry.
+    expect(CODEX_HOOK_LABELS.length).toBeGreaterThanOrEqual(11);
+    const m = teamMachine();
+    const trusted = bakeTrust(m, "sha256:baked", ['[hooks.state."/tmp/user-hooks.json:stop:0:0"]', 'trusted_hash = "sha256:user"', ""]);
+    await launch(m, "codex");
+    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(trusted);
+  });
+
+  test("a reader during the publish sees the old config or the new one, whole, never a mix", async () => {
+    const m = teamMachine();
+    const target = path.join(codexTeam(m), "config.toml");
+    const first = bakeTrust(m, "sha256:first");
+    await launch(m, "codex");
+    const old = readFileSync(target, "utf8");
+    expect(await teamTrust(target)).toEqual(first);
+
+    // Test-only seam in this machine's copy of agent-auth.sh: the publish
+    // stops after the new config is fully written to its temporary file and
+    // before it replaces the old one, until the test releases it. FIFOs make
+    // the hand-off an event, not a timing guess.
+    const paused = path.join(m.root, "publish.paused");
+    const resume = path.join(m.root, "publish.resume");
+    await runChildOk("mkfifo", [paused, resume]);
+    const script = readFileSync(m.auth, "utf8");
+    const publish = "    os.replace(temporary, target)\n";
+    expect(script).toContain(publish);
+    writeFileSync(m.auth, script.replace(publish, `    open(${JSON.stringify(paused)}, "w").close(); open(${JSON.stringify(resume)}).read()\n${publish}`));
+
+    const second = bakeTrust(m, "sha256:second");
+    // The launcher runs with the shell's result checked only after release,
+    // so a failed assertion below cannot leave a rejected promise behind.
+    const publishing = runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.codex} --resume x`], { env: bootEnv(m), timeout: 20_000 });
+    try {
+      // Opening the FIFO returns only once the publish holds its other end.
+      expect((await runChild("cat", [paused], { timeout: 10_000 })).error).toBeUndefined();
+      expect(readFileSync(target, "utf8")).toBe(old);
+      expect(await teamTrust(target)).toEqual(first);
+      // The new config is already complete beside it; only the rename is left.
+      const pending = readdirSync(codexTeam(m)).filter((name) => name.startsWith(".config.toml."));
+      expect(pending).toHaveLength(1);
+      expect(await teamTrust(path.join(codexTeam(m), pending[0]))).toEqual(second);
+    } finally {
+      // Always release a paused publisher and wait for it, so it never
+      // outlives the test or writes into a root afterEach removes. The
+      // write-open waits for the publisher's read-open (no lost wake-up); if
+      // the publisher never gets there, both runChild timeouts kill their
+      // process groups well inside the test's 30 s.
+      await runChild("sh", ["-c", ': > "$1"', "sh", resume], { timeout: 10_000 });
+      await publishing;
+    }
+    const published = await publishing;
+    expect(published.stderr).toBe("");
+    expect(published.status).toBe(0);
+    expect(await teamTrust(target)).toEqual(second);
+    expect(readdirSync(codexTeam(m)).filter((name) => name.startsWith(".config.toml."))).toEqual([]);
+  });
+
+  test("a HOME with non-ASCII and non-BMP names keeps every trust entry", async () => {
+    const m = teamMachine("hömé-日本語-🚀");
+    const trusted = bakeTrust(m, "sha256:ünï", ['[hooks.state."/tmp/ユーザー/hööks-🚀.json:stop:0:0"]', 'trusted_hash = "sha256:user"', ""]);
+    await launch(m, "codex");
+    const target = path.join(codexTeam(m), "config.toml");
+    expect(readFileSync(target, "utf8")).toContain(`[hooks.state."${path.join(m.home, ".codex/hooks.json")}:stop:0:0"]`);
+    expect(await teamTrust(target)).toEqual(trusted);
+  });
+
+  test("a default-home config that is not TOML keeps the published trust, says so, and still starts codex", async () => {
+    const m = teamMachine();
+    const target = path.join(codexTeam(m), "config.toml");
+    const trusted = bakeTrust(m, "sha256:baked");
+    await launch(m, "codex");
+    writeFileSync(defaultConfig(m), 'model = "unterminated\n[hooks.state\n');
+    const log = await launchLogged(m);
+    expect(log).toContain(`cannot read Codex hook trust from ${defaultConfig(m)}`);
+    expect(await teamTrust(target)).toEqual(trusted);
+  });
+
+  test("an entry without a usable trusted_hash is skipped with a log line, and the others still copy", async () => {
+    const m = teamMachine();
+    const trusted = bakeTrust(m, "sha256:baked");
+    const [missing, wrongType] = Object.keys(trusted);
+    breakEntry(m, trusted, missing, "enabled = true");
+    breakEntry(m, trusted, wrongType, "trusted_hash = 7");
+    const log = await launchLogged(m);
+    expect(log).toContain(`skipping Codex hook trust entry ${JSON.stringify(missing)}`);
+    expect(log).toContain(`skipping Codex hook trust entry ${JSON.stringify(wrongType)}`);
+    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(
+      Object.fromEntries(Object.entries(trusted).filter(([key]) => key !== missing && key !== wrongType)),
+    );
+  });
+
+  test("a hook whose approval the default home revoked is no longer trusted in the team home", async () => {
+    // Codex keeps a hook's state entry but drops its trusted_hash when the
+    // user revokes approval; the team home must follow, not keep the old hash.
+    const m = teamMachine();
+    const trusted = bakeTrust(m, "sha256:baked");
+    await launch(m, "codex");
+    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(trusted);
+    const [revoked] = Object.keys(trusted);
+    breakEntry(m, trusted, revoked, "enabled = true");
+    expect(await launchLogged(m)).toContain(`skipping Codex hook trust entry ${JSON.stringify(revoked)}`);
+    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(
+      Object.fromEntries(Object.entries(trusted).filter(([key]) => key !== revoked)),
+    );
+  });
+});
+
 describe("OpenCode sign-in precedence", () => {
   test("team mode layers the CodeRouter providers on for this launch, never in opencode's own config", async () => {
     const m = machine();
@@ -489,6 +670,47 @@ describe("the default for every agent", () => {
       expect((await launch(m, "codex", { FAKE_CURL_EXIT: exit })).args).toBe('-c model_provider="openai" --resume x');
       expect((await launch(m, "opencode", { FAKE_CURL_EXIT: exit })).OPENCODE_CONFIG).toBe("<unset>");
     }
+  });
+
+  test("a machine with no CodeRouter origin starts claude on its own sign-in, never an empty team plane", async () => {
+    // fs-firstsend-exercise (2026-10-31): a shell with only the OpenAI pair persisted that pair alone,
+    // so no shell after it had an origin, and team-unknown left claude with no endpoint and no key
+    // ("Not logged in"). With no origin there is no team plane to choose.
+    const m = machine();
+    const env = bootEnv(m);
+    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
+    const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.claude} --resume x`], { env });
+    expect(result.status).toBe(0);
+    const claude = parse(result.stdout);
+    expect(claude.ANTHROPIC_BASE_URL).toBe("<unset>");
+    expect(claude.ANTHROPIC_API_KEY).toBe("<unset>");
+    expect(claude.CLAUDE_CONFIG_DIR).toBe("<unset>");
+    const reason = await runChild("/bin/sh", ["-c", `. ${m.auth}; cmux_agent_auth_resolve claude; printf '%s %s' "$cmux_agent_auth_mode" "$cmux_agent_auth_reason"`],
+      { env: { PATH: env.PATH, HOME: m.home } });
+    expect(reason.stdout).toBe("own no-team-plane");
+    // Nothing asked CodeRouter: there was no origin to ask.
+    const calls = existsSync(m.calls) ? readFileSync(m.calls, "utf8") : "";
+    expect(calls).not.toContain("agent-access");
+  });
+
+  test("with no CodeRouter origin, a stale model-plane pair never reaches codex or opencode", async () => {
+    // The persisted OpenAI pair alone: its URL names CodeRouter but no CMUX_CODEROUTER_URL does. Own mode must
+    // drop the URL with the placeholder key, or an own login would go to that endpoint.
+    const m = machine();
+    cmuxCodexConfig(m);
+    writeFileSync(m.modelPlane, `export OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
+    const env = bootEnv(m);
+    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
+    for (const agent of ["codex", "opencode"] as const) {
+      const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers[agent]} --resume x`], { env });
+      expect(result.status).toBe(0);
+      const child = parse(result.stdout);
+      expect(child.OPENAI_BASE_URL).toBe("<unset>");
+      expect(child.OPENAI_API_KEY).toBe("<unset>");
+    }
+    // A user's own endpoint with their own key stays.
+    const own = await runChild("/bin/bash", ["-c", `. ${m.config}; export OPENAI_BASE_URL=https://api.example.test/v1 OPENAI_API_KEY=sk-user; ${m.launchers.codex} --resume x`], { env });
+    expect(parse(own.stdout).OPENAI_BASE_URL).toBe("https://api.example.test/v1");
   });
 
   test("CMUX_<AGENT>_AUTH pins one launch over the recorded choice and the default", async () => {

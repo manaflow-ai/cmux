@@ -9,12 +9,13 @@
 //! person's own steers still go in, and so does the queue's Send now. The hub steers one notice
 //! into that turn, once ([`NOTICE_KIND`]; the turn it went into is saved in the session's meta, so
 //! a turn a restart adopts gets no second), when an agent's message is waiting for it: on the
-//! first agent message past the cap, or at the cap when one waits already ([`Hub::arm_turn_cap`]'s
-//! timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
+//! first agent message past the cap, or at the cap when one waits already, queued or in the inbox
+//! with no notice carrying it ([`Hub::arm_turn_cap`]'s timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
 //! written; one logged but never written leaves `steer_withdrawn`). The hub never cancels
 //! the turn itself.
 //!
-//! The timer: one per session, armed when a turn starts. It wakes once, at the cap, and ends; a
+//! The timer: one per session, armed when a turn starts (a prompt's, a carried one's, or one a
+//! restart adopts, `carried_turn.rs`, `hosts.rs`). It wakes once, at the cap, and ends; a
 //! turn that starts before then aborts the previous turn's timer (`Session::turn_cap_timer`). It
 //! holds the session weakly, so a closed session's timer does nothing.
 
@@ -54,6 +55,12 @@ fn capped_turn(session: &Session, now: u64) -> Option<(String, u64)> {
 /// Whether `provenance` is the notice's.
 pub(super) fn is_notice(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(NOTICE_KIND)
+}
+
+/// Whether the running turn is past its cap now: it takes no other agent's message, an inbox
+/// digest of them included (`inbox_digest.rs`).
+pub(super) fn past_cap(session: &Session) -> bool {
+    capped_turn(session, now_ms()).is_some()
 }
 
 /// Whether a steer with `provenance` may go into turn `turn_id`: anything but the notice, and the
@@ -116,7 +123,8 @@ impl Hub {
         }
     }
 
-    /// Arms the cap's timer for turn `turn_id`, which starts now (module docs).
+    /// Arms the cap's timer for turn `turn_id`, the session's turn, which starts now (module
+    /// docs). A turn a restart adopts started before: its cap counts from that start.
     pub(super) fn arm_turn_cap(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
         let mut timer = session.turn_cap_timer.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(previous) = timer.take() {
@@ -125,21 +133,32 @@ impl Hub {
         let Some(cap) = turn_cap_ms(&session.meta.lock().unwrap_or_else(|e| e.into_inner())) else {
             return;
         };
+        let started = session.turn().filter(|t| t.turn_id == turn_id).map(|t| t.started_at);
+        let wait = cap.saturating_sub(started.map_or(0, |at| now_ms().saturating_sub(at)));
         let hub = Arc::downgrade(self);
         let weak: Weak<Session> = Arc::downgrade(session);
         let turn_id = turn_id.to_owned();
         let task = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(cap)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             let Some((running, cap)) = capped_turn(&session, now_ms()) else { return };
-            // Another agent's message waits (`queue.rs` keeps its sender as `run.agent`).
-            let waiting = session
+            // Another agent's message waits: queued (`queue.rs` keeps its sender as `run.agent`),
+            // or in the inbox with no notice carrying it (`inbox.rs`), which steers none into a
+            // turn past its cap.
+            let queued = session
                 .queue
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
                 .any(|q| q.run.agent.is_some());
-            if running == turn_id && waiting {
+            let held = session
+                .inbox
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .items
+                .iter()
+                .any(|i| !i.noticed);
+            if running == turn_id && (queued || held) {
                 hub.turn_cap_notice(&session, &running, cap);
             }
         });
@@ -184,15 +203,28 @@ impl Hub {
         });
     }
 
+    /// [`Hub::set_turn_cap_answered`] for the tests (`turn_cap_tests.rs`).
+    #[cfg(test)]
+    pub(crate) fn set_turn_cap(&self, session: &Session, cap_ms: Option<u64>) {
+        // A failed save is logged there; no request waits for this one.
+        let _ = self.set_turn_cap_answered(session, cap_ms);
+    }
+
     /// Sets or clears (`None`) the session's own cap, in ms; 0 turns the cap off. Read at each
     /// message and turn start, so a running turn takes the new cap at once; its timer starts with
-    /// the next turn.
-    pub(crate) fn set_turn_cap(&self, session: &Session, cap_ms: Option<u64>) {
+    /// the next turn. `_acpmux/set_turn_cap` is answered only once the cap is saved
+    /// (`meta_save.rs`).
+    pub(crate) fn set_turn_cap_answered(
+        &self,
+        session: &Session,
+        cap_ms: Option<u64>,
+    ) -> Result<(), RpcError> {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_cap_ms = cap_ms;
-        self.save_meta(session);
+        self.save_meta_answered(session)
     }
 }
 
-#[cfg(test)]
+// The tests gate turns with a named pipe (`libc::mkfifo`), which only Unix has.
+#[cfg(all(test, unix))]
 #[path = "turn_cap_tests.rs"]
 mod tests;

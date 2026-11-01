@@ -9,16 +9,19 @@ name: cmux-next web bundle publish
 #   cmux-next-web/<key>/web-bundles-<sha256>.tar.gz   immutable, content-addressed
 #   cmux-next-web/<key>/manifest.json                 written last; its presence
 #                                                     means the key is complete
-#   cmux-next-web/ota/every-merge.json                the signed web update pointer
-#                                                     NIGHTLY apps follow (pointer job)
+#   cmux-next-web/ota/every-merge.json                the signed every-merge pointer
+#   cmux-next-web/ota/nightly.json                    the signed promoted-NEXT pointer
+#                                                     (pointer job, from nightly-next)
 # <key> = scripts/cmux-next/web-bundle-key.py . --source. Pushes that change no
 # bundle input do not run this; a key that is already published is skipped.
 on:
   push:
-    branches: [feat-cmux-next]
+    branches: [feat-cmux-next, nightly-next]
     paths:
       - "webviews/**"
       - "schemas/settings/**"
+      # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
+      - "release-notes/next/highlights/**"
       - "Resources/markdown-viewer/marked.min.js"
       - "scripts/build-webviews-app.sh"
       - "scripts/check-webviews-bun-version.sh"
@@ -35,6 +38,7 @@ on:
       - "Resources/markdown-viewer/viewer-navigation.js"
       - "config/vite-plus/**"
       - "schemas/sync-motion/**"
+      - "schemas/agent-pane/**"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/cmux-next/web-ota-pointer.py"
@@ -58,10 +62,15 @@ jobs:
   # publish job below gets the R2 credentials, starts from a clean checkout and
   # runs no bun or node (the cmux-tui artifacts build/publish split).
   build:
-    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    if: github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next')
     name: build the web bundles for this source key
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
+    env:
+      # The Node value is part of web-bundle-key.py --source. Changing it moves
+      # the published identity, so write-once R2 objects cannot hide a toolchain
+      # change behind an old manifest. Bun is declared by webviews/package.json.
+      CMUX_WEB_NODE_VERSION: "24.22.1"
     outputs:
       key: ${{ steps.key.outputs.key }}
       published: ${{ steps.key.outputs.published }}
@@ -77,12 +86,26 @@ jobs:
           key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
           [[ "$key" =~ ^[0-9a-f]{64}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$key/manifest.json?verify=$GITHUB_RUN_ID" || true)"
-          if [[ "$code" == 200 ]]; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "web bundles for $key are already published" | tee -a "$GITHUB_STEP_SUMMARY"
-          else
+          manifest="$RUNNER_TEMP/web-bundle-manifest.json"
+          code="$(curl -sS -o "$manifest" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$key/manifest.json?verify=$GITHUB_RUN_ID" || true)"
+          if [[ "$code" != 200 ]]; then
             echo "published=false" >> "$GITHUB_OUTPUT"
+          elif python3 - "$manifest" <<'PY'
+          import json, sys
+          import runpy
+          import os
+          manifest = json.load(open(sys.argv[1]))
+          key = runpy.run_path("scripts/cmux-next/web-bundle-key.py")
+          raise SystemExit(0 if key["manifest_matches_toolchain"](
+              manifest, key["declared_bun_version"]("."), os.environ["CMUX_WEB_NODE_VERSION"]
+          ) else 1)
+          PY
+          then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "web bundles for $key are already published with the pinned Bun/Node toolchain" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::the existing manifest for $key has a different Bun/Node toolchain; refusing immutable-key publication"
+            exit 1
           fi
 
       - name: Setup Bun
@@ -100,7 +123,7 @@ jobs:
         if: steps.key.outputs.published != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.22.1"
+          node-version: ${{ env.CMUX_WEB_NODE_VERSION }}
 
       - name: Build the web bundles
         if: steps.key.outputs.published != 'true'
@@ -118,14 +141,15 @@ jobs:
           archive="web-bundles-$sha.tar.gz"
           mv "$dir/web-bundles.tar.gz" "$dir/$archive"
           python3 - "$dir/manifest.json" "$KEY" "$archive" "$sha" "$(stat -c %s "$dir/$archive")" <<'PY'
-          import json, os, subprocess, sys
+          import json, os, runpy, subprocess, sys
           path, key, archive, sha, size = sys.argv[1:]
+          normalize = runpy.run_path("scripts/cmux-next/web-bundle-key.py")["normalize_toolchain_version"]
           outputs = subprocess.run(["python3", "scripts/cmux-next/web-bundle-key.py", os.environ["RUNNER_TEMP"] + "/web-bundles-out", "--outputs"],
                                    capture_output=True, text=True).stdout.strip()
           json.dump({"schema": 1, "key": key, "commit": os.environ["GITHUB_SHA"], "run_id": int(os.environ["GITHUB_RUN_ID"]),
                      "archive": archive, "sha256": sha, "size": int(size),
-                     "bun": subprocess.run(["bun", "--version"], capture_output=True, text=True).stdout.strip(),
-                     "node": subprocess.run(["node", "--version"], capture_output=True, text=True).stdout.strip(),
+                     "bun": normalize(subprocess.run(["bun", "--version"], capture_output=True, text=True).stdout),
+                     "node": normalize(subprocess.run(["node", "--version"], capture_output=True, text=True).stdout),
                      "outputs": outputs or None}, open(path, "w"), indent=1, sort_keys=True)
           PY
           cat "$dir/manifest.json"
@@ -185,8 +209,9 @@ jobs:
           test -d "$out/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
           echo "published https://files.cmux.com/cmux-next-web/$KEY/manifest.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # The every-merge web update channel (plans/cmux-next/web-ota.md): a pointer to this push's
-  # bundles, signed with the ed25519 key the app trusts (CmuxNextUpdater/Resources/web-update-keys.json),
+  # The web update channels (plans/cmux-next/web-ota.md): every-merge follows
+  # feat-cmux-next, while nightly follows the promoted nightly-next branch. Both
+  # point at this push's bundles, signed with the ed25519 key the app trusts,
   # so a NIGHTLY app serves a merged web change minutes later, with no Mac build. Also runs when
   # the key was already published (a revert to known bundles). Like publish, it runs no bun or
   # node: only this checkout's scripts touch the signing key. An older run never moves the
@@ -194,7 +219,7 @@ jobs:
   pointer:
     needs: [build, publish]
     if: ${{ always() && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
-    name: sign the every-merge web update pointer
+    name: sign the web update pointer
     environment: artifacts
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -211,11 +236,12 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
           KEY: ${{ needs.build.outputs.key }}
+          CHANNEL: ${{ github.ref_name == 'nightly-next' && 'nightly' || 'every-merge' }}
         run: |
           set -euo pipefail
           if [[ -z "$SIGNING_KEY" ]]; then
-            echo "::warning::CMUX_WEB_OTA_SIGNING_KEY is not set in the artifacts environment; no web update pointer"
-            exit 0
+            echo "::error::CMUX_WEB_OTA_SIGNING_KEY is required for the production web update pointer"
+            exit 1
           fi
           ptr=scripts/cmux-next/web-ota-pointer.py
           keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
@@ -224,22 +250,22 @@ jobs:
           trap 'rm -f "$dir/key.pem"' EXIT
           (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
           curl -fsS --retry 3 --max-time 60 -o "$dir/manifest.json" "https://files.cmux.com/cmux-next-web/$KEY/manifest.json?pointer=$GITHUB_RUN_ID"
-          # Exit 3 is "nothing to publish"; anything else nonzero fails the job.
+          # Any payload failure, including a missing outputs digest, fails production
+          # publication. Exit 3 is only meaningful for the newer-pointer no-op below.
           rc=0
-          python3 "$ptr" payload --manifest "$dir/manifest.json" --abi-file webviews/src/web-abi.json --channel every-merge \
+          python3 "$ptr" payload --manifest "$dir/manifest.json" --abi-file webviews/src/web-abi.json --channel "$CHANNEL" \
             --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" --out "$dir/payload.json" || rc=$?
-          if [[ $rc == 3 ]]; then echo "::warning::$KEY has no outputs digest; no web update pointer"; exit 0; fi
           [[ $rc == 0 ]] || exit "$rc"
-          python3 "$ptr" sign --payload "$dir/payload.json" --key "$dir/key.pem" --keys "$keys" --out "$dir/every-merge.json"
+          python3 "$ptr" sign --payload "$dir/payload.json" --key "$dir/key.pem" --keys "$keys" --out "$dir/$CHANNEL.json"
           rm -f "$dir/key.pem"
-          code="$(curl -sS -o "$dir/current.json" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/ota/every-merge.json?pointer=$GITHUB_RUN_ID" || true)"
+          code="$(curl -sS -o "$dir/current.json" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/ota/$CHANNEL.json?pointer=$GITHUB_RUN_ID" || true)"
           [[ "$code" == 200 ]] || rm -f "$dir/current.json"
-          python3 "$ptr" newer --pointer "$dir/every-merge.json" --keys "$keys" --current "$dir/current.json" || rc=$?
+          python3 "$ptr" newer --pointer "$dir/$CHANNEL.json" --keys "$keys" --current "$dir/current.json" || rc=$?
           [[ $rc == 3 ]] && exit 0
           [[ $rc == 0 ]] || exit "$rc"
           python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-            --cache-control "public, max-age=60, must-revalidate" --file "$dir/every-merge.json" \
-            --key cmux-next-web/ota/every-merge.json --content-type application/json
-          curl -fsS --retry 3 --max-time 60 -o "$dir/check.json" "https://files.cmux.com/cmux-next-web/ota/every-merge.json?check=$GITHUB_RUN_ID"
-          python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel every-merge
-          echo "every-merge web update -> $KEY (${GITHUB_SHA:0:12})" | tee -a "$GITHUB_STEP_SUMMARY"
+            --cache-control "public, max-age=60, must-revalidate" --file "$dir/$CHANNEL.json" \
+            --key "cmux-next-web/ota/$CHANNEL.json" --content-type application/json
+          curl -fsS --retry 3 --max-time 60 -o "$dir/check.json" "https://files.cmux.com/cmux-next-web/ota/$CHANNEL.json?check=$GITHUB_RUN_ID"
+          python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel "$CHANNEL"
+          echo "$CHANNEL web update -> $KEY (${GITHUB_SHA:0:12})" | tee -a "$GITHUB_STEP_SUMMARY"

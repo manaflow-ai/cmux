@@ -10,7 +10,7 @@
 // the panel folds under "N finished". The group's counts line ("39 tasks, 3 failed") counts both.
 //
 // All of it is derived from acpmux's snapshot: the rows and `subagentViews` (subagentFold.ts), the
-// process registry's commands (inspector/processes.ts `backgroundCommands`) and the started chats
+// process registry's commands (session-info/processes.ts `backgroundCommands`) and the started chats
 // (started/startedSessions.ts). Nothing here is kept by hand; the panel's own state is which groups
 // the person cleared (`dismissed`) and which are open.
 //
@@ -18,11 +18,22 @@
 // the array, which subagentFold.ts replaces only when that subagent's rows change), so a snapshot that
 // streams the chat's own reply re-reads no subagent's rows. The panel computes it only while it is
 // open (App.tsx), so a closed panel adds no work per snapshot.
+//
+// A Claude workflow (a subagent of kind `workflow`) has no rows of its own in `subagentViews`: its
+// agents' transcripts live in the run's folder and load through `_acpmux` (summary/
+// useWorkflowTranscript.ts). Its agents that started are its tasks, each with the workflow pane id
+// its transcript reads by (`workflow`), whether the workflow is a group of its own or nested under an
+// agent; the workflow's own line opens no transcript, since it has none. Stop is the workflow's own,
+// on its line, as in the workflow pane (summary/WorkflowSideTab.tsx): acpmux stops a run, not one
+// agent of it, so a workflow's agents carry no stop button of their own.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import type { BackgroundCommand } from "../inspector/processes";
+import type { BackgroundCommand } from "../session-info/processes";
 import type { StartedSession } from "../started/startedSessions";
 import { subagentsIn } from "../subagents/subagentRows";
 import type { Subagent } from "../subagents/subagentFold";
+import { workflowDetailRequest, workflowOf } from "../summary/foldWorkflows";
+import type { WorkflowAgent } from "../summary/workflow";
+import { workflowPaneId } from "../summary/workflowTranscript";
 
 /// A task's or a group's state. `stopped` is a cancel, a disconnect or a call its agent left
 /// unfinished when it ended; only `failed` counts as a failure.
@@ -48,6 +59,9 @@ export type BackgroundTask = {
   /// A command's tool call, which its terminal opens by (processTerminal.ts).
   toolCallId?: string;
   stop?: StopTarget;
+  /// A workflow's agent: the pane id its transcript loads by (summary/workflowTranscript.ts) and the
+  /// agent, whose progress refreshes that transcript while it is open.
+  workflow?: { pane: string; agent: WorkflowAgent };
 };
 
 export type BackgroundGroup = {
@@ -77,6 +91,8 @@ export type BackgroundInput = {
   sessions: readonly StartedSession[];
   /// The chat's name, which heads the group of its own background commands.
   chatName: string;
+  /// The chat's session id, which a workflow agent's transcript is read under.
+  sessionId?: string;
   /// Groups the person cleared (Clear finished): ended groups whose id is here are left out. A
   /// group that runs again (a restarted subagent keeps its id) shows again.
   dismissed?: ReadonlySet<string>;
@@ -100,6 +116,11 @@ export const agentState = (agent: Pick<Subagent, "state">): BackgroundState =>
       : agent.state === "completed"
         ? "done"
         : "stopped";
+
+/// A subagent's state, where a paused workflow (subagentFold.ts `paused`: its agents stopped until a
+/// resume) reads stopped even while its own state still says running.
+const nodeState = (agent: Subagent): BackgroundState =>
+  agent.kind === "workflow" && agent.paused ? "stopped" : agentState(agent);
 
 const commandState = (command: BackgroundCommand): BackgroundState =>
   command.state === "running"
@@ -151,6 +172,50 @@ function toolTasks(agent: Subagent, view: readonly AcpmuxRow[] | undefined, cach
   return tasks;
 }
 
+/// A workflow agent's state in the panel. Paused (Claude Code paused the run: its agents stopped until
+/// a resume by run id) reads stopped, as the workflow pane shows it: no spinner, no clock, clearable.
+const workflowState = (state: WorkflowAgent["state"]): BackgroundState | undefined =>
+  state === "running"
+    ? "running"
+    : state === "paused"
+      ? "stopped"
+      : state === "completed"
+        ? "done"
+        : state === "failed"
+          ? "failed"
+          : state === "cancelled"
+            ? "stopped"
+            : undefined;
+
+/// Workflow node `node`'s agents that started, as tasks that open their transcript in the panel.
+function workflowTasks(node: Subagent, sessionId: string | undefined): BackgroundTask[] {
+  const workflow = workflowOf(node, sessionId ?? "");
+  const tasks: BackgroundTask[] = [];
+  for (const agent of workflow.agents) {
+    const state = workflowState(agent.state);
+    // Queued agents show once they start: until then there is nothing of theirs to open.
+    if (!state) continue;
+    // The workflow ended (a cancel, the harness exiting) without word on each agent: one still marked
+    // running stopped with it, as a tool call left in flight does.
+    const ended = state === "running" && nodeState(node) !== "running";
+    const request = workflowDetailRequest(workflow, agent);
+    tasks.push({
+      id: agent.id,
+      kind: "agent",
+      title: agent.name,
+      state: ended ? "stopped" : state,
+      startedAt: agent.startedAt,
+      endedAt: ended
+        ? node.endedAt
+        : state !== "running" && agent.startedAt !== undefined && agent.elapsedMs !== undefined
+          ? agent.startedAt + agent.elapsedMs
+          : undefined,
+      ...(request && { workflow: { pane: workflowPaneId(request), agent } }),
+    });
+  }
+  return tasks;
+}
+
 const byStart = (a: { startedAt?: number; id: string }, b: { startedAt?: number; id: string }) =>
   (a.startedAt ?? 0) - (b.startedAt ?? 0) || a.id.localeCompare(b.id);
 const byLatestEnd = (a: BackgroundTask, b: BackgroundTask) =>
@@ -171,7 +236,7 @@ export const isLive = (group: BackgroundGroup): boolean => group.state === "runn
 /// The panel's groups: the running ones first, oldest first, so a group never jumps while it runs;
 /// then the ended ones, the latest first. Cleared groups that ended are left out.
 export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new WeakMap()): BackgroundGroup[] {
-  const { rows, views, commands, sessions, chatName, dismissed } = input;
+  const { rows, views, commands, sessions, chatName, sessionId, dismissed } = input;
   const agents = subagentsIn(rows, views);
   const children = new Map<string, Subagent[]>();
   for (const agent of agents.values()) {
@@ -184,7 +249,8 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
   for (const agent of agents.values()) {
     // A nested subagent is a task of the one that spawned it, unless that one is unknown.
     if (agent.parent !== null && agents.has(agent.parent)) continue;
-    const tasks = [...toolTasks(agent, views?.[agent.id], cache)];
+    const isWorkflow = agent.kind === "workflow";
+    const tasks = isWorkflow ? workflowTasks(agent, sessionId) : [...toolTasks(agent, views?.[agent.id], cache)];
     // Every descendant, not only the direct children, so an agent nested two deep (A spawns B,
     // B spawns C) still shows, opens and stops from A's group.
     const descendants: Subagent[] = [];
@@ -202,13 +268,16 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
         id: child.id,
         kind: "agent",
         title: child.task?.trim() || child.name,
-        state: agentState(child),
+        state: nodeState(child),
         startedAt: child.startedAt,
         endedAt: child.endedAt,
-        agentId: child.id,
-        ...(child.state === "running" && { stop: { kind: "agent", id: child.id } as StopTarget }),
+        // A nested workflow has no transcript of its own to open (its agents' are in its run).
+        ...(child.kind !== "workflow" && { agentId: child.id }),
+        ...(nodeState(child) === "running" && { stop: { kind: "agent", id: child.id } as StopTarget }),
       });
-    const state = agentState(agent);
+    // A nested workflow's agents are tasks of the top agent too, each opening its own transcript.
+    for (const child of descendants) if (child.kind === "workflow") tasks.push(...workflowTasks(child, sessionId));
+    const state = nodeState(agent);
     groups.push({
       id: `agent:${agent.id}`,
       kind: "agent",
@@ -216,7 +285,7 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       state,
       startedAt: agent.startedAt,
       endedAt: agent.endedAt,
-      agentId: agent.id,
+      ...(!isWorkflow && { agentId: agent.id }),
       ...(state === "running" && { stop: { kind: "agent", id: agent.id } as StopTarget }),
       ...split(tasks),
     });
@@ -270,15 +339,21 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
   }
   const live = groups.filter(isLive).sort(byStart);
   const ended = groups
-    .filter((group) => !isLive(group) && !dismissed?.has(group.id))
+    .filter((group) => !isLive(group) && !dismissed?.has(clearKey(group)))
     .sort((a, b) => (b.endedAt ?? b.startedAt ?? 0) - (a.endedAt ?? a.startedAt ?? 0) || a.id.localeCompare(b.id));
   return [...live, ...ended];
 }
 
-/// What Clear finished clears: every group with nothing left running (one whose agent ended while
-/// a nested agent or command of it still runs stays).
+/// What Clear finished records for a group: its id with what it ended as (its end, its task count).
+/// Ids are stable (`agent:<id>`, `commands`), so a group that runs again and ends again, or gains a
+/// task, reads as new and shows again instead of staying cleared for good.
+export const clearKey = (group: BackgroundGroup): string =>
+  `${group.id}@${group.endedAt ?? group.startedAt ?? ""}#${group.total}`;
+
+/// What Clear finished clears (their `clearKey`s): every group with nothing left running (one whose
+/// agent ended while a nested agent or command of it still runs stays).
 export const finishedGroupIds = (groups: readonly BackgroundGroup[]): string[] =>
-  groups.filter((group) => !isLive(group)).map((group) => group.id);
+  groups.filter((group) => !isLive(group)).map(clearKey);
 
 /// Whether anything runs: the panel's clock ticks only then (SubagentGroup.tsx `useNow`).
 export const anyRunning = (groups: readonly BackgroundGroup[]): boolean => groups.some(isLive);

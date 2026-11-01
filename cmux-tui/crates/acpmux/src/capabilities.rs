@@ -18,6 +18,10 @@ use crate::rpc::method;
 /// One capability: its id and the wire names (methods and notifications) the
 /// web pane uses under it. Every name is in the protocol registry
 /// (`protocol::registry`); the tests check that.
+/// Session-to-session message events; a daemon with it names, in each prompt acceptance, the
+/// message its journal kept (`hub/message_events.rs` `name_message`).
+pub const SESSION_MESSAGES: &str = "session-messages-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -79,6 +83,7 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
@@ -165,6 +170,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
+    // past the newest page its log was seeded with (`hub/native_history.rs`).
+    Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
     Capability {
         id: "durable-watches-v1",
         wire: &[method::MUX_WATCH_ADD, method::MUX_WATCH_LS, method::MUX_WATCH_RM],
@@ -195,6 +203,16 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: "agent-session-turn-rewind-v1",
         wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
+    },
+    // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
+    Capability {
+        id: "agent-login-v1",
+        wire: &[
+            method::MUX_AGENT_LOGIN_START,
+            method::MUX_AGENT_LOGIN_FINISH,
+            method::MUX_AGENT_LOGIN_CANCEL,
+            method::MUX_AGENT_LOGIN_API_KEY,
+        ],
     },
 ];
 

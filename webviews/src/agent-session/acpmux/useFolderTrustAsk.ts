@@ -31,7 +31,43 @@ export function answerFolder(ask: { cwd: string; repo?: TrustRepo }, scope: "rep
   return scope === "repo" && ask.repo ? ask.repo.root : ask.cwd;
 }
 
-/// Why Send is off; no `reason` while the folder's trust is still being read. `shownAbove`: the
+/// What `visitOf` records for a request made from a stale render: no visit ever matches it.
+const STALE_VISIT = "stale:";
+
+/// A folder question, or its answer saving (Use was clicked), holds only the chat it was asked in:
+/// the same session id and, when the client named one, the same visit. Two fresh chats share no
+/// session id, so the visit (`trustVisit` in App.tsx) tells them apart.
+export function inThisVisit(
+  held: false | undefined | { sessionId?: string; visit?: string },
+  sessionId: string | undefined,
+  visit: unknown,
+): boolean {
+  if (!held || held.sessionId !== sessionId) return false;
+  // A stale render (the client already moved on: trustVisit's symbol) matches no chat, and neither
+  // does a request made from one (`visitOf` marks it).
+  if (typeof visit === "symbol" || held.visit?.startsWith(STALE_VISIT)) return false;
+  // An established chat is its own scope across visits (A → B → A keeps its question); only fresh
+  // chats, which share no session id, are told apart by the visit.
+  if (sessionId !== undefined) return true;
+  return held.visit === undefined || held.visit === visit;
+}
+
+/// The visit to record on a held folder question or retry. No client (a gallery frame) records none,
+/// and the session id alone scopes it. A stale render's sentinel (a symbol: the client has already
+/// moved on) records a mark no visit ever matches, so what it started never shows in another chat.
+export function visitOf(visit: unknown): { visit?: string } {
+  if (typeof visit === "string") return { visit };
+  if (typeof visit === "symbol") return { visit: `${STALE_VISIT}${crypto.randomUUID()}` };
+  return {};
+}
+
+/// A held Trust retry's key: an established chat's session id, or for a fresh chat (no id) the client
+/// visit it was refused in (none: unbound). A → B → A finds A's retry again.
+function retryKey(chat: string | undefined, visit: unknown): string {
+  return JSON.stringify(chat !== undefined ? [chat] : [null, typeof visit === "string" ? visit : null]);
+}
+
+/// Why Send is off; an empty block only reports a trust read in flight. `shownAbove`: the
 /// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
 export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
 
@@ -163,6 +199,8 @@ export function useFolderTrustAsk(
   canAnswer = true,
   /// The chat's folder is on this computer: only then is its answer kept by path for the next chat.
   local = true,
+  /// Shared with Composer: no trust retry may bypass an unresolved folder choice or auth refusal.
+  blockSend = false,
 ) {
   // A connection/host identity, stable while streaming. Equal paths on another machine are not
   // the same trust scope, even when a migration preserves the chat id.
@@ -193,14 +231,37 @@ export function useFolderTrustAsk(
   const [trusted, setTrusted] = useState(false);
   const [scope, setScope] = useState<TrustScope>();
   const [justTrusted, setJustTrusted] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const bumpRevision = useCallback(() => setRevision((value) => value + 1), []);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [reading, setReading] = useState(false);
   /// Bumped by `recheck` (acpmux refused a prompt the pane did not hold): read the folder again.
   const [reads, setReads] = useState(0);
   /// The folder acpmux named in a trust refusal for this chat, and the prompt to send after Trust.
+
   const [refusal, setRefusal] = useState<{ sessionId?: string; cwd?: string; authorityEpoch: number }>();
   /// Each chat's refused prompt, sent again after Trust there: another chat's refusal keeps its own.
-  const resend = useRef(new Map<string | undefined, () => void>());
+  /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
+  /// Keyed by chat and visit (`retryKey`): fresh chats share no session id, so each keeps its own.
+  const resend = useRef(
+    new Map<
+      string,
+      { again: () => void; declined?: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }
+    >(),
+  );
+  /// The keys a chat's held retry may sit under: its visit's, then the unbound one (a New Tab's first
+  /// render has no client visit yet, and its retry stays its own once the visit binds).
+  const retryKeys = (chat: string | undefined, visit: unknown) =>
+    chat === undefined && typeof visit === "string"
+      ? [retryKey(chat, visit), retryKey(chat, undefined)]
+      : [retryKey(chat, undefined)];
+  const heldRetry = (chat: string | undefined, visit: unknown) => {
+    for (const key of retryKeys(chat, visit)) {
+      const held = resend.current.get(key);
+      if (held) return { key, held };
+    }
+    return undefined;
+  };
   /// What acpmux's last trust refusal said of each chat's folder, until an answer there: the
   /// question draws from it when the folder's read gets no answer in time (a peer's folder, read
   /// over the peer link) or disagrees with acpmux's gate. Kept per chat, so a chat switch keeps it.
@@ -211,6 +272,7 @@ export function useFolderTrustAsk(
   const cwd =
     chat.cwd ??
     (refusal?.authorityEpoch === authorityEpoch && refusal.sessionId === sessionId ? refusal.cwd : undefined);
+
   // The chat a reply belongs to; a late reply for another one is dropped.
   const current = useRef({ sessionId, cwd, canAnswer, local, authorityEpoch });
   current.current = { sessionId, cwd, canAnswer, local, authorityEpoch };
@@ -385,6 +447,7 @@ export function useFolderTrustAsk(
   const save = useCallback(
     async (level: TrustLevel, folder?: string) => {
       if ((!ask && !cwd) || saving.current || !mounted.current || !sameAuthority() || !sameVisit()) return;
+      bumpRevision();
       saving.current = true;
       const asked = { sessionId, cwd: ask?.cwd ?? cwd! };
       // The chat the answer was made in: the asked folder can be another spelling of its folder
@@ -474,9 +537,13 @@ export function useFolderTrustAsk(
             : { cwd: asked.cwd, ...where, state: "decided", level },
         );
         // The prompt acpmux refused goes now that the folder is trusted; another answer keeps it.
-        const held = resend.current.get(asked.sessionId);
-        resend.current.delete(asked.sessionId);
-        if (level === "trusted") held?.();
+        const found = heldRetry(asked.sessionId, visitValue);
+        if (level === "trusted") {
+          if (found) found.held.ready = true;
+        } else if (found) {
+          resend.current.delete(found.key);
+          found.held.declined?.();
+        }
       } catch {
         if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
       } finally {
@@ -495,10 +562,41 @@ export function useFolderTrustAsk(
       local,
       authorityEpoch,
       ownerEpoch,
+      bumpRevision,
       sameAuthority,
       sameVisit,
+      visitValue,
     ],
   );
+
+  // Both Composer.send and failed-row retries pass through this one gate. Retain the callback
+  // (and its prompt/attachments/gesture) while the folder answer saves; never replay in another chat.
+  useEffect(() => {
+    // A retry Trust already released waits only on the folder choice: leaving its chat drops it.
+    // One still waiting for Trust stays with its chat (sent after Trust there, as before).
+    // Fresh chats share no session id: the visit a retry was refused in tells them apart.
+    const mine = new Set(retryKeys(sessionId, visitValue));
+    for (const [key, waiting] of resend.current) if (!mine.has(key) && waiting.ready) resend.current.delete(key);
+    const found = heldRetry(sessionId, visitValue);
+    if (!found) return;
+    const { key, held } = found;
+    if (!held.cwds.includes(cwd) || held.family !== family) {
+      resend.current.delete(key);
+      return;
+    }
+    if (!held.ready || !trusted || blockSend || !cwd || !mounted.current) return;
+    // The client may already have selected another chat or connection while React still shows
+    // this one: its render-time values pass, the live ones do not. Keep the callback; the next
+    // render, for the chat now selected, drops this chat's released retry.
+    if (!sameAuthority() || !sameVisit()) return;
+    resend.current.delete(key);
+    try {
+      held.again();
+    } catch {
+      // A failed retry stays in its row/draft and keeps the question recoverable, as save did.
+      setAsk({ cwd, state: "failed" });
+    }
+  }, [ask, trusted, blockSend, sessionId, cwd, family, sameAuthority, sameVisit, visitValue]);
 
   const blocked: SendBlock | undefined = reading
     ? {}
@@ -512,15 +610,28 @@ export function useFolderTrustAsk(
 
   return {
     ask,
+    revision,
     /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
     /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
-    /// keep their place while it reads (a chat switch), and only Send waits.
+    /// keep their place while it reads (a chat switch). The daemon authorizes any prompt sent meanwhile.
     holdsAsks: Boolean(blocked?.reason),
     trusted,
     /// Where the folder's answer lives (its repository, a parent folder), for the trusted grant.
     scope,
     justTrusted,
     blocked,
+    /// Explicit Retry shares the same hard stop as Trust's automatic retry. While blocked,
+    /// leave the failed rows and any held trust callback intact. A manual send that can run
+    /// supersedes that callback, so the next effect cannot send the same prompt a second time.
+    retry: <T>(again: () => Promise<T>): Promise<T | undefined> => {
+      if (blockSend) return Promise.resolve(undefined);
+      for (const key of retryKeys(sessionId, visitValue)) resend.current.delete(key);
+      return again();
+    },
+    /// Cancel leaves the draft or failed row in place for a later explicit send/retry.
+    cancelResend: useCallback(() => {
+      for (const key of retryKeys(sessionId, visitValue)) resend.current.delete(key);
+    }, [sessionId, visitValue]),
     /// Trust only the chat's folder.
     trust: () => void save("trusted"),
     /// Trust the repository holding the folder: every worktree of it takes the answer.
@@ -533,10 +644,12 @@ export function useFolderTrustAsk(
     /// Takes a refusal from acpmux: for its folder trust it reads the folder it named again (the
     /// question shows), keeps `again` to send after Trust, and is true; any other refusal is false.
     refused: useCallback(
-      (error: unknown, again?: () => void): boolean => {
+      (error: unknown, again?: () => void, declined?: () => void): boolean => {
         if (!mounted.current || !sameAuthority() || !sameVisit()) return false;
+
         const said = trustRefusal(error);
         if (!said) return false;
+        bumpRevision();
         const named = said.cwd;
         if (named) setRefusal({ sessionId, cwd: named, authorityEpoch });
         const refusedFolder = named ?? cwd;
@@ -552,11 +665,23 @@ export function useFolderTrustAsk(
         setTrusted(false);
         setReading(true);
         // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
-        if (again) resend.current.set(sessionId, again);
+        if (again)
+          resend.current.set(retryKey(sessionId, visitValue), {
+            again,
+            declined,
+            cwds: [cwd, refusedFolder],
+            family,
+            ready: false,
+          });
+        else {
+          const found = heldRetry(sessionId, visitValue);
+          if (found) found.held.ready = false;
+        }
+
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd, authorityEpoch, sameAuthority, sameVisit],
+      [sessionId, cwd, family, authorityEpoch, bumpRevision, sameAuthority, sameVisit, visitValue],
     ),
   };
 }

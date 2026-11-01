@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
-// Background work is visible (Leo: "where is the background showing?"). With the Inspector off
+// Background work is visible (Leo: "where is the background showing?"). With Session Info off
 // (Debug Settings `agent.inspector`), the summary card lists the chat's background commands live
-// (inspector/processes.ts `backgroundCommands`, whose merge chat-inspector-tasks.test.tsx covers),
+// (session-info/processes.ts `backgroundCommands`, whose merge session-info-tasks.test.tsx covers),
 // running ones first with their time and Stop, and finished work as compact status cards; the chats
 // the agent started sit under Subagents with their state; an empty card draws one quiet line instead
 // of "None" under every title. The running turn's line counts started chats. What still runs
@@ -18,8 +18,8 @@ import {
 } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
-import { orderedSessions } from "../src/agent-session/acpmux/inspector/ChildSessionRows";
-import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/inspector/processes";
+import { orderedSessions } from "../src/agent-session/acpmux/session-info/ChildSessionRows";
+import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/session-info/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
@@ -144,7 +144,7 @@ test("the card keeps mixed running, completed and failed task cards visible", as
     "failed",
   ]);
   // Stop only on running rows the registry lists.
-  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-stop")];
+  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-stop")];
   expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop bun run dev", "Stop tsc --watch"]);
   await act(async () => stops[0]!.click());
   expect(stopped).toEqual(["s1/a"]);
@@ -304,4 +304,26 @@ test("the running turn's line counts the started chats that run", () => {
     </WorkingCountsContext.Provider>,
   );
   expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
+});
+
+test("workflow agent rows keep names and state without token counts", async () => {
+  const container = installDom();
+  await render(
+    container,
+    <WorkflowSummaryRow
+      workflow={{
+        id: "workflow",
+        title: "Review",
+        state: "completed",
+        phases: [],
+        agents: [{ id: "reviewer", name: "Reviewer", state: "completed", tokens: 107_500 }],
+      }}
+    />,
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-workflow__row")!.click());
+  const row = container.querySelector(".acpmux-workflow__agent")!;
+  expect(row.textContent).toContain("Reviewer");
+  expect(row.textContent).toContain("Done");
+  expect(row.textContent).not.toContain("107500");
+  expect(row.querySelectorAll(".acpmux-summary-meta")).toHaveLength(1);
 });

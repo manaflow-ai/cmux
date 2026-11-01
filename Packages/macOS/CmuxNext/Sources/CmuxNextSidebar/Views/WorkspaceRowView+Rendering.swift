@@ -8,6 +8,13 @@ extension WorkspaceRowView {
     /// aligns its field to it): the glyphs start one cell inset inside it.
     override var titleFrame: NSRect { title.frame.insetBy(dx: -Self.labelInset, dy: 0) }
     override var titleFont: NSFont { title.font }
+    /// The marquee label draws its text at its frame's edge, the baseline one ascender (on a whole
+    /// pixel) below its top (`ChromeTextLayer`).
+    override var titlePenOrigin: NSValue? {
+        let scale = window?.backingScaleFactor ?? 2
+        return NSValue(point: NSPoint(x: title.frame.minX, y: title.frame.minY + (title.font.ascender * scale).rounded() / scale))
+    }
+    override var titleInk: NSColor? { title.textColor }
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
         title.isHidden = hidden
@@ -70,16 +77,22 @@ extension WorkspaceRowView {
             }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
-            if let machine { machineMark.setTint(machine.color) }
+            usageWarningMark.setTint(Palette.attention)
+            // One neutral colour for every machine (Leo 2026-11-01): no per-machine tint on the row's mark.
+            machineMark.setTint(Palette.textTertiary)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
-            agentMark.setTint(waits ? Palette.attention : Palette.textSecondary)
-            // Fills only, no borders: drop target, selection, multi-selection or on screen, hover.
+            agentMark.setTint(waits ? Palette.attention : agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
+            // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
-            paintFill(fill)
-            (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
+            let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
+            paintFill(painted)
+            // The one border: the focus ring of the group this row stands for, as its header draws it.
+            layer?.borderColor = Palette.focusRing.cgColor
+            layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+            (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(painted), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -88,6 +101,7 @@ extension WorkspaceRowView {
     override func layout() {
         super.layout()
         let full = layoutBounds
+        layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
@@ -106,23 +120,24 @@ extension WorkspaceRowView {
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).
         let leading = SidebarStyle.horizontalInset + indent
+        // A `leftRail` row keeps its dot's slot empty, so its title stays clear of the rail, where the dot style has it.
+        let railSlot = iconKind == nil && rowColor?.style == .leftRail
         let side: CGFloat
         switch iconKind {
-        case nil: side = 0 // text only: no kind glyph or agent brand (WORKSPACE-ROWS-NO-DEFAULT-ICON)
+        case nil: side = railSlot ? SidebarStyle.dotSize + Metrics.space1 : 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
         layoutTreeLine(leading: SidebarStyle.horizontalInset)
 
-        // Trailing cluster, right to left: the dot or spinner on the trailing column, the disclosure
-        // and the tab count (fixed slots, the same with or without hover), close-or-badge, then
-        // the other marks.
-        var trailing = b.width - SidebarStyle.horizontalInset // the pill's own inset, as the text's (Leo 2026-10-13)
+        // Trailing cluster, right to left: the dot or spinner on the trailing column, the tab
+        // count (a fixed slot, the same with or without hover), close-or-badge, then the other marks.
+        var trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) + SidebarStyle.trailingSlotSide
         let control = SidebarStyle.controlSize
         // Lawrence msg 11914: the row's dot or spinner owns the trailing column (the x the group
         // header chevron and every band item's dot share) whatever else the row shows; the
-        // disclosure, the counts, the keycap and the hover close and more sit left of it.
+        // counts, the keycap and the hover close and more sit left of it.
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         let columnMark = layoutColumnMark(cy: cy, rowWidth: b.width, markReplacesStatus: markReplacesStatus)
@@ -131,14 +146,6 @@ extension WorkspaceRowView {
         // covers (the `trailing` badge style), so a mark fading back never draws beside a control fading out (Leo
         // 2026-10-28: "just don't show the spinner" while hovering).
         let controlFades = fades && columnMark == nil && !badge.state.isUnread
-        // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays. A row with nothing to
-        // disclose (`.empty`) never shows it and keeps no slot, so its hover menu takes the next slot, not a gap
-        // (Lawrence 2026-10-20: "no empty slots").
-        setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)), fades: fades)
-        if disclosure != nil, disclosure != .empty {
-            disclosureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
-            trailing -= control + Metrics.space1
-        }
         tabCount.isHidden = count == nil || isShowingPlaceholder
         if count != nil {
             let h = ceil(tabCount.intrinsicContentSize.height)
@@ -153,6 +160,14 @@ extension WorkspaceRowView {
             prBadge.frame = prBadge.frame(forAlignmentRect: NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h))
             trailing -= w + Metrics.space2
         }
+        let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
+        let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
+        let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
+        // An end action owns the column. Tree controls and chips remain visible and clickable
+        // to its left, even when an idle row has no status mark reserving that slot.
+        if SidebarTunables.rowCloseSpot.value.atEnd, showClose || showMore {
+            trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width) - Metrics.space1)
+        }
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
         trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
@@ -162,18 +177,19 @@ extension WorkspaceRowView {
         // nothing moves. Marks under them hide while they show. An unread
         // badge keeps its slot at rest, and the action that lands there on
         // hover hides it.
-        let showClose = isHovered && !isShowingPlaceholder && isClosable
-        let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
+        // A pinned workspace's row draws no x on hover; it closes from its right-click menu (Lawrence msg 19392:
+        // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
+        // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
         setHoverShown(closeButton, showClose, fades: controlFades)
-        setHoverShown(badge, !(showClose || (showMore && !isClosable) || !badge.state.isUnread), fades: fades)
+        setHoverShown(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
-        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !isClosable)), fades: fades)
+        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
         var slot: CGFloat = 0
         if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
-        if badge.state.isUnread {
+        if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
-            let h = badge.state == .dot ? SidebarStyle.dotSize : SidebarStyle.badgeHeight
-            let pad = badge.state == .dot ? Metrics.space2 : 0
+            let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
+            let pad = badge.state == .dot ? Metrics.space2 - (SidebarStyle.unreadDotSize - SidebarStyle.dotSize) / 2 : 0
             badge.frame = NSRect(x: trailing - w - pad, y: cy - h / 2, width: w, height: h)
             slot = max(control, w + pad)
         }
@@ -184,10 +200,10 @@ extension WorkspaceRowView {
         // row that cannot close). Hidden (not only clear) when it does not
         // show; VoiceOver uses the row's custom action.
         setHoverShown(moreButton, showMore, fades: controlFades)
-        moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
+        moreButton.frame = closeButton.frame.offsetBy(dx: hoverCloses && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
         let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: b.width, cy: cy, control: control,
                                           showClose: showClose, showMore: showMore)
-        let pinStart = layoutPin(showMore: showMore, control: control, fades: controlFades)
+        let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
         if markReplacesStatus, columnMark?.view !== agentMark {
@@ -201,6 +217,26 @@ extension WorkspaceRowView {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        if !machineMark.isHidden, columnMark?.view !== machineMark {
+            // The computer the row runs on: a status mark's box on the trailing column's line, centered on the row
+            // (Leo 2026-11-01, on the small tinted cloud before the name: "I HATE HOW SMALL THEY ARE I HATE THAT
+            // THEY'RE ON THE LEFT I HATE THAT THEY'RE ON THE BOTTOM"). It gives way to the hover controls as the
+            // other marks do.
+            machineMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+            trailing = machineMark.frame.minX - Metrics.space2
+        }
+        if !usageWarningMark.isHidden {
+            // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
+            // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
+            // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
+            // box). It never gives way to the hover controls: while they show it sits just left of them, so a person
+            // who hovers the row can still point at it and read its tooltip.
+            let onColumn = columnMark?.view === usageWarningMark
+            let end = onColumn ? usageWarningMark.frame.maxX : trailing
+            let shown = overlayStart.map { min(end, $0 - Metrics.space1) } ?? end
+            if !onColumn || shown < end { usageWarningMark.frame = statusGlyphFrame(trailing: shown, centerY: cy) }
+            if !onColumn { trailing = usageWarningMark.frame.minX - Metrics.space2 }
+        }
         if !audioButton.isHidden {
             audioButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
@@ -212,15 +248,10 @@ extension WorkspaceRowView {
         }
 
         // Without an icon the title starts at the leading inset; with one, after it (`titleTextX`).
-        let swatch: Bool = if case .swatch? = iconKind { true } else { false }
-        var textX = SidebarStyle.titleTextX(leading: leading, iconSide: side, swatch: swatch) - Self.labelInset
+        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth, reservesColorRail: railSlot)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
-            textX = agentMark.frame.maxX + Metrics.space1
-        }
-        if !machineMark.isHidden {
-            machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
-            textX = machineMark.frame.maxX + Metrics.space1
+            textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
@@ -239,15 +270,18 @@ extension WorkspaceRowView {
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
-        title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
+        let warningStart = usageWarningMark.isHidden ? nil : usageWarningMark.frame.minX
+        // The text and marks give way to the controls and to the badge beside them.
+        let coverStart = overlayStart.map { min($0, warningStart ?? $0) }
+        title.setTrailingOcclusion(coverStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         updateCalmTitleTip()
         subtitle.wantsLayer = true
-        subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
+        subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
+        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel, tabCount, prBadge] as [NSView] {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
-            let covered = mark === columnMark?.view ? markGivesWay
-                : (status && overlayStart != nil) || overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
+            let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
+                : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

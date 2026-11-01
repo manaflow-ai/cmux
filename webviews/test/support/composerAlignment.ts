@@ -68,7 +68,7 @@ export function measureComposerAlignment(): ComposerAlignment {
   const placeholderText = placeholder?.querySelector(".acpmux-md-placeholder-text") ?? placeholder;
   const mic = q(".acpmux-composer-box .acpmux-mic");
   const micGlyph = mic?.querySelector("svg") ?? null;
-  const send = q(".acpmux-composer-box .acpmux-send:not(.acpmux-steer-now)");
+  const send = q(".acpmux-composer-box .acpmux-send");
   const foot = q(".acpmux-composer-foot");
   const mode = q(".acpmux-composer-foot .acpmux-access-trigger");
   const model = q(".acpmux-composer-foot .acpmux-model .acpmux-picker-button");

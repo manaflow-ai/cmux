@@ -85,6 +85,7 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         case .closed:
             let itemKind: ClosedItem.Kind = switch closedKind {
             case "browser_tab": .browserTab
+            case "conversation_tab": .conversationTab
             case "screen": .screen
             case "workspace": .workspace
             default: .terminalTab

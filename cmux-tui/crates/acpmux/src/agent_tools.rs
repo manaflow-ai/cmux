@@ -587,6 +587,26 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
     }
+    if crate::cloud_repo_mcp::is_cloud_machine()
+        && let Some(acpmux) = &inputs.acpmux
+    {
+        // Cloud repository tools run on Cloud machines only. They forward
+        // the session caller token to the daemon action bridge.
+        servers.push(McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["repo-mcp"]),
+            env: executable("cmux")
+                .map(|path| ("CMUX_BIN".into(), path.to_string_lossy().into_owned()))
+                .into_iter()
+                .chain(
+                    std::env::var("CMUX_SOCKET_PATH")
+                        .ok()
+                        .map(|path| ("CMUX_SOCKET_PATH".into(), path)),
+                )
+                .collect(),
+        });
+    }
     if let Some(acpmux) = &inputs.acpmux {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
         // session with its caller token, like the sub-session server.
@@ -706,6 +726,16 @@ impl AgentTools {
     /// an allowlisted env to a stdio MCP server (Codex does).
     pub fn for_session(mut self, session_id: &str) -> Self {
         for server in &mut self.servers {
+            let repo_route: Vec<_> = if server.name == crate::cloud_repo_mcp::SERVER_NAME {
+                server
+                    .env
+                    .iter()
+                    .filter(|(k, _)| matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH"))
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            };
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
@@ -713,13 +743,18 @@ impl AgentTools {
             let session_env = match server.name.as_str() {
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
                 crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
+                crate::cloud_repo_mcp::SERVER_NAME => Some(crate::cloud_repo_mcp::SESSION_ENV),
                 _ => None,
             };
-            if let Some(key) = session_env {
+            if session_env.is_some() {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (key.to_owned(), session_id.to_owned()),
+                    (
+                        session_env.unwrap_or(crate::subsession_mcp::SESSION_ENV).to_owned(),
+                        session_id.to_owned(),
+                    ),
                     ("ACPMUX_SOCKET".to_owned(), socket),
+                    ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
             }
             // The sub-session server acts as the session: its caller token
@@ -729,11 +764,16 @@ impl AgentTools {
             if server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
                 || server.name == crate::acpmux_mcp::SERVER_NAME
+                || server.name == crate::cloud_repo_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    (
+                        session_env.unwrap_or(crate::subsession_mcp::SESSION_ENV).to_owned(),
+                        session_id.to_owned(),
+                    ),
                     ("ACPMUX_SOCKET".to_owned(), socket),
+                    ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
                 server.env.extend(
                     crate::hub::person::caller_env(session_id)
@@ -741,6 +781,7 @@ impl AgentTools {
                         .map(|(k, v)| (k.to_owned(), v)),
                 );
             }
+            server.env.extend(repo_route);
         }
         self
     }
@@ -894,6 +935,8 @@ impl AgentTools {
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
@@ -913,6 +956,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 /// Windows: the folder and the file owner-only (`owner_only.rs`).
 #[cfg(windows)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     crate::owner_only::create_dir_all(dir)?;
     crate::owner_only::restrict(dir)?;
@@ -967,6 +1011,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(dir);
     }
+    crate::config::refuse_lost_home(state_dir)?;
     std::fs::create_dir_all(state_dir)?;
     let tmp = state_dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
     let manifest = json!({
@@ -1031,3 +1076,10 @@ fn nested_cua_helper(inputs: &Inputs) -> Option<PathBuf> {
 #[cfg(all(test, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;
+
+/// The daemon's home, next to every `ACPMUX_SOCKET` a server gets: a socket pairs only with an
+/// explicit home (`config::autostart_refusal`), so the server's command starts no daemon in
+/// another home for it.
+fn home_env() -> String {
+    crate::config::home().to_string_lossy().into_owned()
+}

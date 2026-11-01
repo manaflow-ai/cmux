@@ -39,8 +39,11 @@ afterAll(() => {
 
 /// Renders the hook with `loading` (files a send waits for) and `unsettled` (those plus uploads).
 let hold: (send: () => void) => boolean = () => false;
+let cancelHeld: () => void = () => {};
 function Probe({ loading, unsettled }: { loading: number; unsettled: number }) {
-  hold = useSendWhenAttached(loading, "chat", unsettled);
+  const pendingSend = useSendWhenAttached(loading, "chat", unsettled);
+  hold = pendingSend;
+  cancelHeld = pendingSend.cancel;
   return null;
 }
 const render = (loading: number, unsettled: number) =>
@@ -74,4 +77,18 @@ test("while one send waits, a later one replaces it", async () => {
   expect(hold(() => went.push("second"))).toBe(true);
   await render(0, 0);
   expect(went).toEqual(["second"]);
+});
+
+test("an owned command cancels a held send before its attachments are removed", async () => {
+  await render(1, 1);
+  let sent = 0;
+  expect(hold(() => (sent += 1))).toBe(true);
+  cancelHeld();
+  await render(0, 0);
+  expect(sent).toBe(0);
+  expect(hold(() => (sent += 1))).toBe(false);
+  await render(1, 1);
+  expect(hold(() => (sent += 1))).toBe(true);
+  await render(0, 0);
+  expect(sent).toBe(1);
 });

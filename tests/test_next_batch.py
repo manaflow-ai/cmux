@@ -45,6 +45,19 @@ def pr(number: int, **fields) -> nb.PullRequest:
     return nb.PullRequest(number=number, **defaults)
 
 
+def reviewed_heads(text: str) -> Path:
+    """A CMUX_NEXT_BATCH_REVIEWED file as the reviewer writes it: owned by this user, writable by nobody else.
+
+    The mode is set, not left to the umask: next_batch.reviewed() ignores a group- or world-writable
+    file, so under a umask of 002 (Ubuntu's default for a login shell) a plain write_text() reads as
+    "not reviewed" and every landing test fails for the wrong reason.
+    """
+    path = Path(tempfile.mkdtemp()) / "reviewed"
+    path.write_text(text)
+    path.chmod(0o600)
+    return path
+
+
 class Classify(unittest.TestCase):
     def test_generated_paths_by_generator(self):
         cases = {
@@ -626,6 +639,22 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
         self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
 
+    def test_job_log_uses_the_flag_with_old_gh_fallback(self):
+        controller = self.controller()
+        controller.gh.gh.side_effect = [
+            subprocess.CompletedProcess([], 1, "", "unknown flag: --allow-escape-sequences\n\nUsage:  gh api"),
+            subprocess.CompletedProcess([], 0, CHECKS_LOG, "")]
+        self.assertEqual(controller.job_log(7), CHECKS_LOG)
+        self.assertEqual([c.args for c in controller.gh.gh.call_args_list],
+                         [("api", "--allow-escape-sequences", "repos/o/r/actions/jobs/7/logs"),
+                          ("api", "repos/o/r/actions/jobs/7/logs")])
+
+    def test_any_other_log_failure_is_not_retried(self):
+        controller = self.controller()
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "gh: Not Found (HTTP 404)")
+        self.assertIsNone(controller.job_log(7))
+        self.assertEqual(controller.gh.gh.call_count, 1)
+
     def test_the_probes_reds_are_the_inherited_ones(self):
         controller = self.controller()
         controller.base_probe_result = {"failed": {f"{nb.CHECKS_JOB}: Type scale"}}
@@ -641,7 +670,70 @@ class BaseReds(unittest.TestCase):
         ]}
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: x\n", "")
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug): error error: x"})
-        self.assertIn("event=push", controller.gh.runs.call_args.args[1])
+        self.assertIn("event=push", controller.gh.runs.call_args_list[0].args[1])
+
+    def test_without_a_probe_the_newest_base_tier_run_stands_in_for_its_jobs(self):
+        # cmuxterm-hq#5424: a feat-cmux-next push no longer runs daemon tests, generated files or the
+        # Debug scheme compile; a `cmux-next base tier · <sha>` dispatch does, at most every 15 minutes.
+        controller = self.controller()
+        tier = {"id": 2, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
+                "display_title": "cmux-next base tier · " + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        dev = {"id": 3, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
+               "display_title": "cmux NEXT DEV daily · " + "c" * 40}
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], [dev, tier]]
+        jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure"},
+                    {"id": 9, "name": "cmux-next checks (god files, concurrency, crash safety, l10n)",
+                     "conclusion": "failure"}]}
+        controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+        listed = controller.gh.runs.call_args_list[1].args[1]
+        # Review of this change: where the base's own push run has a verdict for the job (coalescing off, or
+        # a push that kept its scheme compile), an older base tier red is not inherited.
+        jobs[1].append({"id": 10, "name": "cmux-next daemon tests", "conclusion": "success"})
+        controller.base_failures = None
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], [dev, tier]]
+        self.assertEqual(controller.failing_on_base("b" * 40), set())
+        self.assertIn("event=workflow_dispatch", listed)
+        self.assertIn("status=completed", listed)
+
+    def test_a_base_tier_run_that_skipped_a_job_never_hides_an_older_red(self):
+        # Review of this change: a base tier run whose cmux-tui tree was not published yet skips the
+        # daemon tests and the scheme compile (its same-tree run carries them) and can end green. Each
+        # job's verdict comes from the newest base tier run that ran it.
+        controller = self.controller()
+        title = "cmux-next base tier · "
+        newest = {"id": 2, "status": "completed", "conclusion": "success", "head_branch": nb.BASE,
+                  "display_title": title + "d" * 40, "created_at": "2026-10-30T12:15:00Z"}
+        older = {"id": 3, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
+                 "display_title": title + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], [newest, older]]
+        jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "skipped"},
+                    {"id": 9, "name": "cmux-next generated files", "conclusion": "success"}],
+                3: [{"id": 10, "name": "cmux-next daemon tests", "conclusion": "failure"},
+                    {"id": 11, "name": "cmux-next generated files", "conclusion": "failure"}]}
+        controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        # The daemon red is the older run's; generated files passed in the newest run, so its older red is not.
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+
+    def test_cancelled_base_tier_runs_never_count_toward_the_lookback(self):
+        # The base tier kick cancels superseded base tier runs before a Mac job starts; more of them than
+        # the lookback must not hide the newest run with a verdict.
+        controller = self.controller()
+        title = "cmux-next base tier · "
+        cancelled = [{"id": 100 + n, "status": "completed", "conclusion": "cancelled", "head_branch": nb.BASE,
+                      "display_title": title + f"{n:x}" * 40} for n in range(nb.BASE_TIER_LOOKBACK + 2)]
+        tier = {"id": 2, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
+                "display_title": title + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], cancelled + [tier]]
+        jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure"}]}
+        controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
 
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
         controller = self.controller()
@@ -735,8 +827,24 @@ class BaseReds(unittest.TestCase):
         steps = [{"name": "Build", "conclusion": "failure"}]
         controller.gh.gh.return_value = subprocess.CompletedProcess(
             [], 0, "2026-10-19T03:02:59.1Z the test helper died on signal 11\n", "")
-        self.assertIn("cmux app scheme compile (Debug): crash signal 11",
+        self.assertIn("cmux app scheme compile (Debug): the test process crashed (signal 11) (job 5, never a base red)",
                       controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}))
+
+    def test_a_non_test_job_cut_short_or_crash_never_matches_a_base_red(self):
+        controller = self.controller()
+        steps = [{"name": "Build", "conclusion": "failure"}]
+        # No test name is present: test_reds still records the abnormal end, and the
+        # job must remain keyed to its own run instead of inheriting a base job red.
+        cut_short = ("2026-10-19T03:02:59.1Z ##[error]no \"Test run with\" summary line "
+                     "(crash, kill or truncation); 0 tests started\n")
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, cut_short, "")
+        result = controller.expand_job("cmux-next generated files", 5, {"steps": steps})
+        self.assertTrue(any("never a base red" in item for item in result), result)
+
+        crashed = "2026-10-19T03:02:59.1Z ##[error]Process completed with exit code 139.\n"
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crashed, "")
+        result = controller.expand_job("cmux app scheme compile (Debug)", 6, {"steps": steps})
+        self.assertTrue(any("never a base red" in item for item in result), result)
 
     def test_an_unreadable_no_verdict_compile_log_is_keyed_by_its_own_job(self):
         controller = self.controller()
@@ -1066,8 +1174,7 @@ class FormatBeforeLanding(unittest.TestCase):
         controller.merge_one = lambda item, validation: merged.append(item.number) or "landed"
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[red, clean]),
                                    branch="next-batch/x-1")
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"1 {red.sha}\n2 {clean.sha}\n")
+        reviewed = reviewed_heads(f"1 {red.sha}\n2 {clean.sha}\n")
         with mock.patch.object(nb, "open_prs", return_value=[red, clean]), \
                 mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = controller.land(validation)
@@ -1137,8 +1244,7 @@ class NotifyOwners(unittest.TestCase):
     def test_land_flag_merges_a_head_reviewed_at_its_exact_sha(self):
         controller = self.controller(notify=False)
         prs = [pr(1)]
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"# coord-2's reviewed heads\n1 {pr(1).sha}\n")
+        reviewed = reviewed_heads(f"# coord-2's reviewed heads\n1 {pr(1).sha}\n")
         with mock.patch.object(nb, "open_prs", return_value=prs), \
                 mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             controller.land(self.validation(prs))
@@ -1166,8 +1272,7 @@ class ReviewGate(NotifyOwners):
         self.assertEqual([kind for _, kind, _ in controller.comments], ["validated"])
 
     def test_a_review_of_an_older_head_does_not_count(self):
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"1 {'f' * 40}\n")
+        reviewed = reviewed_heads(f"1 {'f' * 40}\n")
         controller, landed = self.land([pr(1)], {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)})
         self.assertEqual(controller.merged, [])
 
@@ -1184,10 +1289,7 @@ class ReviewGateHoles(NotifyOwners):
     """Review findings on #21925: every way an unreviewed head could still land."""
 
     def reviewed_file(self, *items):
-        path = Path(tempfile.mkdtemp()) / "reviewed"
-        path.write_text("".join(f"{item.number} {item.sha}\n" for item in items))
-        path.chmod(0o600)
-        return str(path)
+        return str(reviewed_heads("".join(f"{item.number} {item.sha}\n" for item in items)))
 
     def test_only_reviewed_prs_are_stacked_when_landing(self):
         gh = mock.Mock()
@@ -1226,8 +1328,7 @@ class LandOnlyTheValidatedTree(NotifyOwners):
     def test_nothing_after_a_pr_that_did_not_land(self):
         controller = self.controller(notify=False)
         a, b, c = pr(1), pr(2), pr(3)
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"1 {a.sha}\n3 {c.sha}\n")  # b is not reviewed
+        reviewed = reviewed_heads(f"1 {a.sha}\n3 {c.sha}\n")  # b is not reviewed
         with mock.patch.object(nb, "open_prs", return_value=[a, b, c]), \
                 mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = dict((item.number, text) for item, text in controller.land(self.validation([a, b, c])))
@@ -1236,8 +1337,7 @@ class LandOnlyTheValidatedTree(NotifyOwners):
 
     def test_a_run_that_may_not_land_leaves_no_marker_that_holds_a_pr_out(self):
         controller = self.controller(notify=False)
-        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
-        reviewed.write_text(f"1 {pr(1).sha}\n")
+        reviewed = reviewed_heads(f"1 {pr(1).sha}\n")
         with mock.patch.object(nb, "open_prs", return_value=[pr(1)]), \
                 mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             os.environ.pop("CMUX_NEXT_BATCH_EXCLUDE", None)

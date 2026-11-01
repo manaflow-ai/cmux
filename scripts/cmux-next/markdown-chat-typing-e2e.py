@@ -14,7 +14,7 @@ type-ahead queue waited for that page's input and the chat got nothing (`handled
 Checks: every key reaches the chat's page, and its composer text grows by the keys typed.
 Exit 0 when both hold. Quits nothing: the caller ends the build.
 """
-import argparse, json, os, socket, sys, tempfile, time
+import argparse, json, os, shlex, socket, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the build's control socket")
@@ -77,7 +77,7 @@ def main():
     with open(note, "w") as f:
         f.write("# Notes\n\nA plan the agent wrote.\n")
     rpc("action.run", {"action": "agent.harness.add", "args": {"id": "fake", "name": "Fake", "command": sys.executable,
-                                                               "args": os.path.abspath(opts.fake_agent), "protocol": "acp",
+                                                               "args": shlex.quote(os.path.abspath(opts.fake_agent)), "protocol": "acp",
                                                                "replace": "true"}})
     rpc("debug.key", {"key": "t", "modifiers": ["cmd"]})
     chat = wait(lambda: focus().get("resolved") == "agentPage" and focus().get("resolved_pane"), 30)

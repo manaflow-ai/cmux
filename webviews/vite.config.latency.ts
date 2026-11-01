@@ -2,8 +2,13 @@
 // the shipped build settings (React Compiler, production React, the same chunking and the diff
 // worker), with the harness pages as the HTML inputs. `CMUX_LATENCY_OUT_DIR` names the output.
 import base from "./vite.config";
+import { fileURLToPath } from "node:url";
 
 const outDir = process.env.CMUX_LATENCY_OUT_DIR ?? "/tmp/cmux-latency-harness";
+const aliases = base.resolve?.alias ?? [];
+const baseAliases = Array.isArray(aliases)
+  ? aliases
+  : Object.entries(aliases).map(([find, replacement]) => ({ find, replacement }));
 const plugins = (base.plugins ?? []).flat().filter(
   // The page host's relative-entry rewrite is for the shipped root-level pages only.
   (plugin) =>
@@ -13,6 +18,19 @@ const plugins = (base.plugins ?? []).flat().filter(
 export default {
   ...base,
   plugins,
+  // Only this test build uses React's production profiling renderer. The wrapper records
+  // Profiler callbacks (commits), separately from calls to root.render. Shipped bundles keep
+  // the normal renderer and pay no instrumentation cost.
+  resolve: {
+    ...base.resolve,
+    alias: [
+      {
+        find: /^react-dom\/client$/,
+        replacement: fileURLToPath(new URL("./test/latency/profiling-client.tsx", import.meta.url)),
+      },
+      ...baseAliases,
+    ],
+  },
   build: {
     ...base.build,
     outDir,
@@ -26,6 +44,7 @@ export default {
         "latency-markdown": "test/latency/markdown.html",
         "latency-picker": "test/latency/picker.html",
         "latency-agent-pane": "test/latency/agent-pane.html",
+        "latency-flows": "test/latency/flows.html",
         "latency-settings": "test/latency/settings.html",
       },
     },

@@ -124,7 +124,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
+        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
@@ -253,7 +253,9 @@ final class AppControl {
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
+            .async("debug.wakeups") { [budgeted = mainWork.frames, work = services.work] call in
+                try await DebugWakeups.report(call.params, budgeted: budgeted, work: work)
+            },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -261,7 +263,7 @@ final class AppControl {
                 if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 // {"drop_spare": true} closes the spare Chromium window (its memory cost, PL-cef-tab).
                 if call.params["drop_spare"]?.boolValue == true { services.cache.cef.dropSpareWindow() }
-                return .value(DebugCEF.report(services))
+                return DebugCEF.report(services)
             },
             // Remote localhost proxy: port, counters, recent outcomes.
             .mainActor("debug.remote-localhost") { [weak services] _ in
@@ -289,7 +291,7 @@ final class AppControl {
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugWindowRecord.start(call.params, services: services))
+                return .value(services.windowRecord.start(call.params, services: services))
             },
             .async("debug.shortcut_hints") { [weak services] call in
                 await DebugShortcutHintControl().handle(call.params, services: services)
@@ -507,6 +509,10 @@ final class AppControl {
             .mainActor("debug.dialog") { [weak services] call in
                 .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
             },
+            // A dialog's open and close, frame after frame, with its card and scrim progress.
+            .async("debug.dialog_strip") { [weak services] call in
+                await DebugDialog.strip(call.params, services)
+            }.withDeadline(.fixed(.seconds(20))),
             // The Passwords reveal sheet with a fixture secret (no store, no device owner prompt), so a
             // live check proves the sheet stays out of screen capture (cx-bkyn9).
             .mainActor("debug.passwords_reveal") { [weak services] call in
@@ -572,10 +578,27 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.daemonUpdate(call.params, services: services))
             },
+            // Captures of an update handoff: `debug.terminal_state {state, surface?}` sets live terminal tabs'
+            // `terminal_state` (adopting, reconnecting, running, ...) as the daemon's push does; no daemon restart.
+            .mainActor("debug.terminal_state") { [weak services] call in
+                guard let services else { return .value(.null) }
+                let name = call.params["state"]?.stringValue ?? "adopting"
+                guard let state = TerminalTabState(rawValue: name) else {
+                    return .value(["error": .string("unknown state"), "state": .string(name)])
+                }
+                let surface = call.params["surface"]?.intValue.map { SurfaceID(rawValue: UInt64($0)) }
+                let set = services.daemon.store.debugSetTerminalState(state, surface: surface)
+                return .value(["state": .string(name), "surfaces": .array(set.map { .number(Double($0.rawValue)) })])
+            },
             // Captures of a Cloud machine's menu: a fixture header and `cloudWorkspace`, with no machine, sign-in or network.
             .mainActor("debug.cloud_machine_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugCloudMachineFixture.show(call.params, services: services))
+            },
+            // Captures of the workspace, tab and pane right-click menus and their folders (tour:object-menu-*).
+            .mainActor("debug.object_menu") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugObjectMenu.run(call.params, services: services))
             },
             .mainActor("debug.sidebar_group_drag") { [weak services] call in
                 guard let services else { return .value(.null) }

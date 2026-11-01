@@ -4,6 +4,12 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/ancestor_answer.rs"]
+mod ancestor_answer;
+#[path = "durable_agents/bg_caller_restart.rs"]
+mod bg_caller_restart;
+#[path = "durable_agents/carried_restart.rs"]
+mod carried_restart;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
@@ -20,8 +26,14 @@ mod reconnect_priority;
 mod restart_fence;
 #[path = "durable_agents/restart_reattach.rs"]
 mod restart_reattach;
+#[path = "durable_agents/retry_restore.rs"]
+mod retry_restore;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
+#[path = "durable_agents/stop_if_idle_unadopted.rs"]
+mod stop_if_idle_unadopted;
+#[path = "durable_agents/transfer_authority.rs"]
+mod transfer_authority;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
 // and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
@@ -484,6 +496,33 @@ async fn a_subagents_tool_call_across_a_restart_is_not_its_parent_turns() {
     assert!(entry["lane"]["stalledSince"].is_null(), "its own call runs: {entry}");
     assert_eq!(entry["turn"]["activity"], "Own build", "{entry}");
     ends_its_turn(&daemon, &session, &gate);
+}
+
+/// A subagent that runs across a restart is still the chat's subagent once the next daemon adopts
+/// its host: its next line is tagged with its session id and the summary still counts it. The
+/// adopting daemon started with no subagents, so the child's line after `host_adopted` reached
+/// clients untagged and read as the chat's own call (Leo: "why does it say you're still running
+/// grep" after a finished turn).
+#[tokio::test]
+async fn a_subagent_running_across_a_restart_keeps_its_tag_after_adoption() {
+    let (daemon, session, gate, entry) = adopted_after("adopt-sub", "child-gate", |e| {
+        e["kind"] == "tool_call" && e["msg"].pointer("/params/_meta/acpmux/subagent").is_some()
+    })
+    .await;
+    assert_eq!(entry["subagentsRunning"], 1, "its subagent still runs: {entry}");
+    assert_eq!(entry["subagentNames"], json!(["Child"]), "{entry}");
+    std::fs::write(&gate, b"go").unwrap();
+    let update = daemon.wait_event(&session, "the child's call ending", |e| {
+        e["kind"] == "tool_call_update"
+            && e["msg"].pointer("/params/update/toolCallId") == Some(&json!("cg-1"))
+    });
+    assert_eq!(
+        update["msg"].pointer("/params/_meta/acpmux/subagent"),
+        Some(&json!("child-1")),
+        "the subagent's line after adoption is tagged with its session: {update}"
+    );
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
 }
 
 /// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
@@ -1325,8 +1364,18 @@ const IDLE_1S: &[(&str, &str)] = &[("ACPMUX_IDLE_CHILD_SECS", "1")];
 async fn an_idle_hosted_agent_is_terminated_and_the_session_resumes() {
     let daemon = Daemon::with_env("idle", "approve-all", IDLE_1S);
     let session = new_session(&daemon).await;
-    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let record = daemon.host_record(&session);
+    let harness_pid = record["harness_pid"].as_i64().unwrap();
+    let host_pid = record["host_pid"].as_i64().unwrap();
     assert!(gone_within(harness_pid, Duration::from_secs(20)), "the idle agent kept running");
+    // The agent host ends with it, inside the same idle bound, and leaves no record behind.
+    assert!(gone_within(host_pid, Duration::from_secs(20)), "the idle agent host kept running");
+    let host_file = daemon.home.join("hosts").join(format!("{session}.json"));
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while host_file.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!host_file.exists(), "the ended agent host left its record");
     let mut rpc = daemon.rpc().await;
     let reply = rpc
         .call(
@@ -1914,6 +1963,14 @@ async fn attach_and_prompts_survive_a_failed_log_load() {
 #[tokio::test]
 async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
     let mut daemon = Daemon::new("qprov", "approve-all");
+    // The queue path before the inbox (`hub/inbox.rs`): an agent message that still queues.
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all", "agentInbox": false}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
     let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
     let provenance = json!({"kind": "agent_message", "from": "acp:sender-1", "to": format!("acp:{session}"),
                             "msgId": "msg-1", "threadId": "thread-1"});
@@ -2022,10 +2079,12 @@ async fn info_answers_while_the_chat_logs_load() {
     .expect("_acpmux/info {waitLogs: false} answered within 2 s while the logs load");
     assert_eq!(early["sessionId"], session.as_str(), "{early:#}");
     assert_eq!(early["logsLoading"], true, "info did not say the logs are loading: {early:#}");
+    assert!(early["transferBlocked"].is_null(), "unread history grants no authority: {early:#}");
 
     let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
     assert!(started.elapsed() < HOLD, "info waited for the whole log load: {waited:#}");
     assert_eq!(waited["logsLoading"], false, "info answered before its log was read: {waited:#}");
+    assert_eq!(waited["transferBlocked"], false, "{waited:#}");
 }
 
 /// Review 31 of #23322: a switch into full access that MDM's off overtook stops the agent within a
@@ -2180,6 +2239,57 @@ async fn an_unadoptable_host_ends_under_mdm_off_though_its_log_asks() {
     assert!(
         gone_within(harness_pid, Duration::from_secs(10)),
         "an unadoptable host ran on under the managed off"
+    );
+}
+
+/// A chat whose agent asks, stopped with its host left running, and a next daemon that cannot
+/// speak to that host (`ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX`: every host refuses it, as a host of
+/// a build it cannot speak to does): the daemon (not started), the chat and the harness's pid.
+async fn left_incompatible(tag: &str) -> (Daemon, String, i64) {
+    let mut daemon = Daemon::new(tag, "ask");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    daemon.env.push(("ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX".into(), "0".into()));
+    (daemon, session, harness_pid)
+}
+
+/// https://github.com/manaflow-ai/cmux/issues/26337: a host a restart left that refuses this
+/// build's protocol is never adopted, so its replay is never read, and what it moved to while no
+/// daemon was attached is unknown though its log asks. Under MDM's off it ends (its nonce proves
+/// it) instead of running on unjudged.
+#[tokio::test]
+async fn an_incompatible_host_ends_under_mdm_off_though_its_log_asks() {
+    let (mut daemon, _session, harness_pid) = left_incompatible("mdmincompat").await;
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a host this build cannot speak to ran on unjudged under the managed off"
+    );
+}
+
+/// https://github.com/manaflow-ai/cmux/issues/26337: with MDM unset, a host this build cannot speak
+/// to runs on, unadoptable, as before. An off pushed later still ends it (the adoption hold it
+/// left is cut, and nothing this daemon read says what it runs).
+#[tokio::test]
+async fn an_incompatible_host_runs_on_with_mdm_unset_and_ends_when_mdm_turns_it_off() {
+    let (mut daemon, session, harness_pid) = left_incompatible("mdmincompatpush").await;
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/status", json!({})).await;
+    daemon.wait_event(&session, "host_unadoptable", |e| e["kind"] == "host_unadoptable");
+    assert!(alive(harness_pid), "with MDM unset the next daemon ended the agent");
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a host this build cannot speak to ran on after MDM turned full access off"
     );
 }
 
@@ -3814,195 +3924,4 @@ fn log_while_down(daemon: &Daemon, session: &str, kind: &str, msg: Value) {
     let record = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": kind, "msg": msg});
     let mut f = std::fs::OpenOptions::new().append(true).open(last).unwrap();
     writeln!(f, "{record}").unwrap();
-}
-
-/// An agent asks; the daemon stops; an ancestor's answer to it is logged but never reached the
-/// agent, naming its ancestor beside its outcome (`answeredBy`, as an ask logs it) or, `nested`,
-/// inside it (`_acpmuxAnsweredBy`, as a re-asked prompt's answer was logged before review 84 of
-/// #23322). `withdrawn`: the agent's withdrawal of it is logged after the answer, as one that came while
-/// the answer was queued is. The stopped daemon, the session and the permission id.
-async fn an_undelivered_ancestor_answer(
-    tag: &str,
-    nested: bool,
-    withdrawn: bool,
-) -> (Daemon, String, String) {
-    let mut daemon = Daemon::new(tag, "ask");
-    let session = new_session(&daemon).await;
-    let mut client = daemon.rpc().await;
-    client
-        .send(
-            "session/prompt",
-            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
-        )
-        .await;
-    let asked =
-        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
-    let permission_id = asked["msg"]["permissionId"].as_str().unwrap().to_owned();
-    daemon.sigterm();
-    drop(client);
-    let by = json!({"session": "an-ancestor", "name": "parent"});
-    let mut decision = json!({"permissionId": permission_id,
-                              "outcome": {"outcome": "selected", "optionId": "yes"}});
-    if nested {
-        decision["outcome"]["_acpmuxAnsweredBy"] = by;
-    } else {
-        decision["answeredBy"] = by;
-    }
-    log_while_down(&daemon, &session, "permission_decision", decision);
-    if withdrawn {
-        let events = daemon.events(&session);
-        let started = events.iter().rev().find(|e| e["kind"] == "host_started").unwrap();
-        let withdrawal = json!({"agentRequestId": asked["msg"]["agentRequestId"],
-                                "incarnation": started["msg"]["incarnation"]});
-        log_while_down(&daemon, &session, "permission_withdrawn", withdrawal);
-    }
-    (daemon, session, permission_id)
-}
-
-/// `an_undelivered_ancestor_answer`; `managed_off`: MDM forces full access off; the next daemon
-/// adopts the agent. Whether the logged answer reached the agent (`chose yes`), and whether the
-/// prompt was asked again.
-async fn an_undelivered_ancestor_answer_after_a_restart(
-    managed_off: bool,
-    nested: bool,
-) -> (bool, bool) {
-    let (resent, asked_again, _) =
-        an_undelivered_ancestor_answer_after_a_restart_in(managed_off, nested, false).await;
-    (resent, asked_again)
-}
-
-/// `an_undelivered_ancestor_answer_after_a_restart`, `withdrawn` as `an_undelivered_ancestor_answer`
-/// takes it; also whether the agent was answered cancelled (`chose cancelled`).
-async fn an_undelivered_ancestor_answer_after_a_restart_in(
-    managed_off: bool,
-    nested: bool,
-    withdrawn: bool,
-) -> (bool, bool, bool) {
-    let tag = match (managed_off, nested, withdrawn) {
-        (false, _, false) => "anc",
-        (false, _, true) => "ancwd",
-        (true, false, false) => "ancoff",
-        (true, true, false) => "ancnest",
-        (true, _, true) => "ancoffwd",
-    };
-    let (mut daemon, session, permission_id) =
-        an_undelivered_ancestor_answer(tag, nested, withdrawn).await;
-    if managed_off {
-        std::fs::write(daemon.home.join("start-mode.json"), r#"{"fullAccessManaged":false}"#)
-            .unwrap();
-    }
-    daemon.start();
-    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let events = daemon.events(&session);
-        let resent = events.iter().any(|e| chunk(e, "chose yes"));
-        let asked_again = events.iter().any(|e| {
-            e["kind"] == "permission_reissued" && e["msg"]["permissionId"] == json!(permission_id)
-        });
-        let cancelled = events.iter().any(|e| chunk(e, "chose cancelled"));
-        if resent || asked_again || cancelled || Instant::now() > deadline {
-            return (resent, asked_again, cancelled);
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-/// Review 82 of #23322: under MDM's off, an ancestor's answer the agent never got before a
-/// restart is not resent unchecked: the prompt is asked again, so it is decided under the
-/// bound now.
-#[tokio::test]
-async fn under_an_mdm_off_an_undelivered_ancestor_answer_is_asked_again_after_a_restart() {
-    let (resent, asked_again) = an_undelivered_ancestor_answer_after_a_restart(true, false).await;
-    assert!(!resent, "an ancestor's answer decided before the off reached the agent after it");
-    assert!(asked_again, "the prompt was not asked again");
-}
-
-/// Review 84 of #23322: an ancestor's answer logged with its ancestor inside its outcome (a
-/// re-asked prompt's) is known as an ancestor's after the next restart too.
-#[tokio::test]
-async fn under_an_mdm_off_an_ancestor_answer_logged_inside_its_outcome_is_asked_again() {
-    let (resent, asked_again) = an_undelivered_ancestor_answer_after_a_restart(true, true).await;
-    assert!(!resent, "an ancestor's answer decided before the off reached the agent after it");
-    assert!(asked_again, "the prompt was not asked again");
-}
-
-/// Review 84 of #23322: a restart's resend of an ancestor's answer is checked and written under
-/// the family gate, so an MDM off push that lands between its check and its write waits until
-/// it is written.
-#[tokio::test]
-async fn an_off_push_waits_for_an_ancestor_answer_resent_after_a_restart() {
-    let (mut daemon, _, _) = an_undelivered_ancestor_answer("ancgate", false, false).await;
-    let paused = daemon.home.join("replay-paused");
-    let marker = paused.to_string_lossy().into_owned();
-    daemon.env.push(("ACPMUX_TEST_PAUSE_REPLAYED_ANSWER".into(), marker));
-    daemon.start();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while !paused.exists() {
-        assert!(Instant::now() < deadline, "the resend never reached its check");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
-                     "allowFullAccess": false, "allowFullAccessManaged": true});
-    let started = Instant::now();
-    let pushed = daemon.rpc().await.call("_acpmux/chat_settings", off).await;
-    assert_eq!(pushed["applied"], true, "{pushed}");
-    let took = started.elapsed();
-    assert!(
-        took >= Duration::from_millis(1500),
-        "an off push returned after {took:?}, while an answer checked under the old bound was unwritten"
-    );
-}
-
-/// Review 88 of #23322: under MDM's off, a restart's undelivered ancestor answer whose prompt a
-/// Stop cancelled while the restart waited for the family gate is not asked again.
-#[tokio::test]
-async fn under_an_mdm_off_a_stop_during_a_restart_cancels_an_undelivered_ancestor_answer() {
-    let (mut daemon, session, permission_id) =
-        an_undelivered_ancestor_answer("ancstop", false, false).await;
-    std::fs::write(daemon.home.join("start-mode.json"), r#"{"fullAccessManaged":false}"#).unwrap();
-    let paused = daemon.home.join("recovery-paused");
-    let marker = paused.to_string_lossy().into_owned();
-    daemon.env.push(("ACPMUX_TEST_PAUSE_RECOVERED_ANSWER".into(), marker));
-    daemon.start();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while !paused.exists() {
-        assert!(Instant::now() < deadline, "the restart never reached the answer");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    let stopped = daemon.rpc().await.call("session/cancel", json!({"sessionId": session})).await;
-    assert!(stopped.is_object(), "{stopped}");
-    tokio::time::sleep(Duration::from_secs(5)).await;
-    let asked_again = daemon.events(&session).iter().any(|e| {
-        e["kind"] == "permission_reissued" && e["msg"]["permissionId"] == json!(permission_id)
-    });
-    assert!(!asked_again, "a prompt a Stop cancelled during the restart was asked again");
-}
-
-/// With MDM unset, nothing changes: the logged answer reaches the adopted agent.
-#[tokio::test]
-async fn with_mdm_unset_an_undelivered_ancestor_answer_is_sent_after_a_restart() {
-    let (resent, _) = an_undelivered_ancestor_answer_after_a_restart(false, false).await;
-    assert!(resent, "the logged answer did not reach the adopted agent");
-}
-
-/// Review 130 of #23322: under MDM's off, an ancestor's answer the agent withdrew its question
-/// from while the answer was queued (the withdrawal logged after the decision) is neither resent
-/// nor asked again after a restart: the agent is answered cancelled.
-#[tokio::test]
-async fn under_an_mdm_off_a_withdrawn_ancestor_answer_is_not_asked_again_after_a_restart() {
-    let (resent, asked_again, cancelled) =
-        an_undelivered_ancestor_answer_after_a_restart_in(true, false, true).await;
-    assert!(!resent, "an ancestor's answer decided before the off reached the agent after it");
-    assert!(!asked_again, "a question its agent withdrew was asked again after a restart");
-    assert!(cancelled, "the agent was not answered");
-}
-
-/// With MDM unset, the same withdrawn ancestor answer is resent as before.
-#[tokio::test]
-async fn with_mdm_unset_a_withdrawn_ancestor_answer_is_resent_as_before() {
-    let (resent, asked_again, _) =
-        an_undelivered_ancestor_answer_after_a_restart_in(false, false, true).await;
-    assert!(resent, "with MDM unset the logged answer was not resent");
-    assert!(!asked_again);
 }

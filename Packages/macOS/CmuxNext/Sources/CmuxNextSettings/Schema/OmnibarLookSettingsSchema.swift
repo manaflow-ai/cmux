@@ -3,7 +3,7 @@ import CmuxNextDesign
 /// The Settings rows of the address bar's look (Browser > Address Bar,
 /// cx-gkz5): the glass material, its tint from the terminal theme, the
 /// corner radius, the shadow and the fill's opacity over a see-through
-/// window (cx-d0d.101). Looks only, so agents may change them.
+/// window (cx-d0d.101), and its height and text size. Looks only, so agents may change them.
 nonisolated enum OmnibarLookSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.addressBar", "Address Bar")
@@ -65,6 +65,32 @@ nonisolated enum OmnibarLookSettingsSchema {
                                          "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."),
                 kind: .number(SettingNumber(0...1, step: 0.05, unit: .fraction)), default: .number(fallback.backgroundOpacity),
                 keywords: ["opacity", "transparency", "background", "translucent", "address bar", "omnibox"]
+            ),
+        ] + sizeDescriptors
+    }
+
+    /// The bar's size (issue 28734): Match Density follows the density preset (Standard's
+    /// 28 pt bar with 14 pt text, Comfortable's 34 pt with 15 pt), a number sets it.
+    static var sizeDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.addressBar", "Address Bar")
+        typealias S = BrowserOmnibarSetting
+        let density = SettingChoice("density", SettingsText.keyed("settings.choice.matchDensity", "Match Density"))
+        return [
+            SettingDescriptor(
+                S.heightPath, section: .browser, group: group,
+                title: SettingsText.keyed("settings.browser.omnibar.height", "Address Bar Height"),
+                help: SettingsText.keyed("settings.browser.omnibar.height.help",
+                                         "Match Density follows the density. The bar always grows to fit its text."),
+                kind: .choiceOrNumber([density], SettingNumber(S.heightRange, step: 1, unit: .points, placeholder: 28)),
+                default: .string("density"), keywords: ["height", "size", "tall", "density", "address bar", "omnibox", "url"]
+            ),
+            SettingDescriptor(
+                S.fontSizePath, section: .browser, group: group,
+                title: SettingsText.keyed("settings.browser.omnibar.fontSize", "Address Bar Text Size"),
+                help: SettingsText.keyed("settings.browser.omnibar.fontSize.help",
+                                         "The size of the address and the suggestions. Match Density follows the density."),
+                kind: .choiceOrNumber([density], SettingNumber(S.fontSizeRange, step: 1, unit: .points, placeholder: 14)),
+                default: .string("density"), keywords: ["font", "text", "size", "url", "density", "address bar", "omnibox"]
             ),
         ]
     }

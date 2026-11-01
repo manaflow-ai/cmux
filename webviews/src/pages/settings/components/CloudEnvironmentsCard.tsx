@@ -93,41 +93,43 @@ function EnvironmentRow({
   const status = STATUS[row.status];
   return (
     <div className="row" data-environment={row.id}>
-      <span className="row-label">
-        <span className="row-title">{row.name}</span>
-        <span className="row-help" data-environment-status={row.status}>
-          {" "}
-          {status ? t(status) : row.status}
-          {row.repo ? ` · ${row.repo}` : ""}
+      <div className="row-main">
+        <span className="row-label">
+          <span className="row-title">{row.name}</span>
+          <span className="row-help" data-environment-status={row.status}>
+            {" "}
+            {status ? t(status) : row.status}
+            {row.repo ? ` · ${row.repo}` : ""}
+          </span>
+          {row.error && <span className="row-help"> {row.error}</span>}
+          {row.log_tail && (
+            <details data-environment-log="">
+              <summary>{t("settingsPage.cloudEnvironments.logTail")}</summary>
+              <pre>{row.log_tail}</pre>
+            </details>
+          )}
         </span>
-        {row.error && <span className="row-help"> {row.error}</span>}
-        {row.log_tail && (
-          <details data-environment-log="">
-            <summary>{t("settingsPage.cloudEnvironments.logTail")}</summary>
-            <pre>{row.log_tail}</pre>
-          </details>
-        )}
-      </span>
-      <span className="row-control">
-        <button
-          type="button"
-          className="button"
-          data-environment-action="build"
-          disabled={busy || row.status === "building" || row.status === "ready"}
-          onClick={() => void run({ action: "build", id: row.id })}
-        >
-          {t("settingsPage.cloudEnvironments.build")}
-        </button>
-        <button
-          type="button"
-          className="button"
-          data-environment-action="delete"
-          disabled={busy || row.status === "building"}
-          onClick={() => void run({ action: "delete", id: row.id })}
-        >
-          {t("settingsPage.cloudEnvironments.delete")}
-        </button>
-      </span>
+        <span className="row-control">
+          <button
+            type="button"
+            className="button"
+            data-environment-action="build"
+            disabled={busy || row.status === "building" || row.status === "ready"}
+            onClick={() => void run({ action: "build", id: row.id })}
+          >
+            {t("settingsPage.cloudEnvironments.build")}
+          </button>
+          <button
+            type="button"
+            className="button"
+            data-environment-action="delete"
+            disabled={busy || row.status === "building"}
+            onClick={() => void run({ action: "delete", id: row.id })}
+          >
+            {t("settingsPage.cloudEnvironments.delete")}
+          </button>
+        </span>
+      </div>
     </div>
   );
 }

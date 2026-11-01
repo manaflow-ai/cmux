@@ -353,8 +353,13 @@ impl Translator {
                     drop(steers);
                     self.forget_batch(uuid).await;
                     for k in read {
+                        let mut steered = json!({"stopReason": "steered"});
+                        // Read after the turn it was steered into ended: the next one's (`carry.rs`).
+                        if let Some(seq) = self.carried_steer(&k).await {
+                            steered.set("_meta", json!({"claude": {"carried": seq}}));
+                        }
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
-                        out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                        out.push(Message::ok(id, steered));
                     }
                     // A turn the client stopped: Claude Code runs a line it
                     // read after the stop as one more turn, so that turn is
@@ -428,8 +433,14 @@ impl Translator {
                             Some(diffs) if !is_err => {
                                 settle_write(diffs, &text, line.get("tool_use_result"))
                             }
+                            // The text, then any images it returned (a Read of a PNG, an MCP
+                            // screenshot), so a chat on another machine shows them inline.
                             _ => {
-                                json!([{"type": "content", "content": {"type": "text", "text": text}}])
+                                let mut blocks = vec![
+                                    json!({"type": "content", "content": {"type": "text", "text": text}}),
+                                ];
+                                blocks.extend(result_images(c.get("content")));
+                                Value::Array(blocks)
                             }
                         };
                         out.push(upd(json!({
@@ -518,8 +529,10 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
-                    // Anything else (hook_callback, mcp_message) is declined
-                    // with an error response, so claude does not wait on it.
+                    // A registered hook fired: answered with no decision (hook_callback.rs).
+                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    // Anything else (mcp_message) is declined with an error
+                    // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
             }
@@ -740,20 +753,32 @@ impl Translator {
                         out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
                     }
                 }
-                // A steered line Claude Code has not read yet: it runs it as
-                // one more turn of this prompt, whose result ends it (when
-                // echoes come at all; without them the steer fails below).
-                // A stop stays in force for that turn (`cancelled` is kept).
+                // A steered line Claude Code has not read yet: it runs it next, as a turn of its
+                // own (when echoes come at all; without them the steer fails below). A clean end
+                // ends this prompt's turn here, and the next turn is that one (`carry.rs`). A
+                // stopped or failed turn, or a step a Send now interrupted, runs it as one more
+                // turn of this prompt, whose result ends it; a stop stays in force for that turn
+                // (`cancelled` is kept).
                 let unread = !self.steers.lock().await.is_empty();
+                let mut carried = None;
                 if unread && self.prompt_echo.lock().await.is_none() {
-                    return out;
+                    let clean = !self.cancelled.load(Ordering::SeqCst)
+                        && !is_error
+                        && !sub.starts_with("error");
+                    if !clean {
+                        return out;
+                    }
+                    carried = Some(self.carry_unread().await);
                 }
-                // Out of the turn first: a steer that takes the steer locks after `fail_steers`
-                // finds it ended and is not left waiting (`steer_batch.rs` `write_steer`).
-                self.in_turn.store(false, Ordering::SeqCst);
+                if carried.is_none() {
+                    // Out of the turn first: a steer that takes the steer locks after
+                    // `fail_steers` finds it ended and is not left waiting (`steer_batch.rs`
+                    // `write_steer`).
+                    self.in_turn.store(false, Ordering::SeqCst);
+                    out.extend(self.fail_steers().await);
+                }
                 self.cancelled_compaction.store(false, Ordering::SeqCst);
                 self.cancelled_compaction_boundary.store(false, Ordering::SeqCst);
-                out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
@@ -762,6 +787,9 @@ impl Translator {
                 // from the last response's usage, with no token-count API call.
                 let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                 self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("ctx-{n}"), "request": {"subtype": "get_context_usage", "detail": "summary"}}));
+                // Before `pending` is read: a carried turn's prompt that comes meanwhile either
+                // waits there or finds this answer kept (`carry.rs`).
+                let mut carry = self.carry.lock().await;
                 let waiting: Vec<String> = self
                     .pending
                     .lock()
@@ -806,25 +834,36 @@ impl Translator {
                         })));
                     }
                 }
+                // Hitting the turn limit is a normal stop, not a failure.
+                let answer = if (sub.starts_with("error") || is_error)
+                    && !cancelled
+                    && stop != "cancelled"
+                    && stop != "max_turn_requests"
+                {
+                    Err(RpcError::internal(
+                        line.get("result").and_then(Value::as_str).unwrap_or(sub),
+                    ))
+                } else {
+                    let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
+                    if let Some(next) = &carried {
+                        claude.set("carried", next.clone());
+                    }
+                    Ok(json!({"stopReason": stop, "_meta": {"claude": claude}}))
+                };
+                // No prompt waits: the carried turn's prompt still to come takes it.
+                if waiting.is_empty() {
+                    carry.keep(answer.clone());
+                }
+                self.carry_settled(&mut carry, carried.is_some());
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
-                    // Hitting the turn limit is a normal stop, not a failure.
-                    if (sub.starts_with("error") || is_error)
-                        && !cancelled
-                        && stop != "cancelled"
-                        && stop != "max_turn_requests"
-                    {
-                        out.push(Message::err(
-                            id,
-                            RpcError::internal(
-                                line.get("result").and_then(Value::as_str).unwrap_or(sub),
-                            ),
-                        ));
-                    } else {
-                        out.push(Message::ok(id, json!({"stopReason": stop, "_meta": {"claude": {"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")}}})));
-                    }
+                    out.push(match answer.clone() {
+                        Ok(v) => Message::ok(id, v),
+                        Err(e) => Message::err(id, e),
+                    });
                 }
+                drop(carry);
             }
             // A compaction left the context smaller than the last message held:
             // the ring waits for the next message rather than refill (cx-ncc.79).

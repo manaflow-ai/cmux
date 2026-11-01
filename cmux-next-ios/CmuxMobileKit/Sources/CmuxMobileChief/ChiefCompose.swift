@@ -177,7 +177,9 @@ public final class ChiefComposer {
             let mac = store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
             let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
             open(.agent(destination))
-            if !message.text.isEmpty { chat.send(prompt: message.text) }
+            // The whole message is the prompt: its text and every image, in order
+            // (`send` drops a message with neither).
+            chat.send(prompt: message.text, attachments: Self.attachments(message.images))
             return
         }
         var routed = message
@@ -191,6 +193,29 @@ public final class ChiefComposer {
             open(.chief(place))
         }
         session.send(routed)
+    }
+
+    /// New Message's images as agent prompt attachments, normalized to formats agents accept.
+    static func attachments(_ images: [ConversationComposeImage]) -> [AgentAttachment] {
+        images.enumerated().map { index, image in
+            let source = AgentAttachment(kind: .image, name: "Image \(index + 1)", data: image.data)
+            let data: Data
+            let kind: AgentAttachment.Kind
+            let ext: String
+            switch source.imageMIMEType {
+            case "image/png": data = image.data; kind = .image; ext = "png"
+            case "image/jpeg": data = image.data; kind = .image; ext = "jpg"
+            case "image/gif": data = image.data; kind = .image; ext = "gif"
+            case "image/webp": data = image.data; kind = .image; ext = "webp"
+            default:
+                if let jpeg = UIImage(data: image.data)?.jpegData(compressionQuality: 0.85) {
+                    data = jpeg; kind = .image; ext = "jpg"
+                } else {
+                    data = image.data; kind = .file; ext = "bin"
+                }
+            }
+            return AgentAttachment(kind: kind, name: "Image \(index + 1).\(ext)", data: data)
+        }
     }
 
     /// The controller to present the sheet from: the frontmost one.

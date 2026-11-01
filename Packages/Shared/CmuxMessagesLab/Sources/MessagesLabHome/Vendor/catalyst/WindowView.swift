@@ -1084,6 +1084,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 lastSplice = (sp.dropHead, sp.head.count, sp.dropTail, sp.tail.count)
             } else {
                 let d = deriveRows(action, state, old, t)
+                derivedRows += islandFresh ?? d.tail.count // cmux: the rows derived again, not the kept ones between islands
+                islandFresh = nil
                 phase("deriveRows")
                 if animate, sameRows(d) {
                     // Nothing to show (a status that moves no receipt, a typing change while the
@@ -1210,7 +1212,19 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func deriveRows(_ action: Action, _ state: AppState, _ old: AppState, _ t: Double) -> (cut: Int, tail: [RowSpec]) {
         let msgs = state.conversation.messages
         let now = store.date(at: t)
-        guard var from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
+        guard let points = dirtyPoints(action, state, old) else {
+            return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale))
+        }
+        // cmux: the changed messages far above the newest change (a "Read" that moved down from my last read
+        // message, a thread root and its other replies) re-derive alone, with their neighbours; the rows between
+        // them stay. From the highest of them down, a send's "Read" re-derived every message the Chief posted
+        // since my last one (HomeStateChangePerfTests).
+        let tailPoint = points.tail.min() ?? points.local.max() ?? 0
+        var tailFrom = tailPoint
+        for p in points.local.sorted(by: >) where p < tailFrom && p >= tailFrom - Self.islandGap { tailFrom = p }
+        let islands = points.local.filter { $0 < tailFrom }
+        if !islands.isEmpty, let rows = islandRows(state, islands: islands, tailFrom: max(0, tailFrom - 1), now: now) { return rows }
+        guard var from = (points.tail + points.local).min().map({ max(0, $0 - 1) }), from > 0, from < msgs.count else {
             return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale))
         }
         // A deleted message (tombstone) owns no rows: the cut below must start at a message
@@ -1237,6 +1251,68 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         return (cut, RowBuilder.rows(state, messages: msgs, now: now, range: from..<msgs.count, previousRow: cut > 0 ? above : nil, width: bounds.width, scale: renderScale))
     }
 
+    /// Rows the last `islandRows` derived again (the rest of its rows were kept); nil after other derives.
+    private var islandFresh: Int?
+
+    /// A changed message this many messages or fewer above the newest change re-derives with the tail.
+    private static let islandGap = 8
+
+    /// `deriveRows` for changes far above the tail: each island (a changed message index, `islands`)
+    /// re-derives its message and the ones above and below it, the messages from `tailFrom` on re-derive,
+    /// and the live rows in between are kept. Nil when a kept row names no loaded message (then the
+    /// caller derives from the first island down).
+    private func islandRows(_ state: AppState, islands: [Int], tailFrom: Int, now: Date) -> (cut: Int, tail: [RowSpec])? {
+        let msgs = state.conversation.messages
+        var ranges: [Range<Int>] = []
+        for p in Set(islands).sorted() {
+            let r = max(0, p - 1)..<min(msgs.count, p + 2)
+            if let last = ranges.last, r.lowerBound <= last.upperBound {
+                ranges.removeLast(); ranges.append(last.lowerBound..<max(last.upperBound, r.upperBound))
+            } else {
+                ranges.append(r)
+            }
+        }
+        guard let first = ranges.first, first.lowerBound > 0, let last = ranges.last, last.upperBound < tailFrom, tailFrom < msgs.count else { return nil }
+        var position: [Substring: Int] = [:]
+        position.reserveCapacity(msgs.count)
+        for (i, m) in msgs.enumerated() { position.updateValue(i, forKey: Substring(m.id)) }
+        // The live rows of the first island's messages and later ones, newest first, with their message index
+        // (the trailing rows: past the last message).
+        var kept: [(spec: RowSpec, owner: Int)] = []
+        var live = model.liveCount, i = model.count
+        var above: RowSpec.Kind?
+        while i > 0 {
+            i -= 1
+            guard let r = model.rows[checked: i], !r.ghost else { continue } // checked
+            let owner: Int
+            if RowBuilder.isTrailing(r.spec.key) {
+                owner = msgs.count
+            } else if let o = RowBuilder.owner(r.spec.key), let at = position.value(for: o) { // dictionary read
+                owner = at
+            } else {
+                return nil
+            }
+            if owner < first.lowerBound { above = r.spec.kind; break }
+            live -= 1
+            kept.append((r.spec, owner))
+        }
+        kept.reverse()
+        var rows: [RowSpec] = []
+        rows.reserveCapacity(kept.count + 8)
+        var rest = ArraySlice(kept), fresh = 0
+        for r in ranges + [tailFrom..<msgs.count] {
+            while let row = rest.first, row.owner < r.lowerBound { rows.append(row.spec); rest.removeFirst() }
+            if r.upperBound == msgs.count { rest.removeAll() }
+            while let row = rest.first, row.owner < r.upperBound { rest.removeFirst() }
+            let derived = RowBuilder.rows(state, messages: msgs, now: now, range: r, previousRow: rows.last?.kind ?? (live > 0 ? above : nil),
+                                          width: bounds.width, scale: renderScale)
+            fresh += derived.count
+            rows += derived
+        }
+        islandFresh = fresh
+        return (live, rows)
+    }
+
     /// Whether the derived rows equal the model's live rows (only the re-derived tail is compared).
     private func sameRows(_ d: (cut: Int, tail: [RowSpec])) -> Bool {
         guard model.liveCount == d.cut + d.tail.count else { return false }
@@ -1251,7 +1327,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         return true
     }
 
-    private func dirtyFrom(_ action: Action, _ s: AppState, _ old: AppState) -> Int? {
+    /// The messages an action can change (indices into the new messages; each re-derives with the
+    /// message above it). `local`: a change confined to that message and its neighbours (a receipt that
+    /// came or went, a status, a reply's root and that root's other replies, whose quotes count its
+    /// replies); `tail`: a change whose rows may move every row after it. Nil: derive every row.
+    private func dirtyPoints(_ action: Action, _ s: AppState, _ old: AppState) -> (tail: [Int], local: [Int])? {
         let msgs = s.conversation.messages
         // One id -> index map per call (the last index of an id, as `lastIndex` gave): each receipt row
         // below asked `lastIndex` over every loaded message, O(400 x messages) on the main thread per
@@ -1267,22 +1347,52 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             }
             return positions[id]
         }
-        var idx: [Int] = []
-        for r in model.rows.suffix(400) where r.spec.key.hasPrefix("receipt:") {
-            if let i = index(String(r.spec.key.dropFirst("receipt:".count))) { idx.append(i) }
+        var idx: [Int] = [], local: [Int] = []
+        // cmux: a receipt row moves only when a message or its status changes. The typing dots, the
+        // host's status line and a stream's text change neither, so their commits re-derive only the
+        // trailing rows. From the receipt down, the Chief's "working on" line re-derived every message
+        // after my last read one on each change (agents working: ~5 ms of main thread per line change
+        // with ~150 messages below the receipt, between the person's keys).
+        // cmux: and of the receipts, only those that changed re-derive: the messages whose receipt
+        // came, went or changed text (RowBuilder.receiptTargets before and after; each scan stops at my
+        // newest read message). An incoming reply or work report, or my send while it is sending, moves
+        // none, so it re-derives only the newest message's rows. From every receipt row down, each one
+        // re-derived every message below my last read one (Markdown measure, link detection, thread
+        // previews: ~10 ms a frame with ~150 Chief messages under it, 2026-10-30 HomeStateChangePerfTests).
+        let receiptsMove: Bool
+        switch action {
+        case .typing, .setNotice, .streamBegin, .streamSet, .streamAppend, .streamEnd(_, nil): receiptsMove = false
+        default: receiptsMove = true
+        }
+        if receiptsMove {
+            let before = RowBuilder.receiptTargets(old.conversation.messages, me: old.me)
+            let after = RowBuilder.receiptTargets(msgs, me: s.me)
+            for (id, r) in before where after.value(for: id).map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } } // dictionary read
+            for (id, r) in after where before.value(for: id).map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } } // dictionary read
         }
         switch action {
         case .send, .receive, .streamEnd(_, _?):
             idx.append(max(0, old.conversation.messages.count - 1))
             // A reply re-derives its root and the message above it: a root's first reply moves the root into its
             // own thread (RowBuilder: the gap above the root, and the tail of the bubble above).
-            if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i); idx.append(max(0, i - 1)) }
+            // cmux: and the root's other replies (each quote of the root counts its replies, RowDrawing).
+            if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) {
+                local.append(i); local.append(max(0, i - 1))
+                for (j, x) in msgs.enumerated().dropFirst(i + 1).dropLast() where x.replyTo?.messageId == r.messageId { local.append(j) }
+            }
         case .typing, .setNotice: idx.append(max(0, msgs.count - 1))
         // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
         case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
-        case let .status(id, _): if let i = index(id) { idx.append(i) }
-        case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
+        case let .status(id, _): if let i = index(id) { local.append(i) }
+        case let .cmuxSetAttachments(updates): if let i = updates.compactMap({ index($0.id) }).min() { idx.append(i) }  // cmux
         case let .cmuxSetParts(id, _): if let i = index(id) { idx.append(i) }  // cmux
+        // cmux (2026-10-31): a link card's metadata or picture changes only the messages with that link (and the quotes
+        // of them, below them): from the first one down, not every row (each link picture that loaded re-derived the
+        // whole chat; NIGHTLY hang log, HomeQuoteRebuildCostTests).
+        case let .linkMetadata(url, _, _, _):
+            guard let i = msgs.firstIndex(where: { $0.parts.contains { if case let .link(u, _, _, _, _) = $0 { return u == url }; return false } })
+            else { return nil }
+            idx.append(i)
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)
@@ -1295,7 +1405,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if let r = msgs[checked: i]?.replyTo, let ri = index(r.messageId) { idx.append(ri) } // checked
         default: return nil
         }
-        return idx.min().map { max(0, $0 - 1) }
+        return idx.isEmpty && local.isEmpty ? nil : (idx, local)
     }
 
     /// Where the next `.replaceWindow` lands (Pager.jump): a message index of the new window,
@@ -1388,6 +1498,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     private var loadedOnce = false
+    /// cmux: rows the commits derived again so far, a running count (HomeStateChangePerfTests: a change derives
+    /// only the rows of the messages it changes, not every row under my last read message).
+    private(set) var derivedRows = 0
     /// Cells follow the model without UIKit animation; small changes keep
     /// their cells (batch update), large ones reload.
     private func applyRowChanges(oldKeys: [String]) {
@@ -2112,7 +2225,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let dy = y - lastScrollOffset
         lastScrollOffset = y
         if dy != 0 { morphs.values.forEach { $0.scroll(by: dy) }; fadingMorphs.values.forEach { $0.0.scroll(by: dy) } }
-        let back = max(0, pinnedOffset - y)
+        // cmux: an empty transcript is at its newest message wherever the clip is. A layout pass that
+        // moves the clip before a chat's first page (an unpinned Chief opened from Home's list) must
+        // not unpin it, or that page's rebuild lands at the top (https://github.com/manaflow-ai/cmux/issues/26397).
+        // A streaming first reply is something to scroll back through, so it does not count as empty.
+        let empty = store.state.conversation.messages.isEmpty && store.state.ui.streams.isEmpty
+        let back = empty ? 0 : max(0, pinnedOffset - y)
         let pinned = back < 1 && store.state.atNewest
         if pinned != store.state.ui.scroll.pinnedToBottom || abs(back - store.state.ui.scroll.offset) > 0.5 {
             store.dispatch(.setScroll(offset: back, pinned: pinned))
@@ -2479,8 +2597,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 let r = cell.convert(cell.bounds, to: self)
                 if pv.outgoing {
                     if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
-                } else if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
+                } else if p.x <= r.minX + pv.cmuxLeft + max(pv.box.width, 90) { return pv.root } // cmux: group indent
             }
+        }
+        return nil
+    }
+
+    /// cmux: the key of the transcript row under `p` (a visible cell), or nil.
+    func rowKey(at p: CGPoint) -> String? {
+        for case let cell as RowCell in collection.visibleCells where cell.convert(cell.bounds, to: self).contains(p) {
+            return cell.spec?.key
+        }
+        return nil
+    }
+
+    /// cmux: where the transcript row `key` is in this view (a visible cell, under an open thread view's
+    /// blur too), or nil when it is not on screen.
+    func rowFrame(key: String) -> CGRect? {
+        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == key {
+            return cell.convert(cell.bounds, to: self)
         }
         return nil
     }

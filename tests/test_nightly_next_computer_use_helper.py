@@ -108,7 +108,7 @@ def main():
     _check("CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT" in helper_script,
            "notarize-computer-use-helper.sh bounds its notarytool wait")
     # The architecture gate runs in both preparation legs (primary and fallback), before signing (#21024).
-    for prepare_job in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+    for prepare_job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
         prepare_steps = workflow["jobs"][prepare_job]["steps"]
         arch_step = next((str(s.get("run", "")) for s in prepare_steps if s.get("name") == "Verify nightly binary architectures"), "")
         _check("cmux Computer Use.app/Contents/MacOS/cmux-cua" in arch_step,

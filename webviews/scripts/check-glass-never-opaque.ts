@@ -456,17 +456,228 @@ export function findMissingGlassMarkup(srcDir: string = SRC): string[] {
   return found;
 }
 
+// Overlay surfaces are glass, never opaque (Leo: "Glass, never opaque"; "I don't like the
+// non-glassness"). A popover, popup, menu, dropdown, toast, sheet, dialog, card, tooltip, hover card,
+// picker, palette or bubble (a rule whose subject's class ends in one of those words: `.ui-popup`,
+// `.page-menu`, `.acpmux-summary-card`, `.lg-sheet`; not a part of one: `.ui-menu-item`) and every
+// glass rule never paint a fill that covers 90% or more of what is behind them, outside Reduce
+// Transparency: an opaque fill, a near-opaque one (`color-mix(... 94%, transparent)`, cmux#22670's
+// Updated card) or a layered stack that adds up to it. Legibility comes from the blur, tint and
+// contrast inside the glass. A surface that must stay solid says why: `/* glass-opaque-allow:
+// <reason> */` on the line before its fill, or an OVERLAY_ALLOWED entry. A gallery stage
+// (`*.gallery.css`, the gallery/ shell) and the unshipped prototypes/ are not product surfaces.
+const OVERLAY_ROLE =
+  /^(?:popover|popup|menu|dropdown|toast|sheet|dialog|card|tooltip|hovercard|picker|palette|bubble)s?$/i;
+// The least share a fill may leave of what is behind it: at 90% or more a fill reads as solid.
+export const NEAR_OPAQUE = 0.9;
+// Host tokens (WebTheme.swift) the CSS never defines, by the least alpha they paint at.
+const HOST_ALPHA = new Map<string, number>([
+  // CardMaterial: the popup surface at no less than 90% (glass.cardOpacity), mostly opaque.
+  ["--cmux-card-tint", 0.9],
+]);
+// Overlay rules that stay solid on purpose, keyed `file selector`, with the reason (the PR that added
+// an entry lists it; design/overlay-surfaces.md in leo-workspace holds the policy).
+export const OVERLAY_ALLOWED = new Map<string, string>([
+  [
+    "optchat-inspector/styles.css .card",
+    "the OptChat developer inspector's in-page report cards, on its own page, not floating over anything",
+  ],
+  [
+    "pages/chief-views/styles.css .cv-card",
+    "a Chief view's in-page content card, on its own page, not floating (Chief area: its owners' call)",
+  ],
+  [
+    "agent-session/acpmux/conversation/conversation.css .acpmux-image-viewer",
+    "the full-pane image viewer: a blurred lightbox that sets the image apart from the chat, not a floating card",
+  ],
+  [
+    "agent-session/acpmux/summary/summary.css .acpmux-chat-gallery",
+    "the chat's full-pane image gallery: the image viewer's blurred lightbox, not a floating card",
+  ],
+]);
+// Overlays that are solid today and are being made glass, keyed `file selector`, with what fixes it.
+// Each fails as stale once its fill is glass, so the entry goes with the fix.
+export const OVERLAY_PENDING = new Map<string, string>([
+  ["pages/settings/styles.css .menus-move-picker", "Settings' Menus move picker paints the solid popup surface"],
+  ["pages/shared/pageBase.css .page-menu", "the shared page menu paints the solid popup surface, not .ui-glass"],
+  ["pages/cloud/styles.css .cloud-create-sheet", "Cloud's create sheet paints the elevated surface"],
+  ["pages/home-channels/ledger.css .lg-sheet", "the ledger's side sheet paints its solid surface"],
+  [
+    "pages/home-channels/ledger.css .lg-palette.ui-dialog, .lg-palette",
+    "the ledger's palette dialog paints the solid popup surface",
+  ],
+  [
+    "pages/home-channels/ledger.css .lg-form.ui-dialog, .lg-form",
+    "the ledger's form dialog paints the solid popup surface",
+  ],
+  ["pages/markdown/styles.css .cmux-comment-card", "the Markdown viewer's comment card paints the elevated surface"],
+  ["ui/ui.css .ui-sheet", "the shared sheet paints --ui-surface, not the glass"],
+  ["ui/findPill.css .find-pill", "the find pill paints the card material (--cmux-card-tint, at least 90%)"],
+  [
+    "pages/markdown/styles.css .md-link-bubble",
+    "the Markdown link editor popover paints --cmux-md-popover-background (the solid popup surface) over its glass",
+  ],
+]);
+
+function blockSubjects(selector: string): string[] {
+  return splitArgs(selector).map((part) => {
+    let depth = 0;
+    let subject = "";
+    for (const ch of part) {
+      if (ch === "(" || ch === "[") depth++;
+      else if (ch === ")" || ch === "]") depth--;
+      if (depth === 0 && /[\s>+~]/.test(ch)) subject = "";
+      else subject += ch;
+    }
+    return subject;
+  });
+}
+
+/** The rule's subject is an overlay surface: one of its classes (BEM modifier dropped) ends in a role. */
+export function targetsOverlay(selector: string): boolean {
+  return blockSubjects(selector).some((subject) =>
+    [...subject.replace(/\[[^\]]*\]|\([^)]*\)/g, "").matchAll(/\.([\w-]+)/g)].some((match) => {
+      const name = (match[1] ?? "").replace(/--[\w-]*$/, "");
+      return OVERLAY_ROLE.test(name.split(/__|-|_/).at(-1) ?? "");
+    }),
+  );
+}
+
+/** The least alpha a fill provably paints at, or null when this cannot tell. A layered background
+ * paints what its layers add up to. */
+export function fillAlpha(raw: string, seen = new Set<string>()): number | null {
+  const value = raw.trim();
+  const lower = value.toLowerCase();
+  if (lower === "transparent" || lower === "none") return 0;
+  if (NAMED_UNKNOWN.has(lower)) return null;
+  if (!call(value) && splitArgs(value).length > 1) {
+    let clear = 1;
+    let known = false;
+    for (const layer of splitArgs(value)) {
+      const alpha = fillAlpha(layer, seen);
+      if (alpha === null) continue;
+      known = true;
+      clear *= 1 - alpha;
+    }
+    return known ? 1 - clear : null;
+  }
+  const fn = call(value);
+  // A literal (a hex or named color) classify can call opaque. A function is measured below: classify
+  // calls a mix of two opaque colors opaque whatever its shares, also through a token, and shares
+  // under 100% leave the rest transparent.
+  if (!fn && classify(value, seen) === "opaque") return 1;
+  if (/^#[0-9a-f]{4}$/i.test(value)) return Number.parseInt(value.slice(4), 16) / 15;
+  if (/^#[0-9a-f]{8}$/i.test(value)) return Number.parseInt(value.slice(7), 16) / 255;
+  if (!fn) return null;
+  if (fn.name === "var") {
+    const [name = "", ...rest] = fn.args;
+    const defs = tokens.get(name);
+    if (!defs) {
+      const host = HOST_ALPHA.get(name) ?? (HOST_SOLID.test(name) ? 1 : undefined);
+      if (host !== undefined) return host;
+      return rest.length ? fillAlpha(rest.join(","), seen) : null;
+    }
+    if (seen.has(name)) return null;
+    const next = new Set(seen).add(name);
+    const alphas = defs.map((def) => fillAlpha(def, next));
+    return alphas.some((alpha) => alpha === null) ? null : Math.min(...(alphas as number[]));
+  }
+  if (fn.name === "light-dark") {
+    const alphas = fn.args.map((arg) => fillAlpha(arg, seen));
+    return alphas.some((alpha) => alpha === null) ? null : Math.min(...(alphas as number[]));
+  }
+  if (/^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)$/.test(fn.name)) {
+    const legacy = fn.args.length === 4 ? Number.parseFloat(fn.args[3] ?? "") : null;
+    const alpha = legacy !== null ? legacy / ((fn.args[3] ?? "").endsWith("%") ? 100 : 1) : alphaOf(fn.args.join(" "));
+    // No alpha at all: opaque, unless a token may carry one. An alpha this cannot read (`/ calc(...)`)
+    // is unknown, not opaque.
+    if (alpha === null) return value.includes("var(") || value.includes("/") || fn.args.length > 3 ? null : 1;
+    return Number.isNaN(alpha) ? null : alpha;
+  }
+  if (fn.name === "color-mix") {
+    const parts = fn.args.slice(1).map((arg) => {
+      const pct = /\s(\d+(?:\.\d+)?)%\s*$|^(\d+(?:\.\d+)?)%\s/.exec(arg);
+      const color = arg.replace(/\s\d+(?:\.\d+)?%\s*$|^\d+(?:\.\d+)?%\s/, "").trim();
+      return { color, share: pct ? Number(pct[1] ?? pct[2]) : null };
+    });
+    if (parts.length !== 2) return null;
+    const [a, b] = parts as [(typeof parts)[0], (typeof parts)[0]];
+    const shareA = a.share ?? (b.share !== null ? 100 - b.share : 50);
+    const shareB = b.share ?? (a.share !== null ? 100 - a.share : 50);
+    // Shares over 100% are scaled down to it; under 100%, the rest is transparent.
+    const scale = shareA + shareB > 100 ? 100 / (shareA + shareB) : 1;
+    const alphaA = shareA > 0 ? fillAlpha(a.color, seen) : 0;
+    const alphaB = shareB > 0 ? fillAlpha(b.color, seen) : 0;
+    if (alphaA === null || alphaB === null) return null;
+    return ((shareA * alphaA + shareB * alphaB) * scale) / 100;
+  }
+  return null;
+}
+
+/** Every overlay surface or glass rule under srcDir whose fill covers NEAR_OPAQUE or more outside
+ * Reduce Transparency, as `file:line: selector { prop: value }`, then every OVERLAY_ALLOWED or
+ * OVERLAY_PENDING entry nothing matched (`stale: …`). A glass rule's provably opaque fill is
+ * findOpaqueGlass's, so it is not repeated here. */
+export function findOpaqueOverlays(srcDir: string = SRC): string[] {
+  const found: string[] = [];
+  const used = new Set<string>();
+  for (const block of glassContextRules(srcDir)) {
+    if (block.file.endsWith(".gallery.css") || /^(?:gallery|prototypes)\//.test(block.file)) continue;
+    const overlay = targetsOverlay(block.selector);
+    const tooltip = TOOLTIP.test(block.selector);
+    const glass =
+      blurs(block) || /\.[\w-]*glass[\w-]*/i.test(block.selector) || tooltip || targetsRequiredGlass(block.selector);
+    if (!overlay && !glass) continue;
+    const key = `${block.file} ${block.selector}`;
+    if (tooltip && TOOLTIP_FILL_OVERRIDDEN.has(key)) continue;
+    for (const d of block.decls) {
+      if (d.allowed || (d.prop !== "background" && d.prop !== "background-color")) continue;
+      if (glass && classify(d.value) === "opaque") continue;
+      const alpha = fillAlpha(d.value);
+      if (alpha === null || alpha < NEAR_OPAQUE) continue;
+      if (OVERLAY_ALLOWED.has(key) || OVERLAY_PENDING.has(key)) {
+        used.add(key);
+        continue;
+      }
+      found.push(`${block.file}:${d.line}: ${block.selector} { ${d.prop}: ${d.value.replace(/\s+/g, " ")} }`);
+    }
+  }
+  if (srcDir === SRC) {
+    for (const key of [...OVERLAY_ALLOWED.keys(), ...OVERLAY_PENDING.keys()]) {
+      if (!used.has(key)) found.push(`stale: ${key} is glass now (or gone); remove its entry`);
+    }
+  }
+  return found;
+}
+
+const RULE_TEXT = [
+  'The rule: "Glass, never opaque" (Leo). Popovers, cards, menus, toasts and sheets are glass:',
+  "legibility comes from the blur, tint and contrast inside the glass, never an opaque or near-opaque",
+  "fill. Reduce Transparency is the only opaque fallback (glass.css applies --glass-opaque under it).",
+  "A surface that must stay solid is allowlisted with a written reason: /* glass-opaque-allow: <reason> */",
+  "before its fill, or an OVERLAY_ALLOWED entry (design/overlay-surfaces.md in leo-workspace).",
+].join("\n  ");
+
 if (import.meta.main) {
+  let failed = false;
   for (const line of findSolidTooltipMarkup()) {
     console.error(`a tooltip is never solid (add ui-glass): ${line}`);
-    process.exitCode = 1;
+    failed = true;
   }
   for (const line of findMissingGlassMarkup()) {
     console.error(`a floating surface is glass (add ui-glass): ${line}`);
-    process.exitCode = 1;
+    failed = true;
   }
-  const found = findOpaqueGlass();
-  for (const line of found) console.error(`glass is never opaque: ${line}`);
-  if (found.length) process.exitCode = 1;
-  else console.log("Glass fills checked: none opaque.");
+  for (const line of findOpaqueGlass()) {
+    console.error(`glass is never opaque: ${line}`);
+    failed = true;
+  }
+  for (const line of findOpaqueOverlays()) {
+    console.error(`an overlay surface is glass, never opaque: ${line}`);
+    failed = true;
+  }
+  if (failed) {
+    console.error(`  ${RULE_TEXT}`);
+    process.exitCode = 1;
+  } else console.log("Glass fills checked: none opaque.");
 }

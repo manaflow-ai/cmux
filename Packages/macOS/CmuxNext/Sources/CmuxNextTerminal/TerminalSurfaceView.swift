@@ -135,12 +135,14 @@ public final class TerminalSurfaceView: NSView {
         MainActor.assumeIsolated {
             for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
             TerminalSecureInput.release(self)
-            if let surface {
-                lane?.close()
-                ghostty_surface_free(surface)
+            guard let surface else {
+                bridge.release()
+                return
             }
-            // Released after free: free joins the IO thread that reads the bridge.
-            bridge.release()
+            // The lane frees the surface after its chunk in flight; this never waits for it
+            // (``TerminalOutputLane/close(then:)``).
+            let teardown = TerminalSurfaceTeardown(surface: surface, bridge: bridge)
+            if let lane { lane.close(then: teardown) } else { teardown.run() }
         }
     }
 

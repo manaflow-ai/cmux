@@ -13,6 +13,7 @@ import { resetLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
 import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { resetReferenceExistence } from "../src/agent-session/acpmux/chips/referenceExistence";
 import { newReferenceScopeCache, referenceScopes } from "../src/agent-session/acpmux/conversation/bareReferences";
+import { setMessageOpened } from "../src/agent-session/acpmux/conversation/incomingOpened";
 import { useDom } from "./support/unknownWrite";
 
 const dom = useDom();
@@ -251,6 +252,9 @@ test("an agent's message: its own address names the repository of its bare #N", 
   const text = `[lane] #24175 merged: ${pr(CMUX, 24175)}. Next #24175 follow-up.`;
   const raw = `<agent-message from="lane">${text}</agent-message>`;
   const message = row("user", { text: raw, incoming: { kind: "message", message: { name: "lane", text, raw } } });
+  // Another agent's message is one line until opened, its whole text (and its chips) in the panel
+  // (IncomingMessageCard.tsx, #27312): the person opened this one.
+  setMessageOpened(undefined, message.id, true);
   const view = await render([message], []);
   const refs = view.chips().filter(([label]) => label === "#24175");
   expect(refs.length).toBeGreaterThan(0);

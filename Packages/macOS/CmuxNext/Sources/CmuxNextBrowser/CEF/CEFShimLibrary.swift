@@ -68,6 +68,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let goBack: @convention(c) (Int32) -> Void
     let goForward: @convention(c) (Int32) -> Void
     let reload: @convention(c) (Int32) -> Void
+    let reloadIgnoreCache: @convention(c) (Int32) -> Void
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
@@ -282,6 +283,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Opens the shim at `url`, resolves every symbol and checks that its ABI
     /// identity is `expected` (`CEFShimABI.bundledIdentity()`).
     static func open(_ url: URL, expected: String?) throws(LoadError) -> CEFShimLibrary {
+        // concurrency-allow: the library-load thread (CEFRuntime.loadLibrary, Task.detached; the debug-window startBlocking path has no caller); the shim is a few MB, so the loader lock is held briefly
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }
@@ -338,6 +340,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         goBack = try r("cmux_shim_go_back")
         goForward = try r("cmux_shim_go_forward")
         reload = try r("cmux_shim_reload")
+        reloadIgnoreCache = try r("cmux_shim_reload_ignore_cache")
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")

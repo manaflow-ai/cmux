@@ -41,6 +41,21 @@ public final class OmnibarToolbarView: ArrowCursorView {
         forward = navigation ? ChromeIconButton(icon: .browserToolbarForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false) : nil
         reload = navigation ? ChromeIconButton(icon: .browserToolbarReload, label: Strings.reload, action: nil, target: nil, toolbar: true, toolTip: false) : nil
         super.init(frame: .zero)
+        // The row is `preferredHeight` tall unless its host sets a height (the popup window's row).
+        setContentHuggingPriority(.defaultHigh, for: .vertical)
+        setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
+        // Both layouts below end here: the row follows density and `browser.omnibar.*` sizes live.
+        defer {
+            density.update { [weak self] in
+                guard let self else { return }
+                let height = preferredHeight
+                if height != shownHeight {
+                    shownHeight = height
+                    invalidateIntrinsicContentSize()
+                }
+            }
+            density.start()
+        }
         // The bar lays itself out with constraints (it turns off autoresizing), so the row places
         // it the same way, as the browser toolbar does.
         addSubview(addressBar)
@@ -93,6 +108,8 @@ public final class OmnibarToolbarView: ArrowCursorView {
 
     /// Re-applies the metrics when the density changes (`DensityBinding`).
     private let density = DensityBinding()
+    /// The height `intrinsicContentSize` last reported.
+    private var shownHeight: CGFloat?
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -100,6 +117,18 @@ public final class OmnibarToolbarView: ArrowCursorView {
     /// The browser toolbar row's height on this window's pixel grid (else the main screen's).
     public var preferredHeight: CGFloat {
         OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: hasButtons)
+    }
+
+    /// The row's height (`preferredHeight`); a density or `browser.omnibar.*` size change
+    /// invalidates it, so a host that leaves the height to the row (the Markdown tab) follows live.
+    public override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: preferredHeight)
+    }
+
+    /// The window's pixel grid snaps the height.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        invalidateIntrinsicContentSize()
     }
 
     nonisolated public override var isFlipped: Bool { true }

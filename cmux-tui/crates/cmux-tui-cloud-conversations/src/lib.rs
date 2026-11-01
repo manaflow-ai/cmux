@@ -30,8 +30,9 @@ pub use host_replica::{
     HostReplicaParams, HostSource, valid_host_id,
 };
 pub use service::{
-    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, PutBody,
-    RangeReply, RequestPermit, ServiceOptions, TransportError, WireRecv,
+    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply,
+    INBOX_ALL_BUDGET, MAX_INBOX_PAGES, PutBody, RangeReply, RequestPermit, ServiceOptions,
+    TransportError, WireRecv,
 };
 pub use session::SessionParams;
 pub use stream::CloudEvent;

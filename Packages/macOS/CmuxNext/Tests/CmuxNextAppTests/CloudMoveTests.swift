@@ -33,7 +33,9 @@ struct CloudMoveTests {
             let synced = move.workRoot.appendingPathComponent(moved.folderName).path
             #expect(moved.calls.first == ["link", "sync", "push", "--socket", move.vmSocket, move.project.path, synced])
             #expect(moved.calls.dropFirst().first == ["link", "agent", "move", "--from-socket", moved.macSocket, "--surface", String(moved.surface),
-                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--vm-kind", "none"],
+                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--interrupt",
+                                                     "--sync", "push", "--sync-socket", move.vmSocket, "--sync-local", move.project.path,
+                                                     "--sync-remote", synced, "--vm-kind", "none"],
                     "no link said this caller owns the machine: the pump says so, and the machine refuses")
             #expect(moved.calls.count == 2)
             // The machine shows the chat: bound to the moved session through that machine's store.
@@ -47,6 +49,19 @@ struct CloudMoveTests {
             // This Mac's tab is gone (its chat closed with the move), with nothing left to retry.
             #expect(!moved.macStillHasTab)
             #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
+    /// A CLI run whose daemon command reports an event sequence (here a rename of the chat tab) answers once a
+    /// snapshot shows that sequence, never at its deadline. A move whose window-record save (a focus move) joined
+    /// its run waited out the whole minute on aws-m4pro-8, where that save opened inside the run.
+    @Test func aCLIRunThatSendsADaemonCommandAnswersOnceTheSnapshotShowsIt() async throws {
+        try await Self.withMove("moves") { move in
+            let started = ContinuousClock.now
+            let error = await move.cli("tab rename", args: ["name": .string("Renamed Chat")])
+            let took = ContinuousClock.now - started
+            #expect(error == nil, "cmux tab rename: \(error.map { "\($0.code) \($0.message)" } ?? "")")
+            #expect(took < .seconds(10), "the run answered after \(took), not once its rename showed")
         }
     }
 
@@ -64,7 +79,7 @@ struct CloudMoveTests {
         try await Self.withMove(stop.rawValue) { move in
             let error = await move.run()
             #expect(error != nil, "the move did not report that it stopped")
-            #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though its chat is not on the machine")
+            #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil, "this Mac's tab closed though its chat is not on the machine")
             let calls = move.calls()
             #expect(calls.count == 2, "\(calls)")
             let retry = move.services.cloud.moveRetries[move.key]
@@ -99,7 +114,7 @@ struct CloudMoveTests {
         try await Self.withMove("syncTimeout") { move in
             let error = await move.run()
             #expect(error != nil, "the move did not report that it stopped")
-            #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though nothing moved")
+            #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil, "this Mac's tab closed though nothing moved")
             #expect(move.calls().count == 1, "the chat moved after a failed sync: \(move.calls())")
             let retry = move.services.cloud.moveRetries[move.key]
             #expect(retry == .move(machineID: "vm-move"), "Retry does not run the move again on its machine: \(String(describing: retry))")
@@ -219,7 +234,7 @@ struct CloudMoveTests {
             let error = try #require(await move.run(), "the move did not report the older machine")
             #expect(error.message == CloudMoveStrings.outdatedMachine("Move VM"), "\(error.message)")
             #expect(move.calls().count == (mode == "syncOutdated" ? 1 : 2), "\(move.calls())")
-            #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though its chat did not move")
+            #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil, "this Mac's tab closed though its chat did not move")
             #expect(move.services.cloud.moveRetries[move.key] == .update(machineID: "vm-move"))
         }
     }
@@ -254,7 +269,7 @@ struct CloudMoveTests {
             }
             #expect(performed.contains(.cli), "the CLI's invocation never ran: \(performed)")
             #expect(!move.calls().contains { $0.prefix(3) == ["link", "machine", "update"] }, "an update ran: \(move.calls())")
-            #expect(move.services.locateTab(move.tabID) != nil)
+            #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil)
 
             // The toast's "Update Machine".
             let before = move.calls().count
@@ -284,7 +299,7 @@ struct CloudMoveTests {
             #expect(move.services.cloud.moveRetries[move.key] == nil, "a machine too old to update offers a retry")
             let calls = move.calls()
             #expect(calls.last == ["link", "machine", "update", "--socket", move.vmSocket], "the move ran after a refused update: \(calls)")
-            #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though its chat did not move")
+            #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil, "this Mac's tab closed though its chat did not move")
         }
     }
 
@@ -296,7 +311,7 @@ struct CloudMoveTests {
             #expect(error.message != CloudMoveStrings.outdatedMachine("Move VM"), "\(error.message)")
             #expect(error.message.hasPrefix(CloudMoveStrings.moveFailed("")), "\(error.message)")
             #expect(!error.message.contains("update the machine"), "\(error.message)")
-            #expect(move.services.locateTab(move.tabID) != nil)
+            #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil)
         }
     }
 
@@ -336,7 +351,7 @@ struct CloudMoveTests {
             #expect(await move.answer(id, "notNow", gesture: true)["ok"] as? Bool == true)
             #expect(await move.toolCards(waiting: false)?.isEmpty == true, "the card stayed after Not now")
             #expect(move.calls().isEmpty, "Not now moved the chat: \(move.calls())")
-            #expect(move.services.locateTab(move.tabID) != nil)
+            #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil)
         }
     }
 
@@ -398,11 +413,11 @@ struct CloudMoveTests {
             let deadline = ContinuousClock.now + .seconds(60)
             func ready() -> Bool {
                 machine.daemon.connection != nil && AgentTabStore.registryHost(of: machine.daemon) != nil
-                    && (tabClosed || services.locateTab(tabID) != nil)
+                    && (tabClosed || services.locateTab(tabID, onMachine: services.machines.local.machineID) != nil)
             }
             while !ready(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
             try #require(ready(), "the relaunched app did not reconnect, or does not show this Mac's chat tab")
-            if !tabClosed { #expect(services.locateTab(tabID)?.0.id == key, "the relaunched app keys this Mac's chat tab differently") }
+            if !tabClosed { #expect(services.locateTab(tabID, onMachine: services.machines.local.machineID)?.0.id == key, "the relaunched app keys this Mac's chat tab differently") }
         }
 
         /// `cmux cloud move` on the chat tab, without waiting for it.
@@ -418,6 +433,12 @@ struct CloudMoveTests {
         func run() async -> ControlError? {
             await send(["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
                         "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)])])
+        }
+
+        /// `cmux <action>` on the chat tab, as the CLI sends it; its error when it stopped.
+        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
+            await send(["action": .string(action), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+                        "target": .string("tab:" + tabID), "args": .object(args)])
         }
 
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
@@ -457,14 +478,7 @@ struct CloudMoveTests {
         }
 
         private static func send(_ services: AppServices, _ params: [String: CmuxNextSettings.JSONValue]) async -> ControlError? {
-            let bridge = RegistryControlBridge(registry: services.registry)
-            let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
-                                                                 processID: getpid()),
-                                       executor: bridge, settings: nil,
-                                       configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
-            router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
-            if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) { return error }
-            return nil
+            await CloudCLIActionRun(services: services)(params)
         }
 
         /// The stand-in CLI's calls so far, each as its arguments; not `link access` (a moved chat's
@@ -489,7 +503,7 @@ struct CloudMoveTests {
                 }
                 return nil
             }
-            while machineChat() == nil || services.locateTab(tabID) != nil, ContinuousClock.now < deadline {
+            while machineChat() == nil || services.locateTab(tabID, onMachine: services.machines.local.machineID) != nil, ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(50))
             }
             if let (tab, pane) = machineChat() {
@@ -502,7 +516,7 @@ struct CloudMoveTests {
                     moved.terminalFolders = listed.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty }.compactMap(\.cwd)
                 }
             }
-            moved.macStillHasTab = services.locateTab(tabID) != nil
+            moved.macStillHasTab = services.locateTab(tabID, onMachine: services.machines.local.machineID) != nil
             moved.calls = calls()
             moved.folderName = moved.calls.first?.last.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
             return moved
@@ -604,8 +618,8 @@ struct CloudMoveTests {
         let created = try await connection.request(NewConversationTabRequest(agentSession: record, pane: pane.handle))
         move.tabID = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
         move.surface = created.surface.rawValue
-        while services.locateTab(move.tabID) == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
-        move.key = try #require(services.locateTab(move.tabID)?.0.id, "the chat tab did not appear")
+        while services.locateTab(move.tabID, onMachine: services.machines.local.machineID) == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        move.key = try #require(services.locateTab(move.tabID, onMachine: services.machines.local.machineID)?.0.id, "the chat tab did not appear")
     }
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,

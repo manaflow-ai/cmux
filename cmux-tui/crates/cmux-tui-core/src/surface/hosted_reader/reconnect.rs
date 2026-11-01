@@ -19,6 +19,11 @@ impl HostedReader {
             if pty.owner_detaching.load(Ordering::Acquire) {
                 return None;
             }
+            // The user's recover ended the unreachable host: retry from a
+            // fresh, short backoff (the next look finds it dead and rehosts).
+            if pty.recover_requested.swap(false, Ordering::AcqRel) {
+                retry = TerminalHostReconnectBackoff::retrying_after_failure();
+            }
             let discovery = {
                 let runtime = pty.runtime.lock().unwrap();
                 match &*runtime {
@@ -112,6 +117,19 @@ impl HostedReader {
                     // runtime swap atomic with respect to mux
                     // resize/release operations.
                     let supports_clear_history = replacement.supports_clear_history();
+                    #[cfg_attr(not(unix), allow(unused_mut))]
+                    let mut replacement = replacement;
+                    // The owner's PTY master copy stays with the terminal
+                    // across reconnects: a reconnect whose completion fails
+                    // never starts a stream to take it again, and without it
+                    // a later host death (or Recover) hangs up the shell.
+                    #[cfg(unix)]
+                    if let PtyRuntime::Hosted(current) = &mut *runtime
+                        && !replacement.holds_pty_custody()
+                        && let Some(custody) = current.take_pty_custody()
+                    {
+                        replacement.keep_pty_custody(custody);
+                    }
                     *runtime = PtyRuntime::Hosted(Box::new(replacement));
                     pty.supports_clear_history_key_fallback
                         .store(supports_clear_history, Ordering::Release);

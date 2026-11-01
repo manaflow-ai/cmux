@@ -20,6 +20,23 @@ extension NSWorkspace {
         }
     }
 
+    /// Opens `url` in its default app and brings that app to the front: for an open the person
+    /// asked for (Sign In), where a page that appears behind cmux reads as a click that did
+    /// nothing. Call it from the click, while cmux is active. The open is asynchronous (it never
+    /// waits on LaunchServices), and cmux first yields activation to the handler so
+    /// cooperative activation lets it come forward. Returns false when no app opens `url`.
+    @MainActor @discardableResult
+    public func openInForeground(_ url: URL) -> Bool {
+        guard let app = urlForApplication(toOpen: url) else { return false }
+        if let bundleID = Bundle(url: app)?.bundleIdentifier {
+            NSApp.yieldActivation(toApplicationWithBundleIdentifier: bundleID)
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        open([url], withApplicationAt: app, configuration: configuration)
+        return true
+    }
+
     /// Selects `urls` in a Finder window.
     public func revealInBackground(_ urls: [URL]) {
         DispatchQueue.global(qos: .userInitiated).async {

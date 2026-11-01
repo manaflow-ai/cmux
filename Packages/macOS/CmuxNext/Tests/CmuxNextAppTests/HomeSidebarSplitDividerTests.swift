@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextHome
 @testable import MessagesLabSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The Home split draws its divider only where it is (live-qa 2026-10-21, nightly 3a63d6d): a Home
@@ -10,6 +11,7 @@ import Testing
 /// NSSplitView draws each divider in a layer of its own (a sublayer whose delegate is the split view).
 /// The test reads those layers' frames after the clamp and after a width set outside layout.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeSidebarSplitDividerTests {
     /// The split's divider layers: its own sublayers, drawn by the split view (the list and the chat
     /// columns are its subviews' backing layers).

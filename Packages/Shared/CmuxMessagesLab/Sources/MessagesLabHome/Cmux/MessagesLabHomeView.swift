@@ -31,6 +31,8 @@ public final class MessagesLabHomeView: NSView {
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
+        // Agent-message folds as muted caption lines, not bubbles (user 2026-10-31).
+        HomeAgentFoldRowProvider.install()
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
@@ -312,12 +314,30 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
+    /// multiplayer); empty shows none. `label` is what VoiceOver reads for them.
+    public func setHeaderFaces(_ faces: [PaneHeaderFace], label: String) {
+        controller.host.paneHeader.faces = faces
+        controller.host.paneHeader.facesLabel = label
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The header's faces as drawn now, and their VoiceOver label (tests and `debug.home.drive`).
+    public var debugHeaderFaces: (faces: [PaneHeaderFace], shown: Bool, label: String) {
+        let header = controller.host.paneHeader
+        return (header.faces, !header.facesView.isHidden && header.facesView.frame.width > 0, header.facesLabel)
+    }
+    #endif
+
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
     public var avatarText: String? {
         get { projection.initialsOverride }
         set { projection.initialsOverride = newValue }
     }
+
+    /// The letters the header's monogram shows: ``avatarText``, else the monogram of the header's name.
+    public var shownInitials: String { controller.host.paneHeader.initials }
 
     /// The header's name; nil shows the conversation's title.
     public var headerTitle: String? {
@@ -585,10 +605,16 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): the field's height and, for the newest
     /// receipt row with a row under it, its top to that row's body (macOS 27
-    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt).
+    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt), and
+    /// where the transcript rests (`scrollOffset`, `scrollBottom`, `scrollTop`, `pinned`).
     public func debugGeometry() -> [String: Double] {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
+        // Where the transcript rests: its offset, the bottom (newest message) and top ends, and the pin.
+        out["scrollOffset"] = Double(demo.collection.contentOffset.y)
+        out["scrollBottom"] = Double(demo.pinnedOffset)
+        out["scrollTop"] = Double(demo.minOffset)
+        out["pinned"] = demo.store.state.ui.scroll.pinnedToBottom && demo.store.state.atNewest ? 1 : 0
         let rows = demo.model.rows
         // crash program: no index math.
         for (i, row) in rows.enumerated().reversed().dropFirst() where !row.ghost {
@@ -679,6 +705,21 @@ public final class MessagesLabHomeView: NSView {
             for (i, part) in m.parts.enumerated() {
                 if case let .attachment(a) = part, a.kind == "video" {
                     projection.toggleVideo(PartRef(messageId: m.id, partIndex: i), a.id)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Automation: opens the newest video bubble in the large viewer through the double-click's
+    /// path (`ChatIntents.openVideo`).
+    public func debugOpenNewestVideo() -> Bool {
+        guard let store = controller.store else { return false }
+        for m in store.state.conversation.messages.reversed() {
+            for (i, part) in m.parts.enumerated() {
+                if case let .attachment(a) = part, a.kind == "video" {
+                    projection.openVideo(PartRef(messageId: m.id, partIndex: i), a.id)
                     return true
                 }
             }

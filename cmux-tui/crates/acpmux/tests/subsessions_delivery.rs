@@ -245,6 +245,12 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert!(!row.to_string().contains(&key), "{row}");
     let list = p.ok("_acpmux/subsession/list", json!({})).await;
     assert!(!list.to_string().contains(&key), "{list}");
+    // So does every summary of it: what the app's sidebar row and `acpmux ls --fields
+    // turn.activity` read over a local connection (its prompt, the person's own text, stays raw).
+    let all = Client::new(&hub).ok("_acpmux/sessions", json!({})).await;
+    let own = all["sessions"].as_array().unwrap().iter().find(|s| s["sessionId"] == q).unwrap();
+    let activity = own["turn"]["activity"].as_str().unwrap();
+    assert!(activity.starts_with("curl -H") && !activity.contains(&key), "{own}");
     let sent =
         p.ok(SEND, json!({"sessionId": q, "text": "echo later", "deliver": "next_step"})).await;
     assert_eq!(sent["delivery"], "queued", "{sent}");

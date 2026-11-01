@@ -12,6 +12,26 @@ import CmuxNextServer
 /// installing run in tasks; failures surface as a sheet in the UI and as a
 /// refusal on the control socket.
 enum RemoteHandlers {
+    /// Whether the observation task should end before handling this update.
+    static func shouldEndConnectionObservation(status: SSHConnectionMachine.Status) -> Bool {
+        status == .offline
+    }
+
+    /// A daemon failure belongs to one stamped connection attempt. An old failure
+    /// must never reopen recovery after a newer Retry or Reconnect has started.
+    static func shouldPresentDaemonFailure(_ failure: SSHMachineSession.DaemonFailure?, currentAttemptID: UInt64) -> Bool {
+        failure?.attemptID == currentAttemptID
+    }
+
+    /// With no active window, a focused connect needs a window for its persistent
+    /// recovery sheet. A loaded daemon is handled by `CloudHandlers.show` instead.
+    static func shouldOpenRecoveryWindow(loaded: Bool, hasWindow: Bool,
+                                         status: SSHConnectionMachine.Status,
+                                         failure: SSHMachineSession.DaemonFailure?,
+                                         currentAttemptID: UInt64) -> Bool {
+        !loaded && !hasWindow && (status.needsRecovery || shouldPresentDaemonFailure(failure, currentAttemptID: currentAttemptID))
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // A joined machine's menu rows (Labs `labs.machineJoin`): Check, Rotate Credential, Revoke….
         MachineSectionHostView.bindJoinedActions(into: registry, context: context)
@@ -23,11 +43,13 @@ enum RemoteHandlers {
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
         }
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in
-            let interactive = !registry.isCapturingRefusal
+            // A CLI/MCP run stays headless unless it explicitly requests focus;
+            // capture and automation must not steal the person's active window.
+            let interactive = invocation.allowsViewChange
             let connect = { (text: String) in
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
-                                              offerInstall: interactive)
+                                              offerInstall: interactive, byPerson: invocation.isPersonsRequest)
                 if interactive { showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue {
@@ -84,7 +106,7 @@ enum RemoteHandlers {
             registry.track(work)
         }
         CloudHandlers.bind("remote.reconnect", registry, reason: hasMachine) { invocation in
-            ssh.reconnect(try machine(invocation, context))
+            ssh.reconnect(try machine(invocation, context), byPerson: invocation.isPersonsRequest)
         }
         CloudHandlers.bind("remote.disconnect", registry, reason: hasMachine) { invocation in
             ssh.disconnect(try machine(invocation, context))
@@ -163,26 +185,53 @@ enum RemoteHandlers {
         throw ActionFailure(message: RemoteStrings.noMachine)
     }
 
-    /// After a Connect from the UI: shows the machine's first workspace in
+    /// After Connect from the UI or CLI: shows the machine's first workspace in
     /// the active window once its tree loads (creating one when it has
-    /// none). Gives up when the machine stops connecting.
+    /// none). Keeps recovery available through retries; ends on dismissal or disconnect.
     static func showWhenConnected(_ session: SSHMachineSession, _ context: AppActionContext) {
+        session.connectPresentationTask?.cancel()
+        session.connectRecovery?.stop()
+        let target = ActionTargetRef(kind: .machine, id: session.machineID)
+        let recovery = SSHConnectRecovery(
+            retry: {
+                context.services.ssh.reconnect(session)
+            },
+            check: { context.registry.perform("machine.doctor", invocation: ActionInvocation(target: target)) },
+            copy: { context.copy($0) },
+            dismissed: { [weak session] in session?.connectPresentationTask?.cancel() })
+        session.connectRecovery = recovery
         let daemon = session.daemon
-        // task-owner: ends when the tree loads or the machine stops connecting
-        Task { @MainActor in
-            for await (loaded, status) in ObservationStream({ (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus) }) {
+        var requestedRecoveryWindow = false
+        // task-owner: ends on loaded workspace, disconnect, dismissal, removed session, or closed window.
+        session.connectPresentationTask = Task { @MainActor in
+            defer { recovery.stop() }
+            for await (loaded, status, failure, attemptID, hasWindow) in ObservationStream({
+                (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus, session.daemonFailure,
+                 session.connectionAttemptID, context.services.windows.active?.window != nil)
+            }) {
+                guard !Task.isCancelled else { return }
                 if loaded {
+                    recovery.stop()
                     let id: String?
-                    if let first = daemon.store.workspaces.first { id = first.id } else { id = await context.services.windows.createWorkspace(on: daemon) }
-                    if let id { CloudHandlers.show(id, context) }
+                    if let first = daemon.store.workspaces.first { id = first.id }
+                    else { id = await context.services.windows.createWorkspace(on: daemon) }
+                    if let id, !Task.isCancelled { CloudHandlers.show(id, context) }
                     return
                 }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed:
-                    if status != .offline { CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label),
-                                                                 RemoteStrings.detail(session) ?? "", in: CloudHandlers.window(context)) }
-                    return
+                if Self.shouldEndConnectionObservation(status: status) { return }
+                if Self.shouldOpenRecoveryWindow(loaded: loaded, hasWindow: hasWindow, status: status,
+                                                 failure: failure, currentAttemptID: attemptID), !requestedRecoveryWindow {
+                    requestedRecoveryWindow = true
+                    context.services.windows.reopenOrCreateWindow()
+                }
+                guard let window = CloudHandlers.window(context) else { continue }
+                let currentFailure = Self.shouldPresentDaemonFailure(failure, currentAttemptID: attemptID) ? failure : nil
+                if status.needsRecovery || currentFailure != nil {
+                    let detail = RemoteStrings.detail(session) ?? ""
+                    let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
+                        detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,
+                        check: RemoteStrings.checkMachine, retry: RemoteStrings.retry)
+                    recovery.present(spec, error: RemoteStrings.sshError(session) ?? detail, in: window)
                 }
             }
         }

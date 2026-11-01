@@ -49,6 +49,27 @@ FAKE_XCRUN = """#!/bin/bash
 echo "$FAKE_SDK"
 """
 
+# AppKit's screen count in this session, as the lane's display check reads it (osascript, JavaScript for Automation).
+FAKE_OSASCRIPT = """#!/bin/bash
+[ -n "${FAKE_OSASCRIPT_ERROR:-}" ] && { echo "$FAKE_OSASCRIPT_ERROR" >&2; exit 1; }
+[ -n "${FAKE_OSASCRIPT_WARNING:-}" ] && echo "$FAKE_OSASCRIPT_WARNING" >&2
+echo "${FAKE_SCREENS:-1}"
+"""
+
+# Recorded from P0 display run 20b78078b1abacd19039347b (aws-m4pro-2, 2026-10-31): sent as a display step, it ran
+# with no console session; `.enabled(if: NSScreen.main != nil)` skipped the zoom test with no reason given, and the
+# suite read "passed, 1 skipped".
+TITLEBAR_NO_SCREEN_SUITE = """\
+◇ Test run started.
+↳ Testing Library Version: 1902
+◇ Suite TitlebarDoubleClickTests started.
+◇ Test aPressOnTheSidebarResizeHandleInTheTopRowStaysWithTheHandle() started.
+➜ Test aDoubleClickOnTheSidebarHeaderZoomsTheWindowOnce() skipped.
+✔ Test aPressOnTheSidebarResizeHandleInTheTopRowStaysWithTheHandle() passed after 0.248 seconds.
+✔ Suite TitlebarDoubleClickTests passed after 0.249 seconds.
+✔ Test run with 2 tests in 1 suite passed after 0.249 seconds.
+"""
+
 # Recorded from the aws-m4pro-6 job (cmux-ci step 1eabb2b7, 2026-10-26).
 SKIPPED_SUITE = """\
 Test Suite 'Selected tests' started at 2026-10-26 01:30:15.887.
@@ -228,7 +249,7 @@ class SuiteSkipTest(unittest.TestCase):
         (pkg / "Package.swift").write_text("// swift-tools-version: 6.0\n")
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
-        for name, body in (("swift", FAKE_SWIFT), ("xcrun", FAKE_XCRUN)):
+        for name, body in (("swift", FAKE_SWIFT), ("xcrun", FAKE_XCRUN), ("osascript", FAKE_OSASCRIPT)):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
         self.outputs = self.tmp / "outputs"
@@ -240,7 +261,8 @@ class SuiteSkipTest(unittest.TestCase):
                              ("EmptyTests", "Build complete!\n"), ("FirstLaunchTests", NO_DAEMON_SUITE),
                              ("DaemonRanTests", DAEMON_RAN_SUITE), ("PartlyDaemonTests", PARTLY_NO_DAEMON_SUITE),
                              ("ZeroExecutedTests", ZERO_EXECUTED), ("FailedDaemonTests", FAILED_AND_NO_DAEMON_SUITE),
-                             ("MotionRootSpeedProbeTests", TEST_SKIPPED_SUITE_PASSED)):
+                             ("MotionRootSpeedProbeTests", TEST_SKIPPED_SUITE_PASSED),
+                             ("TitlebarDoubleClickTests", TITLEBAR_NO_SCREEN_SUITE)):
             (self.outputs / f"{name}.out").write_text(output, encoding="utf-8")
         (self.outputs / "FailedDaemonTests.status").write_text("1")
         (self.tmp / "sdk").mkdir()
@@ -259,44 +281,98 @@ class SuiteSkipTest(unittest.TestCase):
         return " ".join(rows[0].split()[1:-1])
 
     def test_a_suite_that_ran_none_of_its_tests_is_no_result_and_fails(self):
-        done = self.suite("SidebarMultiViewHomeTests", "SidebarMultiViewPressTests", "AAGalleryTests")
+        (self.outputs / "NoReasonTests.out").write_text("↷ Test a() skipped.\n✔ Test run with 1 test passed after 0.1 seconds.\n")
+        done = self.suite("NoReasonTests", "SidebarMultiViewPressTests", "AAGalleryTests")
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.row(done.stdout, "SidebarMultiViewHomeTests"), "no result (0 ran)")
+        self.assertEqual(self.row(done.stdout, "NoReasonTests"), "no result (0 ran)")
         self.assertEqual(self.row(done.stdout, "SidebarMultiViewPressTests"), "passed")
         self.assertEqual(self.row(done.stdout, "AAGalleryTests"), "passed, 1 skipped")
         self.assertNotIn("suites passed", done.stdout)
         self.assertIn("1 of 3 suites failed or gave no result.", done.stdout)
-        self.assertIn('SidebarMultiViewHomeTests: skipped suite SidebarMultiViewHomeTests: "the drag tests need a display"',
-                      done.stdout)
-        self.assertIn("::error title=Swift suite no result::SidebarMultiViewHomeTests", done.stdout)
+        self.assertIn("::error title=Swift suite no result::NoReasonTests", done.stdout)
         self.assertIn("required tests did not run", done.stdout)
 
-    def test_every_test_skipped_under_a_passed_suite_line_is_no_result(self):
-        done = self.suite("MotionRootSpeedProbeTests", "SidebarMultiViewPressTests")
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.row(done.stdout, "MotionRootSpeedProbeTests"), "no result (0 ran)")
-        self.assertIn("::error title=Swift suite no result::MotionRootSpeedProbeTests", done.stdout)
-        self.assertNotIn("suites passed", done.stdout)
-
-    def test_a_suite_skipped_for_want_of_a_display_says_how_to_get_one(self):
-        """The red step tells the lane what to do: the display traits' skips name a display, a screen or a GUI host."""
-        hint = "this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+    def test_a_suite_that_only_needs_a_display_gates_nothing(self):
+        """Leo, 2026-10-31: "i dont like doing display tests anymore". A suite none of whose tests ran because each
+        needs a display (the display traits name a display, a screen or a GUI host) is skipped with a notice, and
+        the step goes on: no lane waits for a display worker. A step that asked for a display still fails."""
         for name in ("SidebarMultiViewHomeTests", "MotionRootSpeedProbeTests"):
             with self.subTest(suite=name):
-                done = self.suite(name)
-                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-                line = next(l for l in done.stdout.splitlines() if l.startswith("::error title=Swift suite no result::"))
-                self.assertIn(hint, line)
-        done = self.suite("SidebarMultiViewHomeTests", CMUX_CI_DISPLAY_ROUTED="1")
+                done = self.suite(name, "SidebarMultiViewPressTests")
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(self.row(done.stdout, name), "skipped (needs a display)")
+                self.assertIn(f"::notice title=Swift suite needs a display::{name} in Packages/macOS/Pkg", done.stdout)
+                self.assertNotIn("::error", done.stdout)
+                self.assertIn("1 of 2 suites passed; 1 skipped (needs a display, not gating).", done.stdout)
+                self.assertNotIn("All 2 suites passed.", done.stdout)
+        done = self.suite("SidebarMultiViewHomeTests", 'SidebarMultiViewPressTests', CMUX_CI_DISPLAY_ROUTED="1")
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertNotIn(hint, done.stdout)
+        self.assertEqual(self.row(done.stdout, "SidebarMultiViewHomeTests"), "no result (0 ran)")
         self.assertIn("was sent to a display worker, whose console session was lost", done.stdout)
-        (self.outputs / "NoReasonTests.out").write_text("↷ Test a() skipped.\n✔ Test run with 1 test passed after 0.1 seconds.\n")
-        for name in ("XCSkippedTests", "NoReasonTests", "FirstLaunchTests"):
+        done = self.suite("MotionRootSpeedProbeTests", CMUX_TEST_REQUIRE_GUI="1")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("skipped (needs a display)", done.stdout)
+        for name in ("XCSkippedTests", "FirstLaunchTests"):
             with self.subTest(suite=name):
                 done = self.suite(name)
                 self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-                self.assertNotIn(hint, done.stdout)
+                self.assertNotIn("skipped (needs a display)", done.stdout)
+
+    def test_a_display_step_with_a_skip_fails(self):
+        """P0 display run 20b78078: a display step whose screen test skipped exited 0 ("passed, 1 skipped"). A display
+        step is on-screen evidence only when every test it names ran; without --display the skip stays a pass."""
+        done = self.suite("TitlebarDoubleClickTests")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "TitlebarDoubleClickTests"), "passed, 1 skipped")
+        done = self.suite("TitlebarDoubleClickTests", "SidebarMultiViewPressTests", CMUX_CI_DISPLAY_ROUTED="1")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "TitlebarDoubleClickTests"), "failed (1 skipped)")
+        self.assertEqual(self.row(done.stdout, "SidebarMultiViewPressTests"), "passed")
+        self.assertIn("::error title=Swift suite skipped on a display step::TitlebarDoubleClickTests", done.stdout)
+        self.assertIn("1 of 2 suites failed or gave no result.", done.stdout)
+        self.assertIn("display step: this session has 1 screen(s)", done.stdout)
+
+    def test_a_display_step_with_no_screen_fails_before_it_builds(self):
+        for env in ({"FAKE_SCREENS": "0"}, {"FAKE_OSASCRIPT_ERROR": "execution error: Error: no WindowServer (-2700)"}):
+            with self.subTest(env=env):
+                done = self.suite("SidebarMultiViewPressTests", CMUX_CI_DISPLAY_ROUTED="1", **env)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("::error title=Display step has no screen::", done.stdout)
+                self.assertNotIn("swift build --build-tests", done.stdout)
+                self.assertNotIn("suites passed", done.stdout)
+        # A warning AppKit logs on stderr in a real session is no answer: the screen count on stdout is.
+        done = self.suite("SidebarMultiViewPressTests", CMUX_CI_DISPLAY_ROUTED="1",
+                          FAKE_OSASCRIPT_WARNING="+[CATransaction synchronize] called within transaction")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("display step: this session has 1 screen(s)", done.stdout)
+        # Only a display step asks: the same suite without --display needs no screen.
+        done = self.suite("SidebarMultiViewPressTests", FAKE_SCREENS="0")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("Display step has no screen", done.stdout)
+
+    def test_a_whole_lane_display_step_with_no_screen_fails_before_its_tests(self):
+        """A display step can run the whole lane (`run`, `packages`), not only `suite`: it asserts its screen there too,
+        before any package test. Both phases call the same check; `packages` needs no git or selection."""
+        selected = self.tmp / "selected.txt"
+        selected.write_text("")
+        env = {"SELECTED_PACKAGES": os.fspath(selected), "SELECTED_COUNT": "0", "CMUX_CI_DISPLAY_ROUTED": "1"}
+        done = subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "packages"], cwd=self.repo,
+                              env={**self.env, **env, "FAKE_SCREENS": "0"}, capture_output=True, text=True, timeout=300)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Display step has no screen::", done.stdout)
+        self.assertNotIn("Testing 0 selected Swift packages.", done.stdout)
+        # With a screen, or as no display step, the lane goes on to its packages.
+        for extra in ({"FAKE_SCREENS": "1"}, {"FAKE_SCREENS": "0", "CMUX_CI_DISPLAY_ROUTED": ""}):
+            with self.subTest(env=extra):
+                done = subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "packages"], cwd=self.repo,
+                                      env={**self.env, **env, **extra}, capture_output=True, text=True, timeout=300)
+                self.assertIn("Testing 0 selected Swift packages.", done.stdout, done.stdout + done.stderr)
+                self.assertNotIn("Display step has no screen", done.stdout)
+        # The `run` phase asserts it right after it picks Xcode, before any package test.
+        lane = (self.repo / "scripts/ci/package-test-lane.sh").read_text()
+        run = lane[lane.index("\n  run)\n"):]
+        self.assertLess(run.index("select_xcode"), run.index("require_display_screen"))
+        self.assertLess(run.index("require_display_screen"), run.index("run_package_tests"))
 
     def test_a_live_daemon_suite_without_its_cmux_tui_is_no_result(self):
         for name in ("FirstLaunchTests", "PartlyDaemonTests"):

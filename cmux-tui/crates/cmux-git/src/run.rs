@@ -8,12 +8,18 @@
 
 use std::cell::Cell;
 use std::ffi::OsStr;
-use std::io::{ErrorKind, Read};
+use std::fs::{File, OpenOptions};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 use std::thread;
 use std::time::Duration;
 
+use sha2::{Digest, Sha256};
 use wait_timeout::ChildExt;
 
 /// The git every run starts, found on `PATH`. The diff sidecar starts the
@@ -28,6 +34,28 @@ pub struct GitOutput {
     pub stdout: Vec<u8>,
     /// Output past the caller's limit was read and dropped.
     pub truncated: bool,
+    /// Present only for a window read: identity and size of the entire stdout,
+    /// including bytes outside the retained window.
+    pub window: Option<GitWindow>,
+}
+
+#[derive(Clone)]
+pub struct GitWindow {
+    pub total_bytes: u64,
+    pub sha256: String,
+    snapshot: Arc<Mutex<File>>,
+}
+
+impl GitWindow {
+    /// Reads only the requested range of the original, immutable capture.
+    pub fn read(&self, offset: u64, limit: usize) -> std::io::Result<Vec<u8>> {
+        let mut file =
+            self.snapshot.lock().map_err(|_| std::io::Error::other("patch capture lock failed"))?;
+        file.seek(SeekFrom::Start(offset))?;
+        let mut bytes = Vec::new();
+        (&mut *file).take(limit as u64).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
 }
 
 #[derive(Debug)]
@@ -79,7 +107,20 @@ pub fn run_git_within(
     max_stdout: usize,
     deadline: Duration,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_stdout, deadline, None, &[], None)
+    run(directory, overrides, arguments, max_stdout, deadline, None, &[], None, None)
+}
+
+/// Captures stdout once on an anonymous private file, retaining only `limit`
+/// bytes at `offset` in memory. Further windows read that immutable file.
+pub fn run_git_window_within(
+    directory: &Path,
+    overrides: &[Override],
+    arguments: &[&str],
+    offset: u64,
+    limit: usize,
+    deadline: Duration,
+) -> Result<GitOutput, GitFailure> {
+    run(directory, overrides, arguments, limit, deadline, None, &[], None, Some(offset))
 }
 
 /// [`run_git_within`] whose new objects go to `scratch`, an empty folder the
@@ -103,8 +144,9 @@ pub fn run_git_scratch_objects_within(
     )
 }
 
-/// [`run_git_scratch_objects_within`] with an optional address-space limit for
-/// the child on Linux. Other platforms keep the deadline without this limit.
+/// [`run_git_scratch_objects_within`] with an optional memory limit for the
+/// child on Linux (`RLIMIT_DATA`: the writable memory it allocates). Other
+/// platforms keep the deadline without this limit.
 #[allow(clippy::too_many_arguments)]
 pub fn run_git_scratch_objects_within_limited(
     directory: &Path,
@@ -114,14 +156,14 @@ pub fn run_git_scratch_objects_within_limited(
     deadline: Duration,
     objects: &Path,
     scratch: &Path,
-    address_space_limit: Option<u64>,
+    memory_limit: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
     let alternate = alternate_entry(objects);
     let env = [
         ("GIT_OBJECT_DIRECTORY", scratch.as_os_str()),
         ("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternate.as_os_str()),
     ];
-    run(directory, overrides, arguments, max_stdout, deadline, None, &env, address_space_limit)
+    run(directory, overrides, arguments, max_stdout, deadline, None, &env, memory_limit, None)
 }
 
 /// `path` as one entry of `GIT_ALTERNATE_OBJECT_DIRECTORIES`, a
@@ -165,7 +207,7 @@ pub fn run_git_records_within(
     deadline: Duration,
     keep: fn(&[u8]) -> bool,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[], None)
+    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[], None, None)
 }
 
 thread_local! {
@@ -238,10 +280,11 @@ fn run(
     deadline: Duration,
     keep: Option<fn(&[u8]) -> bool>,
     env: &[(&str, &OsStr)],
-    address_space_limit: Option<u64>,
+    memory_limit: Option<u64>,
+    window_offset: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
     #[cfg(not(target_os = "linux"))]
-    let _ = address_space_limit;
+    let _ = memory_limit;
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
         return Err(GitFailure::TimedOut);
@@ -270,19 +313,24 @@ fn run(
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::process::CommandExt;
-        if let Some(limit) = address_space_limit {
+        if let Some(limit) = memory_limit {
+            // `RLIMIT_DATA`, not `RLIMIT_AS`: it counts the writable memory
+            // the child allocates, not address space it only reserves (a Go
+            // git wrapper's or helper's runtime, Git's read-only pack
+            // mappings). Under `RLIMIT_AS` such a child failed at random,
+            // by load, with almost nothing in use.
             // SAFETY: this closure only changes the resource limit in the
             // child, between fork and exec; it touches no shared state.
             unsafe {
                 command.pre_exec(move || {
                     let limit = limit as libc::rlim_t;
                     let mut resource = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-                    if libc::getrlimit(libc::RLIMIT_AS as _, &mut resource) != 0 {
+                    if libc::getrlimit(libc::RLIMIT_DATA as _, &mut resource) != 0 {
                         return Err(std::io::Error::last_os_error());
                     }
                     resource.rlim_cur = resource.rlim_cur.min(limit as _);
                     resource.rlim_max = resource.rlim_max.min(limit as _);
-                    if libc::setrlimit(libc::RLIMIT_AS as _, &resource) == 0 {
+                    if libc::setrlimit(libc::RLIMIT_DATA as _, &resource) == 0 {
                         Ok(())
                     } else {
                         Err(std::io::Error::last_os_error())
@@ -298,9 +346,15 @@ fn run(
         stop(&mut child);
         return Err(GitFailure::Unavailable("git output pipes are missing".to_string()));
     };
-    let stdout = thread::spawn(move || match keep {
-        Some(keep) => drain_records(stdout, max_stdout, keep),
-        None => drain(stdout, max_stdout),
+    let stdout = thread::spawn(move || match window_offset {
+        Some(offset) => drain_window(stdout, offset, max_stdout),
+        None => {
+            let (bytes, truncated) = match keep {
+                Some(keep) => drain_records(stdout, max_stdout, keep),
+                None => drain(stdout, max_stdout),
+            };
+            (bytes, truncated, None)
+        }
     });
     let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
     let status = match child.wait_timeout(deadline) {
@@ -318,15 +372,80 @@ fn run(
             return Err(GitFailure::Unavailable(error.to_string()));
         }
     };
-    let (stdout, truncated) = stdout.join().unwrap_or_default();
+    let (stdout, truncated, window) = stdout.join().unwrap_or_default();
     let (stderr, _) = stderr.join().unwrap_or_default();
     if !status.success() {
-        if status.code() != Some(1) && address_space_limit.is_some() {
+        if status.code() != Some(1) && memory_limit.is_some() {
             return Err(GitFailure::Unavailable(format!("bounded git exited with {status}")));
         }
         return Err(GitFailure::Exit(explained(String::from_utf8_lossy(&stderr).trim())));
     }
-    Ok(GitOutput { stdout, truncated })
+    Ok(GitOutput { stdout, truncated, window })
+}
+
+fn drain_window(
+    mut reader: impl Read,
+    offset: u64,
+    limit: usize,
+) -> (Vec<u8>, bool, Option<GitWindow>) {
+    let mut kept = Vec::new();
+    let mut total = 0_u64;
+    let Ok(mut snapshot) = snapshot_file() else { return (Vec::new(), true, None) };
+    let mut hash = Sha256::new();
+    let mut chunk = [0_u8; 16 * 1024];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => {
+                // `read` never exceeds the buffer, so a miss is a broken reader.
+                let Some(bytes) = chunk.get(..read) else { return (Vec::new(), true, None) };
+                if snapshot.write_all(bytes).is_err() {
+                    return (Vec::new(), true, None);
+                }
+                hash.update(bytes);
+                let before = usize::try_from(offset.saturating_sub(total)).unwrap_or(usize::MAX);
+                let rest = bytes.get(before.min(bytes.len())..).unwrap_or_default();
+                let take = rest.len().min(limit.saturating_sub(kept.len()));
+                kept.extend_from_slice(rest.get(..take).unwrap_or_default());
+                total = total.saturating_add(bytes.len() as u64);
+            }
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(_) => return (Vec::new(), true, None),
+        }
+    }
+    let sha256 = hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    let truncated = offset.saturating_add(kept.len() as u64) < total;
+    (
+        kept,
+        truncated,
+        Some(GitWindow { total_bytes: total, sha256, snapshot: Arc::new(Mutex::new(snapshot)) }),
+    )
+}
+
+/// A unique mode-0600 file, immediately unlinked: only this file handle owns
+/// the captured bytes and dropping its last reader releases the disk space.
+#[cfg(unix)]
+fn snapshot_file() -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    for _ in 0..32 {
+        let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("cmux-patch-{}-{serial}", std::process::id()));
+        match OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(&path) {
+            Ok(file) => {
+                std::fs::remove_file(path)?;
+                return Ok(file);
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::other("could not allocate a private patch capture"))
+}
+
+#[cfg(not(unix))]
+fn snapshot_file() -> std::io::Result<File> {
+    Err(std::io::Error::new(ErrorKind::Unsupported, "patch captures require Unix"))
 }
 
 /// Confines `command`, a git that only reads, so neither the caller's
@@ -490,6 +609,25 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
 #[cfg(test)]
 mod background_tests {
     use super::*;
+
+    #[test]
+    fn window_keeps_only_its_bytes_but_hashes_the_complete_output() {
+        let source = "head café tail".as_bytes();
+        let (first, more, first_window) = drain_window(source, 0, 8);
+        let (second, more_second, second_window) = drain_window(source, 8, 8);
+        assert!(more);
+        assert!(!more_second);
+        assert_eq!([first, second].concat(), source);
+        let first_window = first_window.unwrap();
+        let second_window = second_window.unwrap();
+        assert_eq!(first_window.total_bytes, source.len() as u64);
+        assert_eq!(first_window.read(4, 5).unwrap(), source[4..9]);
+        assert_eq!(first_window.sha256, second_window.sha256);
+        assert_eq!(
+            first_window.sha256,
+            "62d58f00ac6da603f09e3abd398469875f74f1ce760d50daca81b2cc89febf13"
+        );
+    }
 
     #[cfg(unix)]
     #[test]

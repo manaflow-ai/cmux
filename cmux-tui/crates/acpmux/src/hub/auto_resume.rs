@@ -52,15 +52,21 @@
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
 //!   those (`turns.rs`). A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
 //!   and queues its continuation first in the chat's queue (`restart_resume.rs`).
-//! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
+//! - A wait in progress is restored from its scheduled record at the original deadline
+//!   (`restore.rs`); its stable prompt id still admits that attempt only once.
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
+//! - A chat's first send that a revoked OAuth token failed is sent again once, 2 s later, through
+//!   the same mark ([`first_send`]).
 
 use cmux_json::JsonSet as _;
 
 // A turn a daemon restart cut off is continued from the restored queue.
+pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
+pub(in crate::hub) use restart_resume::Cut;
+mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
@@ -73,8 +79,38 @@ use tokio::sync::Notify;
 
 use crate::protocol::session::{RetryReason, RetrySummary};
 
+#[cfg(test)]
+thread_local! {
+    static AFTER_FINISH_REPLACED_CHECK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+#[cfg(test)]
+fn after_finish_replaced_check() {
+    let hook = AFTER_FINISH_REPLACED_CHECK.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+#[cfg(test)]
+pub(super) fn set_after_finish_replaced_check(hook: Box<dyn FnOnce()>) {
+    AFTER_FINISH_REPLACED_CHECK.with(|slot| *slot.borrow_mut() = Some(hook));
+}
+
 /// `_acpmux/retry`: a failed turn retried on demand.
 pub(crate) mod retry_turn;
+
+/// A first send a revoked OAuth token failed goes again once, 2 s later.
+mod first_send;
+
+/// Whether a failed turn's `error` is one acpmux may retry by itself: a transient one
+/// ([`super::turn_errors::resume_cause`]), or a revoked token, which a chat's first send retries
+/// ([`first_send`]). A row shows such a turn's retry being decided until that is settled.
+fn retry_decided_on(error: &str) -> bool {
+    super::turn_errors::resume_cause(error, error).is_some() || first_send::retried_error(error)
+}
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
 pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
@@ -175,6 +211,7 @@ pub(super) struct CutTurn<'a> {
     pub control: Control,
     pub trust_gate: bool,
     pub error: &'a str,
+    pub not_before: Option<u64>,
 }
 
 /// A waiting continuation's timer: its mark going wakes it (`Drop`), so Stop, close or a turn
@@ -205,13 +242,75 @@ enum Mark {
     Stopping(String),
 }
 
-/// Each chat's [`Mark`].
-#[derive(Default)]
-pub(crate) struct Pending(Mutex<HashMap<String, Mark>>);
+/// The retry state of one session instance; returning imports have their own mark.
+pub(crate) struct Pending {
+    mark: Mutex<Option<Mark>>,
+    #[cfg(test)]
+    stop_locked: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    #[cfg(test)]
+    take_entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    /// Counts the times a continuation stopped being pending (`continuation_pending`): the
+    /// inbox's timer, put off while one was, looks again then (`inbox.rs`).
+    released: tokio::sync::watch::Sender<u64>,
+}
+
+impl Default for Pending {
+    fn default() -> Self {
+        Self {
+            mark: Mutex::default(),
+            released: tokio::sync::watch::channel(0).0,
+            #[cfg(test)]
+            stop_locked: Mutex::default(),
+            #[cfg(test)]
+            take_entered: Mutex::default(),
+        }
+    }
+}
+
+/// Whether `mark` is a continuation that may still fire (`continuation_pending`).
+fn is_pending(mark: Option<&Mark>) -> bool {
+    matches!(mark, Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)))
+}
 
 impl Pending {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Mark>> {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn lock(&self) -> PendingGuard<'_> {
+        let mark = self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let was = is_pending(mark.as_ref());
+        PendingGuard { mark, was, released: &self.released }
+    }
+
+    /// Changes each time a pending continuation is let go, however it went: settled, stopped,
+    /// exhausted, refused or started.
+    pub(super) fn released(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.released.subscribe()
+    }
+}
+
+/// The mark, locked; letting go of a pending continuation is announced as the lock is.
+struct PendingGuard<'a> {
+    mark: std::sync::MutexGuard<'a, Option<Mark>>,
+    was: bool,
+    released: &'a tokio::sync::watch::Sender<u64>,
+}
+
+impl std::ops::Deref for PendingGuard<'_> {
+    type Target = Option<Mark>;
+    fn deref(&self) -> &Option<Mark> {
+        &self.mark
+    }
+}
+
+impl std::ops::DerefMut for PendingGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Option<Mark> {
+        &mut self.mark
+    }
+}
+
+impl Drop for PendingGuard<'_> {
+    fn drop(&mut self) {
+        if self.was && !is_pending(self.mark.as_ref()) {
+            self.released.send_modify(|n| *n = n.wrapping_add(1));
+        }
     }
 }
 
@@ -233,7 +332,7 @@ pub(super) fn superseded() -> RpcError {
 }
 
 /// The refusal of a continuation Stop or close overtook after it fired.
-fn stopped() -> RpcError {
+pub(super) fn stopped() -> RpcError {
     RpcError::invalid_params("auto_resume.stopped: Stop or close came before the continuation ran")
         .with_data(json!({"reason": "auto_resume.stopped"}))
 }
@@ -305,25 +404,107 @@ impl TurnInfo {
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
-            masked_preview: super::session::masked_preview(text, 200),
+            masked_preview: String::new(),
             turn_id: turn_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
             turn_seq: 0,
             control,
             doing: Default::default(),
+            notice: false,
+            persons: false,
         }
+        .shown_as(&super::prompt_line::prompt_line(text, client, None))
+    }
+
+    /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
+    pub(super) fn by_person(mut self, persons: bool) -> Self {
+        self.persons = persons;
+        self
+    }
+
+    /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line.rs`): a
+    /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
+    pub(super) fn shown_as(mut self, line: &str) -> Self {
+        self.show(line);
+        self
+    }
+
+    /// The turn with `notice` as whether its prompt is acpmux's notice (`TurnInfo::notice`).
+    pub(super) fn noticed(mut self, notice: bool) -> Self {
+        self.notice = notice;
+        self
+    }
+
+    /// Sets the line its prompt leaves on the summary ([`TurnInfo::shown_as`]): masked, then cut
+    /// to 200 characters. A line it gave comes back the same (`promptLine` on a restart).
+    pub(super) fn show(&mut self, line: &str) {
+        self.masked_preview = shown_line(line);
     }
 }
 
+/// `line` as a turn's summary shows it ([`TurnInfo::show`]): its secrets masked, then cut.
+pub(super) fn shown_line(line: &str) -> String {
+    super::session::masked_preview(line, 200)
+}
+
 impl Hub {
+    /// Mark an outgoing session before its durable store is staged. The admission lock order is
+    /// `auto_resume -> append_lock -> turn` for completion and replacement; attestation takes
+    /// `append_lock -> turn` and never `auto_resume`. The replacement fence takes both locks in
+    /// that order, so it cannot pass a `replaced` check and then race a terminal retry append.
+    pub(super) fn seal_retry_replacement(&self, session: &Session) {
+        let _retry = session.auto_resume.lock();
+        let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        session.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// Ends the chat's turn (`finish_turn`): takes it, and marks `turn_id` as ending, in one
     /// step with Stop's check, so a Stop between the turn's end and its scheduling counts.
-    pub(super) fn take_turn(&self, session: &Session, turn_id: &str) -> Option<super::TurnInfo> {
-        let mut pending = self.auto_resumes.lock();
-        let turn = session.turn.lock().unwrap_or_else(|e| e.into_inner()).take();
-        let stopped = matches!(pending.get(&session.id), Some(Mark::Stopped(t)) if t == turn_id);
-        if turn.as_ref().is_some_and(|t| t.turn_id == turn_id) && !stopped {
-            pending.insert(session.id.clone(), Mark::Ending(turn_id.to_owned()));
+    /// When it took `turn_id`, the turn `next` starts in its place in the same step, so no prompt
+    /// finds the chat idle between them (`carried_turn.rs`).
+    pub(super) fn take_turn(
+        &self,
+        session: &Session,
+        turn_id: &str,
+        next: Option<super::TurnInfo>,
+    ) -> Option<super::TurnInfo> {
+        #[cfg(test)]
+        if let Some(entered) =
+            session.auto_resume.take_entered.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
+            let _ = entered.send(());
+        }
+        let mut pending = session.auto_resume.lock();
+        // Stop and retry journal writes take auto_resume before append_lock. Keep that
+        // order here too: taking append_lock in finish_turn before this retry lock
+        // deadlocks against Stop. Attestation still shares the turn-clear boundary.
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let turn = {
+            let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+            let turn = running.take();
+            if turn.as_ref().is_some_and(|t| t.turn_id == turn_id) {
+                *running = next;
+            }
+            turn
+        };
+        let stopped = matches!(pending.as_ref(), Some(Mark::Stopped(t)) if t == turn_id);
+        let took = turn.as_ref().is_some_and(|t| t.turn_id == turn_id);
+        let carried_to = session
+            .turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|t| t.turn_id.clone());
+        match carried_to.filter(|_| took) {
+            // A Stop of the turn holds for the turn its agent runs on into (`carried_turn.rs`):
+            // no continuation either.
+            Some(next) if stopped => {
+                pending.replace(Mark::Stopped(next));
+            }
+            _ if took && !stopped => {
+                pending.replace(Mark::Ending(turn_id.to_owned()));
+            }
+            _ => {}
         }
         turn
     }
@@ -337,17 +518,32 @@ impl Hub {
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
-        let mut pending = self.auto_resumes.lock();
-        let ending = match pending.get(&session.id) {
+        // Once a shutdown began none waits here to fire: a cut it hands on is the next daemon's
+        // to continue (`restart_resume.rs`), and Quit Everything continues nothing.
+        let cut = cut.filter(|_| !self.shutting_down());
+        let mut pending = session.auto_resume.lock();
+        let ending = match pending.as_ref() {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),
             Some(Mark::Stopped(t)) if t == turn_id => Some(false),
             _ => None,
         };
         let reason = cut.as_ref().and_then(|c| super::turn_errors::resume_cause(c.error, c.error));
         let reason = reason.and_then(RetryReason::from_cause);
+        // A first send a revoked token failed: sent again once, its wait this mark's.
+        if let (Some(cut), None, Some(true)) = (cut.as_ref(), reason, ending)
+            && first_send::retries(session, cut)
+        {
+            let wake = Arc::new(Notify::new());
+            let mark =
+                Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
+            pending.replace(mark);
+            drop(pending);
+            self.retry_first_send(session, cut, wake);
+            return;
+        }
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
-                pending.remove(&session.id);
+                pending.take();
                 drop(pending);
                 // Stopped: Stop recorded it when it took the mark (`stop_auto_resume`).
                 if ending == Some(true) {
@@ -359,12 +555,12 @@ impl Hub {
         let wake = Arc::new(Notify::new());
         let mark =
             Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
-        pending.insert(session.id.clone(), mark);
+        pending.replace(mark);
         drop(pending);
         let (root, done) = split_attempt(cut.prompt_id);
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
-        let (control, trust_gate) = (cut.control, cut.trust_gate);
+        let (control, trust_gate, not_before) = (cut.control, cut.trust_gate, cut.not_before);
         let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
@@ -377,26 +573,54 @@ impl Hub {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
-                    hub.append(&session, "mux", "auto_resume_exhausted", msg);
+                    hub.append_retry(&session, "auto_resume_exhausted", msg);
                 } else if ours {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }
                 return;
             };
             let attempt = done + 1;
-            let delay = staggered(delay, &session.id);
+            let now = super::now_ms();
+            let limits = session.meta().usage_limits;
+            let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
+            let next_at =
+                now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now));
+            let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,
                 of: delays.len() as u64,
                 reason,
-                next_at: super::now_ms().saturating_add(delay),
+                next_at,
                 prompt_id: root.clone(),
                 turn_id: turn_id.clone(),
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg.set("delayMs", json!(delay));
-            if hub.set_retry(&session, &turn_id, retry) {
-                hub.append(&session, "mux", "auto_resume_scheduled", msg);
+            msg.set("error", json!(error));
+            msg.set("control", json!(control.as_str()));
+            msg.set("trustGate", json!(trust_gate));
+            msg.set("notBefore", json!(not_before));
+            if let Some(from) = &from {
+                msg.set("from", json!(from));
+            }
+            // Tests only: pause a retry before its wait is set.
+            #[cfg(test)]
+            {
+                let seam = hub.retry_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
+            // None once a shutdown began, whenever it began (router review of #28503): a cut it
+            // hands on is the next daemon's to continue, and Quit Everything continues nothing.
+            // The wait is the record the next daemon restores (`restore.rs`).
+            let set = hub.before_shutdown(|| hub.set_retry(&session, &turn_id, retry, msg));
+            let Some(set) = set else {
+                hub.take_pending(&session, &turn_id);
+                return;
+            };
+            if set {
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}
@@ -410,9 +634,19 @@ impl Hub {
                 control,
                 trust_gate,
                 error: &error,
+                not_before: None,
             };
             hub.auto_resume(&session, cut, attempt).await;
         });
+    }
+
+    /// Transfer replacement takes this lock in Stop before installing its incoming log.
+    /// A late retry event must either finish before that boundary or leave the new log alone.
+    fn append_retry(&self, session: &Session, kind: &str, msg: Value) {
+        let _pending = session.auto_resume.lock();
+        if !session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+            self.append(session, "mux", kind, msg);
+        }
     }
 
     /// Records `auto_resume_settled` `{turnId, why}` when the chat's last turn `turn_id` is one a
@@ -422,42 +656,143 @@ impl Hub {
     fn settled_unretried(&self, session: &Session, turn_id: &str, why: &str) {
         let last = session.meta().last_turn;
         let deciding = last.as_ref().is_some_and(|t| {
-            let error = t["errorText"].as_str().unwrap_or_default();
-            t["status"] == "failed"
-                && t["turnId"] == turn_id
-                && super::turn_errors::resume_cause(error, error).is_some()
+            let field = |key: &str| t.get(key).and_then(Value::as_str);
+            let error = field("errorText").unwrap_or_default();
+            field("status") == Some("failed")
+                && field("turnId") == Some(turn_id)
+                && retry_decided_on(error)
         });
         if deciding {
-            let msg = json!({"turnId": turn_id, "why": why});
-            self.append(session, "mux", "auto_resume_settled", msg);
+            let mut msg = json!({"turnId": turn_id, "why": why});
+            if let Some(prompt_id) =
+                last.as_ref().and_then(|t| t.get("promptId").and_then(Value::as_str))
+            {
+                msg.set("promptId", json!(prompt_id));
+            }
+            self.append_retry(session, "auto_resume_settled", msg);
         }
     }
 
     /// Whether a continuation may still answer for the chat's cut turn: it releases what that
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
-        matches!(
-            self.auto_resumes.lock().get(&session.id),
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
-        )
+        is_pending(session.auto_resume.lock().as_ref())
+    }
+
+    /// An explicit (non-restart) shutdown: a retry that waits, or one only the journal holds yet,
+    /// is stopped; a chat whose turn runs or is ending is left alone, so the next daemon still
+    /// continues the turn the shutdown cut (`restart_resume.rs`).
+    pub(super) fn stop_retry_at_shutdown(&self, session: &Session) {
+        let cut = session.turn().is_some()
+            || matches!(
+                session.auto_resume.lock().as_ref(),
+                Some(Mark::Ending(_) | Mark::Stopping(_))
+            );
+        if !cut {
+            self.stop_auto_resume(session);
+        }
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
-        let mut pending = self.auto_resumes.lock();
-        let settles = settled_by_stop(pending.get(&session.id));
-        let (ending, fired) = match pending.get(&session.id) {
+        let mut pending = session.auto_resume.lock();
+        #[cfg(test)]
+        if let Some(locked) =
+            session.auto_resume.stop_locked.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
+            let _ = locked.send(());
+        }
+        // A lazy startup may not have installed the saved retry's mark yet. Journal the
+        // cancellation boundary under the same lock as recovery: only schedules before
+        // this record are stopped, never a later turn after an earlier idle Stop.
+        // The first close records this boundary while the chat is still open. A closed
+        // chat cannot restore a retry, and stopping it again must not refresh its age.
+        let waiting_mark = matches!(
+            pending.as_ref(),
+            Some(Mark::Waiting { retry: Some(_), .. } | Mark::Firing(_))
+        );
+        let mut journal_retry = None;
+        let mut journal_prompt = None;
+        let boundaries = [
+            b"auto_resume_scheduled".as_slice(),
+            b"auto_resume_stopped",
+            b"auto_resume_skipped",
+            b"auto_resume_settled",
+            b"auto_resume_exhausted",
+            b"turn_stop_requested",
+            b"turn_started",
+            b"turn_result",
+        ];
+        let _ = self.store.scan_back(
+            &session.id,
+            0,
+            u64::MAX,
+            &|_, kind| !boundaries.contains(&kind),
+            &mut |e: EventRecord| {
+                // A crash can leave the failed result durable before its schedule. Stop
+                // must suppress that unscheduled recovery too, even before startup loads it.
+                let retryable_result = e.kind == "turn_result"
+                    && e.msg.get("status").and_then(Value::as_str) == Some("failed")
+                    && e.msg.get("errorText").and_then(Value::as_str).is_some_and(|error| {
+                        super::turn_errors::resume_cause(error, error).is_some()
+                    });
+                if e.kind == "auto_resume_scheduled" || retryable_result {
+                    journal_retry = e.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    journal_prompt =
+                        e.msg.get("promptId").and_then(Value::as_str).map(str::to_owned);
+                }
+                false
+            },
+        );
+        let active = session.turn();
+        let active_turn = active.as_ref().map(|turn| turn.turn_id.clone());
+        let stopping_turn = active_turn.clone().or_else(|| match pending.as_ref() {
+            Some(Mark::Ending(t) | Mark::Stopped(t)) => Some(t.clone()),
+            Some(Mark::Waiting { turn, retry: None, .. }) => Some(turn.clone()),
+            _ => None,
+        });
+        if session.status() != SessionStatus::Closed
+            && !session.replaced.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            if let Some(turn_id) = stopping_turn {
+                // Ordinary Stop has no retry state or retry watcher update. Its durable
+                // turn-scoped boundary still forbids recovery if the turn later fails,
+                // or if restart interrupts it before a result was written.
+                self.append(
+                    session,
+                    "mux",
+                    "turn_stop_requested",
+                    json!({"turnId": turn_id, "promptId": active.as_ref().map(|turn| &turn.prompt_id)}),
+                );
+            } else if waiting_mark || journal_retry.is_some() {
+                let turn_id = match pending.as_ref() {
+                    Some(Mark::Waiting { turn, .. } | Mark::Firing(turn)) => Some(turn.clone()),
+                    _ => journal_retry,
+                };
+                let prompt_id = match pending.as_ref() {
+                    Some(Mark::Waiting { retry: Some(retry), .. }) => Some(retry.prompt_id.clone()),
+                    _ => journal_prompt,
+                };
+                self.append(
+                    session,
+                    "mux",
+                    "auto_resume_stopped",
+                    json!({"turnId": turn_id, "promptId": prompt_id}),
+                );
+            }
+        }
+        let settles = settled_by_stop(pending.as_ref());
+        let (ending, fired) = match pending.as_ref() {
             Some(Mark::Ending(t)) => (Some(t.clone()), false),
             Some(Mark::Firing(t) | Mark::Stopping(t)) => (Some(t.clone()), true),
             _ => (None, false),
         };
-        let id = session.id.clone();
         match (session.turn().map(|t| t.turn_id), ending) {
-            (Some(t), _) => pending.insert(id, Mark::Stopped(t)),
-            (None, Some(t)) if fired => pending.insert(id, Mark::Stopping(t)),
-            (None, Some(t)) => pending.insert(id, Mark::Stopped(t)),
-            (None, None) => pending.remove(&id),
+            (Some(t), _) => pending.replace(Mark::Stopped(t)),
+            (None, Some(t)) if fired => pending.replace(Mark::Stopping(t)),
+            (None, Some(t)) => pending.replace(Mark::Stopped(t)),
+            (None, None) => pending.take(),
         };
         drop(pending);
         // A row may have shown this turn's retry being decided: watchers and peers hear it
@@ -469,12 +804,18 @@ impl Hub {
 
     /// Tests: the chat's turn `turn` ends with its continuation not settled yet (`Mark::Ending`),
     /// or with `None` nothing pending.
+    /// Tests: whether a Stop holds for the chat's turn `turn` (`Mark::Stopped`).
+    #[cfg(test)]
+    pub(super) fn stopped_for_test(&self, session: &Session, turn: &str) -> bool {
+        matches!(session.auto_resume.lock().as_ref(), Some(Mark::Stopped(t)) if t == turn)
+    }
+
     #[cfg(test)]
     pub(super) fn set_ending_for_test(&self, session: &Session, turn: Option<&str>) {
-        let mut pending = self.auto_resumes.lock();
+        let mut pending = session.auto_resume.lock();
         match turn {
-            Some(turn) => pending.insert(session.id.clone(), Mark::Ending(turn.to_owned())),
-            None => pending.remove(&session.id),
+            Some(turn) => pending.replace(Mark::Ending(turn.to_owned())),
+            None => pending.take(),
         };
     }
 
@@ -491,18 +832,20 @@ impl Hub {
         subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
-        let mut pending = self.auto_resumes.lock();
-        let continuation = matches!(
-            pending.get(&session.id),
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
-        );
+        let mut pending = session.auto_resume.lock();
+        // Transfer replacement seals the old instance before staging its store. Reject before
+        // installing a TurnInfo so a fired retry cannot start against the incoming journal.
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(superseded());
+        }
+        let continuation = is_pending(pending.as_ref());
         if exclusive
             && (continuation || session.harness_turn.load(std::sync::atomic::Ordering::SeqCst))
         {
             return Err(retry_turn::busy());
         }
         if let Some(cut) = after {
-            let mark = match pending.get(&session.id) {
+            let mark = match pending.as_ref() {
                 Some(Mark::Firing(t)) if t == cut => Some(true),
                 Some(Mark::Stopped(t)) if t == cut => Some(false),
                 // Its task clears it once it ends.
@@ -510,7 +853,7 @@ impl Hub {
                 _ => None,
             };
             if mark.is_some() {
-                pending.remove(&session.id);
+                pending.take();
             }
             if mark == Some(false) {
                 return Err(stopped());
@@ -526,10 +869,16 @@ impl Hub {
 
     /// Sets the wait of the chat's continuation of `cut_turn`, when it still waits: what the
     /// session row's `retry` shows.
-    fn set_retry(&self, session: &Session, cut_turn: &str, wait: RetrySummary) -> bool {
-        match self.auto_resumes.lock().get_mut(&session.id) {
-            Some(Mark::Waiting { turn, retry, .. }) if turn == cut_turn => {
+    fn set_retry(&self, session: &Session, cut_turn: &str, wait: RetrySummary, msg: Value) -> bool {
+        match session.auto_resume.lock().as_mut() {
+            Some(Mark::Waiting { turn, retry, .. })
+                if turn == cut_turn
+                    && !session.replaced.load(std::sync::atomic::Ordering::SeqCst) =>
+            {
                 *retry = Some(wait);
+                // Before Stop can clear the mark and record its terminal decision: recovery
+                // must never find the schedule after the cancellation it superseded.
+                self.append(session, "mux", "auto_resume_scheduled", msg);
                 true
             }
             _ => false,
@@ -548,14 +897,15 @@ impl Hub {
         session: &Session,
         last: Option<&Value>,
     ) -> (Option<RetrySummary>, bool) {
-        let failed = last.filter(|t| t["status"] == "failed").filter(|t| {
-            let error = t["errorText"].as_str().unwrap_or_default();
-            super::turn_errors::resume_cause(error, error).is_some()
-        });
-        let cut = failed.and_then(|t| t["turnId"].as_str());
+        let failed = last
+            .filter(|t| t.get("status").and_then(Value::as_str) == Some("failed"))
+            .filter(|t| {
+                retry_decided_on(t.get("errorText").and_then(Value::as_str).unwrap_or_default())
+            });
+        let cut = failed.and_then(|t| t.get("turnId").and_then(Value::as_str));
         let snapshot = || {
-            let pending = self.auto_resumes.lock();
-            let mark = pending.get(&session.id);
+            let pending = session.auto_resume.lock();
+            let mark = pending.as_ref();
             let waiting = match mark {
                 Some(Mark::Waiting { turn, retry: Some(retry), .. }) => {
                     Some((turn.clone(), retry.clone()))
@@ -583,10 +933,10 @@ impl Hub {
     /// stays, as firing, until its turn starts. Else why it does not: `superseded` when a newer
     /// turn took its mark or the chat moved on, `stopped` when Stop or close took it.
     fn fire_pending(&self, session: &Session, cut_turn: &str) -> Result<(), &'static str> {
-        let mut pending = self.auto_resumes.lock();
-        match pending.get(&session.id) {
+        let mut pending = session.auto_resume.lock();
+        match pending.as_ref() {
             Some(Mark::Waiting { turn, .. }) if turn == cut_turn => {
-                pending.insert(session.id.clone(), Mark::Firing(cut_turn.to_owned()));
+                pending.replace(Mark::Firing(cut_turn.to_owned()));
                 Ok(())
             }
             Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)) => Err("superseded"),
@@ -598,19 +948,19 @@ impl Hub {
 
     /// Drops what is left of a continuation of `cut_turn` that did not start its turn.
     fn clear_fired(&self, session: &Session, cut_turn: &str) {
-        let mut pending = self.auto_resumes.lock();
-        if matches!(pending.get(&session.id), Some(Mark::Firing(t) | Mark::Stopped(t) | Mark::Stopping(t)) if t == cut_turn)
+        let mut pending = session.auto_resume.lock();
+        if matches!(pending.as_ref(), Some(Mark::Firing(t) | Mark::Stopped(t) | Mark::Stopping(t)) if t == cut_turn)
         {
-            pending.remove(&session.id);
+            pending.take();
         }
     }
 
     /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
     fn take_pending(&self, session: &Session, cut_turn: &str) -> bool {
-        let mut pending = self.auto_resumes.lock();
-        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting { turn, .. }) if turn == cut_turn);
+        let mut pending = session.auto_resume.lock();
+        let ours = matches!(pending.as_ref(), Some(Mark::Waiting { turn, .. }) if turn == cut_turn);
         if ours {
-            pending.remove(&session.id);
+            pending.take();
         }
         ours
     }
@@ -623,21 +973,29 @@ impl Hub {
         cut: CutTurn<'_>,
         attempt: usize,
     ) {
+        // Transfer replacement can leave this old task alive after the returning journal
+        // takes its id. It must neither fire nor record a skip in that new journal.
+        // Once a shutdown began (a restart too) it never fires either: starts are fenced, so
+        // it would end as a shutdown failure that supersedes the saved schedule. Its wait
+        // stays durable, and the next daemon restores it (`restore.rs`).
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || self.shutting_down() {
+            return;
+        }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         if let Err(why) = self.fire_pending(session, cut_turn) {
             // Stop or close took it, or a newer turn replaced it.
-            self.append(session, "mux", "auto_resume_skipped", skipped(why));
+            self.append_retry(session, "auto_resume_skipped", skipped(why));
             return;
         }
         if session.status() == SessionStatus::Closed || session.moving().is_some() {
             self.clear_fired(session, cut_turn);
-            self.append(session, "mux", "auto_resume_skipped", skipped("closed"));
+            self.append_retry(session, "auto_resume_skipped", skipped("closed"));
             return;
         }
         if !still_cut(session, cut_turn) {
             self.clear_fired(session, cut_turn);
-            self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
+            self.append_retry(session, "auto_resume_skipped", skipped("superseded"));
             return;
         }
         let held = self.held_by(session, root, cut_turn);
@@ -665,10 +1023,43 @@ impl Hub {
         let reason = super::turn_errors::resume_cause(cut.error, cut.error).unwrap_or("transport");
         let blocks = vec![json!({"type": "text", "text": continue_text(cut.error, reason)})];
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
+        self.finish_auto_resume(
+            session,
+            &cut,
+            attempt,
+            &held,
+            result,
+            accepted.load(std::sync::atomic::Ordering::SeqCst),
+        );
+    }
+
+    /// A prompt can finish after its session was replaced. Serialize its terminal records
+    /// and held-queue release with replacement's Stop, just like a waiting timer's records.
+    fn finish_auto_resume(
+        &self,
+        session: &Arc<Session>,
+        cut: &CutTurn<'_>,
+        attempt: usize,
+        held: &[String],
+        result: Result<Value, RpcError>,
+        accepted: bool,
+    ) {
+        let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         self.clear_fired(session, cut_turn);
+        // Read before the retry lock: scheduling takes the shutdown plan, then this lock
+        // (`before_shutdown`, `set_retry`), so never the other way round.
+        let fenced = self.shutting_down()
+            && !self.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
+        let _pending = session.auto_resume.lock();
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || fenced {
+            return;
+        }
+        #[cfg(test)]
+        after_finish_replaced_check();
+        let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         match result {
             Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
-                self.resume_held(session, &held);
+                self.resume_held(session, held);
             }
             Ok(_) => {}
             Err(e) => match e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) {
@@ -677,7 +1068,7 @@ impl Hub {
                     self.append(session, "mux", "auto_resume_skipped", skipped(why));
                 }
                 // Refused before its turn: the row's retry went when it fired.
-                _ if !accepted.load(std::sync::atomic::Ordering::SeqCst) => {
+                _ if !accepted => {
                     tracing::warn!(session = %session.id, attempt, "auto resume refused: {}", e.message);
                     let mut msg = skipped("refused");
                     msg.set("error", json!(e.message));
@@ -827,3 +1218,7 @@ mod tests {
         assert_eq!(staggered(u64::MAX, "s"), u64::MAX);
     }
 }
+
+#[cfg(test)]
+#[path = "auto_resume/turn_completion_tests.rs"]
+mod turn_completion_tests;

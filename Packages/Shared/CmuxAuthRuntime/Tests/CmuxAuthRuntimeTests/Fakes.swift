@@ -36,6 +36,7 @@ actor FakeAuthClient: AuthClient {
     private var nextTeamSelectionGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     private var nextSelectedTeamReadGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     private var nextTeamCreateGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
+    private var nextTeamDeleteGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
     var nonce = "nonce-123"
@@ -83,6 +84,13 @@ actor FakeAuthClient: AuthClient {
     }
     func holdNextTeamCreate(started: TestPhaseSignal, release: TestContinuationBlocker) {
         nextTeamCreateGate = (started, release)
+    }
+    func holdNextTeamDelete(started: TestPhaseSignal, release: TestContinuationBlocker) {
+        nextTeamDeleteGate = (started, release)
+    }
+    func takeTeamDeleteGate() -> (started: TestPhaseSignal, release: TestContinuationBlocker)? {
+        defer { nextTeamDeleteGate = nil }
+        return nextTeamDeleteGate
     }
 
     /// Mirrors the live SDK store: a fresh stored access token is returned

@@ -21,18 +21,33 @@ mod app_browser_route;
 #[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
+mod apps_list;
+#[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod auth_token;
+#[cfg(unix)]
+mod automation;
+#[cfg(unix)]
+mod automation_cloud;
 mod beside;
 #[cfg(unix)]
 mod billing;
+#[cfg(unix)]
+mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_client_session;
+mod cloud_help;
+#[cfg(unix)]
+mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_repo;
 #[cfg(unix)]
 mod cloud_secret;
 mod code_mode;
@@ -50,6 +65,7 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod internal;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
@@ -57,6 +73,8 @@ mod lifecycle;
 mod sandbox_run;
 #[cfg(unix)]
 mod vm;
+#[cfg(unix)]
+mod vnc;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
@@ -75,7 +93,8 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
+    CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
+    platform_origin, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -91,12 +110,15 @@ mod screen_help;
 mod script;
 #[cfg(unix)]
 mod setup;
+#[cfg(unix)]
+mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
 #[cfg(unix)]
 mod status;
 mod surface;
+mod tab_capabilities;
 #[cfg(unix)]
 mod terminal_talk;
 mod topology_help;
@@ -127,6 +149,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "attention",
     "agent",
     "room",
+    "space",
     "closed",
     "git",
     "conversation",
@@ -209,21 +232,56 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1;
             }
             value if value.starts_with('-') => return false,
-            "remote" => return remote_family_word(args.get(index + 1)),
+            "remote" => return remote_family_word(args.get(index + 1..).unwrap_or_default()),
             value => return REMOTE_COMMANDS.contains(&value),
         }
     }
     false
 }
 
-/// Whether the word after `remote` keeps argv in the remote command family:
-/// none, a flag, `help` or one of its actions. Any other word is an app
+/// Whether the words after `remote` keep argv in the remote command family:
+/// none, a flag, `help`, one of its actions, or any word asked for `--help`
+/// (the remote family's help lists its actions). Any other word is an app
 /// action's CLI name (`remote new-group`, `remote reconnect`), which the app
-/// action fallback runs.
-fn remote_family_word(word: Option<&String>) -> bool {
-    word.is_none_or(|word| {
-        word.starts_with('-') || word == "help" || remote_action_command(word).is_some()
+/// action fallback runs; a word no app action has is refused as an unknown
+/// remote action there (see ``unknown_remote_action``).
+fn remote_family_word(rest: &[String]) -> bool {
+    rest.first().is_none_or(|word| {
+        word.starts_with('-')
+            || word == "help"
+            || remote_action_command(word).is_some()
+            || rest
+                .iter()
+                .take_while(|arg| *arg != "--")
+                .any(|arg| matches!(arg.as_str(), "-h" | "--help"))
     })
+}
+
+/// The remote family's refusal of `remote <word>` when `<word>` is neither a
+/// remote action nor an app action's CLI name, in place of the mux grammar's
+/// unknown-scope error for `remote`.
+#[cfg(unix)]
+fn unknown_remote_action(args: &[String]) -> Option<i32> {
+    let (global, command_args) = parse_action_globals(args).ok()?;
+    if command_args.first().map(String::as_str) != Some("remote") {
+        return None;
+    }
+    let action = command_args.get(1).filter(|word| !word.starts_with('-'))?;
+    let message = crate::localization::catalog().remote_client.unknown_action("remote", action);
+    let message = match global.output {
+        OutputMode::Quiet | OutputMode::Human => format!("cmux: {message}"),
+        OutputMode::Json | OutputMode::JsonLines => message,
+    };
+    Some(wire::print_local_error(
+        &serde_json::json!({
+            "code":"usage.invalid",
+            "message":message,
+            "details":{},
+            "retryable":false,
+        }),
+        global.output,
+        1,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -408,6 +466,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` is `machine`'s old name).
+    #[cfg(unix)]
+    let alias_args;
+    #[cfg(unix)]
+    let args = match vm::machine_alias(args) {
+        Some(rewritten) => {
+            alias_args = rewritten;
+            alias_args.as_slice()
+        }
+        None => args,
+    };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
     #[cfg(unix)]
     let list_args;
@@ -425,13 +494,19 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
+        .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -484,6 +559,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             // reports replaces the usage error.
             #[cfg(unix)]
             if let Some(code) = run_app_action_fallback(args) {
+                return code;
+            }
+            #[cfg(unix)]
+            if let Some(code) = unknown_remote_action(args) {
                 return code;
             }
             // A command this build does not know may be one the daemon's
@@ -584,9 +663,31 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
 /// the app marks one for the CLI. `None` when it does not, or no app answers.
 #[cfg(unix)]
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_action_globals(args).ok()?;
+    let (mut global, command_args) = parse_action_globals(args).ok()?;
     if let Some((name, action_args)) = agent_view::action(&command_args) {
         return app::run_cli_action(&global, &name, &action_args);
+    }
+    match share_cli::action(&command_args) {
+        Some(Ok((name, mut action_args))) => {
+            for switch in share_cli::take_output_switches(&mut action_args) {
+                let output = match switch.as_str() {
+                    "--json" => OutputMode::Json,
+                    "--jsonl" => OutputMode::JsonLines,
+                    _ => OutputMode::Quiet,
+                };
+                if let Err(error) = set_output_mode(&mut global, output, &switch) {
+                    let error = serde_json::json!({"code": "usage.invalid", "message": error.0,
+                        "details": {}, "retryable": false});
+                    return Some(wire::print_local_error(&error, global.output, 2));
+                }
+            }
+            return app::run_cli_action(&global, &name, &action_args);
+        }
+        Some(Err(message)) => {
+            let error = serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false});
+            return Some(wire::print_local_error(&error, global.output, 2));
+        }
+        None => {}
     }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
     if words < 2 {
@@ -707,11 +808,9 @@ fn parse_command(
 }
 
 fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
-    UsageError::new(
-        crate::localization::catalog()
-            .local_server
-            .unknown_scope(scope, suggestion(scope, surface.scopes())),
-    )
+    let suggestion = internal::classic_verbs::resource_command(scope)
+        .or_else(|| suggestion(scope, surface.scopes()));
+    UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
 }
 
 /// A `cmux-tui` scope named through `cmux`, which refuses it by name
@@ -781,6 +880,20 @@ fn scan_globals(
         if value == "--" {
             after_separator = true;
             command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        // Cloud repo actions name a chat, not a daemon, with --session.
+        if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
+            && (value == "--session" || value.starts_with("--session="))
+        {
+            command.push(value.clone());
+            if value == "--session"
+                && let Some(next) = args.get(index + 1)
+            {
+                command.push(next.clone());
+                index += 1;
+            }
             index += 1;
             continue;
         }
@@ -980,7 +1093,9 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
-        (Some("machine"), Surface::Cmux) => Cow::Borrowed(MACHINE_CATALOG_HELP),
+        (Some("machine"), Surface::Cmux) => {
+            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::MACHINE_VM_HELP))
+        }
         (Some(scope), _) => scope_help(scope),
         (None, Surface::Cmux) => {
             let root = catalog.local_server.cmux_root_help;
@@ -1017,7 +1132,7 @@ fn scope_help_for(
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
-        "machine" => Cow::Borrowed(MACHINE_HELP),
+        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::MACHINE_VM_HELP)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
@@ -1036,7 +1151,7 @@ fn scope_help_for(
         "agent open-tab" => {
             Cow::Borrowed(crate::localization::catalog().app_control.agent_open_tab_usage)
         }
-        "cloud" => Cow::Borrowed(CLOUD_HELP),
+        "cloud" => Cow::Owned(cloud_help::overview(catalog.is_japanese())),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
@@ -1103,6 +1218,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   attention     Mark the tab where the person must act (no focus change)
   agent         List and report agent state
   room          Organize workspaces into rooms
+  space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
   status        Show loading indicators for scripts and agents
@@ -1129,7 +1245,7 @@ fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
 
 const MACHINE_HELP: &str = "\
 USAGE
-  cmux machine list
+  cmux machine ls
   cmux machine <selector> show
   cmux machine <selector> session list
   cmux machine <selector> session <selector> open
@@ -1188,7 +1304,7 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]
+  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
@@ -1205,112 +1321,6 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
-";
-
-const CLOUD_HELP: &str = "\
-USAGE
-  cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
-
-Most machine actions need --target machine:MACHINE_ID, even with one machine.
-Run `cmux cloud list-machines` to get its id and target.
-hand-off-machine returns hand-off text; move sends a chat tab to Cloud and
-bring-back returns a previously moved chat to this Mac.
-
-CLI actions (the live action catalog is authoritative):
-  new-workspace             new-machine
-  fork-machine              snapshot-machine
-  restore-machine           promote-machine-to-template
-  machine-status            machine-ports
-  hand-off-machine          move
-  bring-back                ssh
-  exec                      setup-github
-  files-list                file-read
-  file-write                file-mkdir
-  file-remove               file-stat
-  prepare-scp               tunnel-attach
-  tunnel-detach             tunnel-rotate-key
-  network-list              firewall-list
-  firewall-get              firewall-create
-  firewall-delete            domain-list
-  publication-list           list-machines
-  new-terminal-on-machine    rename-machine
-  kill-machine               pause-machine
-  resume-machine             resize-machine
-  set-idle-pause             delete-snapshot
-  diagnostics               sign-in
-  sign-out                  open-mobile-pairing
-  open-browser              port-list
-  port-forward              port-close
-  machine-link              enroll-machine
-  open-desktop              apply-machine-config
-  deliver-secrets           start-session
-
-Secrets (stored in this Mac's Keychain):
-  cmux cloud secret set NAME [--repo OWNER/NAME]
-  cmux cloud secret ls
-  cmux cloud secret rm NAME [--repo OWNER/NAME]
-set reads the value from a hidden prompt or stdin, never a command argument.
-deliver-secrets sends the secrets declared by a finished machine config.
-
-Client sessions (a scoped token for one of your machines, no app needed):
-  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
-  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
-
-Run `cmux action list --category cloud --json` for the current catalog and
-`cmux action describe <action> --json` for an action's arguments.
-";
-
-const CLOUD_HELP_JA: &str = "\
-使い方
-  cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
-
-マシンを操作する大半のアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
-`cmux cloud list-machines` で ID と target を確認できます。
-hand-off-machine は引き継ぎ用のテキストを返します。move はチャットタブを Cloud に移し、
-bring-back は以前移したチャットをこの Mac に戻します。
-
-CLI アクション（現在の一覧はアクションカタログを参照）:
-  new-workspace             new-machine
-  fork-machine              snapshot-machine
-  restore-machine           promote-machine-to-template
-  machine-status            machine-ports
-  hand-off-machine          move
-  bring-back                ssh
-  exec                      setup-github
-  files-list                file-read
-  file-write                file-mkdir
-  file-remove               file-stat
-  prepare-scp               tunnel-attach
-  tunnel-detach             tunnel-rotate-key
-  network-list              firewall-list
-  firewall-get              firewall-create
-  firewall-delete            domain-list
-  publication-list           list-machines
-  new-terminal-on-machine    rename-machine
-  kill-machine               pause-machine
-  resume-machine             resize-machine
-  set-idle-pause             delete-snapshot
-  diagnostics               sign-in
-  sign-out                  open-mobile-pairing
-  open-browser              port-list
-  port-forward              port-close
-  machine-link              enroll-machine
-  open-desktop              apply-machine-config
-  deliver-secrets           start-session
-
-シークレット（この Mac のキーチェーンに保存）:
-  cmux cloud secret set NAME [--repo OWNER/NAME]
-  cmux cloud secret ls
-  cmux cloud secret rm NAME [--repo OWNER/NAME]
-set は値を非表示の入力プロンプトまたは標準入力から読み取ります。コマンドの引数には指定しません。
-deliver-secrets は適用が完了したマシン設定で宣言されたシークレットを送信します。
-
-クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）:
-  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
-  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
-
-現在のカタログは `cmux action list --category cloud --json`、引数は
-`cmux action describe <action> --json` で確認できます。
 ";
 
 const SIDEBAR_HELP: &str = "\

@@ -45,7 +45,7 @@ extension WorkspaceRowView {
     /// A tree parent's chevron, right to left from `trailing`: always on a folded parent (its
     /// children are out of sight), on hover or selection on an open one, its slot kept either way.
     func layoutTreeFold(trailing: CGFloat, cy: CGFloat, control: CGFloat, fades: Bool) -> CGFloat {
-        let shown = treeFold == .collapsed || (treeFold == .expanded && (isHovered || isSelected))
+        let shown = treeFold == .collapsed || (treeFold == .expanded && (revealsHoverControls || isSelected))
         setHoverShown(treeFoldButton, shown && !isShowingPlaceholder, fades: fades)
         guard treeFold != nil else { return trailing }
         treeFoldButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)

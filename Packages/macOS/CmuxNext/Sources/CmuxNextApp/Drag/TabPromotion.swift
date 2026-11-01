@@ -27,8 +27,8 @@ enum TabPromotion {
     static func menuRemovals(keepsTab: Bool) -> [ActionID] { keepsTab ? actions : [] }
 
     /// Why promoting tab `id` is refused; nil when it may.
-    @MainActor static func refusal(tab id: String, services: AppServices) -> String? {
-        let workspace = services.workspaceID(ofTab: id).flatMap { services.workspace(id: $0) }
-        return staysPut(tab: id, in: workspace) ? RefusalStrings.homeKeepsItsTabs : nil
+    @MainActor static func refusal(tab: TabModel, services: AppServices) -> String? {
+        let workspace = services.workspaceID(ofTab: tab).flatMap { services.workspace(id: $0) }
+        return staysPut(tab: tab.id, in: workspace) ? RefusalStrings.homeKeepsItsTabs : nil
     }
 }

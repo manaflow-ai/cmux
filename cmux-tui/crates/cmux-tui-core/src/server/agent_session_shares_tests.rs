@@ -64,7 +64,7 @@ fn the_owner_creates_lists_kicks_and_revokes() {
         json!({"ttl_secs":604_801}),
         json!({"uses":0}),
         json!({"uses":9}),
-        json!({"session":"acp_other"}),
+        json!({"pane":1}),
     ] {
         let mut frame = json!({"cmd":"agent-session-share-create", "surface":surface});
         frame.as_object_mut().unwrap().extend(bad.as_object().unwrap().clone());
@@ -93,6 +93,24 @@ fn the_owner_creates_lists_kicks_and_revokes() {
     assert_code(&owner.request(unknown), "share.unknown");
     let no_guest = json!({"cmd":"agent-session-share-kick", "share_id":share["share_id"]});
     assert_code(&owner.request(no_guest), "share.bad_request");
+    // The session the caller named pins the chat: a surface that shows another one now is refused,
+    // and the one it shows is accepted.
+    let moved = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+        "session":"acp_other"}));
+    assert_code(&moved, "share.chat_moved");
+    let pinned = create(&mut owner, surface, json!({"session": SESSION, "create_id": "req-1"}));
+    assert_eq!(pinned["session"], json!(SESSION));
+    // The create's own id is in the list, so a client whose create went unanswered ends that share.
+    let listed = list(&mut owner);
+    let mine: Vec<&Value> =
+        listed.as_array().unwrap().iter().filter(|s| s["create_id"] == "req-1").collect();
+    assert_eq!(mine.len(), 1);
+    assert_eq!(mine[0]["share_id"], pinned["share_id"]);
+    for bad in [json!(""), json!("x".repeat(65))] {
+        let refused = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+            "create_id": bad}));
+        assert_code(&refused, "share.bad_request");
+    }
 }
 
 #[test]
@@ -257,7 +275,15 @@ fn a_provisioning_share_arms_its_expiry_timer() {
     let fake = FakeAcpmux::start("share-provisioning-expiry");
     let mux = mux_with(&fake, "share-provisioning-expiry");
     let shares = &mux.control_clients.agent_sessions.link_shares;
-    let expires = shares.insert(None, SESSION.into(), 1, 60, 1, true).unwrap()["expires_at"]
+    let expires = shares
+        .insert(
+            None,
+            SESSION.into(),
+            1,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap()["expires_at"]
         .as_u64()
         .unwrap();
     shares.serve(&mux);
@@ -266,9 +292,7 @@ fn a_provisioning_share_arms_its_expiry_timer() {
 
     shares.advance(Duration::from_secs(61));
     shares.expired(&mux);
-    let state = shares
-        .with(None, |all, _| Ok((all[0].state, false)))
-        .unwrap();
+    let state = shares.with(None, |all, _| Ok((all[0].state, false))).unwrap();
     assert_eq!(state, ShareState::Expired);
     assert!(shares.armed.lock().unwrap().is_none());
 }
@@ -279,7 +303,15 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
     std::fs::create_dir_all(&directory).unwrap();
     let dir = Some(directory.as_path());
     let first = LinkShares::default();
-    let share = first.insert(dir, "acp_x".into(), 3, 3600, 3, false).unwrap();
+    let share = first
+        .insert(
+            dir,
+            "acp_x".into(),
+            3,
+            ShareTerms { ttl_secs: 3600, uses: 3, create_id: None },
+            false,
+        )
+        .unwrap();
     let share_id = share["share_id"].as_str().unwrap().to_owned();
     let redeem = |shares: &LinkShares, attempt: &str| {
         shares.redeem(

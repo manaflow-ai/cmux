@@ -95,7 +95,7 @@ jobs:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     needs: version
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -171,6 +171,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-rust-sdk-crate
+          retention-days: 7
           path: cmux-tui/target/package/cmux-sdk-${{ needs.version.outputs.version }}.crate
           if-no-files-found: error
           overwrite: true
@@ -179,6 +180,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-rust-sidebar-crate
+          retention-days: 7
           path: cmux-tui/target/package/cmux-sidebar-${{ needs.version.outputs.version }}.crate
           if-no-files-found: error
           overwrite: true

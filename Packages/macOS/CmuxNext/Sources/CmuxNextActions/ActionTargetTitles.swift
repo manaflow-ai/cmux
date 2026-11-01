@@ -32,6 +32,14 @@ public enum ActionTargetTitles {
         registry.register(action)
     }
 
+    /// Sets why a bound action's palette row is disabled for the focused object (its run would
+    /// refuse with that reason). `reason` must not refuse (no HUD while the palette builds its rows).
+    public static func setPaletteReason(_ id: ActionID, in registry: ActionRegistry, _ reason: @escaping @MainActor () -> String?) {
+        guard var action = registry.action(for: id) else { return }
+        action.paletteUnavailableReason = reason
+        registry.register(action)
+    }
+
     /// Sets the current value of a bound action's choices argument for each target.
     public static func setChoiceState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor (ActionTargetRef?) -> String?) {
         guard var action = registry.action(for: id) else { return }
@@ -53,7 +61,9 @@ public enum ActionTargetTitles {
         let action = registry.action(for: id)
         if let title = action?.targetTitle?(invocation) { item.title = title }
         if let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
-        if let reason = ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
+        // A row a person can run past its reason (Sign In, then the action) says what the click does.
+        if let reason = registry.personRecovery(for: id, invocation)?.note
+            ?? ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
             if #available(macOS 14.4, *) { item.subtitle = reason }
             item.toolTip = reason
         }

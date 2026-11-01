@@ -73,13 +73,15 @@ nonisolated extension OmnibarStep {
         state.lastEditKind = nil
     }
 
-    /// Cmd-L while focused: `SetFocus(is_user_initiated=true)` unelides
-    /// (unless the user typed) and selects all.
+    /// Cmd-L while focused: `SetFocus(is_user_initiated=true)` leaves a
+    /// keyword session (`ClearKeyword`), unelides (unless the user typed)
+    /// and selects all.
     mutating func focusLocation() {
         guard state.hasFocus, !state.isComposing else {
             handled = false
             return
         }
+        leaveKeyword(restoreText: true)
         state.elided = false
         acceptShownText()
         state.edit.selection = Self.all(state.fieldText)
