@@ -78,8 +78,26 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
     var capturedImages: [(time: Double, image: Image)] { lock.withLock { images } }
 
     /// Starts capturing `window` at its backing scale, one frame per display refresh or faster.
+    /// Every ScreenCaptureKit call is bounded: after its connection to replayd was interrupted
+    /// (red6 8ed4c684, cmux14: SCStreamErrorDomain -3805), the next call's continuation never
+    /// resumed and the test hung for 180 s. A call that does not answer in time throws instead.
+    static let callLimit: Double = 10
+
+    /// Starts capturing `window` at its backing scale, one frame per display refresh or faster.
+    /// A connection interrupted (-3805) is retried once after a second; a second failure throws.
     @MainActor
     func start(window: NSWindow) async throws {
+        do {
+            try await bounded("start the capture") { try await self.open(window) }
+        } catch let error as NSError where error.code == -3805 {
+            try await Task.sleep(for: .seconds(1))
+            lock.withLock { stopped = nil }
+            try await bounded("start the capture again after -3805") { try await self.open(window) }
+        }
+    }
+
+    @MainActor
+    private func open(_ window: NSWindow) async throws {
         let content = try await SCShareableContent.currentProcess
         guard let target = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else {
             throw Failure(description: "ScreenCaptureKit lists no window \(window.windowNumber) of this process (\(content.windows.count) listed)")
@@ -108,8 +126,47 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
 
     @MainActor
     func stop() async {
-        try? await stream?.stopCapture()
-        stream = nil
+        guard let stream else { return }
+        self.stream = nil
+        try? await bounded("stop the capture") { try await stream.stopCapture() }
+    }
+
+    /// `work` on the main actor, or a throw after ``callLimit`` seconds, whichever comes first;
+    /// the caller never waits on a call that does not answer.
+    @MainActor
+    private func bounded(_ what: String, _ work: @escaping @MainActor () async throws -> Void) async throws {
+        let once = Once()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            once.set(continuation)
+            Task { @MainActor in
+                do {
+                    try await work()
+                    once.resume(.success(()))
+                } catch {
+                    once.resume(.failure(error))
+                }
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(Self.callLimit))
+                once.resume(.failure(Failure(description: "ScreenCaptureKit did not \(what) within \(Int(Self.callLimit)) s "
+                    + "(stop error: \(self.stopError ?? "none"))")))
+            }
+        }
+    }
+
+    /// Resumes a continuation once; later results are dropped.
+    // crash-allow: the continuation is read and cleared under `lock` only.
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Void, any Error>?
+        func set(_ continuation: CheckedContinuation<Void, any Error>) { lock.withLock { self.continuation = continuation } }
+        func resume(_ result: Result<Void, any Error>) {
+            let pending = lock.withLock { () -> CheckedContinuation<Void, any Error>? in
+                defer { continuation = nil }
+                return continuation
+            }
+            pending?.resume(with: result)
+        }
     }
 
     var captured: [Frame] { lock.withLock { frames } }
