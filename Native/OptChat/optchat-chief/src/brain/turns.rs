@@ -1801,6 +1801,7 @@ fn item(queued: &Queued) -> Item {
         },
         Source::Note => Item {
             images,
+            note: true,
             ..Item::default()
         },
     }
