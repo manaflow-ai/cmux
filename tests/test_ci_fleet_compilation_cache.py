@@ -100,14 +100,15 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("CODE_SIGNING_ALLOWED=NO", args)
         self.assertEqual(args[-1], "build")
 
-    def test_warmer_and_pr_release_use_the_same_cache_settings(self):
-        nightly = (ROOT / ".github/workflows/nightly.yml").read_text()
-        ci_macos = (ROOT / ".github/workflows/ci-macos.yml").read_text()
-        warmer = nightly.split("      - name: Refresh universal nightly compilation cache\n", 1)[1].split("      - name:", 1)[0]
-        release = ci_macos.split("      - name: Build app (Release)\n", 1)[1].split("      - name:", 1)[0]
-        for step in (warmer, release):
-            self.assertIn("bash scripts/ci/fleet-compilation-cache.sh", step)
-            self.assertIn('"${fleet_cache_settings[@]}"', step)
+    def test_nightly_release_retries_local_cache_after_runtime_cas_failure(self):
+        workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
+        step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("run_release_build()", step)
+        self.assertIn("release_status=${PIPESTATUS[0]}", step)
+        self.assertIn("grep -Eiq 'compilation cache|remote service|CAS|cache plugin'", step)
+        self.assertIn('run_release_build 1', step)
+        self.assertIn("retrying the Release build with the local cache", step)
+        self.assertIn('exit "$release_status"', step)
 
 
 if __name__ == "__main__":

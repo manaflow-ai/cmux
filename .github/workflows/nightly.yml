@@ -2546,23 +2546,42 @@ jobs:
           while IFS= read -r setting; do
             fleet_cache_settings+=("$setting")
           done < <(CMUX_CI_DISABLE_COMPILATION_CACHE="${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}" bash scripts/ci/fleet-compilation-cache.sh)
-          python3 scripts/ci/run-with-helper-prebuild.py \
-            --derived-data build-universal --configuration Release --archs "$archs" \
-            --log "$RUNNER_TEMP/helper-prebuild.log" -- \
-          ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
-            env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
-            -destination 'generic/platform=macOS' \
-            -clonedSourcePackagesDirPath .spm-cache \
-            -packageCachePath "$PWD/.spm-cache/.package-cache" \
-            -showBuildTimingSummary \
-            ARCHS="$archs" \
-            ONLY_ACTIVE_ARCH="$only_active" \
-            COMPILATION_CACHE_ENABLE_CACHING=YES \
-            COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
-            "${fleet_cache_settings[@]}" \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
-            "${notary_test_flags[@]}"
+          run_release_build() {
+            local disable_fleet_cache="${1:-0}"
+            local settings=()
+            if [[ "$disable_fleet_cache" != 1 ]]; then
+              settings=("${fleet_cache_settings[@]}")
+            fi
+            python3 scripts/ci/run-with-helper-prebuild.py \
+              --derived-data build-universal --configuration Release --archs "$archs" \
+              --log "$RUNNER_TEMP/helper-prebuild.log" -- \
+            ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
+              env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+              -destination 'generic/platform=macOS' \
+              -clonedSourcePackagesDirPath .spm-cache \
+              -packageCachePath "$PWD/.spm-cache/.package-cache" \
+              -showBuildTimingSummary \
+              ARCHS="$archs" \
+              ONLY_ACTIVE_ARCH="$only_active" \
+              COMPILATION_CACHE_ENABLE_CACHING=YES \
+              COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
+              "${settings[@]}" \
+              COMPILER_INDEX_STORE_ENABLE=NO \
+              CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
+              "${notary_test_flags[@]}"
+          }
+          # A live CAS failure is recoverable: preserve the build's incremental inputs,
+          # then retry once with Xcode's local cache. Other compile failures remain red.
+          set +e
+          run_release_build 0 2>&1 | tee "$RUNNER_TEMP/nightly-release-build.log"
+          release_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$release_status" -ne 0 ]] && grep -Eiq 'compilation cache|remote service|CAS|cache plugin' "$RUNNER_TEMP/nightly-release-build.log"; then
+            echo "::warning::managed fleet compilation cache failed; retrying the Release build with the local cache"
+            run_release_build 1
+          else
+            exit "$release_status"
+          fi
 
       # The Chief and the iPhone host built beside the Release build. Their Xcode
       # phases found no CMUX_NEXT_*_BIN and bundled nothing; this joins each
