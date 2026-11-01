@@ -111,6 +111,7 @@ jobs:
       - name: Set portable fast-checks cache paths
         env:
           RUNNER_TEMP: ${{ runner.temp }}
+        working-directory: ${{ github.workspace }}
         run: |
           {
             printf 'CARGO_TARGET_DIR=%s/fast-checks-cache/target\n' "$RUNNER_TEMP"
