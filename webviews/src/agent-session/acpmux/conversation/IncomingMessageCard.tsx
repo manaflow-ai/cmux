@@ -18,8 +18,8 @@
 // fuck do you even have this instead of just being able to click on the fucking name of the thing,
 // the open chat? ... Just click the left name thing."). The rest of the line opens the message.
 // The sender's mark is its harness's: the listed chat's, else the one the message names (a peer's
-// relayed message, `fromHarness`), else its name's (agentBrand), and a small bot only when none
-// says (Leo, 2026-10-29: "why are some of these icons still only placeholders?"). Reply, at the line's end,
+// relayed message, `fromHarness`), and a small bot when neither says, never a mark guessed from the
+// sender's name (a Codex lane called `claude-…` drew Claude's; cmux#30247). Reply, at the line's end,
 // answers in place: the answer goes to the sending chat in the message's thread
 // (AcpmuxDirectClient.reply), from an editor in the panel. An open reply and its draft last while
 // the page does; closing the message closes the reply and keeps the draft.
@@ -67,36 +67,24 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
 /// A harness logo's size in the sender's glyph slot (see SenderName).
 const SENDER_LOGO_SIZE = 12;
 
-/// The sender's mark and name at a received line's start (and a waiting group's sender head,
-/// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
-export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
-  const t = useT();
-  // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
-  // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
+/// The harness whose mark a sender draws: the listed chat's, else the one the message names (acpmux's
+/// bound `fromHarness`), the first of them with a mark today, else that harness id itself, so a
+/// profile icon that arrives later still replaces the fallback. Never one guessed from the sender's
+/// name: a Codex lane called `claude-…` drew Claude's mark (cmux#30247). With neither, undefined,
+/// and the line draws the neutral agent glyph.
+export function senderHarness(listed: string | undefined, named: string | undefined): string | undefined {
+  return knownMark(listed, named, listed ?? named);
+}
+
+/// The sender's mark alone (a received line's, an inbox group's): its avatar, a Chief's face, else
+/// its harness's mark, else the neutral agent glyph in its own stable tone.
+export function SenderMark({ message }: { message: IncomingMessage }) {
   const chief = useChiefFace(message.chief);
-  const name = (message.chief && chief?.name) || message.name;
   const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
-  // Read only (a guest): the sender's chat is not this reader's to open.
-  const readOnly = useTranscriptReadOnly();
-  const sessionId = message.chief || readOnly ? undefined : sender.sessionId;
   const avatar = useAgentAvatar(sender.sessionId);
-  const notice = laneNotice(message);
-  const inboxNames =
-    notice?.kind === "inbox"
-      ? [...new Set((notice.threads ?? []).map(({ sender }) => sender).filter(Boolean))].join(", ")
-      : "";
-  const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
-  // The first candidate with a mark today; with none, the sender's own harness id, so a profile icon
-  // that arrives later still replaces the fallback (AgentIdentity stays subscribed to that id).
-  const harness = knownMark(
-    sender.harness,
-    message.harness,
-    message.name,
-    message.name.split("/")[0],
-    sender.harness ?? message.harness,
-  );
+  const harness = senderHarness(sender.harness, message.harness);
   const picture = message.chief ? chief?.src : avatar;
-  const icon = picture ? (
+  return picture ? (
     <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
   ) : message.chief && chief?.text ? (
     <span className="cv-chief-text-avatar" aria-hidden="true">
@@ -114,6 +102,27 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       fallbackNode={<Bot size={16} />}
     />
   );
+}
+
+/// The sender's mark and name at a received line's start (and a waiting group's sender head,
+/// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
+export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
+  const t = useT();
+  // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
+  // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
+  const chief = useChiefFace(message.chief);
+  const name = (message.chief && chief?.name) || message.name;
+  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  // Read only (a guest): the sender's chat is not this reader's to open.
+  const readOnly = useTranscriptReadOnly();
+  const sessionId = message.chief || readOnly ? undefined : sender.sessionId;
+  const notice = laneNotice(message);
+  const inboxNames =
+    notice?.kind === "inbox"
+      ? [...new Set((notice.threads ?? []).map(({ sender }) => sender).filter(Boolean))].join(", ")
+      : "";
+  const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
+  const icon = <SenderMark message={message} />;
   // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
   const openTitle = sender.host
     ? t("subagents.openOnHost", { name, host: sender.host })
