@@ -1295,6 +1295,10 @@ async fn dispatch_request(
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             let opts = crate::hub::PromptOptions {
+                cloud_turn: params
+                    .get("cloud_turn")
+                    .cloned()
+                    .and_then(|v| serde_json::from_value(v).ok()),
                 prompt_id,
                 on_accepted: match &saved {
                     Some(saved) => saved.watch(on_accepted),

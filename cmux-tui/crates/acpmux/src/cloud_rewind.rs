@@ -376,6 +376,35 @@ pub struct TurnScope {
     pub turn: String,
 }
 
+/// Native-prepared turn capability carried only in the in-memory prompt request.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudTurnEnvelope {
+    pub capability: String,
+    pub team: String,
+    pub user: String,
+    pub workspace: String,
+    pub machine: String,
+    pub generation: u64,
+    pub session: String,
+    pub turn: String,
+    pub expires_at: u64,
+}
+
+impl CloudTurnEnvelope {
+    pub fn scope(&self) -> TurnScope {
+        TurnScope {
+            team: self.team.clone(),
+            user: self.user.clone(),
+            workspace: self.workspace.clone(),
+            machine: self.machine.clone(),
+            generation: self.generation,
+            session: self.session.clone(),
+            turn: self.turn.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionReply {

@@ -588,6 +588,7 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
+            cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
             on_accepted: Some(Box::new(move |v: Value| {
                 let _ = tx.send(v);

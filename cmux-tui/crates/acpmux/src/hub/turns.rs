@@ -254,6 +254,7 @@ impl Hub {
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let no_queue = opts.no_queue;
+        let cloud_turn = opts.cloud_turn.clone();
         let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
@@ -419,6 +420,38 @@ impl Hub {
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
+        let cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
+            if envelope.session != session.id || envelope.turn != turn_id {
+                let e =
+                    RpcError::invalid_params("cloud turn capability does not match this prompt");
+                self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+                drop(guard);
+                return Err(e);
+            }
+            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
+                .unwrap_or_else(|_| crate::cli::cloud_join::DEFAULT_HUB.to_owned());
+            let scope = envelope.scope();
+            let auth = Arc::new(
+                crate::cloud_rewind::EphemeralCapability::new(envelope.capability.clone())
+                    .map_err(|e| RpcError::internal(e.to_string()))?,
+            );
+            let cloud = crate::cloud_rewind::CloudTurnClient::new(
+                &origin,
+                &scope.workspace,
+                &scope.machine,
+                auth,
+            )
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+            if let Err(e) = cloud.claim_execution(&scope).await {
+                let e = RpcError::new(-32000, format!("cloud turn claim refused: {e}"));
+                self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+                drop(guard);
+                return Err(e);
+            }
+            Some((cloud, scope))
+        } else {
+            None
+        };
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -856,6 +889,11 @@ impl Hub {
         let mut result = self
             .finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq, Some(joined))
             .await;
+        if let Some((cloud, scope)) = cloud_exec {
+            if let Err(error) = cloud.finish_execution(&scope).await {
+                tracing::warn!(session = %session.id, turn = %turn_id, "cloud turn finish failed: {error}");
+            }
+        }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
