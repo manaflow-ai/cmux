@@ -236,7 +236,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 
 Leo: "also closing the last workspace in a group it's like the group isn't sure if it wants to close too or not but the animation gets weird. just leave it; we don't need to close the group automatically the last workspace in it gets closed too. just don't do a weird jitter indecisive animation"
 
-A workspace close removes only the workspace. The document reducer and immediate sidebar edit preserve every ancestor group's identity, order and fold, so the existing row close animation leaves its header in place. Explicit Close Group and move/reorder cleanup retain their behavior. Regression coverage: `SidebarCloseSelectionTests`, `SidebarDocReshowCloseTests`, and the reducer's nested group and pin tests. The empty-group presentation is a separate change.
+A workspace close removes only the workspace. The daemon close path and remote-close forwarding use the reducer's existing `item.delete` operation; the immediate sidebar edit also preserves the group. Every ancestor keeps its identity, order and fold, so the existing row close animation leaves its header in place, including with the currently pinned app FFI. Explicit Close Group and move/reorder/unpin cleanup retain their behavior. Regression coverage: `SidebarCloseSelectionTests`, `SidebarDocReshowCloseTests`, and daemon workspace-close tests. The empty-group presentation is a separate change.
 
 ## Group editor opens in one frame (2026-10-29)
 

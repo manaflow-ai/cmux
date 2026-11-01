@@ -1,6 +1,6 @@
 //! Nested groups (plans/cmux-next/remote-groups-DESIGN.md R1-R4): a group
 //! may hold groups up to [`MAX_GROUP_DEPTH`] levels (16), a subtree never mixes machines, a moved group carries its whole
-//! subtree, closing the last workspace preserves emptied ancestors, and view
+//! subtree, closing the last workspace removes emptied ancestors, and view
 //! rows carry the depth.
 
 use super::accept;
@@ -209,30 +209,14 @@ fn a_moved_group_carries_its_whole_subtree() {
 }
 
 #[test]
-fn closing_the_last_workspace_preserves_emptied_ancestors() {
+fn closing_the_last_workspace_removes_emptied_ancestors() {
     let mut doc = doc();
     three_levels(&mut doc);
-    let groups: Vec<_> = ["g_leaf", "g_branch", "g_project"]
-        .iter()
-        .map(|id| doc.item(id).unwrap().clone())
-        .collect();
-    let member = doc.item(&ws(A, "a1")).unwrap().clone();
-    let closed = apply_in_place(
-        &mut doc,
-        &[Op::Close { refs: vec![WorkspaceRef::new(A, "a1")] }],
-        &mut minter(),
-    )
-    .unwrap();
-    assert!(doc.item(&member.id).is_none());
-    for group in &groups {
-        assert_eq!(doc.item(&group.id), Some(group), "group identity, order and fold stay");
+    apply(&mut doc, &[Op::Close { refs: vec![WorkspaceRef::new(A, "a1")] }]).unwrap();
+    for id in ["g_leaf", "g_branch", "g_project"] {
+        assert!(doc.item(id).is_none(), "{id} emptied and removed");
     }
     check(&doc).unwrap();
-    apply(&mut doc, &closed.inverse).unwrap();
-    assert_eq!(doc.item(&member.id), Some(&member), "undo restores the member to its group");
-    for group in &groups {
-        assert_eq!(doc.item(&group.id), Some(group));
-    }
 }
 
 #[test]
@@ -246,8 +230,8 @@ fn closing_keeps_an_ancestor_that_still_has_members() {
     };
     apply(&mut doc, &[a2_into_project]).unwrap();
     apply(&mut doc, &[Op::Close { refs: vec![WorkspaceRef::new(A, "a1")] }]).unwrap();
-    assert!(doc.item("g_leaf").is_some());
-    assert!(doc.item("g_branch").is_some());
+    assert!(doc.item("g_leaf").is_none());
+    assert!(doc.item("g_branch").is_none());
     assert!(doc.item("g_project").is_some(), "still holds a2");
 }
 

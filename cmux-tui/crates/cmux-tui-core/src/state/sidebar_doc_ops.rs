@@ -17,7 +17,8 @@
 //! `reset` and `unpin` also close this machine's placed workspaces that are
 //! no longer open ([`closes_for_reset`]): Pinned and custom sections kept
 //! them, and the machine sections a reset or an unpin moves them into do
-//! not. The close removes those workspace items and preserves their groups.
+//! not. The close removes the groups it empties there, as closing the last
+//! workspace does.
 
 use std::collections::HashSet;
 
@@ -207,8 +208,8 @@ mod tests {
     use super::*;
 
     /// Unpin moves a pinned tree, closed members and all, back into its machine
-    /// section; the close that follows removes those workspace items, keeping
-    /// the groups they leave empty.
+    /// section; the close that follows removes them and the groups they empty,
+    /// as closing the last workspace does there (a283, pinning-DESIGN.md).
     #[test]
     fn unpin_and_reset_close_what_is_not_open() {
         assert!(returns_closed_items(&[Op::Reset]));
