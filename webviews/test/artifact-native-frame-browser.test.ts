@@ -19,13 +19,13 @@ await requireBrowserLane("artifact-native-frame-browser.test.ts", async () => {
   /// A Swift host's frame document and artifact policy, read from its source.
   function host(file: string, policy: RegExp) {
     const swift = readFileSync(new URL(`../../Packages/macOS/CmuxNext/Sources/${file}`, import.meta.url), "utf8");
-    const document = /static let document = Data\(#"""\n([\s\S]*?)\n\s*"""#\.utf8\)/.exec(swift)?.[1];
+    const bootstrap = /static let document = Data\(#"""\n([\s\S]*?)\n\s*"""#\.utf8\)/.exec(swift)?.[1];
     const found = policy.exec(swift);
-    if (!document || !found) throw new Error(`${file}: no frame document or artifact policy`);
+    if (!bootstrap || !found) throw new Error(`${file}: no frame document or artifact policy`);
     const csp = found[1]!.includes('",')
       ? [...found[1]!.matchAll(/"([^"]+)"/g)].map((match) => match[1]).join("; ")
       : found[1]!;
-    return { document, csp };
+    return { bootstrap, csp };
   }
   const hosts = {
     "cmux-agent": host(
@@ -48,13 +48,13 @@ await requireBrowserLane("artifact-native-frame-browser.test.ts", async () => {
   /// messages until the height reports (and a moment more, for a late handler).
   async function draw(engine: string, name: keyof typeof hosts, html: string) {
     const page = await browsers.get(engine)!.newPage();
-    const { document, csp } = hosts[name];
+    const { bootstrap, csp } = hosts[name];
     await page.route(FRAME, (route) =>
       route.fulfill({
         status: 200,
         contentType: "text/html; charset=utf-8",
         headers: { "content-security-policy": csp.replace(/frame-ancestors [^;]+;?\s*/, "") },
-        body: document,
+        body: bootstrap,
       }),
     );
     await page.setContent("<body></body>");
