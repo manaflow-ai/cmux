@@ -40,7 +40,7 @@ jobs:
   check:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -61,9 +61,11 @@ jobs:
             CI_DEV_COMPILE_RUNNER=${{ vars.CI_DEV_COMPILE_RUNNER }}
             CI_FAST_LANE_RUNNER=${{ vars.CI_FAST_LANE_RUNNER }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
+            CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+            CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}

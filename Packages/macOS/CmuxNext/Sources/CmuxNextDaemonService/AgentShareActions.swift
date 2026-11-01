@@ -16,7 +16,7 @@ public struct AgentShareActions {
     public static let kick: ActionID = "agent.share.kick"
 
     /// How long a create waits for the daemon: the room's 15 s provisioning budget and some margin.
-    static let createDeadline: Duration = .seconds(20)
+    public static let createDeadline: Duration = .seconds(20)
 
     let host: any AgentShareHost
 
@@ -37,8 +37,12 @@ public struct AgentShareActions {
             do { ttl = try AgentShareArguments.ttl(invocation["ttl"]?.stringValue) } catch { return .refused(AgentShareStrings.badTTL) }
             if invocation["uses"] != nil, invocation["uses"]?.intValue == nil { return .refused(AgentShareStrings.badUses) }
             let uses = invocation["uses"]?.intValue.map { UInt32(clamping: $0) }
-            let person = invocation.origin == .user
+            let person = Self.ownerStarted(invocation)
+            let ask = AgentShareConsentAsk(chat: chat.title, ttlSecs: ttl, uses: uses)
             return Self.answer(registry) {
+                // A link exposes the chat's whole transcript: only the owner's yes makes one (#30263).
+                // Asked before the owner's token is minted, so a declined run spends nothing.
+                if !person, !(await host.shareAskOwner(ask)) { throw AgentShareDeclined() }
                 let token = await host.shareOwnerToken()
                 // The session pins the chat: the daemon refuses if the surface shows another one by now.
                 let createID = UUID().uuidString
@@ -135,7 +139,16 @@ public struct AgentShareActions {
         }
         guard let tab, let session = AgentShareChat.session(of: tab) else { return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat)) }
         return .success(AgentShareChat(surface: tab.surface.rawValue, session: session, connection: host.shareConnection(holding: tab),
-                                       isLocal: host.shareIsOnThisMac(tab)))
+                                       isLocal: host.shareIsOnThisMac(tab), title: tab.title))
+    }
+
+    /// Whether the owner started the run in this app (palette, menu, key): their gesture is their
+    /// consent. Everything else asks first: the CLI, MCP, a script, a page, another client, a run that
+    /// names a caller (an app, an agent chat, a terminal), and any control socket run, whose `user`
+    /// origin is only the caller's claim (``ActionInvocation/isPersonsOwnRun``). A nested run is also
+    /// judged by the run that encloses it (``ActionRunScope``).
+    static func ownerStarted(_ invocation: ActionInvocation) -> Bool {
+        invocation.isPersonsOwnRun && (ActionRunScope.current?.origin ?? .user) == .user
     }
 
     /// A target that names nothing answers `not_found` (``ActionRegistry/refuseNotFound(_:)``); any
@@ -202,12 +215,17 @@ struct AgentShareChat {
     let connection: DaemonConnection?
     /// Whether `connection` is this Mac's daemon, the only one shares are made and listed on.
     var isLocal = true
+    /// The chat's tab title, named in the owner's consent sheet.
+    var title = ""
 
     /// The acpmux session of a started agent chat; nil for every other tab.
     @MainActor static func session(of tab: TabModel) -> String? {
         tab.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
     }
 }
+
+/// The owner declined (or did not answer) the consent sheet of a run they did not start: no link.
+struct AgentShareDeclined: Error, Equatable {}
 
 struct AgentShareRefusal: Error, Equatable {
     var reason: String

@@ -258,6 +258,11 @@ impl AgentTool {
                     "empty".into(),
                     json!({"type": "boolean", "description": "Create it with no terminal."}),
                 );
+                properties.insert(
+                    "top".into(),
+                    json!({"type": "boolean",
+                           "description": "Put the new workspace first in the sidebar, below Home."}),
+                );
             }
             Verb::TabSelect | Verb::TerminalFocus => {
                 properties.insert(
@@ -351,6 +356,11 @@ impl AgentTool {
                 );
                 properties
                     .insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
+                properties.insert(
+                    "top".into(),
+                    json!({"type": "boolean",
+                           "description": "Put the new workspace first in the sidebar, below Home."}),
+                );
                 for (name, description) in [
                     ("harness", "The harness: claude, codex or another acpmux profile."),
                     ("model", "The model, as the harness names it."),
@@ -462,6 +472,9 @@ impl AgentTool {
                 if args.flag("empty")? {
                     words.push("--empty".into());
                 }
+                if args.flag("top")? {
+                    words.push("--top".into());
+                }
             }
             Verb::TabSelect => words.extend(["tab".into(), "select".into(), args.word("tab")?]),
             Verb::TerminalFocus => {
@@ -541,6 +554,9 @@ impl AgentTool {
                         // Inline, so a value that starts with `--` stays a value.
                         words.push(format!("--{name}={value}"));
                     }
+                }
+                if args.flag("top")? {
+                    words.push("--top".into());
                 }
                 if let Some(prompt) = args.text("prompt")? {
                     words.extend(["--".into(), prompt]);

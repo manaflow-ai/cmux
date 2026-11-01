@@ -61,7 +61,8 @@ final class SidebarCardSwitch: NSView {
     override func layout() {
         super.layout()
         let b = bounds, s = control.fittingSize
-        control.frame = NSRect(x: b.width - s.width, y: (b.height - s.height) / 2, width: s.width, height: s.height)
+        // Never left of its own frame: the card gives the switch its whole width or hides it.
+        control.frame = NSRect(x: max(0, b.width - s.width), y: (b.height - s.height) / 2, width: s.width, height: s.height)
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: 0, y: (b.height - h) / 2, width: max(0, control.frame.minX - Metrics.space1), height: h)
     }

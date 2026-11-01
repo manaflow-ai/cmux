@@ -121,11 +121,26 @@ impl Mux {
     ) -> anyhow::Result<StateCommit> {
         let ops = ops_of(operation, fields)?;
         let fingerprint = json!({"operation": operation, "fields": fields});
+        self.commit_sidebar_ops(mutation, operation, &fingerprint, |_, _| Ok(ops))
+    }
+
+    /// Commit the reducer ops `ops_for` gives for the current document (read
+    /// in the commit's transaction, after the old writes are synced) under
+    /// `mutation`'s idempotency key and `fingerprint`: the rows, the
+    /// `session.events` batch and the write-back to the old personal rows,
+    /// as every `sidebar.*` mutation does. The result is `{revision, inverse}`.
+    pub(crate) fn commit_sidebar_ops(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        ops_for: impl FnOnce(&rusqlite::Transaction<'_>, &Doc) -> anyhow::Result<Vec<Op>>,
+    ) -> anyhow::Result<StateCommit> {
         let key = mutation.id.clone();
         self.commit_state(
             mutation,
             operation,
-            &fingerprint,
+            fingerprint,
             None,
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
@@ -138,7 +153,7 @@ impl Mux {
                     "sidebar document unavailable: its migration did not complete"
                 );
                 store::with_doc_mut(transaction, |doc| {
-                    let mut ops = ops.clone();
+                    let mut ops = ops_for(transaction, doc)?;
                     closes_for_reset(transaction, doc, &mut ops)?;
                     anyhow::ensure!(
                         !reduce::changes_app_kind(doc, &ops),

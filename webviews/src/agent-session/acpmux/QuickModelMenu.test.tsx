@@ -808,6 +808,79 @@ test("an empty harness list does not claim an empty search had no matches", asyn
   expect(text).not.toBe("No matching models");
 });
 
+// https://github.com/manaflow-ai/cmux/issues/29915: effort showed only as "Medium >" on the running
+// row; the chat's own tab drew a blank column on its other models until pointed at.
+test("every model row with levels names one at rest, on the chat's own tab too", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  function OwnTabHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [],
+          current: "opus",
+          onModel() {},
+          effort: {
+            current: "high",
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+            ],
+            onPick() {},
+          },
+          families: {
+            current: "claude",
+            onPick() {},
+            list: [
+              {
+                id: "claude",
+                name: "Claude",
+                more: [],
+                models: [
+                  { id: "opus", name: "Opus", family: "claude", efforts: ["low", "high"] },
+                  {
+                    id: "sonnet",
+                    name: "Sonnet",
+                    family: "claude",
+                    efforts: ["low", "medium"],
+                    defaultEffort: "medium",
+                  },
+                ],
+              },
+            ],
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OwnTabHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  const rowOf = (name: string) =>
+    [...document.querySelectorAll<HTMLElement>(".acpmux-quick-model-effort")].find((node) =>
+      node.querySelector(".acpmux-menu-label")?.textContent?.includes(name),
+    )!;
+  const opus = rowOf("Opus");
+  expect(opus.hasAttribute("data-running")).toBe(true);
+  expect(opus.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("High");
+  const sonnet = rowOf("Sonnet");
+  expect(sonnet.hasAttribute("data-held")).toBe(true);
+  expect(sonnet.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("Medium");
+});
+
 // Leo 2026-10-31: "WHY THE FUCK IS THERE NO FUCKING FAST MODE FOR FUCKIGN CODEX". Another tab's
 // models get the same Fast mode row and effort column as the chat's own: the row holds the choice
 // (off as the menu opens) and a model picked there lands with it.

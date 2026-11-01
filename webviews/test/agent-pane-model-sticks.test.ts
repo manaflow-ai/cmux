@@ -237,7 +237,14 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     const name = claudeModels.find((model) => model.id === id)?.shortName;
     if (!name) throw new Error(`unknown test model ${id}`);
     await menu.getByRole("searchbox").fill(name);
-    await menu.getByRole("menuitemradio", { name, exact: false }).first().click();
+    // Click the row's name, as a person does: in the compact menu a short searched row's middle
+    // can fall on its effort item, which sits over the row and opens the levels instead.
+    await menu
+      .getByRole("menuitemradio", { name, exact: false })
+      .first()
+      .locator(".acpmux-quick-label")
+      .first()
+      .click();
   }
   /// Checks run once the daemon has taken each message.
   const checks = new Set<() => void>();

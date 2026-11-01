@@ -32,6 +32,18 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func typing(_ on: Bool) async throws
     /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
     func view(_ visible: Bool) async throws
+    /// The person's model, mode and option picks for the chat (`agent-session-settings-v1`):
+    /// acpmux's `session/set_model`, `session/set_mode` and `session/set_config_option` on that
+    /// machine, answered as acpmux answers them (a config option answers `{configOptions}`).
+    func setModel(_ modelId: String) async throws -> Data
+    func setMode(_ modeId: String) async throws -> Data
+    func setConfig(id configId: String, value: String) async throws -> Data
+    /// Whether that machine's daemon relays a Cloud chat's own sign-in (`agent-session-login-v1`).
+    func servesLogin() async -> Bool
+    /// One step of the chat's agent's own sign-in on that machine (`agent-session-login-v1`):
+    /// acpmux's `_acpmux/agent_login/<op>` answer, or `{refused: {reason}}`. `fields` are the
+    /// daemon's (`agent`, `login_id`, `code`, `key`); the code and key are never logged.
+    func login(_ op: String, _ fields: [String: String]) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
@@ -40,6 +52,19 @@ extension AgentSessionRemoteClient {
     /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.
     public func typing(_ on: Bool) async throws {}
     public func view(_ visible: Bool) async throws {}
+    /// A daemon without `agent-session-settings-v1` changes nothing: the pick says so.
+    public func setModel(_ modelId: String) async throws -> Data { throw Self.settingsUnsupported }
+    public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }
+    public func setConfig(id configId: String, value: String) async throws -> Data { throw Self.settingsUnsupported }
+    nonisolated static var settingsUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.settings_unsupported",
+                                message: "update cmux on that machine to change this chat's model, mode or options from here")
+    }
+    /// A daemon without `agent-session-login-v1` offers no sign-in.
+    public func servesLogin() async -> Bool { false }
+    public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
+        Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
+    }
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")

@@ -9,7 +9,22 @@
 export type LaneNoticeKind = "report" | "inbox";
 export type LaneNoticeVerdict = "SHIP" | "BLOCK" | "FIX" | "HOLD";
 
-export type LaneNoticeThread = { readonly id: string; readonly sender: string };
+export type LaneNoticeDelivery = {
+  readonly sender: string;
+  readonly text: string;
+  readonly promptId?: string;
+};
+export type LaneNoticeThread = {
+  readonly id: string;
+  readonly sender: string;
+  readonly preview?: string;
+  readonly messages?: readonly LaneNoticeDelivery[];
+  readonly label?: string;
+  readonly promptIds?: readonly string[];
+  readonly fromSession?: string;
+  readonly fromHarness?: string;
+  readonly count?: number;
+};
 
 export type LaneNotice = {
   readonly kind: LaneNoticeKind;
@@ -20,7 +35,7 @@ export type LaneNotice = {
   readonly threads?: readonly LaneNoticeThread[];
 };
 
-export type LaneNoticeMessage = {
+export type LaneNoticePayload = {
   readonly name: string;
   readonly text: string;
   readonly raw: string;
@@ -65,7 +80,7 @@ function detailsText(value: unknown, legacy: string[]): string | undefined {
   return legacy.length ? legacy.join("\n") : undefined;
 }
 
-function reportNotice(message: LaneNoticeMessage, legacy: boolean): LaneNotice {
+function reportNotice(message: LaneNoticePayload, legacy: boolean): LaneNotice {
   const lines = message.text.split("\n");
   const verdictText = message.text.replace(/^\s*\[[^\]\n]+\]\s*/, "");
   const review = REVIEW.exec(message.text) ?? NEW_VERDICT.exec(verdictText);
@@ -110,9 +125,70 @@ function reportNotice(message: LaneNoticeMessage, legacy: boolean): LaneNotice {
   };
 }
 
-function inboxNotice(message: LaneNoticeMessage): LaneNotice {
+function inboxNotice(message: LaneNoticePayload): LaneNotice {
   const threads: LaneNoticeThread[] = [...(message.noticeThreads ?? [])];
   // Structured thread ids are authoritative; the text repeats them for older clients.
+  const lines = message.text.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!.trim();
+    const match =
+      /^-\s+(?:\[blocker\]\s+)?(\d+)\s+new\s+in\s+(.+?)\s+from\s+(.+?)(?:\s*:\s*(.*?))?\s*\(thread\s+([^\s)]+)\)/i.exec(
+        line,
+      );
+    if (!match) continue;
+    const [, countText, , fromText, inlinePreview, id] = match;
+    const senderNames = fromText!
+      .split(/,\s*/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const deliveries: LaneNoticeDelivery[] = [];
+    if (inlinePreview?.trim()) {
+      const sender = senderNames.at(-1) ?? "inbox";
+      deliveries.push({ sender, text: inlinePreview.trim() });
+    } else {
+      let current: LaneNoticeDelivery | undefined;
+      const flush = () => {
+        if (current) deliveries.push(current);
+        current = undefined;
+      };
+      for (let next = index + 1; next < lines.length && !/^\s*-\s+/.test(lines[next]!); next += 1) {
+        const body = /^\s*>\s?(.*)$/.exec(lines[next]!);
+        if (!body) continue;
+        const content = body[1]!.trimEnd();
+        if (!content.trim()) {
+          if (current) current = { ...current, text: `${current.text}\n` };
+          continue;
+        }
+        const signed = /^([^:]+):\s+(.+)$/.exec(content.trimStart());
+        const knownSender = signed && senderNames.includes(signed[1]!.trim());
+        if (knownSender) {
+          flush();
+          current = { sender: signed[1]!.trim(), text: signed[2]!.trim() };
+        } else if (current) {
+          current = { ...current, text: `${current.text}\n${content}` };
+        } else {
+          current = { sender: senderNames.at(-1) ?? "inbox", text: content.trim() };
+        }
+      }
+      flush();
+    }
+    const existing = threads.find((thread) => thread.id === id);
+    const messages = deliveries.length ? deliveries : existing?.messages;
+    const sender = messages?.at(-1)?.sender ?? senderNames.at(-1) ?? existing?.sender ?? id!.replace(/^from:/, "");
+    const preview = messages?.at(-1)?.text ?? existing?.preview;
+    const next: LaneNoticeThread = {
+      id: id!,
+      sender,
+      ...(preview ? { preview } : {}),
+      ...(messages?.length ? { messages } : {}),
+    };
+    const at = threads.findIndex((thread) => thread.id === id);
+    if (at >= 0) threads[at] = { ...threads[at], ...next };
+    else threads.push(next);
+    // The line's count may exceed the number of preview lines when older clients only expose a
+    // single preview. Keep that one delivery; the count remains in the wrapper text.
+    void countText;
+  }
   if (!threads.length)
     for (const match of message.text.matchAll(THREAD)) {
       const id = match[1]!;
@@ -126,7 +202,7 @@ function inboxNotice(message: LaneNoticeMessage): LaneNotice {
   return { kind: "inbox", preview, body: message.text.trim(), ...(threads.length ? { threads } : {}) };
 }
 
-export function laneNotice(message: LaneNoticeMessage): LaneNotice | undefined {
+export function laneNotice(message: LaneNoticePayload): LaneNotice | undefined {
   if (!message || typeof message !== "object") return undefined;
   const cached = parsed.get(message as object);
   if (cached !== undefined || parsed.has(message as object)) return cached;

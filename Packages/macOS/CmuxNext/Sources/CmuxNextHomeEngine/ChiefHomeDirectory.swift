@@ -80,6 +80,14 @@ public actor ChiefHomeDirectory {
                                         sessionsHome: own.sessionsHome)
     }
 
+    /// Whether the acpmux of Chief home `host` (`chief:<home id>`) keeps session `session` on disk: a
+    /// Chief subagent of this Mac, which a link may open a workspace on (#28877). A miss reads the
+    /// Chief root again, as ``router(for:fallback:)`` does.
+    public func keeps(session: String, host: String) async -> Bool {
+        guard let sessions = await ownAcpmux(of: host)?.sessionsHome else { return false }
+        return (try? await work.run(.userVisible, mayBlock: .files) { AcpmuxChiefSessionRouter.keeps(session: session, home: sessions) }) ?? false
+    }
+
     private func ownAcpmux(of host: String) async -> OwnAcpmux? {
         if let lookup = lookups[host] { return await lookup.value }
         let lookup = Task { await self.lookUp(host) }

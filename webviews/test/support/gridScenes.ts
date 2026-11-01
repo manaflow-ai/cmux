@@ -28,7 +28,7 @@ const selectorRoles: Record<string, string> = {
   ".acpmux-queued-kind": "lead",
   ".acpmux-permission-request-icon": "icon",
   ".acpmux-permission-card-leading": "icon",
-  ".acpmux-chat-inspector-section__icon": "icon",
+  ".acpmux-session-info-section__icon": "icon",
   ".cv-tool__chevron": "chevron",
   ".acpmux-running-tray__finished svg": "chevron",
   ".acpmux-running-tray__status": "chevron",
@@ -181,6 +181,8 @@ const card = (
     mid(title, icon),
   ]);
 
+const noticeCard = ".acpmux-host-error-card";
+
 /** Promotion is per surface and requires a fleet measurement; no surface is assumed to pass. */
 export const gridScenes: GridScene[] = [
   composer("claude-auto"),
@@ -243,7 +245,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-agent-line",
     ".acpmux-lineage__icon",
     ".acpmux-summary-agent__name",
-    ".acpmux-agent-line__stop-slot button",
+    ".acpmux-agent-line__stop-slot",
   ),
   ...["several-running", "grid-31"].map((variant) =>
     stack(
@@ -324,12 +326,22 @@ export const gridScenes: GridScene[] = [
     trail(".cv-tool__chevron", `calc(${token("transcript-icon-box")} - ${token("transcript-icon-box")})`, "right"),
     mid(".cv-tool__text, .cv-command__text", ".cv-tool__icon"),
   ]),
-  scene("transcript.actions", "agent-pane.reply-actions", "after-steer", ".cv-reply-actions", [
-    trail(".cv-turn-time", token("transcript-action-trail-center")),
-    value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
-    ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
-    mid(".cv-turn-time", ".cv-iconbtn"),
-  ]),
+  // The turn footer's action row (TurnRows.tsx TurnFooter): Copy, Pin, Read aloud and More, then its
+  // time. A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
+  // agent-pane.reply-actions gallery entry is gone), so the footer under the first turn, which the
+  // `footer` variant points at, is the one action row the transcript draws.
+  scene(
+    "transcript.actions",
+    "agent-pane.transcript-row-alignment",
+    "footer",
+    ".acpmux-turnSummary .cv-turn-actions:not(.cv-turn-actions--empty)",
+    [
+      trail(".cv-turn-time", token("transcript-action-trail-center")),
+      value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
+      ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
+      mid(".cv-turn-time", ".cv-iconbtn"),
+    ],
+  ),
   card(
     "transcript.cards",
     "agent-pane.permission-card",
@@ -360,36 +372,115 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-text",
     ".acpmux-summary-card__close",
   ),
-  // Glance has a bare Environment and heterogeneous section bodies (ChatInspector.tsx).
+  // The failed turn's card (TurnRows.tsx TurnFailure, default `card` arm): Lawrence via Leo,
+  // 2026-10-28, "needs more left padding". Its icon box sits on the card's lead and the cause and
+  // its buttons on the card's text column; there is no trailing control.
+  {
+    ...scene("transcript.cards", "agent-pane.turn-error-card", "rate-limited", ".cv-turn-error--card", [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      from("edge: top", ".cv-turn-error__cause", "top", point(":scope", "top"), token("cards-padding")),
+      left("lead", ".cv-turn-error__icon", "left", token("cards-lead")),
+      value("icon box", ".cv-turn-error__icon", "width", token("icon-box")),
+      left("text: heading", ".cv-turn-error__cause", "text", token("cards-text")),
+      left("text: actions", ".cv-turn-error__actions > :first-child", "left", token("cards-text")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+      mid(".cv-turn-error__cause", ".cv-turn-error__icon"),
+    ]),
+    level: "fail",
+  },
+  // Session status (HarnessStatusCard.tsx): Lawrence via Leo, 2026-10-28, "copy all alignment
+  // with 'X'". The header actions centre on the header's first line (the harness eyebrow), and
+  // the close control is the card's 28 trailing control ending 12 in.
+  {
+    ...scene("transcript.cards", "agent-pane.harness-status", "claude", ".acpmux-harness-status", [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+      value("close control", ".acpmux-harness-status__close", "width", token("cards-control")),
+      trail(".acpmux-harness-status__close", token("cards-trail-center")),
+      ...centered(".acpmux-harness-status__close svg", ".acpmux-harness-status__close"),
+      value(
+        "mid: close on first line",
+        ".acpmux-harness-status__close",
+        "cy",
+        point(".acpmux-harness-status__eyebrow", "optical"),
+      ),
+      mid(".acpmux-harness-status__copy-all", ".acpmux-harness-status__close"),
+    ]),
+    level: "fail",
+  },
+  // The notice and error card over the composer (`.acpmux-host-error-card`: HostError.tsx's
+  // folder harness card, HarnessHealthNotice.tsx, RulesNotice.tsx). It is a card (grid.md 5.6):
+  // padding 12, radius 12, its action row 8 under the text with an 8 gap between buttons. It has
+  // no header icon and no trailing control, so it has no lead, text column or trail line.
+  ...[
+    ["agent-pane.host-error", "enable", noticeCard],
+    ["agent-pane.harness-health-notice", "signed-out", `.acpmux-harness-notice ${noticeCard}`],
+  ].map(([entry, variant, root]) => ({
+    ...scene("cards.notice", entry!, variant!, root!, [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
+      value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
+      from(
+        "action row",
+        ".acpmux-host-error-actions > button:first-child",
+        "top",
+        point(":scope > p:last-of-type", "bottom"),
+        token("gap"),
+      ),
+      ...(variant === "signed-out"
+        ? [
+            from(
+              "actions: gap",
+              ".acpmux-host-error-actions > button:nth-child(2)",
+              "left",
+              point(".acpmux-host-error-actions > button:first-child", "right"),
+              token("gap"),
+            ),
+          ]
+        : []),
+      value("radius", ":scope", "radius", token("cards-radius")),
+    ]),
+    level: "fail" as const,
+  })),
+  {
+    ...scene("cards.notice", "agent-pane.rules-notice", "collapsed", `.acpmux-rules-notice ${noticeCard}`, [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
+      value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+    ]),
+    level: "fail",
+  },
+  // Glance has a bare Environment and heterogeneous section bodies (SessionInfo.tsx).
   // Section roots keep a proven header absence from excusing another section's selector.
   ...[
-    ["environment", ".acpmux-chat-inspector-row__name"],
-    ["context", ".acpmux-chat-inspector-context__total > span:first-child"],
-    ["connectors", ".acpmux-chat-inspector-row__name"],
-    ["changes", ".acpmux-chat-inspector-pr__title"],
-    ["sources", ".acpmux-chat-inspector-source__label"],
-    ["outputs", ".acpmux-chat-inspector-row__name"],
+    ["environment", ".acpmux-session-info-row__name"],
+    ["context", ".acpmux-session-info-context__total > span:first-child"],
+    ["connectors", ".acpmux-session-info-row__name"],
+    ["changes", ".acpmux-session-info-pr__title"],
+    ["sources", ".acpmux-session-info-source__label"],
+    ["outputs", ".acpmux-session-info-row__name"],
     ["subagents", ".acpmux-summary-text"],
-    ["tasks", ".acpmux-chat-inspector-task__command"],
+    ["tasks", ".acpmux-session-info-task__command"],
   ].map(([section, body]) => {
     const entry = card(
       "transcript.cards",
       "agent-pane.chat-inspector",
       "layout-glance-open",
-      `.acpmux-chat-inspector-section[data-section="${section}"]`,
-      ".acpmux-chat-inspector-section__icon",
-      ".acpmux-chat-inspector-section__title",
+      `.acpmux-session-info-section[data-section="${section}"]`,
+      ".acpmux-session-info-section__icon",
+      ".acpmux-session-info-section__title",
       body!,
-      ".acpmux-chat-inspector-section__fold",
+      ".acpmux-session-info-section__fold",
     );
     entry.absent = {};
     if (section !== "context" && section !== "connectors")
-      entry.absent[".acpmux-chat-inspector-section__icon"] =
-        `ChatInspector's ${section} section supplies no header icon in layout-glance-open.`;
+      entry.absent[".acpmux-session-info-section__icon"] =
+        `SessionInfo's ${section} section supplies no header icon in layout-glance-open.`;
     if (section === "environment") {
-      entry.absent[".acpmux-chat-inspector-section__title"] =
-        "Glance Environment is bare: InspectorSection renders its body without a header.";
-      entry.absent[".acpmux-chat-inspector-section__fold"] = "Bare Environment has no section disclosure control.";
+      entry.absent[".acpmux-session-info-section__title"] =
+        "Glance Environment is bare: SessionInfoSection renders its body without a header.";
+      entry.absent[".acpmux-session-info-section__fold"] = "Bare Environment has no section disclosure control.";
     }
     return entry;
   }),
@@ -425,9 +516,12 @@ const absentBySurface: Record<string, Record<string, string>> = {
 for (const item of gridScenes) {
   item.absent = { ...absentBySurface[item.surface], ...item.absent };
   if (item.surface === "transcript.cards" && item.variant === "finished-open") {
-    // SummaryCard.gallery.tsx sets column=true; both controls require !card.column.
+    // SummaryCard.gallery.tsx sets column=true; both controls require !card.column. The column has
+    // no title row either (#29895: it starts with Environment, as the popover does since #28744).
     item.absent[".acpmux-summary-card__fold--icon"] =
-      "The inline summary column has a text heading without the popover fold icon.";
+      "The inline summary column has no title row, so no popover fold icon.";
+    item.absent[".acpmux-summary-card__title"] =
+      "The inline summary column has no title row; it starts with Environment (#29895).";
     item.absent[".acpmux-summary-card__close"] = "The inline summary column has no popover close control.";
   }
 }
