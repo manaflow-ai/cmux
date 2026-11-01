@@ -54,6 +54,15 @@ pub const AGENT_SESSION_PRESENCE_CAPABILITY: &str = "agent-session-presence-v1";
 /// `session/set_model`, `session/set_mode` and `session/set_config_option` on the tab's own
 /// session. An app without it says the picks need that machine's cmux-tui updated.
 pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
+/// `agent-session-login`: a Cloud chat's own sign-in on this machine (the app's sign-in card), as
+/// acpmux's `_acpmux/agent_login/{start,finish,api_key,cancel}`. Only the chat's owner, never a
+/// teammate or link guest and never a read-only attachment. acpmux's refusal reason comes back
+/// in the answer (`refused.reason`), so the card can say why.
+pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
+/// How long a login's finish may wait: Codex's waits for the person's approval in the browser.
+const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// The longest login id, code or API key a login step carries, in bytes.
+const MAX_LOGIN_BYTES: usize = 4096;
 
 pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
 pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
@@ -348,6 +357,7 @@ enum AgentSessionCommand {
     SetModel(SetModelParams),
     SetMode(SetModeParams),
     SetConfig(SetConfigParams),
+    Login(LoginParams),
 }
 
 impl AgentSessionCommand {
@@ -370,6 +380,7 @@ impl AgentSessionCommand {
             "agent-session-set-model" => Self::SetModel(from_value(params).ok()?),
             "agent-session-set-mode" => Self::SetMode(from_value(params).ok()?),
             "agent-session-set-config" => Self::SetConfig(from_value(params).ok()?),
+            "agent-session-login" => Self::Login(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -420,6 +431,67 @@ struct SetConfigParams {
     surface: SurfaceId,
     config_id: String,
     value: String,
+}
+
+/// `agent-session-login`: one step of the chat's agent's own sign-in on this machine (`op`
+/// `start` with `agent`, `finish` with `login_id` and Claude's `code`, `api_key` with `agent` and
+/// `key`, `cancel` with `login_id`).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoginParams {
+    surface: SurfaceId,
+    op: String,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    login_id: Option<String>,
+    #[serde(default)]
+    code: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+}
+
+/// acpmux's params of one login step, with the attached `session` where acpmux restarts its agent
+/// signed in; `None` for a step whose fields are missing or out of bounds.
+fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, Duration)> {
+    let text = |value: &Option<String>| {
+        value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
+    };
+    let agent = || text(&params.agent).filter(|a| matches!(*a, "claude" | "codex"));
+    let (body, timeout) = match params.op.as_str() {
+        "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
+        "finish" => {
+            let mut body = json!({"loginId": text(&params.login_id)?, "sessionId": session});
+            if params.code.is_some() {
+                body["code"] = json!(text(&params.code)?);
+            }
+            (body, LOGIN_FINISH_TIMEOUT)
+        }
+        "api_key" => (
+            json!({"agent": agent()?, "key": text(&params.key)?, "sessionId": session}),
+            CALL_TIMEOUT * 6,
+        ),
+        "cancel" => (json!({"loginId": text(&params.login_id)?}), CALL_TIMEOUT),
+        _ => return None,
+    };
+    Some((format!("_acpmux/agent_login/{}", params.op), body, timeout))
+}
+
+/// One login step on the attached session's acpmux. acpmux's refusal is an answer, not an error:
+/// `{"refused": {"reason": ...}}` with its `data.reason` (`unsupported` from an acpmux without the
+/// method), so the card words why. The code and key are never logged.
+fn login(attachment: &Attachment, params: LoginParams) -> Result<Value, Refusal> {
+    let (method, body, timeout) =
+        login_request(&attachment.session, params).ok_or(Refusal::BadRequest)?;
+    match attachment.link.call(&method, attachment.stamp(body), timeout) {
+        Ok(result) => Ok(result),
+        Err(LinkError::Rpc(_, data)) => {
+            let reason = data.get("reason").and_then(Value::as_str).unwrap_or("failed");
+            Ok(json!({"refused": {"reason": reason}}))
+        }
+        Err(LinkError::MethodNotFound(_)) => Ok(json!({"refused": {"reason": "unsupported"}})),
+        Err(error) => Err(Refusal::of(error)),
+    }
 }
 
 /// The longest model id, mode id, option id or option value a setting carries, in bytes.
@@ -789,6 +861,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::SetModel(params) => params.surface,
         AgentSessionCommand::SetMode(params) => params.surface,
         AgentSessionCommand::SetConfig(params) => params.surface,
+        AgentSessionCommand::Login(params) => params.surface,
     }
 }
 
@@ -1022,18 +1095,21 @@ fn run_on_worker(
                 | AgentSessionCommand::SetModel(_)
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
+                | AgentSessionCommand::Login(_)
         )
     {
         return refuse(writer, id, Refusal::ReadOnly);
     }
     // A teammate or link guest never changes the owner's chat's model, mode or options: a mode
-    // can stop the agent asking before it acts on the owner's machine.
+    // can stop the agent asking before it acts on the owner's machine. Nor does it sign the
+    // owner's agent in: that sets whose account the machine's agent runs as.
     if attachment.author.is_some()
         && matches!(
             &command,
             AgentSessionCommand::SetModel(_)
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
+                | AgentSessionCommand::Login(_)
         )
     {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1238,6 +1314,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             let params = json!({"configId": config_id, "value": value});
             setting(attachment, ok, "session/set_config_option", params)
         }
+        AgentSessionCommand::Login(params) => login(attachment, params),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
 }

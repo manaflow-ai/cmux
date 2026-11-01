@@ -68,6 +68,7 @@ export function loginFailure(error: unknown): LoginFailure {
     case "unknown_login":
       return "expired";
     case "unsupported_agent":
+    case "unsupported":
       return "unsupported";
     default:
       return "failed";
@@ -77,7 +78,8 @@ export function loginFailure(error: unknown): LoginFailure {
 /// A daemon (or host) without the method: the sign-in is not offered (today's card stays).
 function methodMissing(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
-  return code === -32601 || code === "transport.method_refused";
+  // acpmux's unknown method, the host's allowlist, or a remote chat's wire without the relay.
+  return code === -32601 || code === "transport.method_refused" || code === "remote.unsupported";
 }
 
 function startOf(reply: unknown): LoginStart | undefined {

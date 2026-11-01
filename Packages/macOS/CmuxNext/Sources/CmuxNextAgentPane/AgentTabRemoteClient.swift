@@ -58,6 +58,13 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         try await mapped { try await client.setConfig(id: configId, value: value) }
     }
 
+    /// An observation never signs the chat's agent in.
+    public func servesLogin() async -> Bool { mode != .observe && (await client.servesLogin()) }
+
+    public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
+        try await mapped { try await client.login(op, fields) }
+    }
+
     public func close() async { await client.close() }
 
     /// A daemon push as the pane's event: the record or request object, or the close reason.
