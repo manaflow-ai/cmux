@@ -15,6 +15,7 @@ import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { translate } from "../src/agent-session/acpmux/i18n";
 import { SESSION_INFO_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
@@ -326,7 +327,9 @@ test("Session Info opens with a first chat: its environment, context use and out
   // Environment: this Mac by its name, never "This computer"; the project by its name, its full path
   // only on hover; the branch.
   const rows = [...section(container, "environment")!.querySelectorAll<HTMLElement>(".acpmux-session-info-row")];
-  expect(rows[0]!.textContent).toBe("Studio");
+  // The machine row says where the chat runs in words, not only by name (Leo, 2026-10-31).
+  expect(rows[0]!.querySelector(".acpmux-session-info-row__name")?.textContent).toBe("Studio");
+  expect(rows[0]!.querySelector("[data-machine-kind]")?.textContent).toBe(translate("composer.envLocal"));
   expect(rows[0]!.dataset.machine).toBe("local");
   expect(rows[1]!.textContent).toBe("atlas-web");
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
@@ -439,7 +442,8 @@ test("a cloud session names its host; no usage and nothing produced have no sect
     summary: { ...base.summary!, host: "build-01", hostKind: "cloud", usage: undefined },
   });
   const machine = section(container, "environment")!.querySelector<HTMLElement>(".acpmux-session-info-row")!;
-  expect(machine.textContent).toBe("build-01");
+  expect(machine.querySelector(".acpmux-session-info-row__name")?.textContent).toBe("build-01");
+  expect(machine.querySelector("[data-machine-kind]")?.textContent).toBe(translate("composer.cloud"));
   expect(machine.dataset.machine).toBe("cloud");
   expect(section(container, "context")).toBeNull();
   expect(section(container, "outputs")).toBeNull();

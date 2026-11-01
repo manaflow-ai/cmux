@@ -75,6 +75,15 @@ extension WorkspaceRowView {
             // A usage warning with no status: the triangle takes the status's place, in its box (Lawrence 2026-10-30).
             usageWarningMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
             view = usageWarningMark
+        } else if badge.state == .dot {
+            // The legacy unread style shares Search's center too. Reserve the column before
+            // laying out counts or other marks, so none can occupy the dot's slot at rest.
+            badge.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: SidebarStyle.unreadDotSize)
+            view = badge
+        } else if !machineMark.isHidden {
+            // A row with no status: the machine mark takes the column, in a status mark's box, as the triangle does.
+            machineMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
+            view = machineMark
         } else {
             return nil
         }

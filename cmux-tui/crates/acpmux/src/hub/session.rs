@@ -113,6 +113,12 @@ pub struct Session {
     /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
     /// takes over (`digest.rs` `take_joined`, `inbox_digest.rs`).
     pub(super) inbox_digests: StdMutex<HashMap<String, Arc<super::digest::DigestTurn>>>,
+    /// What the messages waiting inbox digests took out of the queue hold, charged against
+    /// `queueMaxBytes` until each digest's turn takes them over or they go back in
+    /// (`queue_admission.rs`). Changed and read only under the `queue` lock, in the same critical
+    /// section that moves the messages, so a new prompt always sees them in one place or the
+    /// other (`DigestTurn::charge`, `DigestTurn::release`).
+    pub(super) digest_bytes: AtomicU64,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
@@ -168,6 +174,10 @@ pub struct Session {
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
     /// (`hosts.rs`), never by the config read later.
     pub(super) backgrounds_work: AtomicBool,
+    /// The person started this chat or wrote to it (`NewRequest::person`, a person's prompt):
+    /// its agent start has no deadline while its harness works on it, and says it is still
+    /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
+    pub(super) person: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -240,6 +250,9 @@ pub struct Session {
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
+    /// Counts status changes (`Hub::write_status`): a step that may or may not set the status
+    /// reads it before and after, as an adoption does around its recovery (`hosts.rs`).
+    pub(super) status_changes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -328,6 +341,12 @@ pub struct Session {
 }
 
 impl Session {
+    /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
+    /// its harness works on it.
+    pub(crate) fn person_wrote(&self) {
+        self.person.store(true, Ordering::SeqCst);
+    }
+
     /// Fence untagged compaction metadata for this live session. Claude's
     /// boundary and summary lines carry no turn id, so a forced Stop keeps
     /// them out of the controller log until this session is replaced.

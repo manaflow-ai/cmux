@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import webAccessText from "../../../../web/services/admin/access.ts?raw"
 import { cloudVmPlanOf, storeVmPlan } from "../src/cloud-vm-plan.ts"
 import { readVmPlanOverride } from "../src/stack-server.ts"
-import { CLOUD_RESTRICTED, cloudPlanId, COMPANY_EMAIL_DOMAINS, COMPANY_MAX_ACTIVE, companyPlanKey, isCompanyEmail, PAID_PLAN_LIMITS, paidPlanLimits, STUB_PLAN, teamPlan, type CloudConfig } from "../src/domains/cloud-plan.ts"
+import { CLOUD_RESTRICTED, cloudPlanId, COMPANY_EMAIL_DOMAINS, COMPANY_MAX_ACTIVE, companyPlanKey, isCompanyEmail, PAID_PLAN_LIMITS, paidPlanLimits, parseAllowedTeams, STUB_PLAN, teamPlan, type CloudConfig } from "../src/domains/cloud-plan.ts"
 import { CloudEntitlementStore } from "../src/cloud-entitlements.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import { storePlan } from "../src/inference/plan.ts"
@@ -101,6 +101,17 @@ describe("cloudPlanId: classic's billingPlanIdFromMetadata", () => {
     expect(teamPlan(config(CLOUD_RESTRICTED), "team_a")).toBeNull()
     expect(teamPlan(config(null), "team_a")).toEqual(STUB_PLAN)
     expect(teamPlan(config("pro"), "team_a")).toEqual(PAID_PLAN_LIMITS.pro)
+  })
+
+  it("CLOUD_ALLOWED_TEAMS \"*\" gives every team the stub plan, only in the stub environments, and a restriction still wins", () => {
+    const all = parseAllowedTeams("*")
+    const config = (environment: string, plan: string | null = null): CloudConfig => ({ environment, allowedTeams: all, prefix: null, image: null, entitlements: { enabled: true, plan: () => plan } })
+    for (const environment of ["development", "staging", "test"]) expect(teamPlan(config(environment), "team_anyone")).toEqual(STUB_PLAN)
+    expect(teamPlan(config("production"), "team_anyone")).toBeNull()
+    expect(teamPlan(config("staging"), null)).toBeNull()
+    expect(teamPlan(config("staging"), "")).toBeNull()
+    expect(teamPlan(config("staging", CLOUD_RESTRICTED), "team_anyone")).toBeNull()
+    expect(teamPlan(config("staging", "max"), "team_anyone")).toEqual(PAID_PLAN_LIMITS.max)
   })
 
   it("the company domains are web's admin domains", () => {
