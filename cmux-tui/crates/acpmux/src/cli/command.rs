@@ -1457,6 +1457,11 @@ mod help_contract_tests {
         ),
         ("acpmux README", include_str!("../../README.md")),
         ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+        ("integrate-harness skill", include_str!("../../skills/integrate-harness/SKILL.md")),
+        ("cmux-acpmux skill", include_str!("../../../../../skills/cmux-acpmux/SKILL.md")),
+        ("cmux skill", include_str!("../../../../../skills/cmux/SKILL.md")),
+        ("cmux-cua skill", include_str!("../../../../../skills/cmux-cua/SKILL.md")),
+        ("docs/agent-surfaces.md", include_str!("../../docs/agent-surfaces.md")),
         ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
         ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),
         ("docs/cli-harnesses.md", include_str!("../../docs/cli-harnesses.md")),
@@ -1685,6 +1690,51 @@ mod help_contract_tests {
             }
         }
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    /// The skills agents load teach the current names (`machine`, `machine pick`,
+    /// `machine dedicated`, `--machine`), not the hidden aliases kept for old scripts. The
+    /// acpmux skill's "Old spellings" bullet is the one place that names them.
+    #[test]
+    fn agent_skills_use_current_command_names() {
+        const SKILLS: &[&str] = &[
+            "acpmux skill",
+            "integrate-harness skill",
+            "cmux-acpmux skill",
+            "cmux skill",
+            "cmux-cua skill",
+            "docs/agent-surfaces.md",
+        ];
+        let mut stale = Vec::new();
+        for (source, text) in REMOTE_DOCS.iter().filter(|(source, _)| SKILLS.contains(source)) {
+            let text: String = text
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("- **Old spellings.**"))
+                .map(|line| format!("{line}\n"))
+                .collect();
+            for words in tokens(&text, "acpmux") {
+                let command: Vec<&str> = words
+                    .iter()
+                    .skip(1)
+                    .map(String::as_str)
+                    .filter(|word| !word.starts_with('-'))
+                    .take(2)
+                    .collect();
+                let old_verb =
+                    command.first().is_some_and(|verb| matches!(*verb, "host" | "hosts" | "peer"))
+                        || command.get(1).is_some_and(|verb| matches!(*verb, "place" | "vm-host"));
+                let old_flag = words.iter().any(|word| word.split('=').next() == Some("--host"));
+                if old_verb || old_flag {
+                    stale.push(format!("{source}: {}", words.join(" ")));
+                }
+            }
+        }
+        assert!(
+            stale.is_empty(),
+            "a skill teaches an old acpmux spelling; use machine, machine pick, machine dedicated, \
+             --machine:\n{}",
+            stale.join("\n")
+        );
     }
 
     /// `send --class`: the four classes only (`prompt_class.rs`).

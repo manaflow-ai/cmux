@@ -28,6 +28,7 @@ import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
+import { agentKey } from "../shared/agentKey";
 import { isAgentMotionOff } from "../shared/motion";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
@@ -70,6 +71,7 @@ import {
   QueuedMessageCard,
   SteerWaitingActions,
   WaitingMessageMenu,
+  type HeldAnswer,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
@@ -79,6 +81,7 @@ import {
   authText,
   isAuthPreflightPending,
   sessionLogin,
+  slashLogin,
   useRouteAuthSwitch,
   useSessionAuth,
   UNKNOWN_AUTH,
@@ -987,6 +990,20 @@ const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { 
 const steerControls = (row: AcpmuxRow) =>
   row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
 
+/// A guest's queued prompt (held for the owner, or approved and waiting): a person's, drawn on its own.
+const isPersonQueuedRow = (row: AcpmuxRow) => Boolean(row.queuedMessage?.person || row.queuedMessage?.held);
+
+/// The owner's Approve or Decline of a guest's held prompt (conversation/QueuedMessageCard.tsx).
+const answerHeld = (promptId: string, approve: boolean, revision?: number): Promise<HeldAnswer> =>
+  callNative(approve ? "chat.queue.approve" : "chat.queue.decline", {
+    promptId,
+    ...(approve && revision !== undefined ? { revision } : {}),
+  }).then(
+    () => "ok",
+    (error: { reason?: unknown } | null) =>
+      error?.reason === "queue.stale" ? "stale" : error?.reason === "queue.not_found" ? "gone" : "failed",
+  );
+
 const editQueued = (promptId: string, edit: QueueEdit) =>
   callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
@@ -1865,6 +1882,12 @@ const ReadOnlyPermissionRow = memo(
 const ReadOnlyQueuedMessageRow = memo(
   function ReadOnlyQueuedMessageRow({ row, githubRepository }: RowProps) {
     if (row.incoming?.kind !== "message") return null;
+    // A person's message (a guest's prompt) is drawn whole here too: its text is never read as a
+    // lane notice, so nothing it says is hidden from the read-only transcript either.
+    const person = row.queuedMessage?.person;
+    const whole = Boolean(
+      person || row.queuedMessage?.held || row.queuedMessage?.declined || row.incoming.message.fromPerson,
+    );
     return (
       <div className="cv-incoming">
         <IncomingMessageLine
@@ -1874,6 +1897,8 @@ const ReadOnlyQueuedMessageRow = memo(
           images={row.images}
           onOpen={openSenderChat}
           githubRepository={githubRepository}
+          {...(person ? { person } : {})}
+          {...(whole ? { whole: true } : {})}
         />
       </div>
     );
@@ -6772,9 +6797,15 @@ function AcpmuxPane() {
   // none in a run come back as they are.
   const transcriptRows = useMemo(() => {
     const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
-    const group = pendingMessagesRow(steers, queuedRows, lastPending.current);
+    // A guest's prompt is a person's, never another session's message: it draws on its own, held
+    // with its Approve and Decline in view (conversation/QueuedMessageCard.tsx), never folded into
+    // the group.
+    const people = queuedRows.filter(isPersonQueuedRow);
+    const agents = people.length ? queuedRows.filter((row) => !isPersonQueuedRow(row)) : queuedRows;
+    const group = pendingMessagesRow(steers, agents, lastPending.current);
     lastPending.current = group;
-    const shown = mergeInboxNotices(turnRowsShown);
+    const merged = mergeInboxNotices(turnRowsShown);
+    const shown = people.length ? [...merged, ...people] : merged;
     const rows = group ? [...shown, group] : shown;
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
@@ -8787,6 +8818,8 @@ function AcpmuxPane() {
   // Delete, Move up/down. Offered while disconnected too, as the queue row's were: a call then fails
   // and the card stays. The menu reads them as it opens.
   const sideChatOffered = Boolean(opensSideSessions && !isSideSession && snapshot.sessionId);
+  // A guest's held prompt offers Approve and Decline only where acpmux serves them.
+  const queueApproval = snapshot.queueApproval === true;
   const queuedMessageActions = useMemo<QueuedMessageActionsValue>(
     () => ({
       steer: (promptId) => editQueued(promptId, { op: "send_now" }),
@@ -8806,12 +8839,13 @@ function AcpmuxPane() {
         return index < 0 ? undefined : { index, count: queue.length };
       },
       move: (promptId, index) => editQueued(promptId, { op: "move", index }),
+      ...(queueApproval && { answerHeld }),
       ...(sideChatOffered && {
         sideChat: (promptId: string, text: string) =>
           queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),
       }),
     }),
-    [sideChatOffered, readQueuedImage],
+    [sideChatOffered, readQueuedImage, queueApproval],
   );
   // Read by the cards as they draw (TurnActions `queuedMessages`): set here, before the rows draw.
   queuedMessageActionsRef.current = queuedMessageActions;
@@ -8991,7 +9025,15 @@ function AcpmuxPane() {
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
   const composerSnapshot = useMemo(() => {
-    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import", "model", "fast", "context", "plan"]);
+    const enabledCmuxActions = new Set<CmuxCommand["action"]>([
+      "import",
+      "model",
+      "fast",
+      "context",
+      "plan",
+      "resume",
+      "login",
+    ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) {
@@ -9934,6 +9976,8 @@ function AcpmuxPane() {
           steer = false,
           promptId?: string,
           expectedSessionId?: string,
+          // Onboarding's seeded first task: no key or click of the person's sent it.
+          seeded = false,
         ) => {
           if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
             throw startCancelled();
@@ -9951,7 +9995,7 @@ function AcpmuxPane() {
             counted = false;
           };
           try {
-            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn, expectedSessionId);
+            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn, expectedSessionId, seeded);
           } finally {
             handedOn();
           }
@@ -10001,6 +10045,7 @@ function AcpmuxPane() {
           promptId: string | undefined,
           handedOn: () => void,
           expectedSessionId?: string,
+          seeded = false,
         ) => {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
@@ -10048,7 +10093,15 @@ function AcpmuxPane() {
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
           const switchPromptId = promptId ?? crypto.randomUUID();
-          const held = harnessSwitch.send(text, attachments, undefined, switchPromptId);
+          // Only the person's own send, not one with a seeded prompt's own id (its host ticket is bound
+          // to it), keeps its gesture for a prompt held behind a slow start (#23031).
+          const held = harnessSwitch.send(
+            text,
+            attachments,
+            undefined,
+            switchPromptId,
+            !seeded && promptId === undefined,
+          );
           if (held) {
             accepted?.();
             return held.then(
@@ -10128,6 +10181,9 @@ function AcpmuxPane() {
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
+          "chat.queue.approve": ({ promptId, revision }) =>
+            client.answerHeld(String(promptId), true, typeof revision === "number" ? revision : 0),
+          "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
           "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
@@ -10666,11 +10722,14 @@ function AcpmuxPane() {
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
-          send: (text, attachments, promptId) => {
+          send: (text, attachments, promptId, ticket) => {
             const kept = heldPrompt.take();
             // session/new has completed by the time HarnessSwitch hands the prompt back. The
             // transport's start credit now pays for this prompt ticket, including remote starts.
-            const switchTicket = kept?.promptId === promptId ? kept.ticket : client.bindSendGesture(promptId)?.ticket;
+            const switchTicket =
+              (kept?.promptId === promptId ? kept.ticket : undefined) ??
+              ticket ??
+              client.bindSendGesture(promptId)?.ticket;
             switchSendOwners.set(promptId, {
               client,
               generation: client.trustGeneration,
@@ -10767,8 +10826,9 @@ function AcpmuxPane() {
           );
         } else if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
-          void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
-        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
+          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => undefined);
+        } else if (prompt)
+          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => setDraft(prompt));
         // A new chat seeded with the harness/model starts on them with the first Send; no session opens before that.
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.
@@ -10894,6 +10954,33 @@ function AcpmuxPane() {
     if (refusal) return t(refusal);
     if (command.action === "status") {
       setStatusCardOpen(true);
+      return true;
+    }
+    // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat
+    // opens again where it left off.
+    // A harness other than Claude Code that lists its own /resume or /login keeps it, as before. On
+    // New Tab the pane's last chat is not the one being started, so cmux's own command runs there.
+    if (
+      !fresh &&
+      (command.action === "resume" || command.action === "login") &&
+      agentKey(snapshot.summary?.family ?? snapshot.summary?.harness) !== "claude" &&
+      snapshot.commands?.some((own) => own.name.toLowerCase() === command.name)
+    )
+      return CMUX_PASS_THROUGH;
+    if (command.action === "resume") {
+      showAllChats();
+      return true;
+    }
+    if (command.action === "login") {
+      // New Tab picks its own harness and machine, which this pane's sign-in answer is not about;
+      // its sign-in card covers it. The default login runs only for a chat acpmux says is here.
+      if (fresh) return t("composer.cmuxLoginElsewhere");
+      const harness = sessionAuth.harness ?? snapshot.summary?.harness ?? healthHarness;
+      const declared = composerSnapshot.catalog.find((entry) => entry.id === harness)?.auth?.login;
+      const login = slashLogin(sessionAuth, healthLocal ? declared : undefined);
+      if (!login) return authText(sessionAuth, t) ?? t("composer.cmuxLoginElsewhere");
+      if (login.kind === "session") signIn.loginSession?.(sessionAuth);
+      else signIn.logIn(harness ?? "", login.command);
       return true;
     }
     const argument = args?.trim();

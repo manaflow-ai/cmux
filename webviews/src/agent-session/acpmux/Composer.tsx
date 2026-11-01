@@ -5,6 +5,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
+import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
@@ -2357,25 +2358,30 @@ export function Composer({
                     .catch((error: unknown) => setAttachError(error instanceof Error ? error.message : String(error)));
               }}
             />
-            {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
+            {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up.
+                Drawn out of the box's glass, so their own glass frosts the transcript (backdropLayer.tsx). */}
             {open && (
-              <SlashMenu
-                matches={matches}
-                active={selected}
-                empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
-                fast={fastModeState(snapshot.summary?.configOptions)}
-                onHover={setActive}
-                onPick={pick}
-              />
+              <ComposerListLayer>
+                <SlashMenu
+                  matches={matches}
+                  active={selected}
+                  empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
+                  fast={fastModeState(snapshot.summary?.configOptions)}
+                  onHover={setActive}
+                  onPick={pick}
+                />
+              </ComposerListLayer>
             )}
             {mentionAt && (
-              <MentionMenu
-                state={searchFiles ? mentionSearch : undefined}
-                items={mentions}
-                active={mentionSelected}
-                onHover={(index) => setMentionActive(mentions[index]?.key)}
-                onPick={pickMention}
-              />
+              <ComposerListLayer>
+                <MentionMenu
+                  state={searchFiles ? mentionSearch : undefined}
+                  items={mentions}
+                  active={mentionSelected}
+                  onHover={(index) => setMentionActive(mentions[index]?.key)}
+                  onPick={pickMention}
+                />
+              </ComposerListLayer>
             )}
           </>
         }
@@ -2495,8 +2501,10 @@ function SlashMenu({
 }) {
   const t = useT();
   const list = useRef<HTMLDivElement>(null);
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const escape = useEscapingList("top", 6);
+  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
+  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
+  const box = useComposerListBox();
+  const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;

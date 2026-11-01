@@ -326,6 +326,7 @@ impl Hub {
             (session, stops)
         };
         let (session, created_stops) = session;
+        self.update_live_session_index(&session);
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
         if let Err(e) = self.write_meta(&session) {
             // Leave the instance registered until CreationGuard finishes its purge;

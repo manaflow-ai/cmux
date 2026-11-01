@@ -1413,16 +1413,14 @@ check_no_self_hosted_fleet_runners() {
   # these workflows, may name glaeda-gui-std-xcode-26.6.
   local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6'"
   local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
-  # #22035: session jobs take glaeda-session-std-xcode-26.6 once runners carry
-  # it (vars.CI_SESSION_LABEL), else the gui label, behind the same gates.
-  local session_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
-  local session_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  # #22035's session jobs named glaeda-session-std-xcode-26.6 in selectors of their own;
+  # since cmux#24295's 90-minute waits only a placement output gives that label
+  # (tests/test_ci_runs_on_fallback.py), so those jobs read the gui selectors above.
   # The same labels as the last fallback of swift-test / daemon-test / generated-files with no
   # placement result through the bot's attempt 3: it waits behind the fleet rather than in a
   # Blacksmith queue (2026-10-20: 5+ hour waits on blacksmith-12vcpu-macos-26). A refused attempt
   # 3 (owned_pool_rescue REFUSAL_RESCUE_ATTEMPT) still leaves the fleet on attempt 4.
   local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6'"
-  local session_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -1449,15 +1447,11 @@ check_no_self_hosted_fleet_runners() {
     # request branch comes first on the line; base autofix runs on push only.
     case "${line%%:*}" in
       "$ROOT_DIR/.github/workflows/cmux-next.yml")
-        if [[ "${content%%"$session_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_selector"/}"; fi
         if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi
-        if [[ "${content%%"$session_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_rerun_selector"/}"; fi
         if [[ "${content%%"$gui_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_rerun_selector"/}"; fi ;;
       "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
-        if [[ "${content%%"$session_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_autofix_selector"/}"; fi
         if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
       "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
-        content="${content//"$session_autofix_selector"/}"
         content="${content//"$gui_autofix_selector"/}" ;;
       # cmux NEXT Stable: no pull_request trigger (schedule, dispatch, a push to stable-next-dry-run);
       # its UI tests, suites and dry-run signing take the gui pool on attempt 1, Blacksmith after.

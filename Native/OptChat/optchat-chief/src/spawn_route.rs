@@ -153,6 +153,16 @@ pub fn classify(task: &str) -> Option<TaskKind> {
     None
 }
 
+/// The families with a subagent preset when the subagent harness is of
+/// `base`: its own, and the other one the host prepares (host.rs: Claude for
+/// a Codex harness, else Codex).
+pub fn prepared_families(base: Family) -> [Family; 2] {
+    match base {
+        Family::Codex => [Family::Codex, Family::Claude],
+        other => [other, Family::Codex],
+    }
+}
+
 /// The harness of `family` for a pick: `default` when it is of that family,
 /// else the profile named after the family (`codex`, `claude`), else the
 /// first allowed one by name; None when acpmux has none the grant allows.

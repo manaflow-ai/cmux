@@ -431,6 +431,15 @@ jobs:
                     | tar -x -C "$trusted_root" || true
                 fi
               fi
+              # web-bundle-key.py derives the web bundles' inputs outside
+              # webviews/ that route the web area, reading the PR's tree as
+              # data. A base without it routes web on the router's own list.
+              if [ "$trusted_ok" = true ]; then
+                mkdir -p "$trusted_root/scripts/cmux-next"
+                git show "$trusted_base:scripts/cmux-next/web-bundle-key.py" \
+                  > "$trusted_root/scripts/cmux-next/web-bundle-key.py" 2>/dev/null \
+                  || rm -f "$trusted_root/scripts/cmux-next/web-bundle-key.py"
+              fi
               if [ "$trusted_ok" != true ]; then
                 echo "Could not load trusted base router; running all CI areas." >&2
                 emit_all_areas

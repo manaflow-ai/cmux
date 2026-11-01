@@ -108,6 +108,7 @@ import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
+import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
   shownName,
@@ -945,10 +946,12 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (!suggesting || !box) return;
     const document = box.ownerDocument;
-    // A press in the box, or with the split in the quiet row under it, keeps the rows.
+    // A press in the box, its `/` list (drawn out of the box, backdropLayer.tsx), or with the split
+    // in the quiet row under it, keeps the rows.
     const press = (event: Event) => {
       const target = event.target as Element | null;
-      if (target && (box.contains(target) || target.closest?.(".nt-popover, .nt-foot"))) return;
+      if (target && (box.contains(target) || target.closest?.(".nt-popover, .nt-foot, .acpmux-composer-list-layer")))
+        return;
       setDismissed(textRef.current);
     };
     document.addEventListener("pointerdown", press, true);
@@ -1755,14 +1758,19 @@ export function NewTabScreen(props: Props) {
             up so much space"; the quiet row under the box keeps the mode and the model. */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box" inert={props.cloudStarting === true}>
+          {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
           {commandsOpen && (
-            <SlashMenu
-              matches={commandMatches}
-              active={commandIndex}
-              empty={t("composer.noMatchingCommands")}
-              onHover={setCommandActive}
-              onPick={pickCommand}
-            />
+            <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
+              <ComposerListLayer>
+                <SlashMenu
+                  matches={commandMatches}
+                  active={commandIndex}
+                  empty={t("composer.noMatchingCommands")}
+                  onHover={setCommandActive}
+                  onPick={pickCommand}
+                />
+              </ComposerListLayer>
+            </ComposerListAnchor>
           )}
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).

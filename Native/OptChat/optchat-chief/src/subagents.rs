@@ -689,7 +689,21 @@ impl Spawner {
                 .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned))
                 .collect()
         };
-        crate::spawn_route::pick(task, default, &self.families, &allowed, &offered)
+        // Only the families the host made a subagent preset for (host.rs:
+        // the subagent harness's own, and the other family's).
+        let base = self
+            .families
+            .get(&self.settings.harness)
+            .copied()
+            .unwrap_or(crate::acpmux::Family::Claude);
+        let prepared = crate::spawn_route::prepared_families(base);
+        let families: BTreeMap<String, crate::acpmux::Family> = self
+            .families
+            .iter()
+            .filter(|(_, f)| prepared.contains(f))
+            .map(|(h, f)| (h.clone(), *f))
+            .collect();
+        crate::spawn_route::pick(task, default, &families, &allowed, &offered)
     }
 
     /// A spawn whose tasks the picker sent to more than one harness: one
@@ -1498,6 +1512,12 @@ impl Orchestrator for Spawner {
         if let Some(m) = model.as_deref() {
             self.check_route(&choice, "model", m)?;
         }
+        // The cap holds for the whole spawn, before the picker splits it.
+        if tasks.len() > MAX_TASKS {
+            return Err(format!(
+                "spawn takes at most {MAX_TASKS} tasks; split the work"
+            ));
+        }
         // The automatic picker (spawn_route.rs): routing on, and the spawn
         // names no harness or model. A pinned harness never routes.
         let mut routed_note = None;
@@ -1549,11 +1569,6 @@ impl Orchestrator for Spawner {
             return Err(format!(
                 "no effort {e}; one of {}",
                 crate::tools::EFFORTS.join(", ")
-            ));
-        }
-        if tasks.len() > MAX_TASKS {
-            return Err(format!(
-                "spawn takes at most {MAX_TASKS} tasks; split the work"
             ));
         }
         let began = Instant::now();
@@ -2072,6 +2087,15 @@ pub fn recover_launch(
                     return None;
                 }
                 let input: Value = serde_json::from_str(input).ok()?;
+                // Trimmed, and dropped when empty, as `Call::parse` does.
+                let named = |key: &str| {
+                    input
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                        .map(str::to_owned)
+                };
                 return Some(crate::state::QueuedLaunch {
                     task: input.get("tasks")?.get(k)?.as_str()?.to_owned(),
                     cwd: input.get("cwd").and_then(Value::as_str).map(str::to_owned),
@@ -2080,14 +2104,8 @@ pub fn recover_launch(
                         .and_then(Value::as_str)
                         .map(str::to_owned),
                     floor: None,
-                    harness: input
-                        .get("harness")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned),
-                    model: input
-                        .get("model")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned),
+                    harness: named("harness"),
+                    model: named("model"),
                 });
             }
             _ => {}

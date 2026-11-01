@@ -240,6 +240,8 @@ final class WindowManager {
         restoring = true
         defer {
             restoring = false
+            // The feed handoff waited for this classification of incognito workspaces (#31210).
+            services.notifications.feedDriver?.run()
             restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
         }
         registry.provisional = [:]
