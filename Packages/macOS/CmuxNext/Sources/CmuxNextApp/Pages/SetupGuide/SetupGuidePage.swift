@@ -6,10 +6,25 @@ extension InternalPageID {
     static let setupGuide = InternalPageID(rawValue: "setup-guide")
 }
 
-struct SetupGuideSection: Identifiable {
+struct SetupGuideSection: Identifiable, Decodable {
     let id: String
     let title: String
     let steps: [String]
+
+    /// The bundled guide (setup-guide.json, written from setup::TASKS by scripts/cmux-next/generate-setup-guide.py),
+    /// localized through SetupGuide.xcstrings with the English text as the fallback; empty when the file is missing.
+    static let bundled: [SetupGuideSection] = {
+        guard let url = Bundle.module.url(forResource: "setup-guide", withExtension: "json"),
+              let data = try? Data(contentsOf: url), // concurrency-allow: a small bundled resource, read once
+              let entries = try? JSONDecoder().decode([SetupGuideSection].self, from: data) else { return [] }
+        func text(_ key: String, _ english: String) -> String {
+            Bundle.module.localizedString(forKey: "setupGuide.\(key)", value: english, table: "SetupGuide")
+        }
+        return entries.map { entry in
+            SetupGuideSection(id: entry.id, title: text("\(entry.id).title", entry.title),
+                              steps: entry.steps.enumerated().map { text("\(entry.id).\($0.offset)", $0.element) })
+        }
+    }()
 }
 
 /// Offline instructions from setup::TASKS. Reading the guide never checks credentials or starts a login.
@@ -53,7 +68,7 @@ final class SetupGuideView: NSView {
         scroll.documentView = document
         addSubview(scroll)
         add(SetupGuidePage.pageTitle, font: Typography.title, gap: 0, id: "setup-guide-title")
-        for section in SetupGuideContent.sections {
+        for section in SetupGuideSection.bundled {
             add(section.title, font: Typography.bodyEmphasized, gap: sectionSpacing, id: "setup-guide-\(section.id)")
             for (index, step) in section.steps.enumerated() {
                 add("\(index + 1). \(step)", font: Typography.body, gap: Metrics.space3,
