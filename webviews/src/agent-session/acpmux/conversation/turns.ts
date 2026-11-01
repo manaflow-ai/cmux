@@ -29,6 +29,7 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
+import { foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -260,11 +261,13 @@ export function turnViewFrom(
   } else {
     out = [];
     index = 0;
-    // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
+    // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are,
+    // a quiet turn the agent ran on its own folded to its line (backgroundTurns.ts).
     while (index < rows.length && rows[index]!.kind !== "user") {
       const row = rows[index++]!;
       if (!isVisiblyEmptyMessage(row)) out.push(row);
     }
+    out = foldBackgroundTurns(out, expanded);
     lead = index;
     starts = [];
     times = [];
@@ -356,6 +359,8 @@ type ShapedTurn = {
   source: readonly AcpmuxRow[];
   /// Which of its folds are open (`openFolds`).
   open: string;
+  /// Which of its background turns' lines are open (backgroundTurns.ts `openBackgroundTurns`).
+  background: string;
   last: boolean;
   clockOffset: number;
   dated: boolean;
@@ -398,10 +403,12 @@ function shapedTurn(
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
   // open-fold key is never needed, and a streamed token does no work over its rows for it.
   const open = live ? "" : openFolds(rows, start, end, expanded);
+  const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
     cached.open === open &&
+    cached.background === background &&
     cached.last === last &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
@@ -420,7 +427,7 @@ function shapedTurn(
   // turn goes on under that prompt, so it neither ends nor times the turn.
   // Nor does it before the steer's own record comes, while it is the turn's last summary: the turn
   // is about to go on, and would read "You stopped after" for that moment.
-  const turn = source.filter(
+  const kept = source.filter(
     (row, at) =>
       (row.kind !== "user" || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
       !(
@@ -430,6 +437,9 @@ function shapedTurn(
           (last && !source.slice(at + 1).some((later) => later.kind === "turnSummary")))
       ),
   );
+  // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
+  // a quiet one, or one still running, as its one line (backgroundTurns.ts).
+  const turn = foldBackgroundTurns(kept, expanded);
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
@@ -486,7 +496,8 @@ function shapedTurn(
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
   }
-  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
+  if (!live)
+    shapedTurns.set(user, { source, open, background, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
   return shaped;
 }
 
