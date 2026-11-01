@@ -96,15 +96,14 @@ enum AgentSessionWorkspace {
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
-        // the named `group`.
-        var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
-        if let group {
-            join = { id, sidebar in
-                guard let sidebar = sidebar as? SidebarBridge else { return }
-                AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
-            }
+        // the named `group`. Without one, an agent's spawn goes below its own
+        // workspace when that one is in a group (Leo, 2026-10-30: "you didnt do these groups well").
+        let join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = group.map { group in
+            { id, sidebar in (sidebar as? SidebarBridge).map { AgentSessionWorkspace.join(id, group: group, sidebar: $0) } }
         }
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
+        let slot = group != nil ? nil : parent.flatMap { AgentSessionParents.workspace(of: $0, in: services.machines.allWorkspaces.map(\.0)) }
+            .flatMap { own in windows.controllers.lazy.compactMap { WorkspaceSlot.belowGrouped(own, in: $0.sidebar.model.sections) }.first }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, slot: slot, byDefault: slot == nil ? NewWorkspacePlacements.rule(for: nil, in: windows) : nil,
                                       then: join, windows: windows)
         return Task { @MainActor in
             do {
