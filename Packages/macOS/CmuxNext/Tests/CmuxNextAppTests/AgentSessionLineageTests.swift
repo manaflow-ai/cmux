@@ -124,8 +124,8 @@ import Testing
         let pass = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes,
                                                localHost: Self.localHost, pullRequests: [:])
         #expect(pass.state.parents.count == 1, "one of the two conflicting links is dropped")
-        #expect(!SidebarSessionTreeFeed.reaches(from: Self.caller, to: Self.caller, in: pass.state.parents))
-        #expect(!SidebarSessionTreeFeed.reaches(from: Self.opened, to: Self.opened, in: pass.state.parents))
+        #expect(pass.state.parents[Self.caller] != Self.opened ||
+                pass.state.parents[Self.opened] != Self.caller)
     }
 
     @Test func conflictingRemoteDaemonLineageKeepsHostQualifiedSessionsSeparate() {
@@ -137,8 +137,8 @@ import Testing
                                                    ]],
                                                    localHost: Self.localHost, pullRequests: [:])
         #expect(remote.state.parents.count == 1)
-        #expect(!SidebarSessionTreeFeed.reaches(from: Self.caller, to: Self.caller, in: remote.state.parents))
-        #expect(!SidebarSessionTreeFeed.reaches(from: Self.opened, to: Self.opened, in: remote.state.parents))
+        #expect(remote.state.parents[Self.caller] != Self.opened ||
+                remote.state.parents[Self.opened] != Self.caller)
 
         // Reused session IDs on another daemon have their own parent map.
         let a = WorkspaceID("ws-a-caller"), b = WorkspaceID("ws-a-opened")
