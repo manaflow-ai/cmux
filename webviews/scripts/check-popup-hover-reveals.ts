@@ -49,6 +49,15 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-pr:is(:hover, :focus-within) .acpmux-session-info-pr__more",
     "own-menu rule",
   ],
+  // A running subagent's Stop (SubagentGroup.tsx StopButton) stops it on the click; it opens no menu.
+  [
+    "agent-session/acpmux/subagents/subagents.css|.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop",
+    "stop button",
+  ],
+  [
+    "agent-session/acpmux/subagents/subagents.css|.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop:disabled",
+    "stop button",
+  ],
   // A Shell block's Wrap lines is a pressed toggle (BlockParts.tsx WrapButton); it opens no menu.
   ["agent-session/acpmux/conversation/conversation.css|.cv-shell:hover .cv-shell__wrap", "wrap toggle"],
   // The model star is a pressed toggle (QuickModelMenu.tsx); it opens no menu.
