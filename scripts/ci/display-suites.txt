@@ -2,6 +2,7 @@
 # naming one to a display worker. Each has a display skip trait; scripts/ci/display_suites.py --check
 # keeps this list equal to those traits, and --fix rewrites it.
 Packages/Shared/CmuxAuthRuntime CmuxAuthRuntimeTests.KeychainStackTokenStoreTests
+Packages/macOS/CmuxNext CmuxNextAppTests.AnimationPixelHarnessTests
 Packages/macOS/CmuxNext CmuxNextAppTests.BrowserPageNativeInputTests
 Packages/macOS/CmuxNext CmuxNextAppTests.ChatDockToolPlacementTests
 Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
