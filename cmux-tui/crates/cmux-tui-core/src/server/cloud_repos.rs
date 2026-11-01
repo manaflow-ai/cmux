@@ -67,7 +67,9 @@ fn permitted(mux: &Mux, client: u64, cmd: &str, request: &Value) -> bool {
         Some(_) => return false,
     };
     match mux.request_actor(super::origin_gate::connection_actor(mux, client), credential) {
-        Ok(crate::Actor::AcpSession { id, .. }) => request["session"].as_str() == Some(id.as_str()),
+        Ok(crate::Actor::AcpSession { id, .. }) => {
+            request.get("session").and_then(Value::as_str) == Some(id.as_str())
+        }
         Ok(_) => true,
         Err(_) => false,
     }

@@ -98,7 +98,7 @@ impl<'a> Runtime<'a> {
                     failure.0.set("install_url", json!(url));
                 }
             }
-        } else if failure.0["code"] == "repo.no_access"
+        } else if failure.0.get("code").and_then(Value::as_str) == Some("repo.no_access")
             && let Some(url) = self.optional_install_url(value)?
         {
             failure.0.set("install_url", json!(url));

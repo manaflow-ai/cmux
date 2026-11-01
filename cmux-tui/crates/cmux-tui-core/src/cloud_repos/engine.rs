@@ -294,10 +294,12 @@ pub(crate) fn seed_failure(value: &Value) -> Failure {
             "repo.no_access",
             "Install GitHub access for this organization, or request access from its owner, then retry Add repository.",
         );
-        if let Some(org) = value["org"].as_str() {
+        if let Some(org) = value.get("org").and_then(Value::as_str) {
             result.0.set("org", json!(org));
         }
-        if let Some(url) = value["install_url"].as_str().filter(|url| valid_install_url(url)) {
+        if let Some(url) =
+            value.get("install_url").and_then(Value::as_str).filter(|url| valid_install_url(url))
+        {
             result.0.set("install_url", json!(url));
         }
         return result;
