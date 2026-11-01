@@ -257,11 +257,9 @@ impl Mux {
     /// Returns whether the workspace was in memory.
     pub(crate) fn discard_unpublished_workspace_from_memory(&self, target: WorkspaceId) -> bool {
         let lifecycle = self.workspace_lifecycle(target);
-        let _workspace_lifecycle =
-            lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _workspace_lifecycle = lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
         let notifications = self.tree_decorations();
-        let registry =
-            self.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let (removed, delta, empty_revision, selection_resync) = {
             let mut state = self.lock_state_pinned(&registry).unwrap();
             let Some(index) = state.workspace_index(target) else {

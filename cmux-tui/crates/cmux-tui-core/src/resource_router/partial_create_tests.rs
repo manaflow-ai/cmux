@@ -141,33 +141,33 @@ fn app_tree_workspace_names(mux: &Mux) -> Vec<String> {
 
 /// Where the disk fills during a terminal-backed `workspace.create`.
 #[derive(Clone, Copy, Debug)]
-enum DiskFillPoint {
-    /// After the workspace row, before the terminal's reservation: the
+enum DiskFillsAfter {
+    /// The workspace row, before the terminal's reservation: the
     /// workspace has no tab (the fuzz run's ghost had none).
-    AfterWorkspaceRow,
-    /// After the terminal's reservation, before it is running.
-    AfterTerminalReservation,
-    /// After the terminal is running, before its surface joins the
+    WorkspaceRow,
+    /// The terminal's reservation, before it is running.
+    TerminalReservation,
+    /// The terminal is running, before its surface joins the
     /// workspace: the projection that publishes the creation fails.
-    AfterTerminalReady,
+    TerminalReady,
 }
 
-fn set_fill_hook(mux: &Arc<Mux>, point: DiskFillPoint, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+fn set_fill_hook(mux: &Arc<Mux>, point: DiskFillsAfter, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
     match point {
-        DiskFillPoint::AfterWorkspaceRow => {
+        DiskFillsAfter::WorkspaceRow => {
             mux.set_terminal_create_after_workspace_reservation_hook_for_test(hook);
         }
-        DiskFillPoint::AfterTerminalReservation => {
+        DiskFillsAfter::TerminalReservation => {
             mux.set_resource_terminal_reservation_hook_for_test(
                 hook.map(|hook| -> Arc<dyn Fn(&str) + Send + Sync> { Arc::new(move |_| hook()) }),
             );
         }
-        DiskFillPoint::AfterTerminalReady => mux.set_terminal_ready_hook_for_test(hook),
+        DiskFillsAfter::TerminalReady => mux.set_terminal_ready_hook_for_test(hook),
     }
 }
 
 /// One refused create; returns what is wrong, empty when nothing is.
-fn refused_create_problems(point: DiskFillPoint) -> Vec<String> {
+fn refused_create_problems(point: DiskFillsAfter) -> Vec<String> {
     let mux = Mux::new_for_test("diskfull-create", SurfaceOptions::default());
     // The fuzz run made one workspace before the disk filled.
     topology::dispatch(
@@ -270,9 +270,9 @@ fn refused_create_problems(point: DiskFillPoint) -> Vec<String> {
 #[test]
 fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
     let problems = [
-        DiskFillPoint::AfterWorkspaceRow,
-        DiskFillPoint::AfterTerminalReservation,
-        DiskFillPoint::AfterTerminalReady,
+        DiskFillsAfter::WorkspaceRow,
+        DiskFillsAfter::TerminalReservation,
+        DiskFillsAfter::TerminalReady,
     ]
     .into_iter()
     .flat_map(refused_create_problems)

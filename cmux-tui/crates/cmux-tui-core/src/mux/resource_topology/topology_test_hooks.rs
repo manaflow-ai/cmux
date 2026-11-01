@@ -29,8 +29,7 @@ impl Mux {
         hook: Option<Arc<dyn Fn() + Send + Sync>>,
     ) {
         let hook = hook.map(|hook| {
-            let wrapped: Arc<dyn Fn(&Arc<crate::surface::Surface>) + Send + Sync> =
-                Arc::new(move |_| hook());
+            let wrapped: TerminalSpawnBeforeCellPixelReconcileHook = Arc::new(move |_| hook());
             wrapped
         });
         *self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap() = hook;
