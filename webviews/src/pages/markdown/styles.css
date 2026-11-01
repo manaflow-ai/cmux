@@ -474,7 +474,11 @@ body {
   white-space: normal;
 }
 
-/* `markdown.tables: "wrap"`: tables fit the column and their cells wrap instead. */
+/* `markdown.tables: "wrap"`: tables fit the column and their cells wrap instead (no breakout). */
+:root[data-cmux-md-tables="wrap"] .md-prose > .tableWrapper {
+  --md-table-breakout: 0px;
+}
+
 :root[data-cmux-md-tables="wrap"] .md-prose table {
   width: 100%;
   min-width: 0 !important;
