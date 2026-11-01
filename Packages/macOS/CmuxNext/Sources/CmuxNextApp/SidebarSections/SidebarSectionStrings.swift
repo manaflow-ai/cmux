@@ -25,11 +25,6 @@ enum SidebarSectionStrings {
                table: "SidebarSections", bundle: .module)
     }
     /// A Priority row action named a chat no acpmux lists any more.
-    static var noAgentNeedsInput: String {
-        String(localized: "sidebarSections.priority.noAgentNeedsInput", defaultValue: "No agent is waiting for input",
-               table: "SidebarSections", bundle: .module)
-    }
-
     static var noSuchPriorityChat: String {
         String(localized: "sidebarSections.priority.noSuchChat", defaultValue: "that chat is no longer in the Priority view",
                table: "SidebarSections", bundle: .module)
