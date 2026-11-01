@@ -20,6 +20,7 @@ KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/ci/signing-keychain.sh}"
 : "${ASC_API_ISSUER_ID:?ASC_API_ISSUER_ID is required}"
 : "${ASC_API_KEY_P8_BASE64:?ASC_API_KEY_P8_BASE64 is required}"
 : "${CMUX_NATIVE_NOTARY_PROFILE:?CMUX_NATIVE_NOTARY_PROFILE is required}"
+: "${CMUX_NATIVE_SIGNING_KEYCHAIN:?CMUX_NATIVE_SIGNING_KEYCHAIN is required}"
 
 [[ -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at $APP_PATH" >&2; exit 1; }
 [[ -f "$APP_ENTITLEMENTS" ]] || { echo "error: app entitlements not found at $APP_ENTITLEMENTS" >&2; exit 1; }

@@ -15,23 +15,29 @@ KEYCHAIN="${CMUX_NATIVE_SIGNING_KEYCHAIN:-build.keychain}"
 : "${ASC_API_ISSUER_ID:?ASC_API_ISSUER_ID is required}"
 : "${ASC_API_KEY_P8_BASE64:?ASC_API_KEY_P8_BASE64 is required}"
 : "${CMUX_NATIVE_NOTARY_PROFILE:?CMUX_NATIVE_NOTARY_PROFILE is required}"
+: "${CMUX_NATIVE_SIGNING_KEYCHAIN:?CMUX_NATIVE_SIGNING_KEYCHAIN is required}"
 [[ -f "$DMG_PATH" ]] || { echo "error: DMG not found at $DMG_PATH" >&2; exit 1; }
 
 "$KEYCHAIN_TOOL" unlock
 "$CODESIGN_TOOL" --force --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_SIGNING_IDENTITY" "$DMG_PATH"
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_PATH"
+signature_info="$("$CODESIGN_TOOL" --display --verbose=4 "$DMG_PATH" 2>&1 || true)"
+grep -Fq "Authority=$APPLE_SIGNING_IDENTITY" <<<"$signature_info" || { echo "error: DMG signature identity mismatch" >&2; exit 1; }
+grep -Fq "TeamIdentifier=7WLXT3NR37" <<<"$signature_info" || { echo "error: DMG signature team mismatch" >&2; exit 1; }
 TMP_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-native-dmg-notary.XXXXXX")"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 source "$ROOT_DIR/ci/lib/notary-auth.sh"
-CMUX_NOTARY_USE_KEYCHAIN_PROFILE=true notary_auth_init "$TMP_DIR"
+CMUX_NOTARY_USE_KEYCHAIN_PROFILE=true notary_auth_init "$TMP_DIR" >&2
 set +e
-submit_json="$("$XCRUN_TOOL" notarytool submit "$DMG_PATH" "${NOTARY_AUTH_ARGS[@]}" --wait --output-format json 2>&1)"
+NOTARY_MAX_WAIT_SECONDS="${NOTARY_MAX_WAIT_SECONDS:-1200}"
+[[ "$NOTARY_MAX_WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "NOTARY_MAX_WAIT_SECONDS must be a positive integer" >&2; exit 2; }
+submit_json="$("$XCRUN_TOOL" notarytool submit "$DMG_PATH" "${NOTARY_AUTH_ARGS[@]}" --wait --timeout "${NOTARY_MAX_WAIT_SECONDS}s" --output-format json 2>&1)"
 status=$?
 set -e
 [[ "$status" -eq 0 ]] || { echo "error: native DMG notarization failed" >&2; printf '%s\n' "$submit_json" >&2; exit 1; }
 submission_id="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("id", ""))' <<<"$submit_json" 2>/dev/null || true)"
-[[ -n "$submission_id" ]] || { echo "error: native DMG notarization returned no submission id" >&2; printf '%s\n' "$submit_json" >&2; exit 1; }
+[[ "$submission_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || { echo "error: native DMG notarization returned no valid submission id" >&2; printf '%s\n' "$submit_json" >&2; exit 1; }
 echo "submission ID: $submission_id"
 notary_status="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("status", "unknown"))' <<<"$submit_json" 2>/dev/null || true)"
 [[ "$notary_status" == Accepted ]] || { echo "error: native DMG notarization status: ${notary_status:-unknown}" >&2; printf '%s\n' "$submit_json" >&2; exit 1; }
