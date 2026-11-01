@@ -9,6 +9,7 @@ import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser, type Page } from "playwright";
 import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { codeCardHeight } from "../src/agent-session/acpmux/model";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("code-block-diagram-browser.test.tsx", async () => {
@@ -157,6 +158,26 @@ await requireBrowserLane("code-block-diagram-browser.test.tsx", async () => {
         await page.addStyleTag({ content: "*{transition:none!important}" });
         await page.hover(".cv-codeblock__body");
         expect((await state()).shown).toBe(true);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test("the virtual transcript's estimate matches the drawn card", async () => {
+      const page = await open();
+      try {
+        const drawn = await page.evaluate(() => {
+          const card = document.querySelector<HTMLElement>(".cv-codeblock")!;
+          const pre = card.querySelector<HTMLElement>(".cv-code-plain")!;
+          return {
+            height: card.getBoundingClientRect().height,
+            width: card.getBoundingClientRect().width,
+            scrollbar: pre.offsetHeight - pre.clientHeight,
+          };
+        });
+        // The estimate reserves a 15px scrollbar for a line wider than the card; Chromium's may differ.
+        const estimate = codeCardHeight(TREE, "", drawn.width) - 15 + drawn.scrollbar;
+        expect(Math.abs(estimate - drawn.height)).toBeLessThanOrEqual(1);
       } finally {
         await page.close();
       }
