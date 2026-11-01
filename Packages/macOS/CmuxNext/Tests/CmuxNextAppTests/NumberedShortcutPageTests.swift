@@ -52,6 +52,9 @@ struct NumberedShortcutPageTests {
         return keys
     }
 
+    /// Select Tab moves to ⌘⌥ (docs/configuration.md's way to give Ctrl+digits back to
+    /// terminal programs). ⌃⌥⌘1…9 are Select Space's extra keys since ac2557f40b2, so the
+    /// page refuses them as part of a numbered family.
     @Test func aDigitOnNewModifiersMovesTheWholeFamilyAndSurvivesARelaunch() async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = try Self.root("keyfam")
@@ -65,15 +68,15 @@ struct NumberedShortcutPageTests {
         let row = try #require(first.entries(command, keys: [ctrl3]).first, "no Select Tab 3 row on ctrl+3")
         var failure: String?
         do {
-            _ = try await first.call("cmux.keybindings.set", Self.edit(row, to: "cmd+ctrl+opt+3"))
+            _ = try await first.call("cmux.keybindings.set", Self.edit(row, to: "cmd+opt+3"))
         } catch {
             failure = String(describing: error)
         }
         let moved = Self.family(first, command)
         await first.quit()
-        let expected = Dictionary(uniqueKeysWithValues: (1...9).map { ("\($0)", ["cmd+opt+ctrl+\($0)"]) })
+        let expected = Dictionary(uniqueKeysWithValues: (1...9).map { ("\($0)", ["cmd+opt+\($0)"]) })
         #expect(failure == nil, "the page refused the move: \(failure ?? "")")
-        #expect(moved == expected, "the family did not move to cmd+ctrl+opt")
+        #expect(moved == expected, "the family did not move to cmd+opt")
 
         let second = try await Launch(root: root, session: session, binary: binary)
         await second.wait { second.connected }
