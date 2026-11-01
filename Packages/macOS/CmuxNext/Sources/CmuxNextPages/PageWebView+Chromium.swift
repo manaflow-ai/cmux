@@ -40,6 +40,9 @@ extension PageWebView {
     /// How long after a drag of files entered the page its drop may still open one in the host.
     static let chromiumDropWindow: TimeInterval = 120
 
+    /// How long after the native drop the page's drop message may still report its files.
+    static let chromiumDropConfirmation: TimeInterval = 10
+
     /// The engine `descriptor` made with `options` shows in now: the one decision every page view
     /// takes (``PageEnginePolicy``, with the app's ``chromiumHosting``).
     ///
@@ -274,6 +277,8 @@ extension PageWebView {
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
             filesDragged(urls)
+        case .dragEnded:
+            break
         case .userInput(let uptime):
             chromiumUserInput(at: uptime)
         case .contextMenu(let request):

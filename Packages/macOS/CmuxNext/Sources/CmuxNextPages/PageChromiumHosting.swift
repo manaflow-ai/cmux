@@ -108,6 +108,10 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// A drag of these files from outside the app entered the page (their paths, which the page
     /// itself never learns). The page still gets the drag.
     case filesDragged([URL])
+    /// The drag of files that entered the page ended natively: in a drop on the page (the pane's
+    /// AppKit `performDragOperation`, with the drop's event in dispatch) or not (it left the page or
+    /// was cancelled). Page script cannot make one; only a drop backs the page's drop message.
+    case dragEnded(dropped: Bool)
     /// A real key or mouse event reached the page (its `systemUptime`): what backs a page call as the
     /// person's gesture (``PageWebView/lastUserEventUptime``). Page script cannot make one.
     case userInput(TimeInterval)
