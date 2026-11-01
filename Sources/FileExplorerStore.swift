@@ -298,7 +298,13 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
 }
 
 protocol SSHFileExplorerTransport: AnyObject {
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     nonisolated func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     nonisolated func listDirectory(
         path: String,
         connection: SSHFileExplorerConnection,
@@ -696,6 +702,9 @@ final class SSHFileExplorerProvider: RemoteFileExplorerProvider, @unchecked Send
 final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     static let shared = ProcessSSHFileExplorerTransport()
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     nonisolated func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String {
         let output = try await Self.runSSHCommand(
             connection: connection,
@@ -704,6 +713,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     nonisolated func listDirectory(
         path: String,
         connection: SSHFileExplorerConnection,
