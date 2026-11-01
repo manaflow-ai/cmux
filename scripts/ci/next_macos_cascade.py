@@ -91,13 +91,12 @@ about a day. A dead label takes no slot, no overflow and no retry_runner, and a
 feed's compile counts it full (fresh_stalled()), while another label shows
 life; with every label dead the snapshot says nothing to choose by.
 
-Nothing goes to GitHub-hosted macOS (Leo, 2026-10-27: "THE GITHUB HOSTED MACS /
-ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO"). Until
-then fast-tier and swift-canary overflowed to hosted `macos-26` while Blacksmith
-was full or stalled, and built cold there for up to 45 minutes; the fast-tier
-seed kept a hosted pool warm for it (21 jobs, 891 minutes a day). A job Blacksmith
-cannot take (no free slot, and 6 vCPU stalled or backed up: overflow()) stays on
-the owned label, where an idle mini or the rescue takes it
+Only owned Macs participate in this cascade. Before it existed, fast-tier and
+swift-canary overflowed to an external macOS runner while Blacksmith was full or
+stalled, and built cold there for up to 45 minutes; the fast-tier seed kept that
+external pool warm (21 jobs, 891 minutes a day). A job Blacksmith cannot take
+(no free slot, and 6 vCPU stalled or backed up: overflow()) stays on the owned
+label, where an idle mini or the rescue takes it
 (tests/test_ci_no_github_hosted_macos.py). A feed's compile (FRESH_JOBS: a DEV
 daily, a feat-cmux-next push) counts a label whose oldest queued job has waited
 FRESH_STALL_MINUTES as full, and so does its last resort when the runner groups
