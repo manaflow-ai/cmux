@@ -183,6 +183,23 @@ struct HandoffNoticeTests {
         relaunched.stop()
     }
 
+    /// Review of #31055: the listed record can even end before the app's own incognito watch; the ended record
+    /// is then flagged too, and no longer saved.
+    @Test func anIncognitoWatchAfterTheListedRecordEndedMakesItIncognito() async throws {
+        let store = Store()
+        await store.script(Self.id, [Self.handoff("done", version: 3, state: "closed", summary: "Pushed")])
+        let defaults = try defaults()
+        let (follower, _) = follower(store, defaults: defaults)
+        follower.watch(HandoffNotices.listed(Self.listEntry(status: "running", version: 2, turn: 1), user: "u1"))
+        await settle(follower)
+        var incognito = record()
+        incognito.incognito = true
+        follower.watch(incognito)
+        #expect(follower.endedRun(Self.id)?.record.incognito == true)
+        let (relaunched, _) = self.follower(store, defaults: defaults)
+        #expect(relaunched.endedRun(Self.id) == nil, "an incognito hand-off's ended record was saved")
+    }
+
     @Test func aHandoffFoundInTheListTellsOnlyWhatChangesAfter() async throws {
         let store = Store()
         // The store answers at its deadline with the state the list showed, then turn 3 runs and ends.

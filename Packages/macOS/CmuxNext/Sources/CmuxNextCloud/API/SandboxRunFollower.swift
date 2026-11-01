@@ -164,22 +164,22 @@ public final class SandboxRunFollower {
     /// Keeps `record` (unless followed or ended already) and starts its poll.
     private func add(_ record: SandboxRunRecord) {
         var record = record
-        if record.incognito == true, !incognitoIDs.contains(record.id) {
-            incognitoIDs.append(record.id)
-            pruneIncognitoIDs(keeping: record.id)
-            save()
-        } else if incognitoIDs.contains(record.id) {
-            record.incognito = true
-        }
+        if record.incognito == true, !incognitoIDs.contains(record.id) { incognitoIDs.append(record.id); pruneIncognitoIDs(keeping: record.id) }
+        if incognitoIDs.contains(record.id) { record.incognito = true }
         if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
             save()
-        } else if record.incognito == true, records[record.id].map({ $0.incognito != true }) == true {
-            // Followed already as a normal one (the owner's list answered before the watch): incognito from now on.
-            records[record.id]?.incognito = true
-            save()
+        } else if record.incognito == true {
+            flagIncognito(record.id)
         }
         start(record)
+    }
+
+    /// Task `id`, followed or ended already as a normal one (the owner's list answered before this app's watch), is incognito from now on.
+    private func flagIncognito(_ id: String) {
+        if records[id] != nil { records[id]?.incognito = true }
+        if let index = ended.lastIndex(where: { $0.record.id == id }) { ended[index].record.incognito = true }
+        save()
     }
 
     /// Task `id`, followed now, changed at `changed` with its turn `running` or not, as the owner's
