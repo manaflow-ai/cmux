@@ -1180,6 +1180,13 @@ const CODE_CHROME = 58.5;
 const CODE_PADDING = 13;
 const UNLABELED_CODE_CHROME = 2 * CODE_PADDING;
 const DIAGRAM_LINE_RATIO = 1.15;
+/// The text's share of a card's width: the body's 13px and 1px margins and the plain card's 8px and
+/// 12px padding (conversation.css `.cv-codeblock__body`, `.cv-code-plain`).
+const CODE_TEXT_INSET = 34;
+/// The room an unlabeled card's first line keeps after its end for the corner actions
+/// (conversation.css `--cv-code-corner-reserve`, 30px an action and 5): copy on a diagram, wrap and
+/// copy on a highlighted card.
+const codeCornerReserve = (diagram: boolean) => (diagram ? 1 : 2) * 30 + 5;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
 const SCROLLBAR_HEIGHT = 15;
@@ -1654,12 +1661,19 @@ function listHeight(
 }
 
 /** A fenced code card's estimated height in a column `width` wide, without its outer margin. */
-export function codeCardHeight(text: string, lang: string | undefined, width: number): number {
+export function codeCardHeight(text: string, info: string | undefined, width: number): number {
+  // marked keeps the fence's whole info string (`text title="tree"`); the card reads its first word
+  // (Markdown.tsx), so `text title="tree"` draws unlabeled.
+  const lang = info?.trim().split(/\s/, 1)[0];
   const lines = text.split("\n");
   const { codeCharWidth, codeLineHeight, blockCodeSize } = metrics();
-  const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
-  const chrome = isUnlabeledLang(lang) ? UNLABELED_CODE_CHROME : CODE_CHROME;
-  const lineHeight = isDiagram(text, lang) ? blockCodeSize * DIAGRAM_LINE_RATIO : codeLineHeight;
+  const unlabeled = isUnlabeledLang(lang);
+  const diagram = isDiagram(text, lang);
+  const room = width - CODE_TEXT_INSET;
+  const reserve = unlabeled ? codeCornerReserve(diagram) : 0;
+  const scrolls = lines.some((line, index) => line.length * codeCharWidth + (index ? 0 : reserve) > room);
+  const chrome = unlabeled ? UNLABELED_CODE_CHROME : CODE_CHROME;
+  const lineHeight = diagram ? blockCodeSize * DIAGRAM_LINE_RATIO : codeLineHeight;
   return chrome + lines.length * lineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
 }
 
