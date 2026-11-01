@@ -81,6 +81,12 @@
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
   --cv-tool-gap: var(--ds-space-2, 8px);
+  /* One icon column for every transcript meta row: a tool row, a sent message, a received or inbox
+     message, a background task, a sub-session or subagent card. Each starts its icon at the row's
+     left edge (no inset of its own), in the same slot, with its words the same distance after it
+     (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN MISALIGN THINGS"; test/transcript-meta-columns-browser.test.ts). */
+  --cv-row-icon: var(--cv-glyph-slot);
+  --cv-row-icon-gap: calc(var(--cv-tool-gap) - 1.5px);
   /* Where a tool row's words start: the glyph slot, less the glyph's 1.5px overlap, and the gap. A
      line under a row (a failure's cause, an opened message, a step's thought) starts here too. */
   --cv-tool-text-inset: calc(var(--cv-glyph-slot) - 1.5px + var(--cv-tool-gap));
@@ -1793,7 +1799,24 @@ pre.cv-math-source {
 }
 /* The shimmer's layers (ShimmerText.tsx): the band and its lit words show only while loops run. */
 .cv-thinking.is-shimmer {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+.cv-shimmer__row {
   position: relative;
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.cv-shimmer__base {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cv-shimmer__band {
   display: none;
@@ -1815,17 +1838,32 @@ pre.cv-math-source {
     -webkit-user-select: none;
     -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
     mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
-    animation: cmux-shimmer-band var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer-band var(--cmux-shimmer-period, 2.8s) linear infinite;
   }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
-    display: block;
+    display: flex;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
-    animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer-lit var(--cmux-shimmer-period, 2.8s) linear infinite;
   }
-  /* The lit words are generated content: the DOM holds the line's words once. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-time {
+    flex: none;
+    margin-inline-start: 6px;
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label::before,
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-time::before {
+    content: attr(data-text);
+  }
+  /* Plain lit words and timed slots use generated content so the DOM holds the line once. */
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
     content: attr(data-text);
   }
@@ -1946,9 +1984,9 @@ pre.cv-math-source {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: var(--cv-glyph-slot);
+  width: var(--cv-row-icon);
   height: var(--cv-glyph-line);
-  margin-right: -1.5px;
+  margin-right: calc(var(--cv-row-icon-gap) - var(--cv-tool-gap));
 }
 .cv-tool__text {
   flex: 0 1 auto;
@@ -2162,6 +2200,29 @@ pre.cv-math-source {
   gap: 2px;
   margin-right: -6px;
 }
+/* Wrap lines is every Shell block's one choice: it shows on the block's hover or keyboard focus,
+   never on every open block at rest (Verbose opens them all); the chat menu's Transcript view
+   submenu has it once. */
+.cv-shell__actions .cv-shell__wrap {
+  opacity: 0;
+}
+.cv-shell:hover .cv-shell__wrap,
+.cv-shell:focus-within .cv-shell__wrap {
+  opacity: 1;
+}
+/* It fades as a message's hover row does (#23769): in after a beat, out quickly; keyboard focus
+   shows it at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-shell__actions .cv-shell__wrap {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-shell:hover .cv-shell__wrap {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-shell:focus-within .cv-shell__wrap {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
 .cv-shell__title {
   display: flex;
   align-items: center;
@@ -2253,6 +2314,12 @@ pre.cv-math-source {
   flex-wrap: wrap;
   gap: 8px;
   margin: 4px 0 8px;
+}
+/* A call's images: the reply's fixed-shape thumbnail (chips.css .cv-thumb), narrower, so its
+ * height is held before the image loads and the image fits inside whole. */
+.cv-tool-images .cv-thumb {
+  width: min(100%, 320px);
+  margin: 0;
 }
 .cv-tool-images .cv-img {
   max-width: min(100%, 360px);
@@ -2608,6 +2675,16 @@ pre.cv-math-source {
 .cv-tool__meta {
   margin-left: auto;
 }
+/* The row grammar's trailing column (design/chat-transcript.md "One row grammar"): status, then
+   duration, in column 3, before the chevron's column 4, so every row's chevron and status line up
+   whether or not a row has them. */
+.cv-tool__trail {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: inherit;
+}
 .cv-command__bg-state {
   display: flex;
 }
@@ -2719,6 +2796,8 @@ pre.cv-math-source {
   height: var(--cv-disclosure-line-height);
   min-height: 0;
   color: var(--cv-activity-text);
+  /* The hover plate keeps its inset while the sender's mark stays in the shared icon column. */
+  margin-inline-start: calc(-1 * var(--ds-space-1));
   padding-inline: var(--ds-space-1);
   border-radius: 6px;
   white-space: nowrap;
@@ -2781,13 +2860,12 @@ pre.cv-math-source {
   max-width: 45%;
   min-width: 0;
   height: var(--cv-message-line);
-  gap: var(--ds-space-1);
-  padding-inline-start: var(--ds-space-1);
+  gap: var(--cv-row-icon-gap);
 }
 .cv-received__mark {
   display: inline-flex;
   flex: none;
-  width: 16px;
+  width: var(--cv-row-icon);
   justify-content: center;
   color: var(--cv-text-muted);
 }
@@ -3483,6 +3561,12 @@ a.cv-sha:focus-visible {
   .cv-enter,
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+  /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
+     visible transcript when a subagent or command arrives; the row's measured box is already in
+     the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
+  .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
   .acpmux-row__message-presentation {
     transform-origin: center bottom;
