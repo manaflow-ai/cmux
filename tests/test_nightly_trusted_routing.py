@@ -370,7 +370,9 @@ class NightlyTrustedRouting(unittest.TestCase):
                 needs = job["needs"]
                 self.assertIn("pick-nightly-sign-runner", needs)
 
-    def test_publication_controls_prefer_proven_dedicated_m4pro_only_on_first_next_push(self):
+    def test_publication_controls_reject_unavailable_dedicated_m4pro(self):
+        # Publication cannot use the dedicated label: those minis have no
+        # exclusive-claim capacity. Keep the trusted owned-pool and Linux fallback.
         jobs = DOC["jobs"]
         dedicated = {
             "github.repository_owner": "manaflow-ai",
@@ -387,16 +389,20 @@ class NightlyTrustedRouting(unittest.TestCase):
             source = jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
             expr = parse_expression(source)
             with self.subTest(job=name):
-                self.assertEqual(evaluate(expr, dedicated), "glaeda-nightly-only-m4pro")
-                self.assertEqual(evaluate(expr, {**dedicated, "github.run_attempt": 2}),
-                                 "blacksmith-16vcpu-ubuntu-2404")
-                self.assertEqual(evaluate(expr, {**dedicated, "github.event_name": "schedule"}),
-                                 "blacksmith-16vcpu-ubuntu-2404")
-                self.assertEqual(evaluate(expr, {**dedicated, "vars.CI_NIGHTLY_ONLY_RUNNER": ""}),
-                                 "blacksmith-16vcpu-ubuntu-2404")
+                self.assertNotEqual(evaluate(expr, dedicated), "glaeda-nightly-only-m4pro")
+                self.assertEqual(evaluate(expr, dedicated), "blacksmith-16vcpu-ubuntu-2404")
+                self.assertNotEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
+                                                   "github.repository_owner": "someone"}),
+                                    "glaeda-nightly-only-m4pro")
                 self.assertEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
-                                                "github.repository_owner": "someone"}),
-                                 "ubuntu-24.04")
+                                                 "github.repository_owner": "someone"}), "ubuntu-24.04")
+                for changes in ({"github.run_attempt": 2},
+                                {"github.event_name": "schedule"},
+                                {"github.ref": "refs/heads/main"},
+                                {"vars.CI_NIGHTLY_ONLY_RUNNER": ""}):
+                    with self.subTest(changes=changes):
+                        self.assertNotEqual(evaluate(expr, {**dedicated, **changes}),
+                                            "glaeda-nightly-only-m4pro")
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
