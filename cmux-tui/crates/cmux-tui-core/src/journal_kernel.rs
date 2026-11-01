@@ -629,15 +629,24 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         state.available = !read_failed;
         if !read_failed {
             retry.reset();
-            for record in appended {
-                let state = &mut *state;
-                push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);
-            }
+            publish_journal_batch(&mut state, appended, last_sequence);
             last_sequence = candidate_sequence;
             state.head_sequence = candidate_sequence;
         }
         state.epoch = state.epoch.wrapping_add(1);
         kernel.changed.notify_all();
+    }
+}
+
+/// Appends one tailer batch read after `last_sequence` to the live ring.
+fn publish_journal_batch(
+    state: &mut JournalFanoutState,
+    appended: VecDeque<Arc<JournalDocument>>,
+    last_sequence: u64,
+) {
+    let _ = last_sequence;
+    for record in appended {
+        push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);
     }
 }
 
@@ -813,6 +822,74 @@ mod performance_tests {
         let observed = kernel.epoch();
         kernel.wake_waiters();
         assert_ne!(kernel.wait(observed, Duration::ZERO), observed);
+    }
+
+    /// A tailer batch over the byte cap keeps only its newest records; the
+    /// ring must not keep its older records beside them with a hole between
+    /// (a caught-up reader then skipped the shed records with no Gap; the
+    /// 4 MiB cap makes such a batch common). Several payload sizes, as the
+    /// hole depended on how many old records fit beside the batch.
+    #[test]
+    fn a_batch_trimmed_by_the_cap_leaves_no_hole_a_reader_could_skip() {
+        for padding in [16 * 1024, 40 * 1024, 60 * 1024, 87 * 1024] {
+            let kernel = JournalKernel {
+                state: Mutex::new(JournalFanoutState {
+                    epoch: 0,
+                    requested_epoch: 0,
+                    shutdown_requested: false,
+                    head_sequence: 0,
+                    records: VecDeque::new(),
+                    record_bytes: 0,
+                    available: true,
+                    database_reader_count: 0,
+                }),
+                changed: Condvar::new(),
+                tailer: Mutex::new(None),
+                enabled: true,
+                producers: RwLock::new(HashMap::new()),
+                database_path: None,
+            };
+            let big = |sequence: u64| {
+                let mut record = record(sequence);
+                record.payload = json!({"padding": "x".repeat(padding)});
+                Arc::new(JournalDocument::new(record))
+            };
+            {
+                let mut state = kernel.state.lock().unwrap();
+                // A caught-up ring: 1..=10, small records.
+                let first: VecDeque<_> = (1..=10)
+                    .map(|sequence| Arc::new(JournalDocument::new(record(sequence))))
+                    .collect();
+                publish_journal_batch(&mut state, first, 0);
+                state.head_sequence = 10;
+                // One batch 11..=200, read while the tailer was late, bounded
+                // as it was read.
+                let mut batch = VecDeque::new();
+                let mut batch_bytes = 0;
+                for sequence in 11..=200 {
+                    push_bounded_journal_document(&mut batch, &mut batch_bytes, big(sequence));
+                }
+                publish_journal_batch(&mut state, batch, 10);
+                state.head_sequence = 200;
+                let sequences: Vec<u64> =
+                    state.records.iter().map(|doc| doc.record.sequence).collect();
+                assert!(
+                    sequences.windows(2).all(|pair| pair[1] == pair[0] + 1),
+                    "padding {padding}: the ring has a hole: {sequences:?}"
+                );
+            }
+            // A reader caught up to 10 gets a Gap (it pages from SQLite), or
+            // a page that starts exactly at 11: never a later record.
+            match kernel.read_after(10, 4) {
+                SharedJournalRead::Gap { .. } => {}
+                SharedJournalRead::Page(page) => assert_eq!(
+                    page.records.first().map(|doc| doc.record.sequence),
+                    Some(11),
+                    "padding {padding}: a reader at 10 skipped records"
+                ),
+                SharedJournalRead::Unavailable => panic!("unavailable"),
+            }
+        }
     }
 
     #[test]
