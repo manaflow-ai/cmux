@@ -1,0 +1,53 @@
+name: cmux NEXT resource budget dispatcher
+
+# Leo 2026-10-21: "Add a resource budget test or benchmark (idle CPU < 1%, a memory ceiling per hidden
+# tab) that runs on the fleet." The benchmark is feat-cmux-next's xbench `cmux-budget` session
+# (scripts/perf-bench/budget.py, limits in scripts/perf-bench/budgets.json), run on a fleet bench mini
+# by cmux-next-perf-bench.yml ("cmux-next perf bench"). That workflow's own nightly cron never fired:
+# scheduled workflows run only from the default branch, and it lives only on feat-cmux-next. Once a day
+# this file on main starts it on feat-cmux-next with just the cmux-budget session, unless a run is
+# already queued or running. The run reports every budget row (PERF-BUDGET lines in its summary) and
+# fails only on an enforced budget the tip breaks; nothing else reads its result.
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-resource-budget-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Start the resource budget bench on feat-cmux-next unless one is pending
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const workflow = 'cmux-next-perf-bench.yml';
+            for (const status of ['queued', 'in_progress']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,
+              });
+              if (data.total_count > 0) {
+                core.notice(`A perf bench run is already ${status} (run ${data.workflow_runs[0].id}); nothing to start`);
+                return;
+              }
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner, repo, workflow_id: workflow,
+              // Fully qualified: a tag named feat-cmux-next must never be picked.
+              ref: `refs/heads/${source}`,
+              inputs: { browsers: 'cmux-budget', rounds: '3' },
+            });
+            core.notice(`Started the cmux-budget resource bench on ${source}`);
