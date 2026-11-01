@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextDaemon
@@ -537,5 +538,25 @@ final class CloudMachineSession {
             await link?.suspend()
             await appLink?.end(reason: "paused")
         }
+    }
+}
+
+extension CloudMachineSession {
+    /// Wakes this machine for a Cloud space (a paused machine resumes, an ended link connects) and returns once its
+    /// daemon is connected. A failed resume ends the wait at once with its reason; the bound is `CloudMove`'s.
+    func connectedForSpace() async throws {
+        // A machine the person disconnected stays so until they connect it (its menu's Connect): no wait for it.
+        if disconnected { throw ActionFailure(message: CloudStrings.notConnected) }
+        // A failure left from an earlier attempt must not end this wait before this attempt's own resume runs.
+        resumeFailure = nil
+        if daemon.connection == nil {
+            await refreshIfMaybePaused()
+            if machine.status == .paused { attach(origin: .user) } else { connect(origin: .user) }
+        }
+        let daemon = daemon
+        guard await CloudMove.holds(within: .seconds(180), until: { [weak self] in
+            self?.resumeFailure != nil || daemon.connection != nil
+        }) else { throw DaemonError.notConnected }
+        if let failure = resumeFailure { throw ActionFailure(message: failure) }
     }
 }

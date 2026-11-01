@@ -21,7 +21,8 @@ struct FirstWorkspaceLaunch {
         guard services.daemon.store.workspaces.needsFirstWorkspace(leftover: leftover, home: services.home.homeWorkspaceID) else { return nil }
         let landing = FirstWorkspaceLanding(launchIntoHome: HomeTunables.launchIntoHome.value, classic: services.home.dock.isClassic)
         if let home = await landing.home(ensured: services.home.homeWorkspaceID != nil, listed: { services.home.homeWorkspace?.id }) { return home }
-        return await manager.createWorkspace(newTabPage: true)
+        // This Mac's own tree is empty: its first workspace is this Mac's, whatever space the window shows.
+        return await manager.createWorkspace(on: manager.services.daemon, newTabPage: true)
     }
 
     /// Shows `workspaceID` (the one `create` decided on, before the restore placed what was asked for meanwhile)

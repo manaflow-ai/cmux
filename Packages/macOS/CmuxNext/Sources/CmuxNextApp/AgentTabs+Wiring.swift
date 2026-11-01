@@ -25,11 +25,11 @@ extension AgentTabStore {
     func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService,
                        chat: AgentPaneSeed? = nil) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
-        // A workspace of another machine: its chat runs there (cx-k21v), never in this Mac's acpmux,
-        // and it gets no New Tab page (that page runs here). Callers open a terminal there instead
-        // of a first page (``opensFirstPage(on:chat:)``).
+        // A workspace of another machine: its chat runs there (cx-k21v), never in this Mac's acpmux.
+        // It gets the New Tab page only where that machine starts chats itself (a Cloud space's
+        // machine, ``opensRemotePage``); callers open a terminal there otherwise (``opensFirstPage(on:chat:)``).
         let remote = !daemon.isLocal
-        guard !remote || chat != nil else { throw DaemonError.notConnected }
+        guard !remote || chat != nil || opensRemotePage(daemon) else { throw DaemonError.notConnected }
         // A chat of this Mac (an outside chat it resumes, a past chat of its list) never opens in a
         // workspace of another machine (cx-k21v).
         if remote, chat?.adopt != nil || chat?.pastChat != nil { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
@@ -56,7 +56,7 @@ extension AgentTabStore {
             return response.surface
         }
         seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        let made = firstPage(cwd: cwd, token: firstPageTokens[workspace])
+        let made = firstPage(cwd: cwd, token: firstPageTokens[workspace], machine: remote ? daemon : nil)
         // The tree listed the tab first and its view already shows the page (with this
         // workspace's token): it keeps that page, since a new one remounts the screen and drops
         // what was typed (cx-kql5h); only the actions take this folder.
@@ -77,17 +77,21 @@ extension AgentTabStore {
     }
 
     /// Whether a new or empty workspace of `daemon` opens with an agent tab: this Mac's opens the
-    /// New Tab page; another machine's opens only a chat it asked for (its terminal otherwise).
-    func opensFirstPage(on daemon: DaemonService, chat: Bool = false) -> Bool { canHost(on: daemon) && (daemon.isLocal || chat) }
+    /// New Tab page, and so does a Cloud machine's whose daemon starts chats there
+    /// (``opensRemotePage``); another machine's opens only a chat it asked for (its terminal otherwise).
+    func opensFirstPage(on daemon: DaemonService, chat: Bool = false) -> Bool {
+        canHost(on: daemon) && (daemon.isLocal || chat || opensRemotePage(daemon))
+    }
 
     /// The chat seed of new `workspace`, held before its tab is known: the
     /// tree can list the tab before new-conversation-tab replies, and a view
     /// built then takes it (``firstChatSeed(of:in:)``).
     func seedFirstChat(_ seed: AgentPaneSeed, in workspace: WorkspaceHandle) { firstChats[workspace] = AgentPaneSeedSource(seed) }
 
-    /// A new workspace's first New Tab page, carrying that workspace's key-hold token.
-    func firstPage(cwd: String?, token: String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
-        guard var made = firstPageNewTab?(cwd, nil) else { return nil }
+    /// A new workspace's first New Tab page, carrying that workspace's key-hold token. `machine`: the
+    /// other machine the workspace is on (its folders, no Mac home); nil for this Mac.
+    func firstPage(cwd: String?, token: String?, machine: DaemonService? = nil) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
+        guard var made = firstPageNewTab?(cwd, nil, machine) else { return nil }
         if let token {
             made.page.inputToken = token
             onFirstPageToken?(token)
@@ -198,15 +202,16 @@ extension AgentTabStore {
                 NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: controller, keep: tabs?.sessions[key] != nil)
             }
         }
-        tabs.firstPageNewTab = { [weak services] cwd, beside in
+        tabs.firstPageNewTab = { [weak services] cwd, beside, machine in
             guard let services else { return nil }
-            // A page beside a chat of another machine shows that machine's folders (cx-k21v).
-            // (A chat of this Mac keeps the plain page, as before.)
+            // A page beside a chat of another machine shows that machine's folders (cx-k21v), and so
+            // does the first page of a new workspace there (`machine`). (A chat of this Mac keeps the
+            // plain page, as before.)
             let tab = beside.flatMap { services.locateTabOnAnyMachine($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
             // Without the Commands palette's actions (30-50 ms on the main thread, most of Cmd-N's
             // key time: instant-new-surfaces `newTab.paletteActions`): they fill in on the frame
             // after the page shows, as Cmd-T's do (``NewTabPage/fillPaletteActions(_:)``).
-            var page = NewTabPage.page(services, selected: tab, paletteActions: false)
+            var page = NewTabPage.page(services, selected: tab, machine: machine, paletteActions: false)
             page.cwd = cwd ?? page.cwd
             NewTabPage.fillPaletteActions(services)
             // Keys typed since Cmd-N wait for this page's field (NewTabInputCoordinator, cx-kql5h);
@@ -334,6 +339,13 @@ extension AgentTabStore {
             // A tab naming another machine than the one listing it reads nothing (never this Mac's folder).
             guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
             return services.agentGit.link(for: daemon)
+        }
+        // A Cloud machine whose daemon starts and attaches chats there opens the New Tab page first,
+        // as this Mac does: a Cloud space's new workspace is the agent page, its chats on the machine.
+        tabs.opensRemotePage = { [weak services] daemon in
+            guard let services, services.machines.cloudSession(of: daemon) != nil else { return false }
+            return daemon.supports(DaemonCapability.agentSessionAttach.rawValue) && daemon.supports(DaemonCapability.agentSessionStart.rawValue)
+                && AgentTabStore.registryHost(of: daemon) != nil
         }
         tabs.remoteMachineName = { [weak services] daemon in
             services?.machines.machineName(daemon.machineID).flatMap(AgentTabStore.displayName)

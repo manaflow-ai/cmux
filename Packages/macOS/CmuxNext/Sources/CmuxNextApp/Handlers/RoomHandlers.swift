@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
@@ -315,5 +316,80 @@ final class RoomDefaultsUpdates {
             let defaults = patch.applied(to: current)
             try await connection.updateProfile(id, defaults: defaults.isEmpty ? .clear : .set(defaults))
         }
+    }
+}
+
+/// New Cloud Space: a space that is one Cloud machine. It follows the machine's session, so every workspace on the
+/// machine (its terminals and browser tabs) shows in it and nowhere else, and its default session is the machine,
+/// so New Workspace in it creates there (`MachineRegistry.creationDaemon`). Switching to it shows the machine's
+/// whole tree in the window; switching back shows the Mac's. One path for the palette, the File menu, a Cloud
+/// machine's right-click menu, `cmux space new-cloud` and MCP.
+extension RoomHandlers {
+    static func bindCloudSpace(into registry: ActionRegistry, context: AppActionContext) {
+        let cloud = context.services.cloud
+        let bound = registry.bindEffect("space.newCloud", requires: DaemonCapability.profiles.rawValue, daemon: context.services.machines.local,
+                                        unavailable: { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) },
+                                        effect: { invocation in try newCloudSpace(invocation, context) })
+        assert(bound, "space.newCloud is not in the action catalog")
+    }
+
+    /// The machine (the target, else the one New Cloud Workspace would use, else a new one) wakes and connects,
+    /// then the space is made, or the existing space of that machine is reused, and shown when the run may change
+    /// the view.
+    private static func newCloudSpace(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> ActionEffect {
+        try context.requireRooms()
+        let target = try CloudHandlers.workspaceMachine(invocation, context)
+        let services = context.services
+        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let window = invocation.allowsViewChange ? context.activeWindow?.state.id : nil
+        // action-wait-allow: the space follows a session id that exists only once the Cloud machine is up and connected.
+        return .waiting(.network) {
+            do {
+                let machine: CloudMachineSession
+                if let target {
+                    machine = target
+                } else {
+                    machine = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user,
+                                                                     askedBy: invocation.callerAgentSession)
+                }
+                try await machine.connectedForSpace()
+                let daemon = machine.daemon
+                // The session id as membership qualifies workspaces (`WindowProfiles`): the tree's `registry_id`.
+                guard await CloudMove.holds(within: .seconds(30), until: { daemon.store.registryID != nil }),
+                      let session = daemon.store.registryID else { throw ActionFailure(message: CloudStrings.notConnected) }
+                let profile = try await space(following: session, named: name ?? machine.machine.title, services: services)
+                if let window, let state = services.windows.states[window] { services.windows.switchProfile(profile, in: state) }
+                return nil
+            } catch {
+                return ActionWorkFailure("space.newCloud", error)
+            }
+        }
+    }
+
+    /// The space whose default session is `session`, else a new one following it, with the next free color.
+    private static func space(following session: String, named name: String, services: AppServices) async throws -> ProfileID {
+        let local = services.machines.local
+        guard let connection = local.connection else { throw DaemonError.notConnected }
+        let id: ProfileID
+        if let existing = local.store.profiles.first(where: { $0.defaultSessionID?.lowercased() == session.lowercased() }) {
+            id = existing.id
+        } else {
+            // A space's dot in its own color, like any other space (no icon).
+            let used = Set(local.store.profiles.compactMap(\.color))
+            id = .generate()
+            _ = try await connection.createProfile(name: name, id: id, color: (GroupColor.automatic(used: used) ?? .grey).rawValue,
+                                                   defaultSessionID: session, follows: [session])
+            // The reply comes before the home store mirrors the space (`personal-changed`); entering it earlier would
+            // fall back as from a deleted space (cx-d8x5).
+            await local.store.mirrored(profile: id)
+        }
+        // The home daemon makes `default` follow every session it first records (put-session), so the machine's
+        // workspaces would show on the Mac's space too: the machine is the Cloud space's alone.
+        let defaultFollows = local.store.personal.follows[.defaultProfile] ?? []
+        if let followed = defaultFollows.first(where: { $0.lowercased() == session.lowercased() }) {
+            _ = try await connection.request(SetProfileFollowsRequest(profile: .defaultProfile,
+                                                                      sessionIDs: defaultFollows.subtracting([followed]).sorted()))
+        }
+        return id
     }
 }

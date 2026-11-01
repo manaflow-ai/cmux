@@ -152,17 +152,26 @@ extension AppActions {
         let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: sourceID ?? sourceWindow?.state.id) : nil
         // `machine` (App machine id; the CLI's `--session`): born on that
         // session's daemon (plans/cmux-next/data-model.md 1.3).
-        let daemon = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
-        if invocation["machine"] != nil, daemon?.connection == nil {
+        let asked = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
+        // With none asked for, a person's create (or one naming a space) goes where the space creates; a script's
+        // stays on this Mac, so a `cmux new-workspace` never wakes a paused Cloud machine of the space shown.
+        let daemon = asked ?? (invocation.origin == .user || spawn.profile != nil ? nil : services.daemon)
+        // A named machine that does not resolve (unknown, or Cloud off) is refused, never made on this Mac instead.
+        if invocation["machine"] != nil, asked?.connection == nil {
             services.registry.track(Task { ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) })
             return
         }
+        // With no machine asked for, the create goes where the space creates (a Cloud space's machine), so the page
+        // decision and the key hold below are that daemon's.
+        let spaceDaemon = windows.spaceCreation(spawn, into: target).daemon ?? services.daemon
         // A person's Cmd-N onto the New Tab page in the window they type in: every key from this
         // moment waits for the new page's field, in order (cx-kql5h), not for the workspace to show.
         let input = services.keyRouter.newTabInputCoordinator
         let opensPage = show && hasOpenWindow && spawn.opensNewTabPage && spawn.command == nil && spawn.firstChat == nil
-            && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
-        let keys = opensPage && target == sourceWindow?.state.id ? input.beginIncoming(in: sourceWindow?.window) : nil
+            && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? spaceDaemon)
+        // A Cloud space's machine still waking would hold the keys for its whole resume: only a connected one holds them.
+        let keys = opensPage && target == sourceWindow?.state.id && (daemon ?? spaceDaemon).connection != nil
+            ? input.beginIncoming(in: sourceWindow?.window) : nil
         spawn.inputToken = keys
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
         let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }

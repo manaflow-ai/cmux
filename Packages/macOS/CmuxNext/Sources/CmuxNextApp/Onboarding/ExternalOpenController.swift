@@ -148,7 +148,8 @@ final class ExternalOpenController {
         let logger = services.daemon.logger
         Task { [weak self] in
             do {
-                _ = try await windows.createWorkspace(WorkspaceSpawn(), into: target)
+                // The file was opened from this Mac: its workspace is this Mac's, whatever space the window shows.
+                _ = try await windows.createWorkspace(WorkspaceSpawn(), on: windows.services.daemon, into: target)
             } catch {
                 logger.error("create workspace for an opened file failed: \(String(describing: error), privacy: .public)")
             }

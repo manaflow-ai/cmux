@@ -50,7 +50,7 @@ nonisolated extension ActionSurfaceCatalog {
         "space.moveRight", "space.moveToStart", "space.moveToEnd", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
         "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
         // Every space action is a verb (Lawrence 14223: no exceptions): the space keys and the color family too.
-        "space.next", "space.previous", "space.selectByNumber", "space.openInNewWindow", "space.bringHere", "space.newIncognito", "space.color.grey", "space.color.blue",
+        "space.next", "space.previous", "space.selectByNumber", "space.openInNewWindow", "space.bringHere", "space.newIncognito", "space.newCloud", "space.color.grey", "space.color.blue",
         "space.color.red", "space.color.yellow", "space.color.green", "space.color.pink", "space.color.purple",
         "space.color.cyan", "space.color.orange",
         "space.newWindow", "space.newWorkspace", "space.rename", "space.setColor",

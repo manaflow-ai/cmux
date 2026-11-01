@@ -10,18 +10,18 @@ import CmuxNextDaemon
 // workspace, whichever of the command reply and the daemon delta comes
 // first.
 extension WindowManager {
-    /// Creates a workspace with one terminal on `daemon` (default: the local
-    /// daemon), placed in window `windowID` when given (see `claimNew`).
+    /// Creates a workspace with one terminal on `daemon` (default: the space's
+    /// default session, else the local daemon), placed in window `windowID` when given (see `claimNew`).
     /// Returns its id.
     func createWorkspace(cwd: String? = nil, on daemon: DaemonService? = nil, into windowID: String? = nil,
                          frame: CGRect? = nil, newTabPage: Bool = false, inputToken: String? = nil) async -> String? {
-        let daemon = daemon ?? services.daemon
         var spawn = WorkspaceSpawn(cwd: cwd, newTabPage: newTabPage)
         spawn.inputToken = inputToken
         do {
+            // No daemon asked for: the space's own (a Cloud space's machine), else the local daemon (`startWorkspace`).
             return try await createWorkspace(spawn, on: daemon, into: windowID, frame: frame)
         } catch {
-            daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+            (daemon ?? services.daemon).logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil
         }
     }

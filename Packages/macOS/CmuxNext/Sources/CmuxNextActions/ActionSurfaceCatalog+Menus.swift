@@ -138,6 +138,8 @@ nonisolated extension ActionSurfaceCatalog {
         // the space actions stay in the palette and the CLI (`.minimalMenu`).
         "space.new": [p(.sidebarBackground, .create, 6, folder: .new)],
         "space.newIncognito": [p(.sidebarBackground, .create, 6, folder: .new)],
+        // A Cloud machine opens as its own space from its menu too (RoomHandlers.bindCloudSpace).
+        "space.newCloud": [p(.sidebarBackground, .create, 6, folder: .new), p(.cloudMachine, .create, 4)],
         "space.newWorkspace": [p(.profile, .create, 0, label: SpaceMenuLabels.newWorkspace)],
         "space.openInNewWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.openInNewWindow)],
         "space.bringHere": [p(.profile, .create, 2, label: SpaceMenuLabels.bringHere)],

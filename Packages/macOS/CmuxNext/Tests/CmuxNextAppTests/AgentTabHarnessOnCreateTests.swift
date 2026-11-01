@@ -46,7 +46,7 @@ struct AgentTabHarnessOnCreateTests {
 
     private static func wired(_ tabs: AgentTabStore, _ store: DaemonStore, binds: @escaping (Bind) -> Void) {
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
-        tabs.firstPageNewTab = { _, _ in
+        tabs.firstPageNewTab = { _, _, _ in
             (AgentPaneNewTab(kind: .agent), NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
         }
         tabs.bind = { _, _, expected, session, harness in

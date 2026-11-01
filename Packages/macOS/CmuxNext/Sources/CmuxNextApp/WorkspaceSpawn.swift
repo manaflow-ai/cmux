@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAppCore
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -19,7 +20,35 @@ extension WindowManager {
     /// the workspace id (`WorkspaceSpawner.start`).
     func startWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                         frame: CGRect? = nil) -> () async throws -> String {
-        WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
+        if daemon == nil {
+            switch spaceCreation(spawn, into: windowID) {
+            case .mac: break
+            case .unresolved: return { throw ActionFailure(message: CloudStrings.notConnected) }
+            case let .machine(space):
+                // A Cloud space creates on its machine. A paused machine or an ended link wakes on this create,
+                // and the workspace is made once the machine connects, never on the Mac instead.
+                if space.connection == nil, let machine = services.machines.cloudSession(of: space) {
+                    return { [self] in
+                        try await machine.connectedForSpace()
+                        return try await WorkspaceSpawner(windows: self, spawn: spawn, daemon: space, windowID: windowID, frame: frame).start()()
+                    }
+                }
+                return WorkspaceSpawner(windows: self, spawn: spawn, daemon: space, windowID: windowID, frame: frame).start()
+            }
+        }
+        return WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
+    }
+
+    /// Where a create with no machine asked for goes: the default session of the space it is born in
+    /// (`spawn.profile`, else its window's, else the active window's). A create that carries something of this
+    /// Mac (a folder, a command, a chat or a session to open, a browser profile: Finder's New Workspace Here,
+    /// `cmux open <dir>`, a chat resumed or imported) stays on the Mac whatever the space.
+    func spaceCreation(_ spawn: WorkspaceSpawn, into windowID: String?) -> MachineRegistry.SpaceCreation {
+        guard spawn.cwd == nil, spawn.command == nil, spawn.firstChat == nil, spawn.firstSession == nil, spawn.browserProfile == nil else {
+            return .mac
+        }
+        guard let profile = spawn.profile ?? windowID.flatMap({ states[$0]?.profileID }) ?? active?.state.profileID else { return .mac }
+        return services.machines.creation(in: profile)
     }
 }
 

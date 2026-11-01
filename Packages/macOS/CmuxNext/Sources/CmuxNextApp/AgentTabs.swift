@@ -189,8 +189,12 @@ final class AgentTabStore {
     /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
     var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
-    /// `(cwd, beside)`: `beside` is the tab whose machine the page opens on (nil: this Mac).
-    var firstPageNewTab: ((String?, String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
+    /// `(cwd, beside, machine)`: `beside` is the tab whose machine the page opens on, else `machine`
+    /// (a new workspace of another machine, before its tab is mirrored); nil for both: this Mac.
+    var firstPageNewTab: ((String?, String?, DaemonService?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
+    /// Whether a new or empty workspace of another machine opens the New Tab page, its chats run
+    /// there (a Cloud machine whose daemon starts them); otherwise it opens a terminal.
+    var opensRemotePage: @MainActor (DaemonService) -> Bool = { _ in false }
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {

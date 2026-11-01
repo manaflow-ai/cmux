@@ -102,7 +102,7 @@ struct AgentPaneRelaunchWakeTests {
         tabs.localHost = Self.thisMac
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
         let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in })
-        tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), handler) }
+        tabs.firstPageNewTab = { _, _, _ in (AgentPaneNewTab(kind: .agent), handler) }
         tabs.blankChatHandler = { _ in handler }
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
         tabs.takeSpare = { spare }
