@@ -49,7 +49,7 @@ const REMOTE_RESOURCE_OPERATIONS: [&str; 7] = [
 /// target: reads of the whole session, the connection's own settings, and
 /// creating a new workspace or group. Any other command that names no target
 /// is refused while the current workspace is incognito (fail closed).
-const NO_CURRENT_TARGET: [&str; 33] = [
+const NO_CURRENT_TARGET: [&str; 34] = [
     "identify",
     "ping",
     "server-stats",
@@ -59,6 +59,7 @@ const NO_CURRENT_TARGET: [&str; 33] = [
     "list-workspace-groups",
     "list-tab-groups",
     "list-saved-tab-groups",
+    "list-saved-screen-groups",
     "list-notifications",
     "list-personal",
     "list-agents",
@@ -102,10 +103,19 @@ const FAMILIES: [&str; 11] = [
 ];
 const SUFFIXES: [&str; 6] = ["", "s", "_id", "_ids", "_key", "_keys"];
 
+/// Fields that name a split by its id, exactly as spelled: `set-row-heights`
+/// takes its `column` and each height's `row`, `move-tab` its
+/// `after_column`. Never widened by suffix or prefix: `rows` and `cols` are
+/// terminal sizes.
+const SPLIT_KEYS: [&str; 3] = ["column", "row", "after_column"];
+
 /// The family field `key` names an object of: a family, with an optional
 /// suffix and an optional `<anything>_` prefix. `workspace_revision`,
 /// `terminal_revision` and other counters name none.
 fn key_family(key: &str) -> Option<&'static str> {
+    if SPLIT_KEYS.contains(&key) {
+        return Some("split");
+    }
     FAMILIES.into_iter().find(|family| {
         SUFFIXES.iter().any(|suffix| {
             let tail = format!("{family}{suffix}");
@@ -144,6 +154,10 @@ pub(super) struct Hidden {
     /// The hidden workspaces' names: a request naming one is refused (a
     /// bare-name selector), but a reply row is not judged by them.
     labels: HashSet<String>,
+    /// Saved tab and screen groups saved from an incognito workspace's
+    /// group (`store::incognito_saved`): their records keep its members'
+    /// titles, directories and URLs, and reopening one recreates them.
+    saved: HashSet<String>,
     /// The Mac's current workspace is incognito.
     current_hidden: bool,
     /// The registry could not say which workspaces are ephemeral: hide
@@ -179,7 +193,8 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
                 return Some(Hidden { all: true, current_hidden: true, ..Hidden::default() });
             }
         };
-    if ephemeral.is_empty() {
+    let saved = crate::state::store::incognito_saved();
+    if ephemeral.is_empty() && saved.is_empty() {
         return None;
     }
     for workspace in &ephemeral {
@@ -251,6 +266,18 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
             hidden.numbers.insert(number);
         }
     });
+    // A live group of a hidden workspace: its saved record too (noted, so it
+    // stays hidden once the workspace closes).
+    let tab_groups = presentation.tab_groups.groups.values().map(|g| (&g.pane_id, &g.saved_id));
+    let screen_groups =
+        presentation.screens.groups.values().map(|g| (&g.workspace_key, &g.saved_id));
+    for (owner, saved_id) in tab_groups.chain(screen_groups) {
+        if let Some(saved_id) = saved_id.as_ref().filter(|_| hidden.names.contains(owner)) {
+            crate::state::store::note_incognito_saved(saved_id);
+            hidden.saved.insert(saved_id.clone());
+        }
+    }
+    hidden.saved.extend(saved);
     Some(hidden)
 }
 
@@ -263,9 +290,33 @@ impl Hidden {
                     if key_family(key) == Some("split") { &self.splits } else { &self.numbers };
                 self.all || numbers.contains(&number)
             }),
-            Value::String(text) => self.all || self.names.contains(text),
+            Value::String(text) => self.all || self.names.contains(text) || self.is_saved(text),
             Value::Array(values) => values.iter().any(|value| self.names(key, value)),
             _ => false,
+        }
+    }
+
+    /// Whether `text` is the id of a hidden saved group. Failing closed, any
+    /// saved group's id (`saved_...`, `ssaved_...`) is.
+    fn is_saved(&self, text: &str) -> bool {
+        self.saved.contains(text)
+            || (self.all && (text.starts_with("saved_") || text.starts_with("ssaved_")))
+    }
+
+    /// Whether `value` holds, at any depth and in any field, a hidden saved
+    /// group's id (a saved-group row's `id`, a request's `saved`, a live
+    /// group's `saved_id`). Saved ids are random, so no other value matches.
+    fn mentions_saved(&self, value: &Value) -> bool {
+        self.saved_in(value).is_some()
+    }
+
+    /// The hidden saved group's id `value` holds, at any depth.
+    fn saved_in<'a>(&self, value: &'a Value) -> Option<&'a str> {
+        match value {
+            Value::String(text) => self.is_saved(text).then_some(text.as_str()),
+            Value::Array(values) => values.iter().find_map(|value| self.saved_in(value)),
+            Value::Object(object) => object.values().find_map(|value| self.saved_in(value)),
+            _ => None,
         }
     }
 
@@ -294,8 +345,9 @@ impl Hidden {
             .and_then(Value::as_str)
             .is_some_and(|kind| matches!(kind, "workspace" | "screen" | "pane" | "surface"));
         object.iter().any(|(key, value)| {
-            (is_target_key(key) || (id_row && matches!(key.as_str(), "id" | "short_id")))
-                && self.names(key, value)
+            ((is_target_key(key) || (id_row && matches!(key.as_str(), "id" | "short_id")))
+                && self.names(key, value))
+                || self.mentions_saved(value)
         })
     }
 
@@ -380,6 +432,7 @@ impl Hidden {
         self.numbers.extend(other.numbers);
         self.splits.extend(other.splits);
         self.names.extend(other.names);
+        self.saved.extend(other.saved);
         self.labels = other.labels;
         self.current_hidden = other.current_hidden;
         self.all = other.all;
@@ -431,6 +484,7 @@ pub(super) fn refuse_line(
         }
     }
     let hidden = hidden(mux)?;
+    let saved = hidden.saved_in(&request).map(str::to_string);
     let (kind, selector) = match hidden.named_in_request(&request) {
         Some((key, value)) => (
             kind_of(key),
@@ -439,6 +493,9 @@ pub(super) fn refuse_line(
                 other => other.to_string(),
             },
         ),
+        // `reopen-saved-tab-group`, `delete-saved-screen-group`, ... by a
+        // saved group of an incognito workspace.
+        None if saved.is_some() => ("saved group", saved.unwrap_or_default()),
         None => {
             let command = request.get("cmd").and_then(Value::as_str).unwrap_or_default();
             if resource
@@ -454,7 +511,7 @@ pub(super) fn refuse_line(
     if resource {
         let scope = match kind {
             "surface" => "tab",
-            "group" => "tab_group",
+            "group" | "saved group" => "tab_group",
             kind => kind,
         };
         let error = crate::resource::ResourceError::not_found(scope, &selector);
@@ -556,6 +613,13 @@ impl Hidden {
                 (family.is_some() && family != Some("group")) || (entity && key.as_str() == "id");
             if target {
                 self.learn_ids(key, value);
+            }
+            // A hidden live group's saved record stays hidden.
+            if matches!(key.as_str(), "saved_id" | "saved")
+                && let Value::String(saved) = value
+            {
+                crate::state::store::note_incognito_saved(saved);
+                self.saved.insert(saved.clone());
             }
             if matches!(value, Value::Object(_) | Value::Array(_)) {
                 self.learn(value, entity || key == "entity");
@@ -672,6 +736,37 @@ mod tests {
         // A split id is its own id space: pane 9 is not split 9.
         assert!(hidden.named_in_request(&json!({"cmd": "focus-pane", "pane": 9})).is_none());
         assert!(hidden.named_in_request(&json!({"cmd": "set-split-ratio", "split": 5})).is_none());
+    }
+
+    #[test]
+    fn row_and_column_fields_name_splits_but_terminal_sizes_do_not() {
+        let hidden = Hidden { splits: HashSet::from([9]), ..Hidden::default() };
+        for request in [
+            json!({"cmd": "set-row-heights", "column": 9, "heights": []}),
+            json!({"cmd": "set-row-heights", "column": 4, "heights": [{"row": 9, "height": 1}]}),
+            json!({"cmd": "move-tab", "surface": 3, "after_column": 9}),
+        ] {
+            assert!(hidden.named_in_request(&request).is_some(), "{request}");
+        }
+        assert!(hidden.named_in_request(&json!({"cmd": "resize", "rows": 9, "cols": 9})).is_none());
+        assert!(!is_target_key("rows") && !is_target_key("top_row"));
+    }
+
+    #[test]
+    fn saved_groups_of_a_hidden_workspace_are_left_out_and_refused() {
+        let hidden =
+            Hidden { saved: HashSet::from(["ssaved_hidden".to_string()]), ..Hidden::default() };
+        let mut reply = json!({"groups": [
+            {"id": "ssaved_hidden", "name": "secret"},
+            {"id": "ssaved_other", "name": "shown"},
+        ]});
+        hidden.prune_reply(&mut reply);
+        assert_eq!(reply, json!({"groups": [{"id": "ssaved_other", "name": "shown"}]}));
+        let request = json!({"cmd": "reopen-saved-screen-group", "saved": "ssaved_hidden"});
+        assert_eq!(hidden.saved_in(&request), Some("ssaved_hidden"));
+        assert!(hidden.saved_in(&json!({"saved": "ssaved_other"})).is_none());
+        let failing_closed = Hidden { all: true, ..Hidden::default() };
+        assert!(failing_closed.mentions_saved(&json!({"saved": "saved_x"})));
     }
 
     #[test]
