@@ -42,9 +42,10 @@ SIGNING_JOBS = {
     "signer-dmg-image": "needs.pick-nightly-sign-runner.outputs.runner",
 }
 # Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
-# pick where one exists, then the owned nightly slot variable, then the owned side lane.
+# pick where one exists, then the owned nightly slot variable, the owned side lane, then the owned std pool
+# literal, so the chain never ends on a reserved lane variable (test_ci_runs_on_fallback.py).
 OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas")
-OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}"
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
     "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
@@ -452,13 +453,63 @@ class OwnedVerify(unittest.TestCase):
                 self.assertNotIn("environment", job)
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
+                              "|| github.ref_name == 'nightly-next' && github.run_attempt == 2 "
+                              "&& needs.pick-nightly-sign-runner.outputs.attempt == 1 "
+                              "&& vars.CI_PR_POOL_OWNED == '1' && "
+                              "(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) "
                               "|| github.run_attempt > 1 && "
                               "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
                               "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
-                              "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
+                              "|| github.ref_name == 'nightly-next'", xcode)
+                self.assertIn("&& vars.CMUX_CI_XCODE_APP_PR", xcode)
                 self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
+
+    def test_failed_job_reruns_rejoin_the_fleet_pool_instead_of_an_old_pick(self) -> None:
+        # Run 41253243235 attempt 2 kept attempt 1's picker and queued the DMG
+        # image on the Blacksmith alternate after its build and notarization passed.
+        from test_ci_fork_runner_routing import parse_expression
+        from test_nightly_trusted_routing import evaluate
+
+        base = {
+            "github.repository_owner": "manaflow-ai", "github.ref_name": "nightly-next",
+            "github.run_attempt": "2", "vars.CI_PR_POOL_OWNED": "1",
+            "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+            self.OWNED: "glaeda-runner-old-single-host",
+            "needs.pick-nightly-sign-runner.outputs.alternate": LARGE,
+            "needs.pick-nightly-sign-runner.outputs.runner": SMALL,
+            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6",
+            "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6",
+            "vars.CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-fleet.app",
+            "vars.CMUX_CI_XCODE_APP_MACOS_26": "/Applications/Xcode-overflow.app",
+        }
+        cases = (
+            ({}, "glaeda-nightly-std-xcode-26.6", "fleet"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-side-std-xcode-26.6", "fleet"),
+            ({"github.run_attempt": "3"}, LARGE, "overflow"),
+            ({"github.run_attempt": "4"}, LARGE, "overflow"),
+            ({"vars.CI_PR_POOL_OWNED": "0"}, LARGE, "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, LARGE, "overflow"),
+            ({"github.ref_name": "main"}, LARGE, "overflow"),
+            ({"github.repository_owner": "fork"}, "macos-26", "overflow"),
+            ({"github.run_attempt": "1"}, "glaeda-runner-old-single-host", "fleet"),
+            ({"github.run_attempt": "1", self.OWNED: ""}, SMALL, "overflow"),
+            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: ""}, LARGE, "overflow"),
+            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: "glaeda-side-light-xcode-26.6"},
+             "glaeda-side-light-xcode-26.6", "fleet"),
+        )
+        for name in ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image"):
+            job = WORKFLOW["jobs"][name]
+            for changes, runner, xcode in cases:
+                with self.subTest(job=name, changes=changes):
+                    context = {**base, **changes}
+                    def resolve(source):
+                        return evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")), context)
+                    self.assertEqual(resolve(job["runs-on"]), runner)
+                    if context["github.repository_owner"] == "manaflow-ai":
+                        self.assertEqual(resolve(job["env"]["CMUX_CI_XCODE_APP"]),
+                                         f"/Applications/Xcode-{xcode}.app")
 
     def test_the_legacy_verify_reads_the_owned_pick_then_its_own_labels(self) -> None:
         jobs = WORKFLOW["jobs"]
@@ -546,7 +597,11 @@ class SnapshotReadToken(unittest.TestCase):
     # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
     # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
     # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
-    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly"}
+    # build-nightly-app reads it in one step after the build, to place the light jobs that follow it on an
+    # idle mini (runner list read only; cmux-next-guards.yml's portable-placement reads it the same way on
+    # pull requests, outside the environment).
+    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
+                  "build-nightly-app"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
         for name in self.PICKERS:

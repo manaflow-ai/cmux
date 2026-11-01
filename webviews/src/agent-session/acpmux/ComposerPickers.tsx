@@ -199,6 +199,9 @@ type Props = {
   /** A mode pick before the chat has a session is held (a New Tab's start, a harness switch
    * running): only then is a pending chat's start mode a live menu, else an inert chip. */
   holdsModePick?: boolean;
+  /** The chips belong to a page with no chat yet (a New Tab): no prompt has gone, so the harness
+   * is never fixed there, even once the page's deferred chat has started behind it. */
+  startsChat?: boolean;
 };
 
 export type ComposerPermissionGrant = {
@@ -237,6 +240,7 @@ export function ComposerPickers({
   catalogRefresh,
   pickerCatalog,
   holdsModePick = false,
+  startsChat = false,
 }: Props) {
   const t = useT();
   const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
@@ -258,7 +262,14 @@ export function ComposerPickers({
   // (Leo 2026-10-22: "why did you guys even remove the fucking harness model picker"), its other
   // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
   // (`harnessSwitch`) keeps the whole rail and its switch.
-  const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
+  // A message, not the session's start row: the deferred chat a New Tab pick or typed prompt starts
+  // behind the page draws its start row before any prompt (Leo 2026-10-31: "IM SAYING I CANT
+  // FUCKING SEE ANY HARNESS"), and a New Tab never fixes the harness.
+  const locked =
+    !startsChat &&
+    !harnessSwitch &&
+    !!summary?.harness &&
+    ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
   const allEntries = composerPickerEntries(snapshot, pickerCatalog);
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
@@ -482,6 +493,20 @@ export function ComposerPickers({
   // the chat shows no row for yet goes under its kind's id, which the switch maps onto the option
   // the session names once it opens (heldOptions.ts), or drops when it offers none.
   const presession = holdsModePick && !summary?.sessionId;
+  // A harness picked without a model (an account, a profile's New chat, another harness's row) is a
+  // pick too: the next New Tab, new chat and split start on it (lastPick.ts).
+  const pickHarness =
+    switchHarness &&
+    ((picked: string, pickedModel?: string, options?: Readonly<Record<string, string>>) => {
+      if (remembers)
+        rememberPick({ harness: picked, ...(pickedModel ? { model: pickedModel } : {}) }, folder ?? summary?.cwd);
+      switchHarness(picked, pickedModel, options);
+    });
+  // A fork onto another harness (a started chat's account pick) is that harness's pick too.
+  const forkTo = (picked: string) => {
+    if (remembers) rememberPick({ harness: picked }, folder ?? summary?.cwd);
+    fork?.to(picked);
+  };
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
@@ -987,8 +1012,8 @@ export function ComposerPickers({
             pending.current = undefined;
             if (effort) onEffort(effort.id, value);
           }}
-          onHarness={switchHarness}
-          {...(locked && fork ? { fork } : {})}
+          onHarness={pickHarness}
+          {...(locked && fork ? { fork: { ready: fork.ready, to: forkTo } } : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
@@ -1368,9 +1393,7 @@ export function ContextRing({
   size,
   setup,
   breakdown: reported,
-  onCompact,
   onOpenDetails,
-  working = false,
 }: {
   used?: number;
   size?: number;
@@ -1378,10 +1401,8 @@ export function ContextRing({
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
-  onCompact?(): void;
   /// Opens the Inspector at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
-  working?: boolean;
 }) {
   const t = useT();
   const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
@@ -1444,7 +1465,7 @@ export function ContextRing({
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [closeCard, pinned]);
-  /// The card's buttons the keyboard reaches (Compact, Details ›).
+  /// The card's buttons the keyboard reaches (Details ›).
   const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
   /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
   const tabPastCard = () => {
@@ -1554,14 +1575,6 @@ export function ContextRing({
               size={size}
               setup={setup}
               breakdown={reported}
-              working={working}
-              onCompact={
-                onCompact &&
-                (() => {
-                  closeCard();
-                  onCompact();
-                })
-              }
               onOpenDetails={
                 onOpenDetails &&
                 (() => {

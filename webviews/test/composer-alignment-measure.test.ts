@@ -43,7 +43,7 @@ await requireBrowserLane("composer-alignment-measure.test.ts", async () => {
     await vite?.close();
   });
 
-  for (const variant of ["claude-auto", "running"])
+  for (const variant of ["claude-auto", "grid-running"])
   for (const width of [720, 420])
     for (const scheme of ["light", "dark"])
       test(`measure ${variant} at ${width} px (${scheme})`, async () => {

@@ -80,6 +80,33 @@ body {
   min-width: 0;
 }
 
+/* Find (Cmd-F): the shared find pill at the top right of the document, under the toolbar, where
+   every pane's pill sits. The host takes no height, so opening find never moves the document. */
+.md-find-host {
+  position: relative;
+  height: 0;
+  z-index: var(--layer-overlay);
+}
+.md-find {
+  position: absolute;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
+  left: var(--find-pill-inset, 10px);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.md-find > .find-pill {
+  min-width: 0;
+}
+::highlight(cmux-md-find) {
+  background-color: light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34));
+}
+::highlight(cmux-md-find-active) {
+  background-color: light-dark(#ff9632, #e8821e);
+  color: #1a1208;
+}
+
 .md-page-message {
   align-items: center;
   justify-content: center;

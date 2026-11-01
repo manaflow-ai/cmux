@@ -65,15 +65,17 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     }));
     expect(inner.scrollHeight - inner.clientHeight).toBeLessThanOrEqual(1);
 
-    const trailing = await group.locator(".cv-tool.is-toggle .cv-tool__chevron").evaluateAll((nodes) => {
-      const values = nodes.map((node) => {
-        const button = node.closest<HTMLElement>(".cv-tool")!;
-        return button.getBoundingClientRect().right - node.getBoundingClientRect().right;
+    const inline = await group.locator(".cv-tool.is-toggle").evaluateAll((buttons) => {
+      const values = buttons.map((button) => {
+        const label = button.querySelector<HTMLElement>(".cv-tool__text, .cv-command__text")!;
+        const caret = button.querySelector<HTMLElement>(".cv-tool__chevron")!;
+        return caret.getBoundingClientRect().left - label.getBoundingClientRect().right;
       });
-      return { count: values.length, spread: Math.max(...values) - Math.min(...values) };
+      return { count: values.length, max: Math.max(...values), min: Math.min(...values) };
     });
-    expect(trailing.count).toBeGreaterThan(3);
-    expect(trailing.spread).toBeLessThanOrEqual(0.5);
+    expect(inline.count).toBeGreaterThan(3);
+    expect(inline.min).toBeGreaterThanOrEqual(-0.5);
+    expect(inline.max).toBeLessThanOrEqual(4.5);
 
     const transcript = page.locator(".acpmux-scroll");
     await transcript.evaluate((node) => {

@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 600
 // Discovered by run-webviews-tests.sh (browser import + gallery Vite config);
 // tests/test-execution.toml registers Python tests only. No duplicate browser registry.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";

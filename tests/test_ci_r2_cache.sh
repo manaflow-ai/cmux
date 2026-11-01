@@ -96,6 +96,22 @@ grep -q '^cache-hit=true$' <<<"$out" || fail "an exact key must report a hit, go
 diff -r "$WORK/src" "$WORK/dst" >/dev/null || fail "restored contents differ"
 echo "PASS: an exact key restores the same files and reports a hit"
 
+# A persistent nightly cache is linked into the workspace. A populated target
+# must win over a remote seed, and an empty target may be seeded without
+# unlinking the workspace path.
+rm -rf "$WORK/persistent" "$WORK/linked"
+mkdir -p "$WORK/persistent"
+echo local > "$WORK/persistent/local.txt"
+ln -s "$WORK/persistent" "$WORK/linked"
+out="$(output_of restore "$WORK/linked" family-tool-one family-tool-)"
+[[ "$out" == "cache-hit=false" ]] || fail "a populated cache symlink must not be replaced, got: $out"
+[[ -L "$WORK/linked" && -f "$WORK/persistent/local.txt" ]] || fail "a populated cache symlink was removed"
+rm -f "$WORK/persistent/local.txt"
+out="$(output_of restore "$WORK/linked" family-tool-one family-tool-)"
+grep -q '^cache-hit=true$' <<<"$out" || fail "an empty cache symlink must accept a remote seed, got: $out"
+[[ -L "$WORK/linked" && -f "$WORK/persistent/a.txt" ]] || fail "a seeded cache symlink was replaced"
+echo "PASS: R2 restore preserves and seeds persistent cache symlinks"
+
 rm -rf "$WORK/dst"
 out="$(output_of restore "$WORK/dst" family-tool-two family-tool-)"
 grep -q '^cache-hit=false$' <<<"$out" || fail "a prefix match is not an exact hit, got: $out"

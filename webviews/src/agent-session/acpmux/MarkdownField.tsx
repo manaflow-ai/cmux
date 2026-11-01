@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { PASTE_FILE_CHARS } from "./pastedText";
+import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
@@ -9,12 +10,14 @@ import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
 import {
   inlineAttachmentNode,
+  inlineIds,
   inlinePlugin,
   insertInline,
   orderInline,
   placeTokensIn,
   removeInline,
   sliceHoldsInline,
+  withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
@@ -28,6 +31,7 @@ import {
   remarkCtx,
   remarkStringifyOptionsCtx,
   rootCtx,
+  serializerCtx,
 } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
@@ -56,6 +60,8 @@ export type MarkdownFieldHandle = {
   /// False when the editor is not made yet (it mounts a moment after the field): nothing changed,
   /// and the caller sets the field's `value` instead.
   type(markdown: string): boolean;
+  /// Appends a reply quote after the draft, regardless of selection; leaves a reply paragraph.
+  quoteReply(markdown: string): boolean;
   /// The prompt as plain text (blocks joined by newlines) and the selection's offsets into it,
   /// for dictation, which splices words at the cursor.
   text(): PlainPrompt;
@@ -94,10 +100,13 @@ export type MarkdownFieldHandle = {
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
   /// cannot go (a code block, an editor not made yet).
   insertInline(ids: readonly string[]): boolean;
-  /// Takes attachment `id` out of the text.
-  removeInline(id: string): void;
+  /// Takes attachment `id` out of the text; `caret`, the caret goes where it was.
+  removeInline(id: string, caret?: boolean): void;
   /// Puts the attachments placed in the text in `ids`' order, each place in the text kept.
   orderInline(ids: readonly string[]): void;
+  /// The ids of the attachments placed in the text, from its nodes alone (text shaped like a token
+  /// is text), in order, each once; undefined before the editor is made.
+  inlineIds(): string[] | undefined;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -133,6 +142,9 @@ export type MarkdownFieldProps = {
   /// the value given so far is its document, and its placed attachments are their nodes. Called in
   /// the same task as `editor.current` and `view.current` are set, before COMPOSER_READY_EVENT.
   onReady?(): void;
+  /// Quotes `quoteReply` took before the editor was made, when the field goes before it is made:
+  /// they were never placed, so the owner keeps them for the next field (none is ever dropped).
+  onUnplacedQuotes?(quotes: string[]): void;
   /// The element each attachment placed in the text draws its chip into, by id, as they change.
   /// Only a field given one when it is made has placed attachments (composer/inlineNode.ts); any
   /// other keeps every U+FFFC as its text and pastes plain text.
@@ -189,6 +201,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onReturnInput === next.onReturnInput &&
     previous.onFirstInput === next.onFirstInput &&
     previous.onReady === next.onReady &&
+    previous.onUnplacedQuotes === next.onUnplacedQuotes &&
     previous.onInlineViews === next.onInlineViews &&
     previous.isInlineAttachment === next.isInlineAttachment &&
     previous.plugins === next.plugins &&
@@ -296,9 +309,28 @@ const isReturnKey = (event: KeyboardEvent) =>
 /// by the same band (composer/attachmentIntake.tsx).
 export const FADE_BAND_PX = 18;
 
-/** The document as the prompt's markdown, keeping the spaces typed at its end. */
-function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
-  const markdown = clean(editor?.action(getMarkdown()) ?? "");
+/** The document as the prompt's markdown, keeping the spaces typed at its end and the empty reply
+ * paragraph needed on restore. A field with placed attachments writes the person's own text shaped
+ * like a token escaped (composer/inlineNode.ts withTextMarksEscaped): only its nodes write tokens. */
+function promptMarkdown(editor: Editor | undefined, view: EditorView, inline: boolean): string {
+  const escaped = inline ? withTextMarksEscaped(view.state.doc) : view.state.doc;
+  const written =
+    escaped === view.state.doc
+      ? editor?.action(getMarkdown())
+      : editor?.action((ctx) => ctx.get(serializerCtx)(escaped));
+  const markdown = clean(written ?? "");
+  const { doc, schema } = view.state;
+  // The serializer omits the empty typing paragraph Quote in Reply leaves after its block.
+  // Keep that boundary in the persisted value: setDocument recreates it from the blank line,
+  // so a remount's end caret stays below the quote. Ordinary paragraph drafts remain trimmed.
+  if (
+    markdown &&
+    doc.childCount > 1 &&
+    doc.lastChild?.type === schema.nodes.paragraph &&
+    !doc.lastChild.content.size &&
+    doc.child(doc.childCount - 2).type !== schema.nodes.paragraph
+  )
+    return markdown + "\n\n";
   const tail = trailingSpaces(view);
   return tail && !markdown.endsWith(tail) ? markdown + tail : markdown;
 }
@@ -339,7 +371,11 @@ function asWritten(node: MdNode): MdNode {
  * (`\\[`, `http\\:`, `\\*`) so that reading it back gives the same text, not a link or
  * emphasis. The agent gets the typed characters; formatted nodes keep their markdown syntax. */
 function typedText(remark: RemarkParser, markdown: string): string {
-  const tree = remark.runSync(remark.parse(markdown), markdown) as unknown as MdNode;
+  // ProseMirror has no reference-definition node. A serialized paragraph that looks like one
+  // is literal text; protect it before inline-links can remove it on this second parsing pass.
+  const parsed = remark.parse(markdown);
+  const safe = escapeDefinitions(markdown, parsed as unknown as MdNode);
+  const tree = remark.runSync(safe === markdown ? parsed : remark.parse(safe), safe) as unknown as MdNode;
   return clean(String(remark.stringify(asWritten(tree) as unknown as Parameters<RemarkParser["stringify"]>[0])));
 }
 
@@ -387,6 +423,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onReturnInput,
     onFirstInput,
     onReady,
+    onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
     plugins = [],
@@ -399,6 +436,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   },
   ref,
 ) {
+  const pendingQuotes = useRef<string[]>([]);
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
   const remark = useRef<RemarkParser | undefined>(undefined);
@@ -414,6 +452,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onReturnInput,
     onFirstInput,
     onReady,
+    onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
   });
@@ -427,6 +466,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onReturnInput,
     onFirstInput,
     onReady,
+    onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
   };
@@ -691,7 +731,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               // Before the editor is made there is nothing to write the document with (it would read
               // as an empty prompt and wipe the draft); the document made is `known` then.
               if (!editor.current) return;
-              const markdown = promptMarkdown(editor.current, next);
+              const markdown = promptMarkdown(editor.current, next, inlineOn.current);
               showPlaceholder(markdown);
               // A value applied from outside comes back unchanged: not the user's edit.
               if (markdown === known.current) return;
@@ -864,12 +904,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         if (known.current || known.current !== madeFrom) setDocument(known.current, false);
         showPlaceholder(known.current);
         applyAttributes();
+        for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
         if (pendingFocus.current) view.current.focus();
         latest.current.onReady?.();
         window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
       });
     return () => {
       disposed = true;
+      // A quote taken while the editor was being made goes back to the owner, not with the field.
+      const unplaced = pendingQuotes.current.splice(0);
+      if (unplaced.length) latest.current.onUnplacedQuotes?.(unplaced);
       void editor.current?.destroy();
       editor.current = undefined;
       view.current = undefined;
@@ -974,6 +1018,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           }
           return true;
         },
+        quoteReply: (markdown) => {
+          const made = editor.current,
+            current = view.current;
+          refocus.current = null;
+          if (!made || !current) {
+            pendingQuotes.current.push(markdown);
+            pendingFocus.current = true;
+            return true;
+          }
+          insertReplyQuote(made, current, markdown);
+          return true;
+        },
         text: () => {
           const current = view.current;
           if (!current) return { value: known.current, selectionStart: 0, selectionEnd: 0 };
@@ -1045,9 +1101,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           refocus.current = null;
           return insertInline(view.current, ids);
         },
-        removeInline: (id) => {
-          if (view.current) removeInline(view.current, id);
+        removeInline: (id, caret) => {
+          if (view.current) removeInline(view.current, id, caret);
         },
+        inlineIds: () => (view.current ? inlineIds(view.current.state.doc) : undefined),
         orderInline: (ids) => {
           if (view.current) orderInline(view.current, ids);
         },

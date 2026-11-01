@@ -72,7 +72,7 @@ const plus = ".acpmux-composer-plus .acpmux-picker-button";
 
 const placeholder = ".acpmux-md-placeholder";
 const composer = (variant: string, text = placeholder, entry = "agent-pane.composer-row") => {
-  const last = variant === "claude-auto" || variant === "running" ? ".acpmux-mic" : ".acpmux-send:not(.acpmux-steer-now)";
+  const last = variant === "claude-auto" ? ".acpmux-mic" : ".acpmux-send:not(.acpmux-steer-now)";
   return scene("composer.box", entry, variant, ".acpmux-composer-box", [
     left("edge: control inset", plus, "left", token("composer-inset")),
     left("lead", `${plus} svg`, "cx", token("composer-lead-center")),
@@ -87,8 +87,15 @@ const composer = (variant: string, text = placeholder, entry = "agent-pane.compo
     value("mid: trailing control", last, "cy", point(plus, "cy")),
   ]);
 };
-const running = composer("running");
+const running = composer("grid-running");
 running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
+// The capture fixture's prompt shows no placeholder (MarkdownField hides it whenever the field holds
+// markdown), so its text lines are a design absence; the empty prompt's text line is measured in
+// composer.box/claude-auto and grid-running. The box's controls and radius are still measured here.
+const attachScreenshot = composer("attach-screenshot", placeholder, "agent-pane.composer");
+attachScreenshot.absent = {
+  [placeholder]: "The capture fixture's prompt shows no placeholder; claude-auto measures the text line.",
+};
 
 const stackToken: Record<string, string> = {
   "stack.strip": "strip",
@@ -164,7 +171,8 @@ export const gridScenes: GridScene[] = [
   composer("claude-auto"),
   running,
   composer("grid-draft", ".acpmux-md p"),
-  composer("attach-screenshot", placeholder, "agent-pane.composer"),
+  composer("grid-draft-lines", ".acpmux-md p"),
+  attachScreenshot,
   scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
@@ -187,7 +195,7 @@ export const gridScenes: GridScene[] = [
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
   ]),
-  scene("composer.foot", "agent-pane.composer-row", "running", ".acpmux-composer-foot", [
+  scene("composer.foot", "agent-pane.composer-row", "grid-running", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
     from("first-chip: ink", ".acpmux-access-trigger svg", "left", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
@@ -293,7 +301,8 @@ export const gridScenes: GridScene[] = [
   ]),
   menu("picker.model", "agent-pane.composer-pickers", "model-menu", ".acpmux-quick-menu", true),
   menu("picker.account", "agent-pane.composer-pickers", "claude-direct-accounts", ".acpmux-quick-submenu", true),
-  scene("picker.effort", "agent-pane.composer-pickers", "effort-menu", ".acpmux-quick-efforts", [
+  // #27948 moved the levels from an inline fieldset into the running model's side dropdown.
+  scene("picker.effort", "agent-pane.composer-pickers", "effort-menu", ".acpmux-quick-effort-menu", [
     left("edge", ".acpmux-quick-effort-segment", "left", menuToken("highlight-inset")),
     left("lead: checked state", '[aria-checked="true"] svg', "cx", menuToken("state-x")),
     left("text", ".acpmux-quick-effort-segment", "text", menuToken("state-text-x")),

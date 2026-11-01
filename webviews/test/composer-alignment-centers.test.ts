@@ -3,7 +3,8 @@
 //     when a draft shows it) share one vertical center, and each glyph sits in the center of its button;
 //   - the box's columns: + sits as far from the box's left edge as the mic's glyph sits from its right
 //     edge (8 px and 8 px: + and the mic glyphs' centers both sit 22 px in), and the placeholder
-//     starts the prompt's 7 px inset after the + button, so the caret lines up with that column;
+//     starts one 8 px lead gap after the + button, so the caret lines up with that column (Leo
+//     2026-10-31: "composer still looks like shit with the + spacing indent to the text");
 //   - the quiet row under the box: the permission mode (button, text, shield), the model (button,
 //     text) and the context ring (the spinner before usage is reported) share one vertical center.
 // Measured in Chromium on the gallery's composer row (agent-pane.composer-row, the idle chat with an
@@ -20,7 +21,7 @@ import { measureComposerAlignment, type Center, type ComposerAlignment } from ".
 await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a centered 28 px control and its 16 px glyph can show. */
   const TOLERANCE = 0.5;
-  /** The placeholder starts the prompt's own 7 px inset (markdownField's padding; the placeholder's left) after the + button's box. */
+  /** The placeholder starts one lead gap (--acpmux-composer-lead-gap, 8 px) after the + button's box. */
   const TEXT_GAP = 8;
   setDefaultTimeout(180_000);
   try {
@@ -70,6 +71,8 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     const out: string[] = [];
     const off = (a: number, b: number) => Math.abs(a - b) > TOLERANCE;
     const f = (n: number) => n.toFixed(2);
+    // design/grid.md 5.1: a one-line box is 44 px with a 12 px radius, the text's optical center
+    // (baseline less half the cap height) is the + glyph's, and its ink starts on the 44 px text line.
     if (off(m.box.bottom - m.box.top, 44)) out.push(`box height ${f(m.box.bottom - m.box.top)} is not 44`);
     if (off(parseFloat(m.dom.boxRadius), 12)) out.push(`box radius ${m.dom.boxRadius} is not 12px`);
     if (m.placeholderOptical && m.plusGlyph && off(m.placeholderOptical.cy, m.plusGlyph.cy))
@@ -131,7 +134,9 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     return out;
   };
 
-  for (const variant of ["claude-auto", "running"])
+  // The running turn's "↵ steer · ⌘↵ queue" placeholder too: only the idle one was measured, so its
+  // misalignment escaped (Leo 2026-10-29).
+  for (const variant of ["claude-auto", "grid-running"])
   for (const width of [720, 420])
     for (const scheme of ["light", "dark"])
       test(`${variant} at ${width} px (${scheme}): + , placeholder and mic share one row center; the columns and the quiet row line up`, async () => {
