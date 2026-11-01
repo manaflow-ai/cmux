@@ -243,82 +243,82 @@ export function SummaryCard({
         {/* No title row in either placement (Leo: "iv easked so many times to not have titling"): the inline
             column keeps a head only for its live counts, so it never draws an empty band. */}
         {(tab || !card.column || counts.length > 0) && (
-        <div className="acpmux-summary-card__head">
-          {tab && !card.column && (
-            // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
-            <button
-              type="button"
-              className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
-              aria-expanded={!card.collapsed}
-              aria-label={foldLabel}
-              onClick={() => card.fold(!card.collapsed)}
-            >
-              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-            </button>
-          )}
-          {tab ? (
-            // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
-            <div className="acpmux-summary-tabs">
+          <div className="acpmux-summary-card__head">
+            {tab && !card.column && (
+              // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
               <button
                 type="button"
-                className="acpmux-summary-tab"
-                aria-pressed={!onSubagents}
-                data-selected={onSubagents ? undefined : ""}
-                onClick={() => showTab("summary")}
+                className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
+                aria-expanded={!card.collapsed}
+                aria-label={foldLabel}
+                onClick={() => card.fold(!card.collapsed)}
               >
-                {t("summary.title")}
+                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
               </button>
-              <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
+            )}
+            {tab ? (
+              // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
+              <div className="acpmux-summary-tabs">
                 <button
                   type="button"
-                  className="acpmux-summary-tab__label"
-                  aria-pressed={onSubagents}
-                  onClick={() => showTab("subagents")}
+                  className="acpmux-summary-tab"
+                  aria-pressed={!onSubagents}
+                  data-selected={onSubagents ? undefined : ""}
+                  onClick={() => showTab("summary")}
                 >
-                  {t("summary.subagents")}
+                  {t("summary.title")}
                 </button>
-                <button
-                  type="button"
-                  className="acpmux-summary-tab__close"
-                  aria-label={t("summary.subagents.closeTab")}
-                  onClick={closeTab}
-                >
-                  <Icon name="action.close" size={10} />
-                </button>
-              </span>
-            </div>
-          ) : card.column ? null : (
-            <button
-              type="button"
-              className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
-              aria-expanded={!card.collapsed}
-              aria-label={foldLabel}
-              onClick={() => card.fold(!card.collapsed)}
-            >
-              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-            </button>
-          )}
-          {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
+                <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
+                  <button
+                    type="button"
+                    className="acpmux-summary-tab__label"
+                    aria-pressed={onSubagents}
+                    onClick={() => showTab("subagents")}
+                  >
+                    {t("summary.subagents")}
+                  </button>
+                  <button
+                    type="button"
+                    className="acpmux-summary-tab__close"
+                    aria-label={t("summary.subagents.closeTab")}
+                    onClick={closeTab}
+                  >
+                    <Icon name="action.close" size={10} />
+                  </button>
+                </span>
+              </div>
+            ) : card.column ? null : (
+              <button
+                type="button"
+                className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
+                aria-expanded={!card.collapsed}
+                aria-label={foldLabel}
+                onClick={() => card.fold(!card.collapsed)}
+              >
+                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+              </button>
+            )}
+            {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
               carries them, is gone). */}
-          {!tab && (card.column || card.collapsed) && counts.length > 0 && (
-            <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
-          )}
-          {!card.column && (
-            <button
-              type="button"
-              className="acpmux-summary-card__close"
-              aria-label={t("summary.close")}
-              onClick={(event) => {
-                // The button goes with the card: focus moves to the header's summary button.
-                const pane = event.currentTarget.closest(".acpmux-stage");
-                card.close();
-                pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
-              }}
-            >
-              <Icon name="action.close" size={12} />
-            </button>
-          )}
-        </div>
+            {!tab && (card.column || card.collapsed) && counts.length > 0 && (
+              <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
+            )}
+            {!card.column && (
+              <button
+                type="button"
+                className="acpmux-summary-card__close"
+                aria-label={t("summary.close")}
+                onClick={(event) => {
+                  // The button goes with the card: focus moves to the header's summary button.
+                  const pane = event.currentTarget.closest(".acpmux-stage");
+                  card.close();
+                  pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
+                }}
+              >
+                <Icon name="action.close" size={12} />
+              </button>
+            )}
+          </div>
         )}
         {open && onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
