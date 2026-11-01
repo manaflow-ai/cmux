@@ -22,7 +22,9 @@ const ROW_ICON = rowIconSize(12);
 /// sessions that share a name are two senders, and so are two harnesses (cmux#30821).
 export function groupSender(messages: readonly (IncomingMessage | undefined)[]): IncomingMessage | undefined {
   const known = messages.filter((message): message is IncomingMessage => Boolean(message));
-  const senders = new Set(known.map((message) => (message.sessionId ? `session:${message.sessionId}` : `name:${message.name}`)));
+  const senders = new Set(
+    known.map((message) => (message.sessionId ? `session:${message.sessionId}` : `name:${message.name}`)),
+  );
   if (senders.size !== 1) return undefined;
   if (new Set(known.flatMap((message) => (message.harness ? [message.harness] : []))).size > 1) return undefined;
   return (
