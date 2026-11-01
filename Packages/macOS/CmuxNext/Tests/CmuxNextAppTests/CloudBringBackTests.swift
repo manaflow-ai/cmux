@@ -378,16 +378,8 @@ struct CloudBringBackTests {
 
         /// `cmux <action>` on tab `tab`, as the CLI sends it; its error when it stopped.
         func run(_ action: String, tab: String, args: [String: CmuxNextSettings.JSONValue] = [:], wait: Bool = true) async -> ControlError? {
-            let bridge = RegistryControlBridge(registry: services.registry)
-            let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
-                                                                 processID: getpid()),
-                                       executor: bridge, settings: nil,
-                                       configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
-            router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
-            let params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
-                                                                "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)]
-            if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) { return error }
-            return nil
+            await CloudCLIActionRun(services: services)(["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
+                                                         "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)])
         }
 
         /// `cmux cloud bring-back` on the machine's chat tab.
