@@ -56,6 +56,7 @@ import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } fr
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
@@ -96,7 +97,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
-import { SessionPageError, SessionPager, type SessionPage } from "./sessionPages";
+import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
@@ -488,6 +489,8 @@ const SUBSESSION_KIND = "subsession";
 const BACKGROUND_TURN_KIND = "background_turn";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
+/// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
+const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -1556,6 +1559,10 @@ export class AcpmuxDirectClient {
   /// not change (a streamed token, a row's change) hands the pane the same array, so what the pane
   /// derives from `snapshot.sessions` keeps its identity and no row redraws for it.
   private sessionEntriesOf?: { sessions: Session[]; entries: AcpmuxSessionEntry[] };
+  /// The snapshot summary's `usageStats`, kept while acpmux's numbers are the same (sameUsageStats).
+  private summaryUsage?: SessionUsageStats;
+  /// The usage read in flight (refreshUsage).
+  private usageRead?: Promise<void>;
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
@@ -3472,6 +3479,32 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     const params = { sessionId: this.selectedSessionId, ...(toolCallId ? { toolCallId } : {}) };
     return this.request("_acpmux/process/background", params, 10_000);
+  }
+
+  /// Reads every listed chat's usage now and lays it over the list and the chat's own summary
+  /// (Session Info's Usage, the sessions by usage list). A plain list read carries acpmux's last
+  /// pass, or none when nothing asked since acpmux started, so the pane asks once each time Session
+  /// Info shows; after that each chat's turn end brings its own (`_acpmux/session_changed`). No
+  /// timer: one read at a time, and one asked for meanwhile is dropped (acpmux reads at most every
+  /// 5 s anyway). A failed read leaves the numbers as they were.
+  refreshUsage(): void {
+    if (this.closed || this.replayMode || this.usageRead) return;
+    this.usageRead = this.sessionPages
+      .usage()
+      .then((usage) => {
+        if (this.closed) return;
+        const sessions = withUsage(this.sessions, usage);
+        const summary =
+          typeof this.summary?.sessionId === "string" ? withUsage([this.summary as Session], usage)[0] : this.summary;
+        if (sessions === this.sessions && summary === this.summary) return;
+        this.sessions = sessions;
+        this.summary = summary;
+        this.emit("session changed");
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.usageRead = undefined;
+      });
   }
 
   /// Reconnects MCP server `server` (its `mcpServers` name) of the Claude Code chat on screen: acpmux
@@ -6014,6 +6047,7 @@ export class AcpmuxDirectClient {
             turnCount: summary.turnCount,
             usage: this.usage,
             contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
+            usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
             host: text(summary.host),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
@@ -7273,6 +7307,32 @@ export class AcpmuxDirectClient {
   }
   /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
+  /// Whether this acpmux runs an agent's own login on its machine (`agent_login` in `initialize`'s
+  /// `_meta.acpmux.features`, or `agent-login-v1` in its capabilities): a Cloud chat's sign-in card.
+  get supportsAgentLogin(): boolean {
+    return AGENT_LOGIN_CAPABILITIES.some((id) => this.capabilities?.has(id) || this.features.has(id));
+  }
+  /// Starts `agent`'s own login on chat `sessionId`'s machine (`_acpmux/agent_login/start`; acpmux
+  /// forwards a call that names a chat to the machine it lives on): the page to open, Codex's
+  /// device code, and whether the page gives a code to paste back (Claude).
+  agentLoginStart(agent: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/start", { agent, sessionId });
+  }
+  /// Finishes login `loginId` (`_acpmux/agent_login/finish`) with Claude's pasted `code`, or waits
+  /// for Codex's approval; acpmux restarts chat `sessionId`'s agent signed in. The wire log keeps
+  /// no code (wire.ts).
+  agentLoginFinish(loginId: string, sessionId: string, code?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/finish", { loginId, sessionId, ...(code ? { code } : {}) });
+  }
+  /// Saves an API key for `agent` on the machine (`_acpmux/agent_login/api_key`) and restarts chat
+  /// `sessionId`'s agent on it. The wire log keeps no key (wire.ts).
+  agentLoginApiKey(agent: string, sessionId: string, key: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/api_key", { agent, key, sessionId });
+  }
+  /// Stops login `loginId` on chat `sessionId`'s machine (`_acpmux/agent_login/cancel`).
+  agentLoginCancel(loginId: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/cancel", { loginId, sessionId });
+  }
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
     try {
