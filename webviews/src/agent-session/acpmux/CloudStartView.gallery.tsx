@@ -64,27 +64,27 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         },
       },
     },
-    checklistMachine: {
+    "checklist-machine": {
       note: "Cloud machine is being created; the machine step spins while later steps remain quiet.",
       props: { start: { ...begun, machineStartedAt: 10_000, machine: known.machine } },
     },
-    checklistClone: {
+    "checklist-clone": {
       note: "A repository is being cloned into the chat folder.",
       props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", machine: known.machine, machineFinishedAt: 12_400, clone: { state: "running", ...timing } } },
     },
-    checklistSetupCached: {
+    "checklist-setup-cached": {
       note: "The environment snapshot is ready, so setup completes from cache.",
       props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", clone: { state: "done", ...timing }, setup: { state: "done", status: "ready", ...timing } } },
     },
-    checklistSetupRunning: {
+    "checklist-setup-running": {
       note: "The derived environment is still building its setup snapshot.",
       props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", clone: { state: "done", ...timing }, setup: { state: "running", status: "building", startedAt: 10_000 } } },
     },
-    checklistSetupFailed: {
+    "checklist-setup-failed": {
       note: "Setup failed and the card keeps the short log tail inline.",
       props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", clone: { state: "done", ...timing }, setup: { state: "failed", status: "failed", logTail: "npm ERR! missing script: build", ...timing } } },
     },
-    checklistSetupSkipped: {
+    "checklist-setup-skipped": {
       note: "No setup script is configured; the link opens Edit cloud environment at Script.",
       props: { start: { ...begun, hasRepository: true, repository: "manaflow-ai/cmux", clone: { state: "done", ...timing }, setup: { state: "skipped", hasScript: false } } },
     },
