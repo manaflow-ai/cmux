@@ -26,6 +26,19 @@ struct CmdNThenCreateKeysTests {
         try await Self.typeAfterCmdN(then: "splitDown", invocation: terminal)
     }
 
+    /// Where a key goes now (diagnostics): the first responder, whether it is the focused pane's shown terminal view, that
+    /// view's tab, its stand-in gate and the terminal id it sends by while its terminal is still being created.
+    private static func where_(_ window: NSWindow, services: AppServices, consumed: Bool) -> String {
+        let responder = window.firstResponder.map { "\(type(of: $0))@\(ObjectIdentifier($0).hashValue & 0xffff)" } ?? "none"
+        guard let content = services.windows.active?.workspaceContent, let pane = content.focusedPane else { return "consumed \(consumed), responder \(responder), no focused pane" }
+        let tab = pane.currentTabKey ?? "-"
+        guard case .terminal(let entry)? = pane.currentContent else { return "consumed \(consumed), responder \(responder), pane \(pane.pane.handle.rawValue) shows \(tab), no terminal" }
+        let isView = (window.firstResponder as? NSView).map { $0 === entry.session.surfaceView || $0.isDescendant(of: entry.session.view) } ?? false
+        return "consumed \(consumed), responder \(responder) isShownTerminal \(isView), pane \(pane.pane.handle.rawValue), tab \(tab), "
+            + "gate \(entry.gate.map { $0.isResolved ? "resolved" : "open" } ?? "none"), creatingTerminalID \(entry.io.creatingTerminalID ?? "-"), "
+            + "focus \(content.focus.state.resolved)"
+    }
+
     /// Cmd-N with the daemon stopped (its workspace stays a stand-in), then `action`, then "echo held" Return, each key
     /// through the app's dispatch; then the daemon runs, and the new terminal must show the line and its answer.
     private static func typeAfterCmdN(then action: ActionID, invocation: ActionInvocation) async throws {
@@ -37,8 +50,14 @@ struct CmdNThenCreateKeysTests {
             let before = Set(store.workspaces.map(\.id))
             let router = services.keyRouter
             let coordinator = router.creationInputCoordinator
-            // A held key runs again through the same key path as a typed one (the test window is never key).
-            coordinator.replay = { event, window, router in if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) } }
+            // A held key runs again through the same key path as a typed one (the test window is never key). Diagnostics
+            // (#30271, lead 14:43Z): where each replayed key went, by responder, focus, tab and terminal ids.
+            var replays: [String] = []
+            coordinator.replay = { event, window, router in
+                let consumed = router.interceptKeyDown(event, in: window)
+                replays.append("\((event.characters ?? "").debugDescription): " + Self.where_(window, services: services, consumed: consumed))
+                if !consumed { window.sendEvent(event) }
+            }
             // The page's hold keeps its keys as long as the page is opening, as for a person: their New Tab page reports
             // its field ready and takes the keys (smoke step 16). This harness's page never reports ready, so its 4 s
             // bound would hand the keys on and hide the loss (red 808acd14 passed on the base for that reason).
@@ -94,6 +113,21 @@ struct CmdNThenCreateKeysTests {
             while !ran(screen), ContinuousClock.now < deadline {
                 screen = (try? await connection.request(ReadScreenRequest(surface: terminal), timeout: .seconds(2)).text) ?? screen
                 if !ran(screen) { try await Task.sleep(for: .milliseconds(100)) }
+            }
+            if !ran(screen) {
+                // Control: one line typed now, with no hold, through the same dispatch into the focused terminal.
+                let after = Self.where_(window, services: services, consumed: false)
+                for character in "echo ctl\r" {
+                    let text = String(character)
+                    if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                    windowNumber: window.windowNumber, context: nil, characters: text, charactersIgnoringModifiers: text,
+                                                    isARepeat: false, keyCode: text == "\r" ? 36 : 0),
+                       !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+                }
+                try await Task.sleep(for: .seconds(3))
+                let control = (try? await connection.request(ReadScreenRequest(surface: terminal), timeout: .seconds(2)).text) ?? "?"
+                Issue.record("\(action): DIAG terminal \(terminal) (tab terminal id \(selected?.terminalID?.rawValue ?? "-")); replays \(replays); "
+                    + "after the hold: \(after); control line typed then: screen \(control.debugDescription)")
             }
             #expect(ran(screen), "\(action): the new terminal did not get the typed line in order; its screen: \(screen.debugDescription); key paths: \(paths)")
             // No other terminal got the line.
