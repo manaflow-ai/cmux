@@ -451,8 +451,11 @@ fn hooks_in_the_repository_never_run() {
     let second = world.snapshot("two", &[&world.base]);
     let status = seed(&world, &world.start_params(&folder, &second));
     assert_eq!(status["state"], "done", "{status}");
+    // Checked before this test runs git there itself (its own `git status`
+    // runs the hooks: only the seed turns them off).
+    assert!(!marker.exists(), "a repository hook ran during the seed");
+    git(&folder, &["config", "core.hooksPath", "/dev/null"]);
     assert_eq!(state(&folder), state(&world.mac));
-    assert!(!marker.exists(), "a repository hook ran");
 }
 
 #[test]
