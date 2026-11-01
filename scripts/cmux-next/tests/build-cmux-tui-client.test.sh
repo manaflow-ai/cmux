@@ -69,6 +69,7 @@ run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path >
 # one, with no NX_JOB_ID or CI) builds too, in the host's shared cache (CI_SHARED_CACHE_DIR) so
 # the next step's fresh checkout compiles incrementally (#30855).
 git_q -C "$src" commit -am two
+rm -rf "$src/cmux-tui/target" # a step's checkout is fresh
 run CMUX_CI_PHASE_FILE="$TMP/phases.jsonl" CI_SHARED_CACHE_DIR="$TMP/shared" bash scripts/cmux-next/build-cmux-tui-client.sh --print-path >/dev/null 2>"$TMP/err" \
   || fail "a fleet step did not build: $(cat "$TMP/err")"
 [[ "$(builds)" == 12 ]] || fail "a fleet step did not build the set once: $(cat "$TMP/cargo.log")"
