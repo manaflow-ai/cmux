@@ -185,6 +185,15 @@ enum Strings {
         }
     }
 
+    /// The usage row's parts: the tokens each call carries ("312K context") and the last 24
+    /// hours' cost ("$1,421 in 24h").
+    static func usageContext(_ tokens: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.usageContext", defaultValue: "%@ context", bundle: .module), tokens)
+    }
+    static func usageCost(_ cost: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.usageCost", defaultValue: "%@ in 24h", bundle: .module), cost)
+    }
+
     /// The card's stats line: how many prompts, and how long the agents worked.
     static func timelineStats(prompts: Int, worked: String?) -> String {
         let count = String(format: String(localized: "sidebar.hoverCard.statsPrompts", defaultValue: "Prompts: %d", bundle: .module), prompts)

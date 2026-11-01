@@ -1,67 +1,99 @@
 import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// The cmux-tui CLIs Move to Cloud and Bring Back Local run (cmux-tui `link/sync_cli.rs` and
 /// `link/agent_cli.rs`). Each prints one JSON line on stdout:
 /// `{"ok":true,...}` with exit 0, or `{"ok":false,"error":...,"error_code":...}`
 /// with exit 1; bad usage exits 64. The app reads only that line.
-nonisolated struct CloudMoveCLI: Sendable {
+public nonisolated struct CloudMoveCLI: Sendable {
     /// One CLI's answer line.
-    struct Answer: Sendable, Equatable {
-        var ok: Bool
-        var errorCode: String?
-        var error: String?
+    public struct Answer: Sendable, Equatable {
+        public var ok: Bool
+        public var errorCode: String?
+        public var error: String?
         /// `link agent move`: the chat's session on the machine.
-        var sessionID: String?
+        public var sessionID: String?
         /// `link agent move`: the move's id.
-        var transferID: String?
+        public var transferID: String?
         /// `link sync pull`'s `sync_conflict`: the paths changed on both sides.
-        var conflicts: [String] = []
+        public var conflicts: [String] = []
         /// `link agent move`'s `machine_outdated`: the daemon it is about, `source` or `target`.
-        var side: String?
+        public var side: String?
         /// `link machine update`: whether the machine's cmux-tui changed.
-        var updated = false
+        public var updated = false
         /// `link machine update`: the build the machine runs after it; with
         /// `machine_update_unsupported`, the build it was judged on (it still runs it).
-        var build: String?
+        public var build: String?
         /// `link machine update --if-older`: the machine runs another build that is not older than
         /// this app's (a newer one, or the same source tree), so it was left alone.
-        var notOlder = false
-        var seedState: String?
-        var seedPhase: String?
-        var seedStartedAt: Double?
-        var seedFinishedAt: Double?
+        public var notOlder = false
+        public var seedState: String?
+        public var seedPhase: String?
+        public var seedStartedAt: Double?
+        public var seedFinishedAt: Double?
+
+        public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
+                    conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
+                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil) {
+            self.ok = ok
+            self.errorCode = errorCode
+            self.error = error
+            self.sessionID = sessionID
+            self.transferID = transferID
+            self.conflicts = conflicts
+            self.side = side
+            self.updated = updated
+            self.build = build
+            self.notOlder = notOlder
+            self.seedState = seedState
+            self.seedPhase = seedPhase
+            self.seedStartedAt = seedStartedAt
+            self.seedFinishedAt = seedFinishedAt
+        }
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
-    let binary: URL
+    public let binary: URL
     /// How long one run may take (``CloudMoveSetup/timeout``); past it the run is killed and throws.
-    var timeout: Duration = .seconds(30 * 60)
+    public var timeout: Duration = .seconds(30 * 60)
+
+    public init(binary: URL, timeout: Duration = .seconds(30 * 60)) {
+        self.binary = binary
+        self.timeout = timeout
+    }
+
     /// The error code of an answer that isn't a JSON line (a crash, a kill).
-    static let badAnswer = "bad_answer"
+    public static let badAnswer = "bad_answer"
 
     /// `cmux link seed push`: seeds `local` at `remote` on the machine `socket` reaches from its
     /// GitHub remote plus one bundle, else copies it (`link sync push`), saying why.
-    func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
+    public func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
         try await run(["link", "seed", "push", "--socket", socket, local, remote])
     }
 
     /// `cmux link seed pull --or-copy` (Bring Back Local): brings the machine's `remote` back into
     /// `local`, a seeded git project as the seed's diff and a copied folder as `link sync pull`
     /// merges it (the CLI picks); a conflict changes nothing here and lists its paths.
-    func bringBackPull(socket: String, local: String, remote: String) async throws -> Answer {
+    public func bringBackPull(socket: String, local: String, remote: String) async throws -> Answer {
         try await run(["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"])
     }
 
     /// The folder copy a move makes once the chat is frozen (`--sync`): what changed since the
     /// caller's own sync, so a chat moved mid-turn takes the turn's last changes with it.
-    struct FrozenSync: Sendable, Equatable {
+    public struct FrozenSync: Sendable, Equatable {
         /// Pull from the machine (Bring Back Local) rather than seed it (Move to Cloud, `--since-last`).
-        var pull: Bool
+        public var pull: Bool
         /// The machine link socket `link sync` uses.
-        var socket: String
-        var local: String
-        var remote: String
+        public var socket: String
+        public var local: String
+        public var remote: String
+
+        public init(pull: Bool, socket: String, local: String, remote: String) {
+            self.pull = pull
+            self.socket = socket
+            self.local = local
+            self.remote = remote
+        }
     }
 
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at
@@ -72,14 +104,14 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// narrow the chat to an asking policy and mode before it moves (`--ask-first`). `vmKind`
     /// (`--vm-kind`): for a move onto a Cloud machine, the Cloud API's answer for this app on the
     /// link in use, which that machine's daemon takes the chat on (only `owner`), never its own record.
-    func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, askFirst: Bool = false,
+    public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, askFirst: Bool = false,
                    vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
         try await run(["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", cwd]
             + Self.agentMoveFlags(sync: sync, askFirst: askFirst, vmKind: vmKind, toPID: toPID))
     }
 
     /// `agentMove`'s flags after `--cwd`.
-    static func agentMoveFlags(sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPID: Int32?) -> [String] {
+    public static func agentMoveFlags(sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPID: Int32?) -> [String] {
         let frozen = sync.map { ["--sync", $0.pull ? "pull" : "seed", "--sync-socket", $0.socket, "--sync-local", $0.local, "--sync-remote", $0.remote] } ?? []
         return ["--interrupt"] + frozen + (askFirst ? ["--ask-first"] : []) + (vmKind.map { ["--vm-kind", $0] } ?? [])
             + (toPID.map { ["--to-pid", String($0)] } ?? [])
@@ -91,7 +123,7 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// `ifOlder` (`--if-older`, the automatic update) only when that build is older than this
     /// app's, by the source commit time both report, so a machine on a newer build is never moved
     /// back. Either way the build is the one pinned beside this binary; nothing here picks it.
-    func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false) async throws -> Answer {
+    public func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false) async throws -> Answer {
         let flags = toBundled ? ["--to-bundled"] + (ifOlder ? ["--if-older"] : []) : []
         let run = try await parsed(["link", "machine", "update", "--socket", socket] + flags, timeout: max(timeout, Self.machineUpdateTimeout))
         return Self.machineUpdateAnswer(run.answer, object: run.object, status: run.status)
@@ -100,7 +132,7 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// A `link machine update` success is exit 0 with `updated`, and with the `build` it reached
     /// when it updated. Any other `ok` line is no answer: an update that ran but said nothing of
     /// its outcome must not read as a machine that needed nothing.
-    static func machineUpdateAnswer(_ answer: Answer, object: [String: Any]?, status: Int32) -> Answer {
+    public static func machineUpdateAnswer(_ answer: Answer, object: [String: Any]?, status: Int32) -> Answer {
         guard answer.ok else { return answer }
         guard status == 0, let object, let updated = object["updated"] as? Bool,
               !updated || (object["build"] as? String).map({ !$0.isEmpty }) == true else {
@@ -110,19 +142,26 @@ nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// `cmux link machine pin` (cmux-tui `link/machine_pin.rs`): its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
-    func machinePin() async -> Data? { try? await ProcessRunner.run(executable: binary, arguments: ["link", "machine", "pin"], environment: nil, timeout: .seconds(150), clock: ContinuousClock()).stdout }
+    public func machinePin() async -> Data? { try? await ProcessRunner.run(executable: binary, arguments: ["link", "machine", "pin"], environment: nil, timeout: .seconds(150), clock: ContinuousClock()).stdout }
 
     /// `cmux link start-chat plan`'s answer: the machine a `cloud.startChat` send takes (nil: make
     /// one named `newName`), pinned to the send, and the send's keys.
-    struct StartChatPlan: Sendable, Equatable {
-        var machine: String?
-        var newName: String?
-        var createKey: String
-        var tabKey: String
+    public struct StartChatPlan: Sendable, Equatable {
+        public var machine: String?
+        public var newName: String?
+        public var createKey: String
+        public var tabKey: String
+
+        public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String) {
+            self.machine = machine
+            self.newName = newName
+            self.createKey = createKey
+            self.tabKey = tabKey
+        }
     }
 
     /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`), the cmux `access` token on stdin.
-    func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
+    public func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
         let run = try await parsed(["link", "start-chat", "plan", "--request", request], stdin: access.map { Data(($0 + "\n").utf8) })
         let object = run.object ?? [:]
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
@@ -136,20 +175,21 @@ nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link start-chat pin`: the send `key` of `account` (``CloudStartChat/accountText(_:)``)
     /// runs on `machine`, one the App just made for it, and the Mac workspace `workspace` picks it from now on.
-    func startChatPin(key: String, account: String, machine: String, workspace: String?) async throws -> (Answer, Void) {
+    public func startChatPin(key: String, account: String, machine: String, workspace: String?) async throws -> (Answer, Void) {
         (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine] + (workspace.map { ["--workspace", $0] } ?? [])), ())
     }
 
     /// `cmux link start-chat import`: hands cmux-tui the sends this App kept itself before (`entries`, their JSON).
-    func startChatImport(entries: String) async throws -> (Answer, Void) {
+    public func startChatImport(entries: String) async throws -> (Answer, Void) {
         (try await run(["link", "start-chat", "import", "--entries", entries]), ())
     }
 
     /// `cmux link start-chat copy`: copies `local` to a folder of the send's own on the machine whose
     /// daemon `socket` reaches, under the first of `workRoots` it can write, unless this send's copy
-    /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux (home `acpmuxHome`) trusts it.
-    func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String, workRoots: [String],
-                       acpmuxHome: String?) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
+    /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
+    /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
+    public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
+                              workRoots: [String], acpmuxHome: String?) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
         let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
         let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
                                     "--socket", socket, "--local", local, "--subpath", subpath] + roots)
@@ -161,7 +201,7 @@ nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.
-    static let machineUpdateTimeout: Duration = .seconds(45 * 60)
+    public static let machineUpdateTimeout: Duration = .seconds(45 * 60)
 
     private func run(_ arguments: [String], timeout: Duration? = nil) async throws -> Answer {
         try await parsed(arguments, timeout: timeout).answer
