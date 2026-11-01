@@ -615,8 +615,18 @@ def evaluate_runner_condition(node: tuple, context: dict[str, str]) -> bool | st
         return all(evaluate_runner_condition(child, context) for child in node[1])
     if kind == "not":
         return not evaluate_runner_condition(node[1], context)
-    if kind == "literal" and node[1].startswith("'"):
-        return node[1][1:-1].replace("''", "'")
+    if kind == "literal":
+        if node[1].startswith("'"):
+            return node[1][1:-1].replace("''", "'")
+        if node[1] == "true":
+            return True
+        if node[1] == "false":
+            return False
+        if node[1] == "null":
+            return None
+        if "." in node[1]:
+            return float(node[1])
+        return int(node[1])
     if kind == "ref":
         return context[node[1]]
     if kind == "cmp" and node[1] in ("==", "!="):
@@ -1404,8 +1414,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
                                                  "vars.LINUX_RUNNER": "glaeda-std-xcode-26.6"}),
                          "blacksmith-4vcpu-ubuntu-2404")
+        # Each is a declared Blacksmith Linux label: a linux pool member, or a literal listed for
+        # actionlint (32 vCPU left the pool on 2026-11-01 but stays a size jobs may name).
+        declared = (ROOT / ".github/runners.json").read_text(encoding="utf-8") + \
+            (ROOT / ".github/actionlint.yaml").read_text(encoding="utf-8")
         for label in BOUNDED_LINUX_LABELS:
-            self.assertIn(label, (ROOT / ".github/runners.json").read_text(encoding="utf-8"))
+            self.assertIn(label, declared)
 
     def test_the_app_key_runner_rule_refuses_a_variable(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "

@@ -123,12 +123,13 @@ jobs:
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
-    # Main metadata bootstrap: use the shared owned nightly pool even
-    # when routing metadata is absent or still names a paid runner. A retry is
-    # not proof of a fleet no-start, so it does not authorize paid overflow.
+    # Main metadata bootstrap, and NEXT's first push attempt: use the shared
+    # owned nightly pool even when routing metadata is absent or still names a
+    # paid runner. A retry is not proof of a fleet no-start, so it does not
+    # authorize paid overflow.
     # There is no preceding picker; bounded overflow needs controller admission.
     # The nightly slot refuses RC/dogfood refs; keep their existing route.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || 'blacksmith-2vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}

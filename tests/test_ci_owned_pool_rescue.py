@@ -3368,6 +3368,65 @@ class Nightly(unittest.TestCase):
         self.assertEqual(rescue.job_pool(control), "gcp-linux-control")
         self.assertIsNone(rescue.job_pool({**control, "labels": ["ubuntu-24.04"]}))
 
+    def test_a_started_next_decide_protects_later_queued_delivery_work(self):
+        decide = {**job("decide", status="completed", runner="mini"),
+                  "conclusion": "success", "started_at": stamp(10), "completed_at": stamp(20)}
+        queued = job("build-nightly-app", labels=[TRUSTED], created=30)
+        clock = Clock()
+        api = NightlyAPI(clock, lambda _seconds: [decide, queued])
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
+                               side=True, nightly=True, push_branch="nightly-next", event="push")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertIn("started delivery work", result)
+        self.assertIn("decide", result)
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_never_started_next_decide_does_not_block_no_start_rescue(self):
+        queued = lambda _seconds: [
+            job("decide", labels=["glaeda-nightly-std-xcode-26.6"]),
+            job("build-nightly-app", labels=[TRUSTED], created=30),
+        ]
+        clock = Clock()
+        api = NightlyAPI(clock, queued)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
+                               side=True, nightly=True, push_branch="nightly-next", event="push")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("decide", result)
+
+    def test_a_completed_decide_without_a_start_record_does_not_block_next_rescue(self):
+        decide = job("decide", status="completed") | {"conclusion": "success"}
+        queued = job("build-nightly-app", labels=[TRUSTED], created=30)
+        clock = Clock()
+        api = NightlyAPI(clock, lambda _seconds: [decide, queued])
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
+                               side=True, nightly=True, push_branch="nightly-next", event="push")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("started delivery work", result)
+
+    def test_a_queued_next_decide_with_a_runner_assignment_is_still_not_started(self):
+        decide = job("decide", runner="mini-1")
+        self.assertFalse(rescue._started_delivery_job(decide))
+
+    def test_a_completed_main_decide_does_not_block_rescue(self):
+        decide = {**job("decide", status="completed", runner="mini"),
+                  "conclusion": "success", "started_at": stamp(10), "completed_at": stamp(20)}
+        queued = job("build-nightly-app", labels=[TRUSTED], created=30)
+        clock = Clock()
+        api = NightlyAPI(clock, lambda _seconds: [decide, queued])
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
+                               side=True, nightly=True, push_branch="main", event="push")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("started delivery work", result)
+
+    def test_next_push_bootstrap_uses_the_explicit_180_second_window(self):
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(started_at=30))
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("budget 180s", summary)
+
     def test_a_next_dispatch_and_a_next_rerun_are_watched_through_the_picker_s_marker(self):
         # nightly-next's pick-nightly-build-runner gives a dispatch, and a re-run that picks again, an idle
         # owned Mac and uploads the owned-pool-watch marker; the sweeper adopts the run at its attempt.
@@ -6259,6 +6318,8 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.head_branch == 'nightly-next' && "
                      "github.event.workflow_run.event == 'push' && "
                      "(startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
+                     "startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') || "
+                     "!startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') || "
                      "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && "
                      "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')))) && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
