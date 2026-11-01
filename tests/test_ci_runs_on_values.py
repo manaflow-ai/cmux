@@ -15,6 +15,7 @@ import contextlib
 import io
 import json
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -221,11 +222,26 @@ class LiveMain(unittest.TestCase):
     def test_an_unreadable_list_fails_closed(self) -> None:
         for raw, says in (("", "the runners job gave no self-hosted runner list"),
                           ("[]", "the self-hosted runner list is empty"),
-                          ("not json", "is not a JSON list of runners"), ('{"a": 1}', "is not a JSON list of runners")):
+                          ("not json", "is not a JSON list of runners"), ('{"a": 1}', "is not a JSON list of runners"),
+                          # A record with no name or no labels would count no host and pass (review round 2).
+                          ("[{}]", "is not a JSON list of runners"), ('[{"name": "r"}]', "is not a JSON list of runners"),
+                          ('[{"name": "r", "labels": []}]', "is not a JSON list of runners"),
+                          ('[{"name": "r", "labels": [{}]}]', "is not a JSON list of runners"),
+                          ('[{"name": "", "labels": [{"name": "x"}]}]', "is not a JSON list of runners")):
             code, out = self.run_main(self.counting(raw))
             self.assertEqual(code, 1, (raw, out))
             self.assertIn(says, out)
             self.assertIn("no label set's hosts were counted", out)
+
+    def test_list_runners_needs_no_pyyaml(self) -> None:
+        # The runners job runs on a bare Python (review round 2): the module imports without PyYAML.
+        code = ("import sys; sys.modules['yaml'] = None; sys.path.insert(0, sys.argv[1]); "
+                "import runs_on_values as r; sys.exit(r.main(['--list-runners'], {}, lambda t, p: []))")
+        done = subprocess.run([sys.executable, "-c", code, str(ROOT / "scripts" / "ci")],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("no ROUTE_TOKEN", done.stdout)
+        self.assertNotIn("Traceback", done.stderr)
 
     def test_list_runners_prints_names_and_labels_or_fails(self) -> None:
         seen = []

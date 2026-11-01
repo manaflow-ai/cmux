@@ -63,7 +63,6 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import yaml
 
 # glaeda-cmux-runner's runner_label(): the static label only the runner registered under that name carries.
 RUNNER_NAME_LABEL = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9._-]*")
@@ -320,6 +319,9 @@ def runs_on_expressions(text: str) -> list[str]:
 
 def jobs(trees: Iterable[tuple[str, Path]]) -> list[tuple[str, str, str]]:
     """(branch/file, job id, runs-on text) for every job of every workflow in each (branch, directory)."""
+    # Imported here, not at the top: the runners job runs `--list-runners` on a bare Python with no PyYAML.
+    import yaml  # noqa: PLC0415
+
     found = []
     for branch, directory in trees:
         for path in sorted([*directory.glob("*.yml"), *directory.glob("*.yaml")]):
@@ -420,6 +422,16 @@ def list_runners(env: Mapping[str, str], read: Callable[[str, str], Sequence[Map
     return 0
 
 
+def well_formed(runner: Any) -> bool:
+    """A runner record as --list-runners prints it: a non-empty name and a non-empty list of named labels."""
+    if not isinstance(runner, dict) or not isinstance(runner.get("name"), str) or not runner["name"].strip():
+        return False
+    labels = runner.get("labels")
+    return (isinstance(labels, list) and bool(labels)
+            and all(isinstance(label, dict) and isinstance(label.get("name"), str) and label["name"].strip()
+                    for label in labels))
+
+
 def runner_list(env: Mapping[str, str]) -> tuple[list | None, str]:
     """(runners, why not): the runners job's list, or None and why no label set's hosts can be counted."""
     raw = env.get(RUNNER_LIST_ENV, "").strip()
@@ -430,7 +442,7 @@ def runner_list(env: Mapping[str, str]) -> tuple[list | None, str]:
         runners = json.loads(raw)
     except ValueError:
         runners = None
-    if not isinstance(runners, list) or not all(isinstance(runner, dict) for runner in runners):
+    if not isinstance(runners, list) or not all(well_formed(runner) for runner in runners):
         return None, f"{RUNNER_LIST_ENV} is not a JSON list of runners, so no label set's hosts were counted"
     if not runners:
         return None, "the self-hosted runner list is empty, so no label set's hosts were counted"
