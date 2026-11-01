@@ -73,7 +73,6 @@ enum AgentBesidePlacement {
         let lone = caller.flatMap { pendingChat != nil || ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
         let chatID = pendingChat ?? lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }?.id
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
-        let machineID = services.daemon(for: anchor).machineID
         // The chat's strip never lists the tab on its way out: it first shows on the right (OutboundTab).
         let outbound = (invocation.newColumnBeside ? controller : nil).flatMap { $0.pane === anchor ? OutboundTab.begin(in: $0) : nil }
         if let chatID { outbound?.hidden(whileHolding: chatID) }

@@ -325,6 +325,7 @@ enum TabHandlers {
         guard let location = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
         // The source pane is the tab's own, found on its machine (#28731), as the menu row resolved it.
         let source = ctx.targetTab(location.tab, invocation).flatMap { ctx.services.paneController(for: $0.1) }
+            ?? ctx.services.paneController(showingTab: location.tab) // an app-only tab (a Cloud file page) has no store record
         ctx.services.linkOpener.openFile(location.file, on: location.machine, from: source, asText: asText)
         return .done
     }
