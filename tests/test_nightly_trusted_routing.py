@@ -80,29 +80,27 @@ def select(field='runs-on', **changes):
 
 
 class NightlyTrustedRouting(unittest.TestCase):
-    def test_tail_controls_exclude_the_dedicated_builder_and_macos_overflow(self):
+    def test_tail_controls_ignore_stale_prebuild_placement(self):
         prefix = 'needs.pick-nightly-build-runner.outputs.'
-        context = {
-            'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
-            prefix + 'attempt': '1', prefix + 'owned': 'glaeda-trusted-next-nightly',
-            prefix + 'dedicated': 'glaeda-trusted-next-nightly',
-            prefix + 'blacksmith': 'blacksmith-6vcpu-macos-26',
-            'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404',
-        }
         for name in TAIL_CONTROL_JOBS:
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
             expr = parse_expression(source)
-            for helper, expected in (
-                ('glaeda-trusted-next-nightly', 'blacksmith-16vcpu-ubuntu-2404'),
-                ('', 'blacksmith-16vcpu-ubuntu-2404'),
-                ('glaeda-side-std-xcode-26.6', 'glaeda-side-std-xcode-26.6'),
-            ):
-                with self.subTest(job=name, helper=helper):
-                    self.assertEqual(evaluate(expr, {**context, prefix + 'helper': helper}), expected)
-            self.assertEqual(evaluate(expr, {**context, 'vars.LINUX_RUNNER': ''}), 'blacksmith-32vcpu-ubuntu-2404')
-            self.assertEqual(evaluate(expr, {**context, 'github.repository_owner': 'fork'}), 'ubuntu-24.04')
-            self.assertEqual(evaluate(expr, {**context, prefix + 'helper': 'glaeda-side-std-xcode-26.6',
-                                            'github.run_attempt': 2}), 'blacksmith-16vcpu-ubuntu-2404')
+            for helper in ('', 'glaeda-side-std-xcode-26.6', 'glaeda-trusted-next-nightly',
+                           'blacksmith-6vcpu-macos-26'):
+                for attempt in (1, 2, 3):
+                    for overflow in ('', 'blacksmith-16vcpu-ubuntu-2404'):
+                        context = {
+                            'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
+                            prefix + 'attempt': str(attempt), prefix + 'helper': helper,
+                            prefix + 'owned': helper, prefix + 'dedicated': 'glaeda-trusted-next-nightly',
+                            'vars.LINUX_RUNNER': overflow,
+                        }
+                        expected = ('ubuntu-24.04' if attempt == 1 else
+                                    overflow or 'blacksmith-32vcpu-ubuntu-2404')
+                        with self.subTest(job=name, helper=helper, attempt=attempt, overflow=overflow):
+                            self.assertEqual(evaluate(expr, context), expected)
+                            self.assertEqual(evaluate(expr, {**context, 'github.repository_owner': 'fork'}),
+                                             'ubuntu-24.04')
 
     def test_next_push_selects_the_picked_idle_owned_mac(self):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
