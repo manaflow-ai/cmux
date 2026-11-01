@@ -1,5 +1,7 @@
+/* The head is a tool row (TranscriptActivityRow.tsx) on the one-line rows' line, with no margins of its
+   own: its row's frame gives the room (conversation.css `.acpmux-row--line`). */
 .cv-lane-batch {
-  margin-block: calc(var(--ds-space-1) / 2);
+  margin-block: 0;
   min-width: 0;
   font: inherit;
   color: var(--cv-text);
