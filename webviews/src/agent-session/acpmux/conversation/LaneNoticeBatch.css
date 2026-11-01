@@ -5,7 +5,6 @@
   color: var(--cv-text);
 }
 .cv-lane-batch__toggle {
-  all: unset;
   display: flex;
   box-sizing: border-box;
   align-items: center;
@@ -14,7 +13,7 @@
   height: var(--cv-message-line);
   padding-inline: var(--ds-space-1);
   border-radius: var(--ds-radius-control);
-  cursor: pointer;
+  cursor: default;
 }
 .cv-lane-batch__toggle > svg {
   flex: none;
