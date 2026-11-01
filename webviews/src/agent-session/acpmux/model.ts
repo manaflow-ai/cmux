@@ -352,6 +352,9 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// `doing` names the latest step, finished, which the live line holds until the next step
+  /// (conversation/turns.ts `liftedStep`): "Ran grep …".
+  doingDone?: boolean;
   /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
   /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
   /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
