@@ -153,6 +153,26 @@ fn resident_bytes() -> u64 {
     pages * page_size
 }
 
+#[cfg(target_os = "linux")]
+fn baseline_all(hub: &Hub) -> Vec<Value> {
+    let mut rows: Vec<Value> = hub.sessions().iter().map(|s| hub.session_summary(s)).collect();
+    rows.extend(hub.remote_sessions());
+    crate::hub::session_pages::sort_session_summaries(&mut rows);
+    rows
+}
+
+#[cfg(target_os = "linux")]
+fn baseline_snapshot(hub: &Hub) -> Built {
+    let mut rows = Rows::default();
+    for session in hub.sessions() {
+        rows.push(&hub.session_list_summary(&session));
+    }
+    for row in hub.remote_sessions() {
+        rows.push(&crate::hub::views::without_summary_tools(row));
+    }
+    rows.finish()
+}
+
 /// Run manually with `--ignored --nocapture --test-threads=1`; no timing assertion. The same
 /// harness is used on the parent and indexed revisions for the PR's before/after table.
 #[cfg(target_os = "linux")]
@@ -164,7 +184,7 @@ async fn measure_7828_session_activity_and_lists() {
     let start = std::time::Instant::now();
     let cpu = process_cpu();
     for _ in 0..rounds {
-        let rows = baseline.all_session_summaries();
+        let rows = baseline_all(&baseline);
         std::hint::black_box(rows.iter().find(|row| row["name"] == "scale-7827"));
     }
     eprintln!(
@@ -175,7 +195,7 @@ async fn measure_7828_session_activity_and_lists() {
     let start = std::time::Instant::now();
     let cpu = process_cpu();
     for _ in 0..rounds {
-        std::hint::black_box(baseline.all_session_summaries());
+        std::hint::black_box(baseline_all(&baseline));
     }
     eprintln!(
         "7828-session baseline peers::all (full walk): {:.3} wall ms/list, {:.3} CPU ms/list",
@@ -187,7 +207,7 @@ async fn measure_7828_session_activity_and_lists() {
     #[cfg(target_os = "linux")]
     let baseline_rss_before = resident_bytes();
     for _ in 0..rounds {
-        std::hint::black_box(Snapshot::build(&baseline));
+        std::hint::black_box(baseline_snapshot(&baseline));
     }
     #[cfg(target_os = "linux")]
     let baseline_rss_after = resident_bytes();
