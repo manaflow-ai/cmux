@@ -445,6 +445,7 @@ def step_quit_speed(j, step):
                        as slower than 20 s)
       quit_to_gone_ms  the quit request to the old process's end (the driver waits on the old pid with kqueue NOTE_EXIT)
       app_*            the app's own per-terminal timeline (app_timeline): app_all_frames_ms, app_interactive_ms
+      visible_drawn_ms `launch.visible_terminals_drawn` where the build has it (every terminal on screen drew live)
     Both arms are WARM (the app ran in this lease before): `warm-first` is cycle 1, `warm-again` the rest. A cycle
     whose window was occluded (a capture slot's other windows over it: AppKit stops drawing) is marked `occluded`
     and is not evidence; run it on a whole-host lease (run.py --whole-host). Writes speed.json and each cycle's
@@ -492,6 +493,9 @@ def step_quit_speed(j, step):
                      "all_frames_ms": sub(max(first_content.values())) if len(first_content) >= visible > 0 else None,
                      "frames_censored": not (len(first_content) >= visible > 0),
                      "window_frame_ms": sub(r.get("first_window_frame_committed")),
+                     # The dogfood line's own aggregate mark (LaunchTerminalsDrawn): every terminal on screen drew the
+                     # frame after its first content. Absent on builds without it (None).
+                     "visible_drawn_ms": sub(marks.get("launch.visible_terminals_drawn")),
                      "interactive_ms": None if censored else max(live), "censored": censored,
                      "visible_terminals": visible, "samples": r.get("samples"), "blank_pane_samples": r.get("blank_pane_samples"),
                      "occluded": occluded, "socket_ms": r.get("socket_ms"), "main_start_ms": main, **app,
