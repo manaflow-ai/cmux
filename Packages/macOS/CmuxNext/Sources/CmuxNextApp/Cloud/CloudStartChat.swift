@@ -112,13 +112,23 @@ struct CloudStartChat {
         // copy finished opens its chat without copying again, which would overwrite what it changed.
         let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool))
         do {
-            copy = try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
-                                               local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots)
+            // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again (CloudOutdatedMachine).
+            copy = try await CloudOutdatedMachine.copy({
+                try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
+                                            local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots)
+            }, answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) }) { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
             // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
             throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
         }
         guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
+        report(.init(name: "folder", folder: folderName, machine: name, size: size,
+                     cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
+                     cloneReceivedBytes: copy.0.seedReceivedBytes, cloneObjects: copy.0.seedObjects,
+                     cloneTotalObjects: copy.0.seedTotalObjects, setupStatus: copy.0.environmentStatus,
+                     setupLogTail: copy.0.environmentLogTail, machineStartedAt: copy.0.machineStartedAt,
+                     machineFinishedAt: copy.0.machineFinishedAt, harnessStartedAt: copy.0.harnessStartedAt,
+                     harnessFinishedAt: copy.0.harnessFinishedAt))
         let remoteChat = copy.1.chat
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
         // Mac's tab stays.
@@ -126,7 +136,8 @@ struct CloudStartChat {
         _ = await loginPassed
         // The login may have waited on a confirm and a sign-in: check the account again after it.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        report(.init(name: "opening", folder: folderName, machine: name, size: size))
+        report(.init(name: "opening", folder: folderName, machine: name, size: size,
+                     harnessStartedAt: copy.0.harnessStartedAt, harnessFinishedAt: copy.0.harnessFinishedAt))
         return try await open(start, tab: tab, on: machine, cwd: remoteChat, tabKey: plan.tabKey)
     }
 

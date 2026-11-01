@@ -356,7 +356,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 }
                 self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-16vcpu-ubuntu-2404")
                 self.assertEqual(evaluate(parse_expression(source), {**fallback, "github.repository_owner": "someone"}),
-                                 "blacksmith-16vcpu-ubuntu-2404")
+                                 "ubuntu-24.04")
                 self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 steps = job["steps"]
                 gate_index = next(i for i, step in enumerate(steps) if step.get("id") == "claim-gate")
@@ -369,6 +369,40 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertTrue(any("signing-runner-claim.sh" in str(step.get("run", "")) for step in steps[gate_index + 1:]))
                 needs = job["needs"]
                 self.assertIn("pick-nightly-sign-runner", needs)
+
+    def test_publication_controls_reject_unavailable_dedicated_m4pro(self):
+        # Publication cannot use the dedicated label: those minis have no
+        # exclusive-claim capacity. Keep the trusted owned-pool and Linux fallback.
+        jobs = DOC["jobs"]
+        dedicated = {
+            "github.repository_owner": "manaflow-ai",
+            "github.repository": "manaflow-ai/cmux",
+            "github.ref": "refs/heads/nightly-next",
+            "github.event_name": "push",
+            "github.run_attempt": 1,
+            "vars.CI_NIGHTLY_ONLY_RUNNER": "glaeda-nightly-only-m4pro",
+            "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+            "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+            "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
+        }
+        for name in ("publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"):
+            source = jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            expr = parse_expression(source)
+            with self.subTest(job=name):
+                self.assertNotEqual(evaluate(expr, dedicated), "glaeda-nightly-only-m4pro")
+                self.assertEqual(evaluate(expr, dedicated), "blacksmith-16vcpu-ubuntu-2404")
+                self.assertNotEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
+                                                   "github.repository_owner": "someone"}),
+                                    "glaeda-nightly-only-m4pro")
+                self.assertEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
+                                                 "github.repository_owner": "someone"}), "ubuntu-24.04")
+                for changes in ({"github.run_attempt": 2},
+                                {"github.event_name": "schedule"},
+                                {"github.ref": "refs/heads/main"},
+                                {"vars.CI_NIGHTLY_ONLY_RUNNER": ""}):
+                    with self.subTest(changes=changes):
+                        self.assertNotEqual(evaluate(expr, {**dedicated, **changes}),
+                                            "glaeda-nightly-only-m4pro")
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
@@ -393,6 +427,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):
                         self.assertIn(evaluate(parse_expression(source), context),
+                                      {"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"}
+                                      if name == "legacy-identity-target" else
                                       (members | {"ubuntu-24.04"}) if f"nightly.yml#{name}" in light else members)
         self.assertGreater(checked, 20)
 

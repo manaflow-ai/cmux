@@ -17,7 +17,7 @@ Group selection:
   groups without repeating the beta-review operation.
 
 If multiple external groups exist and no selector is provided, it fails loudly so
-CI does not claim founders were updated when the target group was ambiguous.
+CI does not claim external testers were updated when the target group was ambiguous.
 
 Auth comes from the existing ASC environment used by the upload flow:
   ASC_API_KEY_ID, ASC_API_ISSUER_ID, and either ASC_API_KEY_PATH or
