@@ -59,8 +59,7 @@ pub(crate) fn ensure_agent_chat_columns_unsplit(
     after: &State,
 ) -> anyhow::Result<()> {
     let grew = agent_chat_columns(after).into_iter().any(|(key, panes, _, _)| {
-        let had =
-            before.iter().find(|(entry, ..)| *entry == key).map_or(1, |(_, had, ..)| *had);
+        let had = before.iter().find(|(entry, ..)| *entry == key).map_or(1, |(_, had, ..)| *had);
         panes > had.max(1)
     });
     let displaced =
@@ -86,7 +85,8 @@ fn chat_displaced(
     else {
         return false;
     };
-    let tabs = |pane: &PaneId| after.panes.get(pane).map(|pane| pane.tabs.as_slice()).unwrap_or(&[]);
+    let tabs =
+        |pane: &PaneId| after.panes.get(pane).map(|pane| pane.tabs.as_slice()).unwrap_or(&[]);
     let holds_chat = |pane: &PaneId| tabs(pane).iter().any(|tab| chat.contains(tab));
     let panes = column.root.pane_ids_vec();
     panes.iter().any(holds_chat) && panes.first().copied() != top
