@@ -8,14 +8,14 @@ private extension JSONValue {
         guard case .number(let value) = self, value.rounded() == value, abs(value) < 1e15 else { return nil }
         return Int(value)
     }
-    var foundationObject: Any {
+    var sendableObject: any Sendable {
         switch self {
         case .null: NSNull()
         case .bool(let value): value
         case .number(let value): value
         case .string(let value): value
-        case .array(let values): values.map(\.foundationObject)
-        case .object(let values): values.mapValues(\.foundationObject)
+        case .array(let values): values.map(\.sendableObject)
+        case .object(let values): values.mapValues(\.sendableObject)
         }
     }
 }
@@ -69,15 +69,14 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
 
     /// Forwards a validated action. Typed repository failures are successful daemon results and
     /// remain in `value`, so the web card can render the next action without treating it as transport failure.
-    func reply(socketPath: String, remoteChat: Bool, sessionID: String?) async -> [String: Any] {
+    func reply(localSocketPath: String, machineSocketPath: String, remoteChat: Bool, sessionID: String?) async -> [String: Any] {
         guard remoteChat || method == "cloud.repo.local" || method == "cloud.repo.sync" else {
             return AgentPaneReply.failure(code: "unavailable", message: "Cloud repository actions require a Cloud chat.")
         }
         do {
-            let raw = params.foundationObject as? [String: Any] ?? [:]
-            var sendable: [String: any Sendable] = [:]
-            for (key, value) in raw { sendable[key] = value as! any Sendable }
+            let sendable = params.sendableObject as! [String: any Sendable]
             let deadline: Duration? = method == "cloud.repo.wait_github" ? .seconds(65) : .seconds(120)
+            let socketPath = method == "cloud.repo.local" ? localSocketPath : machineSocketPath
             let value = try await AcpmuxStatusClient.call(socketPath: socketPath, method: method, params: sendable, deadline: deadline, detailed: true)
             return AgentPaneReply.success(value)
         } catch let error as AcpmuxRPCError {
