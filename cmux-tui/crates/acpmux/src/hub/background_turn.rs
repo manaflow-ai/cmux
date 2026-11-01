@@ -48,6 +48,8 @@ pub(super) struct Running {
     id: String,
     trigger: &'static str,
     text: String,
+    /// Its reply outgrew [`TEXT_KEPT`]: not quiet, whatever the kept part says.
+    long: bool,
 }
 
 /// A session's background-turn state, read and written by its tap.
@@ -99,17 +101,19 @@ impl BackgroundTurns {
 
     /// An own update of the chat (not a subagent's), before it is logged. Returns the
     /// `started` record to log first, when it is the first sign of a pending turn.
-    fn on_update(&mut self, update: &Value, acpmux_turn: bool) -> Option<Value> {
+    fn on_update(&mut self, update: &Value, acpmux_turn: bool, seq: u64) -> Option<Value> {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         let mut started = None;
         if acpmux_turn {
             self.pending = None;
-        } else if WORK.contains(&kind)
-            && let Some((trigger, seq)) = self.pending.take()
-        {
+        } else if WORK.contains(&kind) && self.running.is_none() {
+            // Model work with no acpmux turn is Claude Code's own turn. Its `system/init` may
+            // have come before this daemon started (a restart, an adopted host): what started
+            // it is then unknown.
+            let (trigger, seq) = self.pending.take().unwrap_or(("system", seq));
             let id = format!("bg-{seq}");
             started = Some(json!({"state": "started", "id": id, "trigger": trigger}));
-            self.running = Some(Running { id, trigger, text: String::new() });
+            self.running = Some(Running { id, trigger, text: String::new(), long: false });
         }
         let Some(running) = self.running.as_mut() else { return started };
         if kind != "agent_message_chunk" {
@@ -123,10 +127,12 @@ impl BackgroundTurns {
                 self.messages.pop_front();
             }
         }
-        if let Some(text) = update.pointer("/content/text").and_then(Value::as_str)
-            && running.text.len() < TEXT_KEPT
-        {
-            running.text.push_str(text);
+        if let Some(text) = update.pointer("/content/text").and_then(Value::as_str) {
+            if running.long || running.text.len() + text.len() > TEXT_KEPT {
+                running.long = true;
+            } else {
+                running.text.push_str(text);
+            }
         }
         started
     }
@@ -137,7 +143,7 @@ impl BackgroundTurns {
         let r = self.running.take()?;
         Some(json!({
             "state": "ended", "id": r.id, "trigger": r.trigger,
-            "quiet": is_quiet(&r.text), "reason": reason,
+            "quiet": !r.long && is_quiet(&r.text), "reason": reason,
         }))
     }
 
@@ -167,11 +173,12 @@ impl Hub {
     /// The tap saw one of the chat's own updates (not a subagent's).
     pub(super) fn background_turn_update(&self, session: &Session, update: &Value) {
         let acpmux_turn = session.turn().is_some();
-        let started = session
-            .background_turns
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .on_update(update, acpmux_turn);
+        let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
+        let started = session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).on_update(
+            update,
+            acpmux_turn,
+            seq,
+        );
         if let Some(msg) = started {
             self.append(session, "mux", RECORD_KIND, msg);
         }
@@ -217,12 +224,12 @@ mod tests {
         let mut b = BackgroundTurns::default();
         assert!(b.on_line("claude.system.task_notification", &json!({}), false, 1).is_empty());
         assert!(b.on_line("claude.system.init", &json!({}), false, 2).is_empty());
-        let started = b.on_update(&chunk("m1", "Nothing new "), false);
+        let started = b.on_update(&chunk("m1", "Nothing new "), false, 0);
         assert_eq!(
             started,
             Some(json!({"state": "started", "id": "bg-2", "trigger": "task_notification"}))
         );
-        assert_eq!(b.on_update(&chunk("m1", "for you yet."), false), None);
+        assert_eq!(b.on_update(&chunk("m1", "for you yet."), false, 0), None);
         assert!(b.owns_message("m1"));
         let ended = b.on_line("claude.result.success", &json!({}), false, 5);
         assert_eq!(
@@ -232,7 +239,7 @@ mod tests {
         );
         // The next one, with nothing before it, is the system's; a long reply is not quiet.
         b.on_line("claude.system.init", &json!({}), false, 6);
-        b.on_update(&chunk("m2", "Merged #1.\nThe nightly is green."), false);
+        b.on_update(&chunk("m2", "Merged #1.\nThe nightly is green."), false, 0);
         let ended = b.on_line("claude.result.success", &json!({}), false, 9);
         assert_eq!(ended[0]["trigger"], "system");
         assert_eq!(ended[0]["quiet"], false);
@@ -243,7 +250,7 @@ mod tests {
         let mut b = BackgroundTurns::default();
         b.on_line("claude.command_lifecycle", &json!({"state": "started"}), false, 1);
         b.on_line("claude.system.init", &json!({}), false, 2);
-        let started = b.on_update(&json!({"sessionUpdate": "tool_call"}), false).unwrap();
+        let started = b.on_update(&json!({"sessionUpdate": "tool_call"}), false, 0).unwrap();
         assert_eq!(started["trigger"], "scheduled");
     }
 
@@ -252,7 +259,7 @@ mod tests {
         let mut b = BackgroundTurns::default();
         b.on_line("claude.system.task_notification", &json!({}), true, 1);
         assert!(b.on_line("claude.system.init", &json!({}), true, 2).is_empty());
-        assert_eq!(b.on_update(&chunk("m1", "Done."), true), None);
+        assert_eq!(b.on_update(&chunk("m1", "Done."), true, 0), None);
         assert!(!b.owns_message("m1"));
         assert!(b.on_line("claude.result.success", &json!({}), true, 4).is_empty());
     }
@@ -263,15 +270,36 @@ mod tests {
         let mut b = BackgroundTurns::default();
         b.on_line("claude.system.init", &json!({}), false, 1);
         assert_eq!(b.end("prompt"), None);
-        assert_eq!(b.on_update(&chunk("m1", "Hi"), true), None);
+        assert_eq!(b.on_update(&chunk("m1", "Hi"), true, 0), None);
         assert!(b.on_line("claude.result.success", &json!({}), true, 3).is_empty());
+    }
+
+    #[test]
+    fn work_with_no_turn_after_a_restart_is_a_background_turn() {
+        // The daemon restarted mid-turn: no system/init, but the model works with no acpmux turn.
+        let mut b = BackgroundTurns::default();
+        let started = b.on_update(&chunk("m1", "Still waiting."), false, 7).unwrap();
+        assert_eq!(started["trigger"], "system");
+        assert_eq!(started["id"], "bg-7");
+        assert!(b.owns_message("m1"));
+        let ended = b.on_line("claude.result.success", &json!({}), false, 9);
+        assert_eq!(ended[0]["quiet"], true);
+    }
+
+    #[test]
+    fn a_reply_past_the_kept_text_is_never_quiet() {
+        let mut b = BackgroundTurns::default();
+        b.on_update(&chunk("m1", &"\u{1F600}".repeat(SHORT_LINE)), false, 1).unwrap();
+        b.on_update(&chunk("m1", "Done"), false, 0);
+        let ended = b.on_line("claude.result.success", &json!({}), false, 3);
+        assert_eq!(ended[0]["quiet"], false);
     }
 
     #[test]
     fn a_prompt_ends_the_running_one() {
         let mut b = BackgroundTurns::default();
         b.on_line("claude.system.init", &json!({}), false, 1);
-        b.on_update(&chunk("m1", "Looking"), false).unwrap();
+        b.on_update(&chunk("m1", "Looking"), false, 0).unwrap();
         let ended = b.end("prompt").unwrap();
         assert_eq!(ended["reason"], "prompt");
         // Its result, now the prompt's turn's, ends nothing more.
