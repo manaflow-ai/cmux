@@ -94,7 +94,7 @@ extension ScreenContentView {
         guard renderTracks.strip, let drawn = stripContainer.layer?.presentation() else {
             return !docked && stripContainer.frame.contains(local) ? stripContainer.convert(local, from: self) : nil
         }
-        guard !geometry.dock.contains(where: { $0.dock.mode == .overlay && $0.cover.contains(local) }) else { return nil }
+        // RED PROOF ONLY (never merge): the overlay-cover guard is removed.
         let point = convertToLayer(local)
         guard drawn.frame.contains(point) else { return nil }
         return stripContainer.convertFromLayer(CGPoint(x: point.x - drawn.frame.minX + drawn.bounds.minX,
