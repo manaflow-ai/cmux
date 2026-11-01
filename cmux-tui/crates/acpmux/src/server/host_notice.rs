@@ -40,15 +40,12 @@ pub fn line(text: &str) -> Result<String, RpcError> {
 
 /// Appends the notice to every live session here; returns how many got it.
 pub fn append_all(hub: &Hub, text: &str) -> usize {
-    let mut n = 0;
-    for s in hub.sessions() {
-        if s.meta().status == SessionStatus::Closed {
-            continue;
-        }
-        hub.append(&s, "mux", KIND, json!({"text": text, "source": "cloud"}));
-        n += 1;
+    let live: Vec<_> =
+        hub.sessions().into_iter().filter(|s| s.meta().status != SessionStatus::Closed).collect();
+    for s in &live {
+        hub.append(s, "mux", KIND, json!({"text": text, "source": "cloud"}));
     }
-    n
+    live.len()
 }
 
 pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {

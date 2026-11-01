@@ -77,11 +77,8 @@ pub fn parse_meminfo_swap_used(text: &str) -> Option<f64> {
 pub fn parse_proc_stat_cpu(text: &str) -> Option<(u64, u64)> {
     let line = text.lines().find(|l| l.split_whitespace().next() == Some("cpu"))?;
     let n: Vec<u64> = line.split_whitespace().skip(1).map_while(|w| w.parse().ok()).collect();
-    if n.len() < 4 {
-        return None;
-    }
-    let idle = n[3] + n.get(4).copied().unwrap_or(0);
-    let total = n.iter().take(8).sum();
+    let idle = n.get(3)?.saturating_add(n.get(4).copied().unwrap_or(0));
+    let total = n.iter().take(8).fold(0u64, |sum, j| sum.saturating_add(*j));
     Some((total, idle))
 }
 
@@ -89,7 +86,7 @@ pub fn parse_proc_stat_cpu(text: &str) -> Option<(u64, u64)> {
 pub fn cpu_busy(before: (u64, u64), after: (u64, u64)) -> Option<f64> {
     let total = after.0.checked_sub(before.0).filter(|t| *t > 0)?;
     let idle = after.1.saturating_sub(before.1).min(total);
-    Some((total - idle) as f64 / total as f64)
+    Some(total.saturating_sub(idle) as f64 / total as f64)
 }
 
 #[cfg(target_os = "macos")]
