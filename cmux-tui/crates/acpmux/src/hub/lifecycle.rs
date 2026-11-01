@@ -54,8 +54,33 @@ impl Hub {
     // --------------------------------------------------------- lifecycle
 
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
+        self.new_session_with_id(req, None).await
+    }
+
+    /// Create a session, optionally using a caller-selected id.
+    ///
+    /// The fixed-id path is private to the authenticated trigger bridge. It never
+    /// takes an id from the warm pool, and publishes under the sessions lock so a
+    /// concurrent creator cannot replace an existing chat.
+    pub(crate) async fn new_session_with_id(
+        self: &Arc<Self>,
+        req: NewRequest,
+        fixed_id: Option<String>,
+    ) -> Result<Arc<Session>, RpcError> {
+        if let Some(id) = fixed_id.as_deref()
+            && !crate::adopt::is_bare_id(id)
+        {
+            return Err(RpcError::invalid_params(
+                "fixed session id must contain only letters, digits, '-' or '_'",
+            ));
+        }
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
+        // Bring an exact persisted id into the in-memory index before the
+        // publication lock, so a lazy store load cannot be overwritten.
+        if let Some(id) = fixed_id.as_deref() {
+            self.session_meta(id).await;
+        }
         let NewRequest {
             harness,
             preset,
@@ -216,12 +241,13 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let pooled = match &adopt {
-            None if starter.is_none()
-                && meta.session_env.is_empty()
-                && route.is_none()
-                && meta.tools.off.is_empty()
-                && checked_cwd.is_none() =>
+        let pooled = match (&fixed_id, &adopt) {
+            (None, None)
+                if starter.is_none()
+                    && meta.session_env.is_empty()
+                    && route.is_none()
+                    && meta.tools.off.is_empty()
+                    && checked_cwd.is_none() =>
             {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
@@ -230,7 +256,8 @@ impl Hub {
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
-        let id = pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let id =
+            fixed_id.unwrap_or_else(|| pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string()));
         meta.id = id.clone();
         // A named route is checked before anything is created: it exists and
         // serves this chat's harness family.
@@ -246,6 +273,11 @@ impl Hub {
             // inserted after that is never ended, so none is (shutdown.rs).
             if self.shutting_down() {
                 return Err(super::shutdown::shutting_down_error());
+            }
+            if fixed_id_is_taken(&sessions, &id) {
+                return Err(RpcError::invalid_params(format!(
+                    "session id {id:?} is already in use"
+                )));
             }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
@@ -1708,6 +1740,26 @@ tokio::task_local! {
 /// An agent start that a stop (`acpmux session stop`) came after the request for.
 fn stopped_while_starting() -> RpcError {
     RpcError::invalid_params("the session was stopped while its agent started")
+}
+
+/// The fixed-id constructor must never overwrite a live in-memory chat. The
+/// caller holds the sessions mutex while checking and publishing.
+fn fixed_id_is_taken(sessions: &std::collections::HashMap<String, Arc<Session>>, id: &str) -> bool {
+    sessions.contains_key(id)
+}
+
+#[cfg(test)]
+mod fixed_id_tests {
+    use super::*;
+
+    #[test]
+    fn fixed_id_accepts_bare_session_ids_only() {
+        assert!(crate::adopt::is_bare_id("0192f7f4-8f53-7c10-8f1c-2f950f3e2d9a"));
+        assert!(crate::adopt::is_bare_id("codex_session_1"));
+        assert!(!crate::adopt::is_bare_id("../escape"));
+        assert!(!crate::adopt::is_bare_id(""));
+        assert!(!crate::adopt::is_bare_id(&"x".repeat(129)));
+    }
 }
 
 #[cfg(test)]
