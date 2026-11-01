@@ -48,6 +48,11 @@ on:
         required: false
         default: false
         type: boolean
+      auto_promote:
+        description: After a successful kept bake and smoke, let the completion receiver dispatch the checked-in dev promotion workflow
+        required: false
+        default: false
+        type: boolean
       probes:
         description: Also run the VM agent bind probe (dev API) and the sm->md resize probe
         required: false
@@ -113,6 +118,8 @@ jobs:
     # prod-copy alone bakes on the production account, in its own environment.
     # Both environments allow only feat-cmux-next.
     environment: ${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}
+    permissions:
+      contents: read
     # A dev tree bake runs a cold cmux-tui build on the builder (2 vCPUs), then the after runs.
     timeout-minutes: ${{ inputs.dev_tree && 150 || 60 }}
     defaults:
@@ -215,6 +222,7 @@ jobs:
       # recorded snapshot_id with smoke PASSED, under --var <var>).
       - name: Dev channel candidate
         if: inputs.mode == 'bake' && inputs.keep_snapshot
+        id: candidate
         env:
           SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
           SOURCE_SHA: ${{ github.sha }}
@@ -226,6 +234,7 @@ jobs:
           NATIVE_RECEIVER: ${{ inputs.native_receiver && '--native-receiver' || '' }}
           PROBES: ${{ inputs.probes && '--agent-probe --resize-probe' || '' }}
           CLONES: ${{ inputs.clones }}
+          AUTO_PROMOTE: ${{ inputs.auto_promote }}
         run: |
           set -euo pipefail
           bake_json="$(find "$OUT_DIR" -maxdepth 1 -name 'bake-*.json' | head -1)"
@@ -241,10 +250,14 @@ jobs:
              ($bake | words) as $bake | ($smoke | words) as $smoke |
              {schema: 1, env: "dev", var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
               bake: "\($bake) (CI run \($run))", smoke: {result: "PASSED", at: (now|todate), detail: "\($smoke) (CI run \($run)): \($s[0].checks | length) checks passed"}}
+             + (if ($b[0].daemonIdentify.capabilities // [] | type) == "array" then {cmux_tui: {commit: ($b[0].daemonIdentify.build_commit // $sha), committed_at: (now|todate), capabilities: $b[0].daemonIdentify.capabilities}} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)
              | if $b[0].nativeReceiver then del(.var) + {native_receiver: true, transport: "vm-api"} else . end' \
             > "$candidate"
           cat "$candidate"
+          if [ "$AUTO_PROMOTE" = true ] && [ -z "$NATIVE_RECEIVER" ]; then
+            jq -n --arg var "$SNAPSHOT_VAR" --arg snapshot "$SNAPSHOT" '{auto_promote: true, var: $var, snapshot: $snapshot}' > "$OUT_DIR/auto-promote.json"
+          fi
 
       # The copy repeats the dev image's lock and flags. The key must not be the dev account's
       # (prod-copy.ts account-check: it resolves a trusted recorded
@@ -404,12 +417,14 @@ jobs:
 
       - name: Upload SBOM, manifest and logs
         if: always()
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-vm-image-${{ inputs.mode }}-${{ github.run_id }}
           path: ${{ github.workspace }}/cmux-vm-image-out
           if-no-files-found: warn
           retention-days: 30
+
 
   # Time to first build on new machines of the dev channel's image, which has no dev tree:
   # clone, toolchains and a cold build of this run's commit (first-build.ts --mode before), while the bake runs.

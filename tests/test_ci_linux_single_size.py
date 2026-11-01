@@ -77,6 +77,7 @@ SINGLE_SIZE: dict[str, int] = {
     "cloud-vm-canary.yml": 1,
     "cloud-vm-env-audit.yml": 1,
     "cloud-vm-guest-install.yml": 0,
+    "cloud-vm-image-auto-promote.yml": 1,
     "cloud-vm-image-bake.yml": 3,
     "cloud-vm-image-contract.yml": 1,
     "cloud-vm-image-lock.yml": 0,
