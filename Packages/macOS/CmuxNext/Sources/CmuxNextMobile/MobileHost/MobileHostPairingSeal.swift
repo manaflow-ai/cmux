@@ -43,7 +43,8 @@ public enum MobileHostPairingSealError: Error {
 /// same-user process can delete the item or plant its own (no item is the app's alone there). Such
 /// a build has no store a same-user process cannot write; signing it with a profile that grants
 /// keychain-access-groups puts the seal back in the app's access group. A login item this build may
-/// not read or change (a locked keychain, an ad hoc rebuild) fails without UI: the phone asks again.
+/// not read or change (a locked keychain, an ad hoc rebuild) fails without UI (Keychain interaction
+/// is off for those calls): the phone asks again.
 public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     public let service: String
     let keychain: MobileHostSecItems
@@ -78,12 +79,15 @@ public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     }
 
     /// Runs `call` against the data-protection Keychain, and again against the login Keychain when
-    /// this build has no entitlement for the first.
+    /// this build has no entitlement for the first. The login call runs with Keychain UI off
+    /// (``LoginKeychain/withoutUI(_:)``): the `LAContext` does not reach the login Keychain, and an
+    /// item an earlier build of this bundle id made under another signature would otherwise prompt
+    /// for the login keychain password.
     private func perform<T>(_ call: ([String: Any]) -> (status: OSStatus, value: T)) -> (status: OSStatus, value: T) {
         let noPrompt = [kSecUseAuthenticationContext as String: Self.noPrompt()]
         let result = call(Self.query(service: service).merging(noPrompt) { $1 })
         guard result.status == errSecMissingEntitlement else { return result }
-        return call(Self.loginQuery(service: service).merging(noPrompt) { $1 })
+        return LoginKeychain.withoutUI { call(Self.loginQuery(service: service).merging(noPrompt) { $1 }) }
     }
 
     public func digest() -> Data? {
