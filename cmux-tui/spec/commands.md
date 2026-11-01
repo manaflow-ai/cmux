@@ -7966,10 +7966,12 @@ Result: `object{changed:bool}`
 | status | implemented |
 | since | protocol 12 additive extension; capability `profiles-v1` |
 
-Records or refreshes a session in the home session registry and stamps
-`last_seen_ms`. Absent `machine_name`, `session_name`, and `capabilities` keep
-stored values. A new session is followed by `default` and by `follow_with`.
-It never changes the session's `icon` (`session-icon-v1`).
+Records a session in the home session registry and stamps `last_seen_ms`
+when its content changes. Absent `machine_name`, `session_name`, and
+`capabilities` keep stored values. Repeating the same effective content
+returns the stored record without writing, advancing `personal_revision`,
+or emitting `personal-changed`. A new session is followed by `default`
+and by `follow_with`. It never changes the session's `icon` (`session-icon-v1`).
 
 Params: `session_id` and `transport` (required object), `machine_name`,
 `session_name`, `capabilities`, `follow_with`.

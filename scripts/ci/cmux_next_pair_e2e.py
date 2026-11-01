@@ -20,6 +20,11 @@ old 100 MiB cap, with marked pages at its start, middle and end, is streamed by 
 `LinkUpload.upload(fileAt:)` over the paired link to the Mac's Chat Folder; it passes when the file
 lands in `<folder>/.cmux/attachments/phone-<session>/` with the same size and SHA-256 and the app's
 memory footprint grew by less than a fifth of the file (no whole-file Data).
+With CMUX_IOS_CLOUD_PROOF_FILE, also opens a probe-owned real Cloud session on
+the paired phone, copies its history, sends a fresh challenge, reads the
+assistant reply, and taps an injected notification. That injection proves
+routing only; APNs acceptance is a separate receipt. The 0600 input stays on
+the runner, is never copied to evidence, and never supplies credentials.
 The token is never printed: `t=` is redacted in every log line and file. Ends the Mac app it started (its own PID) and the
 tag's daemons (tag_teardown.py), and removes the app's state and its Keychain items.
 
@@ -45,6 +50,8 @@ import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, so
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from tag_teardown import TagTeardown  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cmux_next_cloud_pair_proof import read_proof, run_cloud_leg  # noqa: E402
 
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
@@ -169,6 +176,9 @@ def main():
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
     a = ap.parse_args()
+    proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
+    proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
+    cloud_ok = proof is None
     screens = os.path.join(a.out, "screens")
     os.makedirs(screens, exist_ok=True)
 
@@ -397,6 +407,14 @@ def main():
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, last.get("macName"))
                 note(f"- upload: {line}")
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
+        if proof is not None:
+            if not paired:
+                raise SystemExit("Cloud UI proof requires the real QR pairing to succeed")
+            run_cloud_leg(proof, root=ROOT, mac_env=env, email=email, rpc=rpc, phone_log=phone_log,
+                          simctl=simctl, udid=a.udid, bundle=a.bundle_id, phone_env=phone_env,
+                          rig_name=last.get("macName") or RIG_MAC_NAME, work=a.work, out=a.out,
+                          shot=phone_shot, note=note)
+            cloud_ok = True
     finally:
         if app and app.poll() is None:
             # The app signs itself out first, so it deletes its own tokens wherever its store keeps them
@@ -419,9 +437,9 @@ def main():
             shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
         finally:  # the account's keychains are put back even when a step above fails
             forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
-    if not url and not expects_code:
+    if not url and not expects_code and proof is None:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
-    return 0 if paired and uploaded else 1
+    return 0 if paired and uploaded and cloud_ok else 1
 
 
 def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):

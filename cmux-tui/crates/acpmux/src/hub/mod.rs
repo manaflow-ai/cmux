@@ -101,6 +101,7 @@ mod prompt_ledger;
 mod prompt_line;
 #[cfg(test)]
 mod prompt_line_tests;
+mod prompt_sender;
 mod protected_hold;
 mod queue;
 mod queue_admission;
@@ -219,6 +220,7 @@ mod turn_git;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
+pub mod background_turn;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
@@ -351,6 +353,9 @@ pub struct TurnInfo {
     /// What the turn does right now: its latest tool call's title and its
     /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
+    /// Its prompt is acpmux's own notice of other agents' messages (an inbox notice or a
+    /// digest, `prompt_line::is_notice`), not words anyone typed: the summary's `turn.notice`.
+    pub notice: bool,
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,
@@ -1246,6 +1251,7 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
