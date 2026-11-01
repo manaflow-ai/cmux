@@ -2121,6 +2121,14 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A tool run's or group's summary line (ToolRun.tsx, ToolGroupRow.tsx) lights its words to the primary tone on hover, as Worked
+   for does; its glyph keeps its tone. The inner step rows keep their own hover (below). */
+.cv-tool.is-run > .cv-tool__text {
+  transition: color var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.cv-tool.is-run:hover > .cv-tool__text {
+  color: var(--cv-text);
+}
 /* An opened call's line that is no shell's reads whole (ToolRow.tsx `is-whole-open`): its label
    wraps instead of being cut at the row's edge. */
 .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {

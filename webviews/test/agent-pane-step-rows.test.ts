@@ -257,6 +257,27 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
+  test("a tool run's summary line lights its words on hover and keeps its glyph's tone", async () => {
+    const page = await open();
+    const run = page.locator(".acpmux-row button.cv-tool.is-run", { hasText: "Ran 2 commands" });
+    const look = () =>
+      run.evaluate((node) => ({
+        text: getComputedStyle(node.querySelector(".cv-tool__text")!).color,
+        icon: getComputedStyle(node.querySelector(".cv-tool__icon")!).color,
+      }));
+    await page.mouse.move(0, 0);
+    const rest = await look();
+    await run.hover();
+    await page.waitForFunction((before) => {
+      const text = document.querySelector(".acpmux-row button.cv-tool.is-run .cv-tool__text");
+      return text && getComputedStyle(text).color !== before && !text.getAnimations().length;
+    }, rest.text);
+    const hovered = await look();
+    expect(hovered.text).not.toBe(rest.text);
+    expect(hovered.icon).toBe(rest.icon);
+    await page.close();
+  });
+
   test("an inner step row reveals and lights its chevron only on hover", async () => {
     const page = await open();
     await openRun(page);
