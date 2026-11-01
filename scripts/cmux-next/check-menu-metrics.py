@@ -107,12 +107,11 @@ def web_violations(text):
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
     columns = {"padding", "padding-inline", "padding-inline-start", "padding-inline-end",
                "gap", "column-gap", "grid-template-columns", "inset-inline-start"}
-    migrated = {".ui-menu-item.acpmux-access-item", ".ui-menu-item.acpmux-effort-item",
-                ".acpmux-access-item .ui-menu-check", ".acpmux-effort-item .ui-menu-check"}
+    migrated = set()
     found = []
     for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", text):
         selector, body = match.group(1).strip(), match.group(2)
-        if selector not in migrated and not selector.startswith(".ui-popup:is("):
+        if selector not in migrated and not selector.startswith(".ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu):is("):
             continue
         for declaration in body.split(";"):
             prop, sep, value = declaration.partition(":")
@@ -124,8 +123,8 @@ def web_violations(text):
 
 def main():
     self_test()
-    assert web_violations(".acpmux-access-item .ui-menu-check { inset-inline-start: 10px; }")
-    assert not web_violations(".acpmux-access-item .ui-menu-check { inset-inline-start: var(--cmux-menu-state-x); }")
+    assert web_violations(".ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu):is(.ui-menu) .ui-menu-check { inset-inline-start: 10px; }")
+    assert not web_violations(".ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu):is(.ui-menu) .ui-menu-check { inset-inline-start: var(--cmux-menu-state-x); }")
     args = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
     root = os.path.abspath(args[0] if args else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
     base = os.path.join(root, SOURCES)

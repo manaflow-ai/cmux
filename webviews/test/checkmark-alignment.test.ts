@@ -12,9 +12,10 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
-  // The model picker (.acpmux-quick-menu and its Effort and Account side menus) keeps its own settled
-  // columns (leo-workspace design/model-picker.md; its running row's check shares the ⌘N column,
-  // #29791) and is measured by quick-model-menu-layout.test.ts and model-menu-density.browser.test.ts.
+  // The Claude Code pickers keep their own settled columns, the chosen row's check in its number's
+  // place at the trailing edge: the model picker and its side menus (leo-workspace
+  // design/model-picker.md, #29791; quick-model-menu-layout.test.ts, model-menu-density.browser.test.ts)
+  // and the mode menu (composer-claude-split.test.ts, access-grants-columns.test.ts).
   const cases = [
     { name: "plus", entry: "agent-pane.composer-plus-menu", variant: "balanced", popup: ".acpmux-palette-menu" },
     { name: "chat", entry: "agent-pane.header-tools", variant: "menu-open", popup: ".acpmux-chat-menu-popover" },
@@ -22,7 +23,6 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
     { name: "select", entry: "ui.select", variant: "open", popup: ".ui-menu" },
     { name: "context", entry: "ui.context-menu", variant: "open", popup: ".ui-context-menu" },
     { name: "combobox", entry: "ui.combobox", variant: "open", popup: ".ui-combobox-popup" },
-    { name: "access", entry: "agent-pane.composer-pickers", variant: "permission-menu", popup: ".acpmux-access-menu" },
     { name: "project", entry: "agent-pane.project-chooser", variant: "open-current", popup: ".acpmux-project-menu" },
   ];
   beforeAll(async () => {
@@ -58,6 +58,12 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
           const measurements = await popup.evaluate((menu) => {
             const edge = menu.getBoundingClientRect();
             const state = Boolean(menu.querySelector(".ui-menu-check, .acpmux-project-check"));
+            // An icon column only when a row carries an icon (schemas/menu-metrics iconX).
+            const icon = Boolean(
+              menu.querySelector(
+                ":is(.ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item) > :is(.ui-menu-icon, .acpmux-icon, .acpmux-project-badge, .acpmux-project-lead, svg)",
+              ),
+            );
             const rows = [
               ...menu.querySelectorAll<HTMLElement>(
                 ".ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item",
@@ -86,7 +92,7 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
                 height: box.height,
                 stateX: checkBox && checkBox.width > 0 ? checkBox.left + checkBox.width / 2 - edge.left : null,
                 textX,
-                expectedTextX: state ? 42 : 35,
+                expectedTextX: state ? (icon ? 42 : 22) : icon ? 35 : 15,
               };
             });
           });

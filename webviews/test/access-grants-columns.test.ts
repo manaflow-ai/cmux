@@ -2,7 +2,7 @@
 // The permission menu's allowed rules (ComposerPickers.tsx, "Granted access") sit on the mode rows'
 // columns, and only their remove x lights on hover. The section is a fieldset, and the fieldset's own
 // padding put the heading 6px and each rule 4px left of the modes' text, with the x 21px inside their
-// number column; the whole rule row took a hover wash around its small x (Leo 2026-10-27:
+// number and check column; the whole rule row took a hover wash around its small x (Leo 2026-10-27:
 // "why are you giving it the entire row when it's only this small little section? Just don't do
 // that. Don't ever do that."). design/grid.md: every row type starts its text on the surface's
 // `text` line and centers its trailing mark on `trail`, from the inline start in a right-to-left menu too.
@@ -98,11 +98,10 @@ await requireBrowserLane("access-grants-columns.test.ts", async () => {
             return box.left + box.width / 2;
           };
           const modes = [...menu.querySelectorAll<HTMLElement>(".acpmux-access-item")];
-          // A mode's trailing mark: its number. The chosen row's check sits on the menu's leading state
-          // column (design/grid.md 5.3, checkmark-alignment.test.ts), not on the trail.
+          // A mode's trailing mark: its number, or the check on the chosen row.
           const marks = modes
             .map((row) =>
-              [...row.querySelectorAll(".ui-menu-shortcut")].find(
+              [...row.querySelectorAll(".ui-menu-shortcut, .ui-menu-check")].find(
                 (mark) => mark.getBoundingClientRect().width > 0 && getComputedStyle(mark).visibility !== "hidden",
               ),
             )
@@ -118,7 +117,7 @@ await requireBrowserLane("access-grants-columns.test.ts", async () => {
         });
         expect(geometry.direction, "the menu takes the document's direction").toBe(dir);
         expect(geometry.modeText.length, "the fixture has modes").toBeGreaterThan(0);
-        expect(geometry.modeTrail.length, "the modes show a number").toBeGreaterThan(0);
+        expect(geometry.modeTrail.length, "the modes show a number or check").toBeGreaterThan(0);
         expect(geometry.grantText.length, "the fixture has allowed rules").toBe(2);
         const text = geometry.modeText[0]!;
         const trail = geometry.modeTrail[0]!;
