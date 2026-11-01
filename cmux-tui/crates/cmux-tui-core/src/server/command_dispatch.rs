@@ -19,9 +19,12 @@ pub(super) fn handle_command_with_cancellation(
             | Command::MoveScreen { new_workspace: true, .. }
             | Command::MoveScreenGroup { new_workspace: true, .. }
     );
+    let claim = if moves_to_new_workspace { incognito_orphans::begin_move(mux) } else { None };
     let result = dispatch_command(mux, client, cmd, writer, cancellation);
-    if moves_to_new_workspace && result.is_ok() {
-        incognito_orphans::claim_moved(mux, client);
+    if let Some(claim) = claim
+        && result.is_ok()
+    {
+        claim.finish(mux, client);
     }
     result
 }

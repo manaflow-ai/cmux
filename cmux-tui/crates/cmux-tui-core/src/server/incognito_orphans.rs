@@ -30,6 +30,8 @@ use crate::resource::ResourceOperation;
 #[derive(Default)]
 pub(crate) struct IncognitoCreators {
     by_workspace: Mutex<HashMap<String, String>>,
+    /// Held by a move for its whole run ([`MoveClaim`]).
+    moves: Mutex<()>,
 }
 
 /// The peer key of `client` when it is an app connection (role main).
@@ -41,8 +43,7 @@ fn app_peer_key(mux: &Mux, client: u64) -> Option<String> {
 
 /// After a resource request answered: remember the creator of the
 /// ephemeral workspace an app connection's `workspace.create {ephemeral}`
-/// made, or of those a move made (`state::ephemeral_moves` marks a
-/// workspace made for content moved out of an incognito one).
+/// made.
 pub(super) fn note_create(
     mux: &Mux,
     client: u64,
@@ -50,14 +51,7 @@ pub(super) fn note_create(
     ephemeral: bool,
     response: &Value,
 ) {
-    if response["ok"] != true {
-        return;
-    }
-    if moves_content(operation) {
-        claim_moved(mux, client);
-        return;
-    }
-    if operation != ResourceOperation::WorkspaceCreate || !ephemeral {
+    if operation != ResourceOperation::WorkspaceCreate || !ephemeral || response["ok"] != true {
         return;
     }
     let result = &response["result"];
@@ -75,32 +69,56 @@ pub(super) fn note_create(
         .insert(workspace.to_string(), peer_key);
 }
 
-/// After app connection `client` moved content into a new workspace: it
-/// owns every incognito workspace nobody is recorded for (a move out of an
-/// incognito workspace makes one). Reads the registry only while some
-/// incognito workspace is tracked: a move out of one needs one.
-pub(super) fn claim_moved(mux: &Mux, client: u64) {
+/// A move in flight that may make incognito workspaces
+/// (`state::ephemeral_moves` marks a workspace made for content moved out
+/// of an incognito one). Moves run one at a time while it lives, so the
+/// incognito workspaces that appear between [`begin_move`] and
+/// [`MoveClaim::finish`] are exactly this move's, and they go to its app.
+pub(super) struct MoveClaim<'a> {
+    before: HashSet<String>,
+    _moves: std::sync::MutexGuard<'a, ()>,
+}
+
+/// Before a move: nothing while no incognito workspace is tracked (a move
+/// then makes none an app owns).
+pub(super) fn begin_move(mux: &Mux) -> Option<MoveClaim<'_>> {
     let creators = &mux.control_clients.incognito_creators;
     if creators.by_workspace.lock().recover_poison().is_empty() {
-        return;
+        return None;
     }
-    let Some(peer_key) = app_peer_key(mux, client) else { return };
-    let ephemeral = match mux.read_registry_state(crate::state::store::ephemeral_workspaces) {
-        Ok(ephemeral) => ephemeral,
+    let moves = creators.moves.lock().recover_poison();
+    match mux.read_registry_state(crate::state::store::ephemeral_workspaces) {
+        Ok(before) => Some(MoveClaim { before: before.into_iter().collect(), _moves: moves }),
         Err(error) => {
-            eprintln!("cmux-tui: could not list incognito workspaces after a move: {error:#}");
-            return;
+            eprintln!("cmux-tui: could not list incognito workspaces before a move: {error:#}");
+            None
         }
-    };
-    let mut by_workspace = creators.by_workspace.lock().recover_poison();
-    for workspace in ephemeral {
-        by_workspace.entry(workspace).or_insert_with(|| peer_key.clone());
+    }
+}
+
+impl MoveClaim<'_> {
+    /// After the move: app connection `client` owns the incognito
+    /// workspaces it made.
+    pub(super) fn finish(self, mux: &Mux, client: u64) {
+        let Some(peer_key) = app_peer_key(mux, client) else { return };
+        let after = match mux.read_registry_state(crate::state::store::ephemeral_workspaces) {
+            Ok(after) => after,
+            Err(error) => {
+                eprintln!("cmux-tui: could not list incognito workspaces after a move: {error:#}");
+                return;
+            }
+        };
+        let mut by_workspace =
+            mux.control_clients.incognito_creators.by_workspace.lock().recover_poison();
+        for workspace in after.into_iter().filter(|workspace| !self.before.contains(workspace)) {
+            by_workspace.entry(workspace).or_insert_with(|| peer_key.clone());
+        }
     }
 }
 
 /// The operations that can make a workspace for content moved out of
 /// another one.
-fn moves_content(operation: ResourceOperation) -> bool {
+pub(super) fn moves_content(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         ResourceOperation::TabMove

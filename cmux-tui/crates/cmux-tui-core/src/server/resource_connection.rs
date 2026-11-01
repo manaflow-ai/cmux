@@ -305,10 +305,20 @@ pub(super) fn handle_resource_connection_message(
             );
             let operation = request.envelope.operation;
             let ephemeral = request.fields.get("ephemeral").and_then(Value::as_bool) == Some(true);
+            let claim = if super::incognito_orphans::moves_content(operation) {
+                super::incognito_orphans::begin_move(mux)
+            } else {
+                None
+            };
             let handled = crate::resource_router::handle_parsed_resource_request(mux, request);
             crate::debug_spans::mark("router.answered");
             match handled {
                 Ok(response) => {
+                    if let Some(claim) = claim
+                        && response["ok"] == true
+                    {
+                        claim.finish(mux, client);
+                    }
                     super::incognito_orphans::note_create(
                         mux, client, operation, ephemeral, &response,
                     );
