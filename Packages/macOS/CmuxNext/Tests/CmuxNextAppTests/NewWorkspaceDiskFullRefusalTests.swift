@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -92,8 +93,9 @@ struct NewWorkspaceDiskFullRefusalTests {
             await Self.settle()
             #expect(hud.shownCount == before + 1, "one refused create showed \(hud.shownCount - before) refusals: \(hud.history.suffix(3))")
             let message = hud.history.last ?? ""
-            #expect(message.contains("did not apply"), "the refusal does not say the change did not apply: \(message)")
-            #expect(message.contains("the disk is full"), "the refusal does not say the disk is full: \(message)")
+            // The localized reason itself (REVIEW.md: never assert English text).
+            #expect(message.contains(RefusalStrings.diskFull), "the refusal does not say the disk is full: \(message)")
+            #expect(message != RefusalStrings.diskFull, "the refusal does not name the change that did not apply: \(message)")
             #expect(!message.contains("operation.failed"), "the refusal shows the daemon's raw error: \(message)")
         }
     }

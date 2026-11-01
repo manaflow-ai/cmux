@@ -113,8 +113,8 @@ struct DaemonRecoveryAfterFailedStartsTests {
         let answer = try await router.handle(ControlRequest(id: "1", method: "debug.daemon", params: [:])).get()
         let recovery = try #require(answer.objectValue?["recovery"]?.objectValue, "debug.daemon has no recovery: \(answer)")
         #expect(recovery["offers_restart"] == CmuxNextSettings.JSONValue.bool(true), "debug.daemon recovery: \(recovery)")
-        let reasons = recovery.values.compactMap(\.stringValue)
-        #expect(reasons.contains { $0.localizedCaseInsensitiveContains("disk is full") || $0.contains("No space left on device") },
+        // The typed reason, not English text (REVIEW.md).
+        #expect(recovery["start_failure"] == CmuxNextSettings.JSONValue.string("disk_full"),
                 "the start's failure reason (a full disk) is not exposed with the offer: \(recovery)")
         #endif
     }

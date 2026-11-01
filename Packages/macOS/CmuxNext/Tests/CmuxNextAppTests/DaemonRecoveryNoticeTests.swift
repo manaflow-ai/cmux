@@ -117,7 +117,8 @@ struct DaemonRecoveryNoticeTests {
         #expect(toast.id == DaemonRecoveryNotice.toastID)
         #expect(toast.message == DaemonRecoveryStrings.diskFull, "the notice does not name the full disk: \(toast.message)")
         #expect(toast.action?.title == DaemonRecoveryStrings.restart)
-        #expect(toast.detail?.contains("No space left on device") == true)
+        // The detail is the launcher's raw failure (the stand-in's own text, not a localized string).
+        #expect(toast.detail?.contains("server.spawn_failed") == true, "the notice has not the raw failure: \(toast.detail ?? "none")")
         #expect(service.recovery.offersRestart)
 
         // Restart asks first, as the launch window's button does; cancelled, the notice shows again.
