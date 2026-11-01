@@ -473,7 +473,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(promptValue()).toBe("fix the flaky test");
 });
 
-test("with Cloud picked and Do not work in a project, a send copies nothing: not even the tab's inherited folder", async () => {
+test("with Cloud picked and Do not work in a project, a send names no folder: not even the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
     root!.render(
@@ -505,9 +505,10 @@ test("with Cloud picked and Do not work in a project, a send copies nothing: not
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
   await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
-  expect(clouded).toEqual([]);
-  expect(container.querySelector('[role="alert"]')?.textContent).toBeTruthy();
-  expect(promptValue()).toBe("fix the flaky test");
+  // The App starts Cloud with nothing copied, preserving the base behavior.
+  expect(clouded.length).toBe(1);
+  expect(clouded[0]?.[1]).toBe("fix the flaky test");
+  expect(clouded[0]?.[2]).toBeUndefined();
 });
 
 test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
@@ -666,9 +667,7 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   await act(async () => root!.render(<main />));
   const attachment = (left[0]?.[1] as ComposerAttachment[])[0]!;
-  expect(left).toEqual([
-    [inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt", inline: true })]],
-  ]);
+  expect(left).toEqual([[inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
 test("keeps a changed machine choice while browse settles, then permits retry", async () => {

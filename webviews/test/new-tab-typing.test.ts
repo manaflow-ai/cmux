@@ -53,13 +53,13 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       await page.locator(".nt-shell-glyph").waitFor();
       const command = "echo _x_ __y__ **z** `date` [a](b)";
       await page.keyboard.type(command);
-      await page.keyboard.press("Control+b");
+      await page.keyboard.press("ControlOrMeta+b");
       await page.keyboard.type(" more");
       await page.keyboard.press("Enter");
       expect(await page.evaluate(() => window.newTabShellCommands)).toEqual([`${command} more`]);
       expect(await editor.locator("em, strong, code, a").count()).toBe(0);
       await page.keyboard.press("Escape");
-      await page.keyboard.press("Control+a");
+      await page.keyboard.press("ControlOrMeta+a");
       await page.keyboard.type("**normal prompt**");
       expect(await editor.textContent()).toBe("**normal prompt**");
       expect(await editor.locator("em, strong, code, a").count()).toBe(0);
@@ -77,7 +77,7 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       await editor.focus();
       const addresses = ["https://example.com/_private_/notes", "file:///tmp/_private_/notes"];
       for (const address of addresses) {
-        await page.keyboard.press("Control+a");
+        await page.keyboard.press("ControlOrMeta+a");
         await page.keyboard.type(address);
         await page.keyboard.press("Enter");
       }
@@ -116,8 +116,11 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       expect(await editor.textContent()).toBe(location);
       expect(await editor.locator("em, strong, code").count()).toBe(0);
       expect(await page.locator(".nt-popover .nt-row").count()).toBe(0);
-      await page.keyboard.press("End");
+      // The initial location is selected. Collapse that selection at its end; End scrolls the
+      // document on macOS rather than moving the caret, and would leave the location selected.
+      await page.keyboard.press("ArrowRight");
       await page.keyboard.type("/next");
+      expect(await editor.textContent()).toBe(`${location}/next`);
       await page.keyboard.press("Enter");
       expect(await page.evaluate(() => window.newTabOpened)).toEqual([`${location}/next`]);
     } finally {

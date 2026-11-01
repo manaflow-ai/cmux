@@ -92,6 +92,16 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/`);
     const field = page.locator(design.field);
     await field.waitFor();
+    // MarkdownField mounts its ProseMirror DOM before the async Milkdown view and imperative
+    // handle are ready. Cmd-V focuses through that handle, so wait for the same readiness the
+    // app's COMPOSER_READY_EVENT reports before blurring and exercising the route.
+    if (design.design === "screen")
+      await page.waitForFunction(() => {
+        const element = document.querySelector(".nt-field") as
+          | (Element & { acpmuxMarkdownField?: { inlineIds: () => unknown } })
+          | null;
+        return element?.acpmuxMarkdownField?.inlineIds() !== undefined;
+      });
     if (draft) {
       await field.click();
       await page.keyboard.type(draft);
