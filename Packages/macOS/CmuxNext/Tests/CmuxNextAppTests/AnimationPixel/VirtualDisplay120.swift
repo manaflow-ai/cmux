@@ -92,23 +92,37 @@ final class VirtualDisplay120 {
         var listed: NSScreen?
         for _ in 0..<100 {
             listed = NSScreen.screens.first { Self.number(of: $0) == id }
-            if let listed, listed.backingScaleFactor == CGFloat(scale) { break }
+            if let found = listed, found.backingScaleFactor == CGFloat(scale) { break }
             Self.pumpEvents(for: 0.05)
             await Task.yield()
         }
-        guard let listed else {
+        guard let first = listed else {
             var online = [CGDirectDisplayID](repeating: 0, count: 16), count: UInt32 = 0
             CGGetOnlineDisplayList(16, &online, &count)
             let screens = NSScreen.screens.compactMap(Self.number(of:))
             throw Failure(description: "AppKit did not list virtual display \(id) within 5 s (CoreGraphics online: \(online.prefix(Int(count))), AppKit screens: \(screens))")
         }
-        guard listed.backingScaleFactor == CGFloat(scale) else {
-            throw Failure(description: "virtual display \(id) is \(listed.backingScaleFactor)x, not \(scale)x")
+        // A HiDPI virtual display comes up at 1x; its 2x mode (pixels twice its points) must be chosen
+        // (green7b 354968770: "virtual display 6 is 1.0x, not 2x" with the mode given in pixels).
+        var shown = first
+        if scale > 1, shown.backingScaleFactor != CGFloat(scale) {
+            try Self.chooseHiDPIMode(id, scale: scale)
+            for _ in 0..<100 {
+                if let again = NSScreen.screens.first(where: { Self.number(of: $0) == id }), again.backingScaleFactor == CGFloat(scale) {
+                    shown = again
+                    break
+                }
+                Self.pumpEvents(for: 0.05)
+                await Task.yield()
+            }
         }
-        screen = listed
+        guard shown.backingScaleFactor == CGFloat(scale) else {
+            throw Failure(description: "virtual display \(id) is \(shown.backingScaleFactor)x, not \(scale)x after choosing its \(scale)x mode")
+        }
+        screen = shown
         var periods: [Double] = []
         for _ in 0..<3 {
-            let period = try await Self.measurePeriod(listed)
+            let period = try await Self.measurePeriod(shown)
             periods.append(period)
             if abs(period - 1 / Self.hz) < 0.0005 { break }
         }
@@ -116,6 +130,25 @@ final class VirtualDisplay120 {
         guard abs(refreshPeriod - 1 / Self.hz) < 0.0005 else {
             throw Failure(description: "virtual display \(id) ticks every \(periods.map { String(format: "%.2f", $0 * 1000) }) ms, not \(1000 / Self.hz) ms")
         }
+    }
+
+    /// Sets display `id` to its mode whose pixels are `scale` times its points (the HiDPI one), for
+    /// this process only (kCGConfigureForAppOnly, as vdisplay.m's `main`).
+    private static func chooseHiDPIMode(_ id: CGDirectDisplayID, scale: Int) throws {
+        let options = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        let modes = (CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode]) ?? []
+        guard let mode = modes.filter({ $0.pixelWidth == $0.width * scale && $0.pixelHeight == $0.height * scale })
+            .max(by: { $0.width < $1.width }) else {
+            throw Failure(description: "virtual display \(id) offers no \(scale)x mode: "
+                + modes.map { "\($0.width)x\($0.height)@\($0.pixelWidth)x\($0.pixelHeight)" }.joined(separator: ", "))
+        }
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success, let config else {
+            throw Failure(description: "cannot begin a display configuration for \(id)")
+        }
+        CGConfigureDisplayWithDisplayMode(config, id, mode, nil)
+        let result = CGCompleteDisplayConfiguration(config, .forAppOnly)
+        guard result == .success else { throw Failure(description: "cannot set virtual display \(id) to its \(scale)x mode (\(result.rawValue))") }
     }
 
     /// Runs the main run loop and hands AppKit's queued events on for `seconds`.
