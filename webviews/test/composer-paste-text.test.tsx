@@ -229,12 +229,20 @@ test("a paste over 20 lines is a Pasted text chip; the prompt keeps what was typ
   const chip = field().querySelector("[data-inline-attachment] .acpmux-md-inline-chip")!;
   expect(chip).not.toBeNull();
   expect(chip.textContent).toContain("line 1 of the build log");
+  // Leo, 2026-11-01: "bro this is a TERRIBLE text preview ...". The inline chip is a small page of
+  // the paste's first lines over its label (TextAttachmentCard.tsx), never its name alone.
+  expect(chip.getAttribute("data-preview")).toBe("text");
+  expect(chip.querySelector(".acpmux-text-card__lines")!.textContent!.split("\n")[0]).toContain(
+    "line 1 of the build log",
+  );
+  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 25 lines");
   // The strip view draws the same chip in the strip, its first words and its line count.
   await showAttachments("strip");
   const strip = host.querySelector(".acpmux-attachment-pasted")!;
   expect(strip).not.toBeNull();
   expect(strip.textContent).toContain("line 1 of the build log");
   expect(strip.textContent).toContain("25 lines");
+  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 25 lines");
   expect(words()).toBe("why does this fail?");
 });
 
