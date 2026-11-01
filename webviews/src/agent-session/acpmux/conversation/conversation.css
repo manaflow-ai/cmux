@@ -3596,7 +3596,7 @@ a.cv-sha:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 8px;
   flex-basis: 100%;
 }
 .cv-turn-signin.cv-turn-signin__row,
@@ -3605,7 +3605,7 @@ a.cv-sha:focus-visible {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .cv-turn-signin__text {
   color: var(--cv-text-dim);
@@ -3619,8 +3619,7 @@ a.cv-sha:focus-visible {
   box-sizing: border-box;
   min-width: 0;
   width: 240px;
-  min-height: 26px;
-  padding: 3px 8px;
+  padding: 4px 8px;
   border: 1px solid var(--agent-border);
   border-radius: 6px;
   background: transparent;

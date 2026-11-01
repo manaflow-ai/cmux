@@ -9,7 +9,6 @@ import {
   cloudAgentLogin,
   loginFailure,
   signInURL,
-  type CloudSignIn as SignIn,
 } from "../src/agent-session/acpmux/cloudAgentLogin";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -342,7 +341,7 @@ test("never sends without a gesture ticket", async () => {
   expect(sent).toEqual([]);
   // The card offers its own Send again for a fresh click.
   expect(button("Send again")).toBeDefined();
-  await signIn.resend("user-1", PROMPT, undefined);
+  await signIn!.resend("user-1", PROMPT, undefined);
   expect(sent).toEqual([]);
 });
 
