@@ -593,8 +593,10 @@ impl Hub {
         }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         // Another agent's message shows as its sender and words (`prompt_line.rs`).
-        // The person's own prompt's turn takes no notice and no other agent's steer (`inbox.rs`).
-        let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref());
+        // The person's own prompt's turn takes no notice and no other agent's steer (`inbox.rs`),
+        // while the inbox is on: the queue path before it still steers agents' sends in.
+        let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref())
+            && self.config.read().await.agent_inbox();
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
             .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
             .by_person(persons);
