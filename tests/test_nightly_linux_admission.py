@@ -157,13 +157,19 @@ class Receipts(unittest.TestCase):
             config = {**ENV, "GITHUB_OUTPUT": str(output), "ADMISSION_RECEIPT_PATH": str(record)}
             with mock.patch.object(admission, "admit", side_effect=TimeoutError), \
                  mock.patch.object(admission, "read_minis", return_value=(None, None)), \
-                 mock.patch.object(admission.time, "monotonic", side_effect=[0, 30]), \
+                 mock.patch.object(admission.time, "monotonic", side_effect=[0, 30, 180]), \
                  mock.patch.object(admission.time, "sleep") as wait:
                 self.assertEqual(admission.main(config), 0)
             wait.assert_called_once_with(150)
             self.assertIn(ENV["OVERFLOW_LINUX"], output.read_text())
             self.assertNotIn("signer_build_runner", output.read_text())
-            self.assertIsNone(json.loads(record.read_text())["receipt"])
+            recorded = json.loads(record.read_text())
+            self.assertIsNone(recorded["receipt"])
+            observation = recorded["client_observation"]
+            self.assertEqual(observation["source"], "client")
+            self.assertEqual(observation["no_start_seconds"], 180)
+            self.assertLessEqual(admission.timestamp(observation["started_at"]),
+                                 admission.timestamp(observation["ended_at"]))
 
 
 class Transport(unittest.TestCase):

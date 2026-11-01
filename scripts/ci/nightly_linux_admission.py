@@ -139,12 +139,13 @@ def output_key(job: str) -> str:
 
 
 def write(env: Mapping[str, str], selected: Mapping[str, str], receipt: Mapping[str, Any] | None,
-          error: str = "") -> None:
+          error: str = "", client_observation: Mapping[str, Any] | None = None) -> None:
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for job, label in selected.items():
                 output.write(f"{output_key(job)}_runner={label}\n")
-    record = {"identity": identity(env), "receipt": receipt, "runners": selected, "error": error}
+    record = {"identity": identity(env), "receipt": receipt, "runners": selected, "error": error,
+              "client_observation": client_observation}
     if env.get("ADMISSION_RECEIPT_PATH"):
         Path(env["ADMISSION_RECEIPT_PATH"]).write_text(json.dumps(record, sort_keys=True) + "\n")
     if env.get("GITHUB_STEP_SUMMARY"):
@@ -172,6 +173,8 @@ def read_minis(env: Mapping[str, str]):
 def main(env: Mapping[str, str] = os.environ) -> int:
     request = identity(env)
     started = time.monotonic()
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    observation = None
     receipt = None
     error = ""
     runners = snapshot = None
@@ -191,13 +194,18 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         remaining = WAIT_SECONDS - (time.monotonic() - started)
         if remaining > 0:
             time.sleep(remaining)
+        observation = {"source": "client", "status": "admission-unavailable",
+                       "started_at": started_at,
+                       "ended_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                       "no_start_seconds": time.monotonic() - started,
+                       "scope": "no admitted runner received; not a controller capacity receipt"}
         # Read immediately before placing; a pre-wait idle snapshot is stale.
         try:
             runners, snapshot = read_minis(env)
         except (Exception, portable.Deadline):
             runners = snapshot = None
         selected = routes(env, request, None, runners, snapshot)
-    write(env, selected, receipt, error)
+    write(env, selected, receipt, error, observation)
     return 0
 
 
