@@ -26,6 +26,18 @@ struct CloudStartChatMachineTests {
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
     }
 
+    /// Proof run on a fresh staging machine (2026-11-01): its image's older cmux-tui refused the
+    /// copy with `machine_outdated` and the first send failed with "Update the machine". That answer
+    /// (about the machine, never this Mac's side) updates the machine and copies again; nothing else does.
+    @Test func onlyTheMachinesOutdatedRefusalUpdatesItBeforeCopyingAgain() {
+        let outdated = CloudMoveStrings.outdatedCode
+        #expect(CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated)))
+        #expect(CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated, side: "target")))
+        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated, side: "source")))
+        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: "sync_failed")))
+        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: true)))
+    }
+
     /// The plan reads the send under its account and Mac workspace, only the machines the account's list
     /// named, and the ones made since (kept for a pin, never picked).
     /// Router review at f766845: a machine the server destroyed may stay in the store after the list dropped it. It is

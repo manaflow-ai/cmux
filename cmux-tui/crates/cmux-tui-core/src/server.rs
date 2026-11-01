@@ -135,10 +135,10 @@ mod agent_session_attach;
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    start_link_share_bridge,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -2649,7 +2649,7 @@ use bounded_outbound::{
 #[cfg(test)]
 use bounded_outbound::{
     ControlOutbound, MAX_TERMINAL_CONNECTIONS, claim_terminal_connection,
-    websocket_server_frame_header,
+    claim_terminal_connection_from, websocket_server_frame_header,
 };
 
 mod client_registry;
@@ -2956,3 +2956,6 @@ mod browser_profile_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(unix)]
+mod cloud_repos;

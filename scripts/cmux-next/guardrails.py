@@ -1857,8 +1857,20 @@ CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch
 # A line that ends a statement (the header of the next block starts after it).
 STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
 HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
-# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
+# The loaded helper module (the same for every commit); shared by every run.
 BLOCKING_CONTEXT: dict[str, object] = {}
+# The judged head's threading doc, package manifest and UI targets, one copy per thread: measure() loads them and
+# its rules read them on the same thread, and check_own measures a merge's ranges at once on several threads, so a
+# shared copy let one range judge thread-doc by another range's doc (#30169: a listed thread refused, 1 run in 6).
+RUN_CONTEXT = threading.local()
+
+
+def run_context() -> dict[str, object]:
+    """This thread's head context (load_blocking_context fills it before the rules run)."""
+    context = getattr(RUN_CONTEXT, "values", None)
+    if context is None:
+        context = RUN_CONTEXT.values = {}
+    return context
 
 
 class Prefiltered:
@@ -1919,12 +1931,13 @@ def main_actor_scope():
 def ui_targets() -> set[str]:
     """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
     reads them."""
-    if "ui_targets" not in BLOCKING_CONTEXT:
-        manifest = BLOCKING_CONTEXT.get("manifest")
+    context = run_context()
+    if "ui_targets" not in context:
+        manifest = context.get("manifest")
         found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
                            manifest if isinstance(manifest, str) else "", re.S)
-        BLOCKING_CONTEXT["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
-    return BLOCKING_CONTEXT["ui_targets"]
+        context["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
+    return context["ui_targets"]
 
 
 def block_header(lines: list[str], number: int, code: str) -> str:
@@ -2101,7 +2114,7 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     def doc() -> dict[str, object]:
         """The doc's labels and allowances, read when a push adds a thread, queue or allowance to judge."""
         if not listed:
-            text = BLOCKING_CONTEXT.get("threading_doc")
+            text = run_context().get("threading_doc")
             if not isinstance(text, str):
                 raise RuntimeError(f"{THREADING_DOC} could not be read at the pushed head")
             listed.update(labels=doc_labels(text), allowances=set(re.findall(r"^\|\s*`(\w+)`\s*\|", text, re.M)))
@@ -2130,12 +2143,12 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
 
 
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open)."""
-    for key in ("threading_doc", "manifest", "ui_targets"):
-        BLOCKING_CONTEXT.pop(key, None)
+    """Keeps HEAD's threading doc and package manifest for the rules above, in this thread's run context (a
+    missing doc fails thread-doc open)."""
+    context = RUN_CONTEXT.values = {}
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
         if (head, path) in texts:
-            BLOCKING_CONTEXT[key] = texts[(head, path)]
+            context[key] = texts[(head, path)]
 
 BLOCKING_RULES = (
     Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait or a "

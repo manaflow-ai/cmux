@@ -174,6 +174,7 @@ impl Hub {
                             SessionStatus::Idle | SessionStatus::Closed
                         );
                     tap_session.harness_turn.store(false, Ordering::SeqCst);
+                    tap_hub.end_background_turn(&tap_session, "exit");
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
@@ -204,6 +205,11 @@ impl Hub {
                         return true;
                     }
                     if method.starts_with("claude.") {
+                        // A turn the person did not start: its records go before its lines
+                        // (`background_turn.rs`).
+                        if !muted && let Some(line) = params.as_ref() {
+                            tap_hub.background_turn_line(&tap_session, method, line);
+                        }
                         // Claude Code's turn, its own ones too (`Session::harness_turn`).
                         if method == "claude.system.init" {
                             tap_session.harness_turn.store(true, Ordering::SeqCst);
@@ -291,6 +297,11 @@ impl Hub {
                 tree.set_roots(own.iter().chain(&retired).map(String::as_str));
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
                 background_changed = tree.background_running() != before;
+                drop(tree);
+                // The chat's own words in a turn the person did not start (`background_turn.rs`).
+                if subagent.is_none() && !muted && !kind.ends_with(".replay") {
+                    tap_hub.background_turn_update(&tap_session, &params["update"]);
+                }
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
