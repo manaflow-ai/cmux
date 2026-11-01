@@ -114,6 +114,15 @@ extension SidebarBridge {
         case .openProfileInNewWindow(let profile):
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: profile.rawValue), origin: .user)
             services.registry.perform("space.openInNewWindow", invocation: invocation)
+        case .goToSpaceWindow(let profile):
+            services.windows.goToWindow(showing: ProfileID(rawValue: profile.rawValue), from: state)
+        case .bringSpaceHere(let profile):
+            // The space's Move to This Window (`space.bringHere`), run for this sidebar's window; it refuses incognito.
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: profile.rawValue), origin: .user)
+            invocation.arguments["window"] = .target(ActionTargetRef(kind: .window, id: state.id))
+            services.registry.perform("space.bringHere", invocation: invocation)
+        case .newIncognitoSpace:
+            services.registry.perform("space.newIncognito", invocation: ActionInvocation())
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)

@@ -141,6 +141,13 @@ enum Strings {
     static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }
     static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
     static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }
+    // The switcher's window marks (design/spaces.md "The switcher (PR 3)").
+    static var goToSpaceWindow: String { String(localized: "sidebar.space.goToWindow", defaultValue: "Go to Window", bundle: .module) }
+    static var moveSpaceHere: String { String(localized: "sidebar.space.moveHere", defaultValue: "Move Here", bundle: .module) }
+    static var newIncognitoSpace: String { String(localized: "sidebar.space.newIncognito", defaultValue: "New Incognito Space", bundle: .module) }
+    static func spaceInAnotherWindow(_ name: String) -> String {
+        String(localized: "sidebar.space.inAnotherWindow", defaultValue: "\(name), in another window", bundle: .module)
+    }
     /// The Now Playing card's scrubber (its value says the position and the length).
     static var nowPlayingPosition: String {
         String(localized: "sidebar.a11y.nowPlaying.position", defaultValue: "Playback Position", bundle: .module)

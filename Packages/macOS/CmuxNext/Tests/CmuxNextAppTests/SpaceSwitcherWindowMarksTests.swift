@@ -47,7 +47,9 @@ import Testing
         #expect(click(.ring, Self.keys[1], elsewhere: nil) == .switchHere, "a space no other window shows switches as before")
         #expect(click(.plain, Self.keys[1]) == .switchHere, "plain is today's strip")
         #expect(click(.plain, Self.keys[1], option: true) == .switchHere)
-        #expect(click(.ring, Self.keys[0]) == .none)
+        #expect(click(.ring, Self.keys[0], elsewhere: nil) == .none)
+        #expect(click(.ring, Self.keys[0]) == .offer([.goToWindow, .moveHere]), "a ringed current space offers the choices too")
+        #expect(click(.ring, Self.keys[0], option: true) == .goToWindow)
         #expect(click(.menu, Self.keys[0]) == .spaceMenu)
         #expect(SpaceSwitcherStyle.tunable.defaultValue == .ring, "the gallery's pick is the default for the new marker only")
     }
