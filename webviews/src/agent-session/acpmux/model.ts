@@ -410,7 +410,20 @@ export type AcpmuxRow = {
   joined?: string[];
   /// The messages other sessions sent that the agent has not read yet, drawn as one group
   /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
-  pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[] };
+  pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
+  /// A received row expanded from an inbox notice; used to keep its waiting run flat.
+  inboxDelivery?: true;
+  inboxDeliveryBatch?: true;
+  /// Metadata retained for a preview-only inbox delivery so opening it can hydrate its thread.
+  inboxThread?: {
+    threadId: string;
+    label?: string;
+    sender: string;
+    preview: string;
+    count: number;
+    promptIds: readonly string[];
+    fromSession?: string;
+  };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
     rows: readonly AcpmuxRow[];
@@ -1538,7 +1551,7 @@ function measuredRowHeight(
         member.incoming?.kind === "message"
           ? (member.incoming.message.sessionId ?? member.incoming.message.name)
           : member.id;
-      if (member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
+      if (!row.pendingMessages.flat && member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
         senders.add(from);
         height += 22;
       }

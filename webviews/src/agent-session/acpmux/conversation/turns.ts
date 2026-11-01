@@ -146,6 +146,7 @@ export type TurnView = {
   working: boolean;
   sessionStatus: boolean;
   messageBreaks: readonly number[];
+  hasInbox?: boolean;
   /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
   waitingSteers?: readonly string[];
   /// Other sessions' messages in the last turn the agent has not read yet, which it does not draw:
@@ -269,6 +270,7 @@ export function turnViewFrom(
   const first = starts.length;
   const fromStart = lead === 0;
   const pending: AcpmuxRow[] = [];
+  let hasInbox = previous?.hasInbox === true;
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
   // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
   // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
@@ -316,6 +318,12 @@ export function turnViewFrom(
     // The boundary is this turn; unrelated rows and report/inbox kind changes end a batch.
     const drawn: AcpmuxRow[] = [];
     for (const row of shaped) {
+      if (
+        row.incoming?.kind === "inbox" ||
+        (row.incoming?.kind === "message" &&
+          (row.incoming.message.name === "inbox" || row.incoming.message.noticeThreads !== undefined))
+      )
+        hasInbox = true;
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
@@ -332,6 +340,7 @@ export function turnViewFrom(
     working,
     sessionStatus,
     messageBreaks,
+    ...(hasInbox ? { hasInbox: true } : {}),
     ...(waitingSteers ? { waitingSteers } : {}),
     pending: pending.length ? pending : NO_PENDING,
     lead,
