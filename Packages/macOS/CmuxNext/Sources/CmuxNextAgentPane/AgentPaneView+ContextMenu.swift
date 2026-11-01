@@ -146,7 +146,7 @@ extension AgentPaneView {
         // the upload of every picked file (Retry on each tile).
         let chosen: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
-            AgentPanePersonInput.record(model.transport.gestures)
+            AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
             model.droppedPaths.stash(urls, kind: .choose)
             model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
         }
