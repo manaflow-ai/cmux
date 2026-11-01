@@ -16,6 +16,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { openSessionInfo } from "../../../gallery/fixtures/sessionInfo";
 
 const snapshot = chat(
   Array.from({ length: 12 }, (_, index) => [
@@ -29,11 +30,8 @@ const snapshot = chat(
 /// The app offers Session Info (Debug Settings `agent.inspector`, on by default).
 const native = { "pane.tabState": { inspector: true } };
 
-const panel = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]");
-
-const opened: Play = async (ctx) => {
-  await ctx.waitFor(() => panel(ctx), { capMs: 3000 });
-};
+/// Session Info starts closed (inspectorState.ts): the play opens it from the header's toggle.
+const opened: Play = (ctx) => openSessionInfo(ctx);
 
 /// A stage-only stylesheet for an alternative the app does not ship.
 const restyle = (ctx: PlayContext, css: string) => {

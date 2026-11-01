@@ -7,6 +7,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
+import { openSessionInfo } from "../../../gallery/fixtures/sessionInfo";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { realWorkflowFixture } from "../realWorkflowFixture";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
@@ -41,10 +42,12 @@ const realPaneSnapshot = (running: boolean) => {
     { isWorking: running, title: "File count workflow" },
   );
 };
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default): it opens shown.
+/// The app offers Session Info (Debug Settings `agent.inspector`, on by default); it starts closed,
+/// so the play opens it from the header's toggle.
 const native = { "pane.tabState": { inspector: true } };
 const shown: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-card"), { capMs: 3000 });
+  await openSessionInfo(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task"), { capMs: 3000 });
 };
 

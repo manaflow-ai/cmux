@@ -11,6 +11,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { openSessionInfo } from "../../../gallery/fixtures/sessionInfo";
 
 const snapshot = chat([
   user("Write the release notes for the sidebar work", 6),
@@ -33,11 +34,7 @@ const inspector = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-chat
 const shown = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]");
 
 /// Opens Session Info as a person would (it starts closed), unless this pane already shows it.
-const open: Play = async (ctx) => {
-  await ctx.waitFor(() => shown(ctx) ?? ctx.document.querySelector('[aria-label="Session Info"]'), { capMs: 3000 });
-  if (!shown(ctx)) await ctx.click({ role: "button", name: "Session Info" });
-  await ctx.waitFor(() => shown(ctx), { capMs: 3000 });
-};
+const open: Play = (ctx) => openSessionInfo(ctx);
 
 const close: Play = async (ctx) => {
   await open(ctx);

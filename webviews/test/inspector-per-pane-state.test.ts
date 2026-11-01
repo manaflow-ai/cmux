@@ -45,8 +45,11 @@ afterEach(() => {
 
 /// What another page sees of a write: a storage event on its window (jsdom fires none for its own).
 const storageEvent = (key: string) => dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key }));
+/// A person opened Session Info once (it starts closed, issue 29874): new chats open with it.
+const openedOnce = () => localStorage.setItem("cmux.agentPane.inspector.open", "1");
 
 test("a toggle, a drag or a fold in one pane leaves the other pane as it was", async () => {
+  openedOnce();
   const left = await page("chat-left");
   const right = await page("chat-right");
   expect(left.inspectorState().open).toBe(true);
@@ -92,6 +95,7 @@ test("a pane with no state of its own starts from the last choice, and the old s
 });
 
 test("the same chat in two panes: a toggle in one does not move the other", async () => {
+  openedOnce();
   const one = await page("chat-same");
   const two = await page("chat-same");
   one.setInspectorOpen(false);
@@ -147,6 +151,7 @@ test("two panes saving at once keep both chats' changes", async () => {
 
 test("with no session the pane saves nothing until one comes, then saves under it", async () => {
   const { createInspectorStore } = await page("unbound");
+  openedOnce();
   const store = createInspectorStore(() => localStorage);
   store.bind("chat-a");
   // A harness switch shows a new chat with no session yet: the last chat is no longer the pane's.

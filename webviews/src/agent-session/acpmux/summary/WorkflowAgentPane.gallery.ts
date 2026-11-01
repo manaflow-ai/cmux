@@ -2,6 +2,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { chat, row, user } from "../../../gallery/fixtures/acpmux";
+import { openSessionInfo } from "../../../gallery/fixtures/sessionInfo";
 type PaneCall = { method: string; params?: { subagent?: string; focus?: boolean } };
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { workflowFixture } from "./workflowFixture";
@@ -26,6 +27,7 @@ export default agentPaneEntry({
       native: { "pane.tabState": { inspector: true }, "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";
+        await openSessionInfo(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.click({ selector });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
