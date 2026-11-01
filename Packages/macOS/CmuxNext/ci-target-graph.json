@@ -361,6 +361,7 @@
         "CmuxNextBridge",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextLayout",
         "CmuxNextSidebar"
       ],
       "packages": []

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1254,
+    "entries": 1256,
     "shortcuts": 189
   },
   "sections": [
@@ -974,6 +974,18 @@
           "title": "Move Space to This Window",
           "shortcut": null,
           "command": "cmux space bring-here"
+        },
+        {
+          "id": "workspace.moveAbove",
+          "title": "Move Workspace Above…",
+          "shortcut": null,
+          "command": "cmux workspace move-above"
+        },
+        {
+          "id": "workspace.moveBelow",
+          "title": "Move Workspace Below…",
+          "shortcut": null,
+          "command": "cmux workspace move-below"
         },
         {
           "id": "moveWorkspaceDown",
