@@ -48,6 +48,11 @@ on:
         required: false
         default: false
         type: boolean
+      auto_promote:
+        description: After a successful kept bake and smoke, dispatch the checked-in dev promotion workflow
+        required: false
+        default: false
+        type: boolean
       probes:
         description: Also run the VM agent bind probe (dev API) and the sm->md resize probe
         required: false
@@ -113,6 +118,9 @@ jobs:
     # prod-copy alone bakes on the production account, in its own environment.
     # Both environments allow only feat-cmux-next.
     environment: ${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}
+    permissions:
+      contents: read
+      actions: write
     # A dev tree bake runs a cold cmux-tui build on the builder (2 vCPUs), then the after runs.
     timeout-minutes: ${{ inputs.dev_tree && 150 || 60 }}
     defaults:
@@ -215,6 +223,7 @@ jobs:
       # recorded snapshot_id with smoke PASSED, under --var <var>).
       - name: Dev channel candidate
         if: inputs.mode == 'bake' && inputs.keep_snapshot
+        id: candidate
         env:
           SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
           SOURCE_SHA: ${{ github.sha }}
@@ -404,12 +413,26 @@ jobs:
 
       - name: Upload SBOM, manifest and logs
         if: always()
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-vm-image-${{ inputs.mode }}-${{ github.run_id }}
           path: ${{ github.workspace }}/cmux-vm-image-out
           if-no-files-found: warn
           retention-days: 30
+
+      # Staleness repair dispatches this workflow with auto_promote. The promotion workflow still
+      # records a diff artifact and never mutates the branch; a lane reviews and lands that diff.
+      - name: Request checked-in dev promotion
+        if: inputs.mode == 'bake' && inputs.auto_promote && inputs.keep_snapshot && steps.candidate.outcome == 'success' && steps.upload.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
+        run: |
+          set -euo pipefail
+          gh workflow run cloud-vm-image-promote.yml \
+            --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+            -f channel=dev -f snapshot="$SNAPSHOT" -f bake_run="$GITHUB_RUN_ID"
 
   # Time to first build on new machines of the dev channel's image, which has no dev tree:
   # clone, toolchains and a cold build of this run's commit (first-build.ts --mode before), while the bake runs.
