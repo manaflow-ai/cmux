@@ -65,9 +65,12 @@ function archiveInView(ctx: PlayContext): void {
   const shown = popup.getBoundingClientRect();
   const row = archive.getBoundingClientRect();
   const height = ctx.document.defaultView?.innerHeight ?? 0;
+  const items = [...popup.children].map((n) => `${(n.textContent ?? "").trim().slice(0, 18)}:${Math.round(n.getBoundingClientRect().height)}`).join(",");
+  const cs = ctx.document.defaultView!.getComputedStyle(popup);
+  const DIAG = ` DIAG top ${Math.round(shown.top)} h ${Math.round(shown.height)} sh ${popup.scrollHeight} maxh ${cs.maxHeight} pad ${cs.paddingTop}/${cs.paddingBottom} items ${items}`;
   if (popup.scrollTop !== 0 || row.bottom > shown.bottom + 0.5 || row.bottom > height)
     throw new Error(
-      `Archive is out of view: row ${Math.round(row.top)}-${Math.round(row.bottom)}, menu to ${Math.round(shown.bottom)}, window ${height}`,
+      `Archive is out of view: row ${Math.round(row.top)}-${Math.round(row.bottom)}, menu to ${Math.round(shown.bottom)}, window ${height}${DIAG}`,
     );
 }
 
@@ -88,7 +91,9 @@ const pick =
         const shown = [...ctx.document.querySelectorAll(".cv-thought, .cv-command")]
           .map((node) => `${node.className}:${node.getAttribute("aria-expanded")}`)
           .join(" | ");
-        throw new Error(`${name} did not draw ${drawn}; rows: ${shown}`);
+        const stage = ctx.document.querySelector(".acpmux-stage") ?? ctx.document.body;
+        const cls = [...stage.querySelectorAll("[class]")].map((n) => `${n.className}${n.getAttribute("aria-expanded") ? `(${n.getAttribute("aria-expanded")})` : ""}`).filter((c) => /cv-|acpmux-row/.test(c)).slice(0, 60).join(" | ");
+        throw new Error(`${name} did not draw ${drawn}; rows: ${shown}; DIAG ${cls}`);
       });
   };
 

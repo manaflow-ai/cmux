@@ -233,8 +233,11 @@ function menusLeaveColumn(document: Document): string[] {
 
 /// Opens the model button's menu and checks that it keeps to the chat column.
 async function openModelMenu(ctx: PlayContext) {
+  const btns = [...ctx.document.querySelectorAll<HTMLElement>("button")].filter((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").includes("Model")).map((b) => { const x = b.getBoundingClientRect(); const h = ctx.document.elementFromPoint(x.left + x.width / 2, x.top + x.height / 2); return `${b.className}[${b.getAttribute("aria-label")}] ${Math.round(x.left)},${Math.round(x.top)} ${Math.round(x.width)}x${Math.round(x.height)} hit=${h?.tagName}.${h?.className}`; }).join(" ; ");
   await ctx.click({ role: "button", name: "Model" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu")).catch(() => {
+    throw new Error(`DIAG model menu did not open; column ${Math.round(ctx.document.querySelector(".acpmux-main")?.getBoundingClientRect().width ?? 0)}; buttons ${btns}; popups ${[...ctx.document.querySelectorAll("[role=menu],[role=dialog],[role=listbox]")].map((e) => e.className).join(",")}`);
+  });
   // Base UI places and sizes the menu over a frame or two (its --available-width): wait for it to
   // rest inside the column rather than read its first frame.
   await ctx.waitFor(() => menusLeaveColumn(ctx.document).length === 0, { capMs: 1000 }).catch(() => undefined);
@@ -302,11 +305,16 @@ export default agentPaneEntry({
             menu.hasAttribute("data-closed") ||
             ctx.document.defaultView?.getComputedStyle(menu).visibility === "hidden"
           );
+        }).catch(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+          throw new Error(`DIAG Escape did not close: ${menu?.className} ${[...(menu?.attributes ?? [])].map((a) => `${a.name}=${a.value}`).join(",")} active=${ctx.document.activeElement?.tagName}.${ctx.document.activeElement?.className}`);
         });
         const column = ctx.document.querySelector<HTMLElement>(".acpmux-main");
         if (!column) throw new Error("no chat column");
         column.style.flex = "0 0 200px";
-        await ctx.waitFor(() => column.getBoundingClientRect().width <= 201);
+        await ctx.waitFor(() => column.getBoundingClientRect().width <= 201).catch(() => {
+          throw new Error(`DIAG column stayed ${column.getBoundingClientRect().width}`);
+        });
         // The narrowing is the stage's, not a step's: let it paint before the next step measures shifts.
         const view = ctx.document.defaultView!;
         await new Promise((resolve) => view.requestAnimationFrame(() => view.requestAnimationFrame(resolve)));
