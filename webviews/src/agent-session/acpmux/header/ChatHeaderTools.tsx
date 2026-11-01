@@ -647,7 +647,7 @@ export function ChatMenu({
                   disabled={row.disabled}
                   label={
                     <>
-                      <Icon name={row.icon} size={15} />
+                      <Icon name={row.icon} size={14} />
                       <span className="acpmux-chat-menu-label">{row.label}</span>
                     </>
                   }
@@ -668,7 +668,7 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
-      <Icon name={item.icon} size={15} />
+      <Icon name={item.icon} size={14} />
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>

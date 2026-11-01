@@ -7192,6 +7192,268 @@
         }
       }
     },
+    "settings.workspaceHibernation.hiddenSpaceMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إسبات المساحات المخفية بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiberniraj skrivene prostore nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sæt skjulte rum i dvale efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgeblendete Spaces in Ruhezustand nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hibernate Hidden Spaces After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hibernar espacios ocultos después de"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettre en veille les espaces masqués après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iberna gli spazi nascosti dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "非表示のスペースをハイバネートするまでの時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្អាកលំហដែលបានលាក់បន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "숨겨진 스페이스 최대 절전까지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett skjulte områder i dvale etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hibernuj ukryte przestrzenie po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hibernar espaços ocultos após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Гибернация скрытых пространств через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พักพื้นที่ที่ซ่อนอยู่หลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli alanları şu süreden sonra beklet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Гібернація прихованих просторів через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngủ đông không gian ẩn sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏空间休眠前等待"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏空間休眠前等待"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.hiddenSpaceMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما لا تعرض أي نافذة مساحة ما، تدخل مساحات العمل فيها في الإسبات بعد هذا العدد من دقائق الخمول بدلاً من ذلك. لا تدخل مساحات العمل المثبتة والأوامر والوكلاء قيد التشغيل ومساحات العمل المبقاة مستيقظة في الإسبات أبداً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada nijedan prozor ne prikazuje prostor, njegovi radni prostori hiberniraju nakon ovoliko minuta neaktivnosti. Zakačeni radni prostori, pokrenute komande i agenti te radni prostori koji se drže budnim nikad ne hiberniraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når intet vindue viser et rum, går dets arbejdsområder i dvale efter så mange inaktive minutter i stedet. Fastgjorte arbejdsområder, kørende kommandoer og agenter samt arbejdsområder, der holdes vågne, går aldrig i dvale."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn kein Fenster einen Space zeigt, gehen seine Workspaces stattdessen nach so vielen inaktiven Minuten in den Ruhezustand. Angeheftete Workspaces, laufende Befehle und Agents sowie wach gehaltene Workspaces gehen nie in den Ruhezustand."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando ninguna ventana muestra un espacio, sus espacios de trabajo hibernan tras estos minutos de inactividad. Los espacios de trabajo fijados, los comandos y agentes en ejecución y los espacios mantenidos activos nunca hibernan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand aucune fenêtre n’affiche un espace, ses espaces de travail se mettent en veille après ce nombre de minutes d’inactivité. Les espaces de travail épinglés, les commandes et agents en cours et les espaces maintenus éveillés ne se mettent jamais en veille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando nessuna finestra mostra uno spazio, i suoi workspace vanno in ibernazione dopo questi minuti di inattività. I workspace fissati, i comandi e gli agenti in esecuzione e i workspace tenuti attivi non vanno mai in ibernazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "どのウインドウにも表示されていないスペースでは、ワークスペースがこの分数アイドルになるとハイバネートします。ピン留めしたワークスペース、実行中のコマンドとエージェント、スリープさせないワークスペースはハイバネートしません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលគ្មានបង្អួចណាបង្ហាញលំហមួយ កន្លែងធ្វើការរបស់វានឹងផ្អាកបន្ទាប់ពីទំនេរប៉ុន្មាននាទីនេះ។ កន្លែងធ្វើការដែលបានខ្ទាស់ ពាក្យបញ្ជា និងភ្នាក់ងារដែលកំពុងដំណើរការ និងកន្លែងធ្វើការដែលរក្សាឱ្យភ្ញាក់ មិនដែលផ្អាកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "어떤 창에도 표시되지 않는 스페이스의 워크스페이스는 이 시간(분) 동안 유휴 상태이면 최대 절전 모드로 전환됩니다. 고정된 워크스페이스, 실행 중인 명령과 에이전트, 깨어 있도록 유지한 워크스페이스는 최대 절전 모드로 전환되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når ingen vinduer viser et område, går arbeidsområdene i det i dvale etter så mange inaktive minutter i stedet. Festede arbeidsområder, kjørende kommandoer og agenter og arbeidsområder som holdes våkne, går aldri i dvale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy żadne okno nie pokazuje przestrzeni, jej obszary robocze hibernują po tylu minutach bezczynności. Przypięte obszary robocze, uruchomione polecenia i agenci oraz obszary utrzymywane w gotowości nigdy nie hibernują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando nenhuma janela mostra um espaço, seus espaços de trabalho hibernam após estes minutos de inatividade. Espaços de trabalho fixados, comandos e agentes em execução e espaços mantidos ativos nunca hibernam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда ни одно окно не показывает пространство, его рабочие области уходят в гибернацию после стольких минут бездействия. Закреплённые рабочие области, выполняющиеся команды и агенты, а также рабочие области, которые не усыпляются, никогда не уходят в гибернацию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อไม่มีหน้าต่างใดแสดงพื้นที่หนึ่ง เวิร์กสเปซในพื้นที่นั้นจะพักหลังจากไม่ได้ใช้งานตามจำนวนนาทีนี้แทน เวิร์กสเปซที่ปักหมุด คำสั่งและเอเจนต์ที่กำลังทำงาน และเวิร์กสเปซที่ตั้งให้ตื่นอยู่จะไม่พักเลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiçbir pencere bir alanı göstermediğinde, alanın çalışma alanları bunun yerine bu kadar dakika boşta kaldıktan sonra bekletilir. Sabitlenmiş çalışma alanları, çalışan komutlar ve ajanlar ile uyanık tutulan çalışma alanları asla bekletilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли жодне вікно не показує простір, його робочі області переходять у гібернацію після стількох хвилин бездіяльності. Закріплені робочі області, запущені команди й агенти та робочі області, які не присипляються, ніколи не переходять у гібернацію."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi không cửa sổ nào hiển thị một không gian, các workspace của nó sẽ ngủ đông sau từng này phút nhàn rỗi. Workspace đã ghim, lệnh và agent đang chạy, và workspace được giữ thức không bao giờ ngủ đông."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当没有窗口显示某个空间时，其工作区闲置这么多分钟后即休眠。已置顶的工作区、正在运行的命令和代理以及保持唤醒的工作区不会休眠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "當沒有視窗顯示某個空間時，其工作區閒置這麼多分鐘後即休眠。已釘選的工作區、正在執行的命令和代理，以及保持喚醒的工作區不會休眠。"
+          }
+        }
+      }
+    },
     "settings.workspaceHibernation.idleMinutes": {
       "extractionState": "manual",
       "localizations": {
@@ -181353,6 +181615,186 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "回應"
+          }
+        }
+      }
+    },
+    "settings.group.chiefSubagents": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء الفرعيون"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-agents"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        }
+      }
+    },
+    "settings.chief.autoRouteSubagents": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route Subagents to the Best Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントを最適なエージェントに振り分ける"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توجيه الوكلاء الفرعيين إلى أفضل وكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten an den besten Agenten leiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar los subagentes al mejor agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confier les sous-agents au meilleur agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트를 가장 알맞은 에이전트로 보내기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将子代理分派给最合适的代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將子代理分派給最合適的代理"
+          }
+        }
+      }
+    },
+    "settings.chief.autoRouteSubagents.help": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief が各サブエージェントの実行先を選びます。たとえば長いコーディング作業には Codex、文章や UI には Claude を使います。Chief 自身が別のエージェントで動いていても同様です。オフにすると、サブエージェントは Chief と同じエージェントで動きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يختار Chief الوكيل الذي يعمل عليه كل وكيل فرعي، مثل Codex للبرمجة الطويلة وClaude للكتابة والواجهة، حتى عندما يعمل Chief نفسه على وكيل آخر. عند الإيقاف، يعمل الوكلاء الفرعيون على وكيل Chief نفسه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chief wählt für jeden Subagenten den Agenten, auf dem er läuft, etwa Codex für lange Programmierarbeit und Claude für Texte und UI, auch wenn der Chief selbst auf einem anderen läuft. Aus: Subagenten laufen auf dem Agenten des Chiefs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Chief elige el agente de cada subagente, como Codex para trabajos largos de código y Claude para redacción e interfaz, aunque el Chief use otro. Desactivado, los subagentes usan el agente del Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Chief choisit l'agent de chaque sous-agent, par exemple Codex pour les longs travaux de code et Claude pour la rédaction et l'interface, même s'il tourne lui-même sur un autre. Désactivé, les sous-agents tournent sur l'agent du Chief."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 각 하위 에이전트가 실행될 에이전트를 고릅니다. 예를 들어 긴 코딩 작업에는 Codex, 글쓰기와 UI에는 Claude를 씁니다. Chief 자신이 다른 에이전트에서 실행될 때도 마찬가지입니다. 끄면 하위 에이전트는 Chief의 에이전트에서 실행됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 会为每个子代理挑选运行的代理，例如长时间的编程工作用 Codex，写作和界面用 Claude，即使 Chief 本身使用其他代理。关闭时，子代理使用 Chief 自己的代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 會為每個子代理挑選執行的代理，例如長時間的程式工作用 Codex，寫作與介面用 Claude，即使 Chief 本身使用其他代理。關閉時，子代理使用 Chief 自己的代理。"
           }
         }
       }

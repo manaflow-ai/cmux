@@ -62,13 +62,14 @@ final class SidebarDoneFoldRowView: SidebarRowView {
     override func layout() {
         super.layout()
         let b = layoutBounds
+        let columns = SidebarStyle.columns(rowWidth: b.width)
         let h = ceil(name.intrinsicContentSize.height)
-        let icon = chevron.image?.size ?? .zero
-        // The chevron starts where a row's title does, the count right after it.
-        let start = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
-        chevron.frame = NSRect(x: start, y: (b.height - icon.height) / 2, width: icon.width, height: icon.height)
-        let x = chevron.frame.maxX + Metrics.space1
-        name.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
+        // Done and Show N more use the shared trailing fold column; their label uses the common text line.
+        chevron.frame = columns.trailingFrame(centerY: b.midY, side: SidebarStyle.controlSize)
+        let x = columns.text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
+        name.frame = NSRect(x: x, y: columns.textOriginY(centerY: b.midY, baseline: name.firstBaselineOffsetFromTop,
+                                                           capHeight: name.font?.capHeight ?? SidebarStyle.headerFont.capHeight),
+                             width: max(0, columns.textEnd(trailingMarks: 1) - x), height: h)
         needsDisplay = true
     }
 

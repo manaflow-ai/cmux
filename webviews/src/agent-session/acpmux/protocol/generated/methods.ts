@@ -27,6 +27,11 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: unknown; result: unknown };
+  "agent-session-turn-prepare": { params: unknown; result: unknown };
+  "agent-session-turn-abandon": { params: unknown; result: unknown };
+  "trigger/chat.ensure": { params: unknown; result: unknown };
+  "trigger/chat.send": { params: unknown; result: unknown };
+  "trigger/chat.status": { params: unknown; result: unknown };
   "_acpmux/sessions": { params: SessionsParams; result: SessionsResult };
   "_acpmux/attach": { params: AttachParams; result: AttachResult };
   "_acpmux/detach": { params: SessionRef; result: Done };
@@ -56,6 +61,7 @@ export interface AcpmuxRequests {
   "_acpmux/workflows": { params: unknown; result: unknown };
   "_acpmux/app_reply": { params: unknown; result: unknown };
   "_acpmux/stats": { params: unknown; result: unknown };
+  "_acpmux/workspace_purge": { params: unknown; result: unknown };
   "_acpmux/github_action": { params: unknown; result: unknown };
   "_acpmux/github_app_lease": { params: unknown; result: unknown };
   "_acpmux/bookmark_get": { params: unknown; result: unknown };
@@ -113,6 +119,8 @@ export interface AcpmuxRequests {
   "_acpmux/start_mode": { params: unknown; result: unknown };
   "_acpmux/queue_remove": { params: unknown; result: unknown };
   "_acpmux/queue_edit": { params: unknown; result: unknown };
+  "_acpmux/queue_approve": { params: unknown; result: unknown };
+  "_acpmux/queue_decline": { params: unknown; result: unknown };
   "_acpmux/queue_text": { params: unknown; result: unknown };
   "_acpmux/draft_get": { params: unknown; result: unknown };
   "_acpmux/draft_set": { params: unknown; result: unknown };
@@ -229,6 +237,7 @@ export interface AcpmuxRequests {
   "_acpmux/peer_status": { params: unknown; result: unknown };
   "_acpmux/host_health": { params: unknown; result: unknown };
   "_acpmux/vm_host": { params: unknown; result: unknown };
+  "_acpmux/host_notice": { params: unknown; result: unknown };
   "_acpmux/place": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
   "_acpmux/peer_lease": { params: unknown; result: unknown };
@@ -317,6 +326,11 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-abandon", kind: "request", acp: false, typed: false },
+  { name: "trigger/chat.ensure", kind: "request", acp: false, typed: false },
+  { name: "trigger/chat.send", kind: "request", acp: false, typed: false },
+  { name: "trigger/chat.status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attach", kind: "request", acp: false, typed: true },
   { name: "_acpmux/detach", kind: "request", acp: false, typed: true },
@@ -346,6 +360,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/workflows", kind: "request", acp: false, typed: false },
   { name: "_acpmux/app_reply", kind: "request", acp: false, typed: false },
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/workspace_purge", kind: "request", acp: false, typed: false },
   { name: "_acpmux/github_action", kind: "request", acp: false, typed: false },
   { name: "_acpmux/github_app_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bookmark_get", kind: "request", acp: false, typed: false },
@@ -404,6 +419,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/start_mode", kind: "request", acp: false, typed: false },
   { name: "_acpmux/queue_remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/queue_edit", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/queue_approve", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/queue_decline", kind: "request", acp: false, typed: false },
   { name: "_acpmux/queue_text", kind: "request", acp: false, typed: false },
   { name: "_acpmux/draft_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/draft_set", kind: "request", acp: false, typed: false },
@@ -523,6 +540,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peer_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/host_health", kind: "request", acp: false, typed: false },
   { name: "_acpmux/vm_host", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/host_notice", kind: "request", acp: false, typed: false },
   { name: "_acpmux/place", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },

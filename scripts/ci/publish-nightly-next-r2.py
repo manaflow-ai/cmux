@@ -54,6 +54,9 @@ UPLOADER = HERE / "upload-r2-object.py"
 GUARD = HERE / "nightly-next-guard.py"
 GITHUB_PREFIX = "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+CMUX_NS = "https://cmux.com/xml-namespaces/cmux"
+FEED_PREFIXES = {b"sparkle": SPARKLE_NS.encode(), b"cmux": CMUX_NS.encode()}
+RSS_OPEN = re.compile(rb"<rss\b[^>]*>")
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 FEED_CACHE = "no-cache, no-store, must-revalidate"
 CONFLICT = 3
@@ -211,7 +214,8 @@ def rewrite(feed: Path, names: set[str], if_public: bool) -> int:
 
 
 def newest_build(xml: bytes) -> int:
-    root = ET.fromstring(xml)
+    # The live feed may predate bind_feed_prefixes (11-01: an unbound cmux: prefix).
+    root = ET.fromstring(bind_feed_prefixes(xml))
     builds = [0]
     for element in root.iter():
         if element.tag == f"{{{SPARKLE_NS}}}version" and (element.text or "").strip().isdigit():
@@ -257,10 +261,26 @@ def add_source(xml: bytes, source_sha: str) -> bytes:
         item = ITEM_SOURCE.sub(source_line.strip(), item, count=1)
     else:
         item = item.replace(b"</item>", source_line + b"        </item>", 1)
-    out = xml[:match.start()] + item + xml[match.end():]
-    if b"xmlns:cmux=" not in out:
-        out = out.replace(b"<rss ", b'<rss xmlns:cmux="https://cmux.com/xml-namespaces/cmux" ', 1)
-    return out
+    return bind_feed_prefixes(xml[:match.start()] + item + xml[match.end():])
+
+
+def bind_feed_prefixes(xml: bytes) -> bytes:
+    """Declare on the <rss> root every feed prefix (sparkle:, cmux:) the feed uses.
+
+    Items are copied between feeds as bytes. An item that relied on its old feed's
+    root declaration (a bare <cmux:sourceCommit>) has an unbound prefix in a feed
+    whose root lacks it, and no XML parser reads that feed. An inline declaration
+    on some other item does not bind it, so the check is on the root tag alone.
+    """
+    root = RSS_OPEN.search(xml)
+    if root is None:
+        return xml
+    opening = root.group(0)
+    for prefix, uri in FEED_PREFIXES.items():
+        used = re.search(rb"[<\s]" + prefix + rb":[A-Za-z_]", xml) is not None
+        if used and re.search(rb"\sxmlns:" + prefix + rb"\s*=", opening) is None:
+            opening = opening[:-1] + b" xmlns:" + prefix + b'="' + uri + b'">'
+    return xml[:root.start()] + opening + xml[root.end():]
 
 
 def source_order(live_source: str, candidate_source: str) -> bool:
@@ -461,7 +481,7 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                source_sha: str | None = None) -> int:
     key = env("NIGHTLY_NEXT_R2_PREFIX") + feed.name
     guard_key(key)
-    original = feed.read_bytes()
+    original = bind_feed_prefixes(feed.read_bytes())
     if source_sha:
         original = add_source(original, source_sha.lower())
     ours = newest_build(original)
@@ -513,6 +533,7 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                 live_source = item_source(live, ours) or item_source(merged, ours)
                 if live_source:
                     merged = add_source(merged, live_source)
+            merged = bind_feed_prefixes(merged)
             if merged != original:
                 kept = sorted({b for _, b in item_builds(merged)} - {b for _, b in item_builds(original)}, reverse=True)
                 print(f"{feed.name}: keeps the live feed's build {', '.join(map(str, kept))} beside {ours}, "
@@ -521,6 +542,10 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
         else:
             feed.write_bytes(original)
             mode = ["--write-once", "--conflict-exit-code", str(CONFLICT)]
+        try:  # never publish a feed an XML reader refuses
+            ET.fromstring(feed.read_bytes())
+        except ET.ParseError as error:
+            raise RuntimeError(f"{feed.name}: refusing to publish a feed that does not parse: {error}") from error
         result = subprocess.run(uploader_args(feed, key, FEED_CACHE, "application/xml") + mode)
         if result.returncode == 0:
             print(f"{feed.name}: build {ours} is live at {public_base()}{feed.name}")

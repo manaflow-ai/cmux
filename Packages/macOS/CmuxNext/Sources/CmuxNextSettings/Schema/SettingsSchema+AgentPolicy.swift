@@ -255,6 +255,8 @@ extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
         .merging(refusedTable) { first, _ in first }
+        // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
+        .merging(ChiefRoutingSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
         .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
 
@@ -271,6 +273,7 @@ extension SettingsSchema {
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
+        "workspaces.hibernation.hiddenSpaceMinutes": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window

@@ -409,7 +409,9 @@
    Subagents' fold rows, a subagent or a started chat) hovers one way: a faint tint of the text over
    whatever the card shows, never a solid fill (--acpmux-menu-hover is opaque, which drew a light
    slab over the card), and inside the card's padding with the card's radius less that padding, so a
-   hover never reaches past the card's edge. */
+   hover never reaches past the card's edge. A Sources row lights only when it takes a click (its
+   file or link, as a pull request's row): an MCP tool's row or a file outside the folder is no
+   target, and the row and its link never both tint (two tints stacked to 14% over the link). */
 .acpmux-session-info {
   --acpmux-session-info-card-radius: 10px;
   --acpmux-session-info-panel-radius: 14px;
@@ -421,8 +423,7 @@
 .acpmux-session-info-section .ui-disclosure-trigger:hover,
 .acpmux-session-info-row--button:hover:not(:disabled),
 .acpmux-session-info-pr:has(> .acpmux-session-info-pr__link:hover),
-.acpmux-session-info-source:hover,
-.acpmux-session-info-source__link:hover,
+.acpmux-session-info-source:has(> .acpmux-session-info-source__link:hover),
 .acpmux-session-info-task__open:hover:not(:disabled),
 .acpmux-session-info-icon-button:hover:not(:disabled),
 button.acpmux-session-info-port:hover,
