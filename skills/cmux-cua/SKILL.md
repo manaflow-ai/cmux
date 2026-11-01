@@ -54,6 +54,15 @@ text; it calls the tool, and cmux shows its own card when one is needed.
    it. When the person sets it up, the same call goes on. When they decline,
    the call fails (`computer_use.denied`): do not retry it, say that computer
    use was not allowed, and go on with the rest of the task.
+   When a call comes back because cmux's card is still asking the person for
+   something (**cmux Computer Use onboarding is still in progress**: the
+   **Allow computer use?** card, a permission step, the Tahoe capture alert
+   below), stop computer use and tell the person in one line what the card
+   asks them to do. Do not retry, poll, call a setup or status tool, or try
+   another way of driving the app; wait for their reply, then retry the call
+   once. (Leo, 2026-11-01: "Respect the
+   app's computer-use consent card. If it asks Leo for something, stop and
+   tell him.")
 2. After setup, no other cmux prompt. cmux does not ask again per chat or per
    app: calls run at once. Do not tell the person that cmux will ask before
    you use an app. The person's request is the only scope you have.
