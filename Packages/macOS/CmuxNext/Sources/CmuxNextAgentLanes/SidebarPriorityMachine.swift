@@ -47,6 +47,18 @@ public struct SidebarPriorityMachine {
         return order.compactMap { lanes[$0] }
     }
 
+    /// ``lanes()``'s waiting ones (a tab with an unread question or permission prompt), built
+    /// from those tabs alone: the first such tab of each session, as ``lanes()`` keeps it.
+    func waitingLanes() -> [AgentActivityLane] {
+        var ledger: [NotificationID: UInt64]?
+        var seen = Set<String>()
+        return tabs().compactMap { tab in
+            guard tab.hasUnread, tab.notification?.level == .warning, let ref = tab.agentSession,
+                  let session = ref.session, !session.isEmpty, seen.insert(session).inserted else { return nil }
+            return lane(tab, ref: ref, session: session, ledger: &ledger)
+        }
+    }
+
     /// The id of the tree's tab that shows acpmux session `session` (the one its row is made from).
     func tab(showing session: String) -> String? {
         tabs().first { $0.agentSession?.session == session }?.id

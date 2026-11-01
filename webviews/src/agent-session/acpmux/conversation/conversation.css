@@ -79,6 +79,11 @@
   --cv-glyph-slot: var(--acpmux-glyph-slot, 16px);
   --cv-glyph-line: var(--acpmux-glyph-line, 20px);
   --cv-disclosure-slot: var(--acpmux-disclosure-slot, 16px);
+  /* Content below a transcript row starts after its glyph slot and the shared inline gap.
+     Keep this in the transcript grid so a message card follows the row when the glyph slot
+     changes, instead of carrying a second local pixel indent. */
+  --cv-message-inline-gap: 8px;
+  --cv-message-indent: calc(var(--cv-glyph-slot) - 1.5px + var(--cv-message-inline-gap));
   --cv-footer-control-slot: var(--cv-meta-row, 24px);
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
@@ -3664,13 +3669,25 @@ a.cv-sha:focus-visible {
   margin-top: 2px;
   color: var(--agent-status-failure);
 }
+/* On the card grid (grid.md 5.6, card arm only; the rail keeps its 14 icon): a 16 icon box on the card's lead, the cause on its text column
+   (lead + 16 + 8), the icon centred on the cause's first line, which is 18 tall. */
+.cv-turn-error--card .cv-turn-error__cause {
+  gap: var(--grid-gap);
+}
+.cv-turn-error--card .cv-turn-error__icon {
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  margin-top: calc((18px - var(--grid-icon-box)) / 2);
+}
 .cv-turn-error__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
-.cv-turn-error--card .cv-turn-error__actions,
+.cv-turn-error--card .cv-turn-error__actions {
+  padding-inline-start: calc(var(--grid-icon-box) + var(--grid-gap));
+}
 .cv-turn-error--rail .cv-turn-error__actions {
   padding-inline-start: 21px;
 }
@@ -3713,8 +3730,8 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--card {
   margin-block: 2px 6px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: var(--grid-cards-padding);
+  border-radius: var(--grid-cards-radius);
 }
 .cv-turn-error--rail {
   padding-inline-start: 10px;

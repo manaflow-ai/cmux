@@ -672,6 +672,9 @@ jobs:
       - name: Every check path a merger reads matches a tracked file
         run: python3 tests/test_check_paths.py
 
+      - name: A toast's button never opens Settings as a stand-in
+        run: python3 tests/test_check_toast_targets.py
+
       - name: The crash-class rules fast gate fails only on findings the pull request adds
         run: python3 tests/test_crash_class_fast_gate.py
 

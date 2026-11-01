@@ -746,10 +746,11 @@ impl Worker {
                 continue;
             }
             let now = self.now();
-            if serde_json::from_str::<Value>(&line)
-                .is_ok_and(|v| v["op"] == super::receiver::POLICY_OP)
-            {
-                if !self.clients[i].output.is_empty() {
+            if serde_json::from_str::<Value>(&line).is_ok_and(|v| {
+                v.get("op").and_then(Value::as_str) == Some(super::receiver::POLICY_OP)
+            }) {
+                let Some(client) = self.clients.get(i) else { continue };
+                if !client.output.is_empty() {
                     closed.push(i);
                     continue;
                 }
@@ -784,7 +785,7 @@ impl Worker {
                 let value = value.unwrap_or_else(
                     || json!({ "ok": false, "error": "cloud.vm.network_policy.unavailable" }),
                 );
-                let client = &mut self.clients[i];
+                let Some(client) = self.clients.get_mut(i) else { continue };
                 client.output = serde_json::to_vec(&value).unwrap_or_default();
                 if client.output.len() > 1024 * 1024 {
                     closed.push(i);
@@ -806,13 +807,17 @@ impl Worker {
             if asks.iter().any(|(asker, _)| *asker == i) {
                 continue;
             }
-            let client = &mut self.clients[i];
+            let Some(client) = self.clients.get_mut(i) else { continue };
             if client.write_deadline.is_some_and(|deadline| deadline <= now) {
                 closed.push(i);
                 continue;
             }
             while client.sent < client.output.len() {
-                match client.stream.write(&client.output[client.sent..]) {
+                let Some(pending) = client.output.get(client.sent..) else {
+                    closed.push(i);
+                    break;
+                };
+                match client.stream.write(pending) {
                     Ok(0) => {
                         closed.push(i);
                         break;
