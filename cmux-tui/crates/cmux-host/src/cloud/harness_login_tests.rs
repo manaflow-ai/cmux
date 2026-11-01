@@ -639,6 +639,26 @@ fn a_linked_folder_is_never_followed() {
     assert!(fs::read_dir(&team).unwrap().next().is_none());
 }
 
+/// A saved login the platform answers is held to the local checks: a
+/// CodeRouter or API-key-only file is never written to the machine.
+#[test]
+fn a_saved_login_that_fails_the_checks_is_never_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let setup = setup_in(dir.path());
+    fs::create_dir_all(&setup.home).unwrap();
+    fs::create_dir_all(setup.state_file.parent().unwrap()).unwrap();
+    let mut server = FakePlatform::default();
+    server.saved.insert("claude".to_owned(), (1, Some(claude(CODEROUTER_PLACEHOLDER))));
+    server.saved.insert(
+        "codex".to_owned(),
+        (1, Some(json!({ "OPENAI_API_KEY": "sk-x" }).to_string().into_bytes())),
+    );
+    let mut sync = Syncer::new(setup.clone(), no_log);
+    assert_eq!(sync.pull(&mut server), Pass::Done);
+    assert!(!setup.home.join(".claude/.credentials.json").exists());
+    assert!(!setup.home.join(".codex/auth.json").exists());
+}
+
 /// A sign-in or token refresh between the pull's read and its write wins:
 /// the saved login is not written over it.
 #[test]
