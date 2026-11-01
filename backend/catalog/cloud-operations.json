@@ -5718,6 +5718,13 @@
             "kind": "primitive",
             "name": "int64"
           }
+        },
+        "install_grant": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GrantId"
+          }
         }
       }
     },
@@ -44457,6 +44464,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -44479,6 +44491,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -44791,6 +44806,11 @@
             "type": "string",
             "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -44813,6 +44833,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -56990,6 +57013,11 @@
             "type": "string",
             "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -57012,6 +57040,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -64192,6 +64223,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -64214,6 +64250,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -65228,6 +65267,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -65250,6 +65294,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [

@@ -981,6 +981,7 @@ export type ServerNetworkBinding = {
   readonly mesh: NativeMeshId
   readonly device: NativeDeviceId
   readonly confirmed_at: number
+  readonly install_grant?: GrantId
 }
 
 export type ServerNetworkProof = {

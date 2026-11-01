@@ -2,7 +2,8 @@
 //!
 //! The agent and the web UI use the same daemon actions.  This stdio server
 //! forwards the chat ID supplied by acpmux; it never trusts a session id
-//! supplied by tool arguments.
+//! supplied by tool arguments. The acpmux connection must also prove the
+//! same session with its caller token before any CLI operation runs.
 
 use crate::client::Client;
 use crate::secret_mcp::error_result;
@@ -115,7 +116,7 @@ fn result_text(result: &Value) -> String {
 /// it without a shell keeps the chat ID in an argv value only
 /// (never interpolated into a command string), and makes this bridge work with
 /// the same socket as `cmux cloud repo`.
-async fn run_cli(action: &str, request: Value) -> Result<Value, String> {
+async fn run_cli(action: &'static str, request: Value) -> Result<Value, String> {
     let binary = std::env::var_os("CMUX_BIN").unwrap_or_else(|| "cmux".into());
     run_cli_with(&binary, std::env::var_os("CMUX_SOCKET_PATH").as_deref(), action, request).await
 }
@@ -197,7 +198,25 @@ fn args_object(params: &Value) -> Result<Value, Value> {
     }
 }
 
-pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value {
+pub async fn call(daemon: &Arc<Client>, session: &str, params: &Value) -> Value {
+    call_for_caller(daemon.proven_caller_session(), session, params, run_cli).await
+}
+
+async fn call_for_caller<F, Fut>(
+    caller: Option<&str>,
+    session: &str,
+    params: &Value,
+    run: F,
+) -> Value
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
+    if caller != Some(session) {
+        return error_result(
+            "Repository tools could not verify this chat. Restart the chat session, then retry Add repository.".to_owned(),
+        );
+    }
     let args = match args_object(params) {
         Ok(v) => v,
         Err(v) => return v,
@@ -211,7 +230,7 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
             {
                 req.set("query", json!(query));
             }
-            match run_cli(REPO_LIST_ACTION, req).await {
+            match run(REPO_LIST_ACTION, req).await {
                 Ok(result) => ok(result),
                 Err(e) => error_result(e),
             }
@@ -228,7 +247,7 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
             {
                 req.set("ref", json!(reference));
             }
-            match run_cli(REPO_ADD_ACTION, req).await {
+            match run(REPO_ADD_ACTION, req).await {
                 Ok(mut result) => {
                     enrich_retry(&mut result, session, repo, args.get("ref"));
                     ok(result)
@@ -268,6 +287,44 @@ fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn cloud_repo_missing_or_foreign_caller_never_invokes_cli() {
+        for caller in [None, Some("other-chat")] {
+            for tool in ["list_repos", "add_repo"] {
+                let result = call_for_caller(
+                    caller,
+                    "own-chat",
+                    &json!({"name":tool,"arguments":{"repo":"org/repo"}}),
+                    |_, _| async { panic!("unauthenticated caller reached the CLI") },
+                )
+                .await;
+                assert_eq!(result["isError"], true);
+                assert!(
+                    result["content"][0]["text"]
+                        .as_str()
+                        .unwrap()
+                        .contains("Restart the chat session")
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cloud_repo_proven_caller_uses_protected_session() {
+        let result = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name":"add_repo","arguments":{"repo":"org/repo","session":"other-chat"}}),
+            |action, request| async move {
+                assert_eq!(action, REPO_ADD_ACTION);
+                assert_eq!(request["session"], "own-chat");
+                Ok(json!({"state":"done","repo":"org/repo","folder":"/home/chats/own-chat/repo"}))
+            },
+        )
+        .await;
+        assert_eq!(result["isError"], false);
+    }
+
     #[test]
     fn retry_shape_is_stable() {
         let mut result = json!({"code":"repo.needs_github","message":"Connect GitHub."});

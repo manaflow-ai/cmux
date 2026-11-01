@@ -67,14 +67,6 @@ extension AgentPaneRequest {
             return
         }
         let params = object["params"] as? [String: Any]
-        if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
-            self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
-            return
-        }
-        if AgentPaneCloudRepositoryRequest.methods.contains(method) {
-            self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
-            return
-        }
         switch method {
         case "uiPointer.report":
             guard let params, JSONSerialization.isValidJSONObject(params),
