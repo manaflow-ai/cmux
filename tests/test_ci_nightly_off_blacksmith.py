@@ -47,7 +47,7 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "signer-dmg", "publish-nightly", "publish-nightly-next-github",
     "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
-    "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
+    "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
 })
 
 # Secret-free publication bookkeeping and the advisory visual verdicts use the
