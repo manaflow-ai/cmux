@@ -55,6 +55,7 @@ import {
   LANE_NOTICE_BATCH,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
+import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import { pendingMessagesRow, searchablePendingRows } from "./conversation/pendingMessages";
 import { LaneNoticeBatch } from "./conversation/LaneNoticeBatch";
 import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
@@ -1161,6 +1162,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 const MessageRow = memo(
   function MessageRow({ row, replyActions, githubRepository }: RowProps) {
     const t = useT();
+    if (isVisiblyEmptyMessage(row)) return null;
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     // Another agent's message as one line at the left (its sender's chip), its text as a card under
