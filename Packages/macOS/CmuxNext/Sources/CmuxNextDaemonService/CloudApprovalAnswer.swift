@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import os
 
 /// Answers one G8 approval request (`apr_…`, cx-wb5.65) as the signed-in
@@ -14,12 +14,12 @@ import os
 /// integration approval only from a session (domains/feed.ts), so an
 /// install, an app or an agent can never answer one. Called only by
 /// ``CloudMachineCreateFlow`` after the person's native confirmation.
-nonisolated struct CloudApprovalAnswer: Sendable {
+public nonisolated struct CloudApprovalAnswer: Sendable {
     /// One POST of a JSON body to the API Worker as the signed-in person
     /// (`v1/read`, `v1/ops`); returns the reply body.
-    typealias Call = @Sendable (_ path: String, _ body: Data) async throws -> Data
+    public typealias Call = @Sendable (_ path: String, _ body: Data) async throws -> Data
 
-    enum Failure: Error, Equatable {
+    public enum Failure: Error, Equatable {
         /// No open approval item in the feed carries the request.
         case notInFeed(request: String)
         /// The request is not the create the person confirmed.
@@ -28,14 +28,16 @@ nonisolated struct CloudApprovalAnswer: Sendable {
     }
 
     let call: Call
+
+    public init(call: @escaping Call) { self.call = call }
     /// The mismatch reason when no open feed item carries the request (closed, or another team's).
-    static let closedItem = "feed item or team"
+    public static let closedItem = "feed item or team"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.approval")
 
     /// Approves `request` when it holds `op` with exactly `params` (a JSON
     /// object) in `team`, the backend team the create was sent for (the
     /// install token's team, captured when the person confirmed).
-    func approve(request: String, op: String, params: Data, team: String) async throws {
+    public func approve(request: String, op: String, params: Data, team: String) async throws {
         do {
             try await checkedApprove(request: request, op: op, params: params, team: team)
         } catch let failure as Failure {
@@ -96,7 +98,7 @@ nonisolated struct CloudApprovalAnswer: Sendable {
 }
 
 extension CloudApprovalAnswer.Failure: CustomStringConvertible {
-    var description: String {
+    public var description: String {
         switch self {
         case .notInFeed: CloudStrings.createApproveInFeed
         case .mismatch: CloudStrings.createApprovalMismatch

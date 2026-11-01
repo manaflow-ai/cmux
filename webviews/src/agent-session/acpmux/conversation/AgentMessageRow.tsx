@@ -9,6 +9,7 @@
 import { useId, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 import { clipMessagePreview } from "./clipMessagePreview";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import "./AgentMessageRow.css";
 
 /// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
@@ -85,12 +86,18 @@ export function AgentMessageRow({
       data-open={open || undefined}
       {...attributes}
     >
-      <div className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}>
+      {/* The whole line toggles, for the pointer: its icon, words, gaps and meta too, all but the
+          chip and the actions' own buttons (headerToggle.ts). The toggle button is the control, and
+          its label reads the line. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div
+        className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}
+        {...{ [HEADER_TOGGLE_ATTRIBUTE]: "" }}
+        onClick={headerToggleClick(onToggle)}
+      >
         <span className="cv-tool__icon cv-agentmsg__icon">{icon}</span>
-        {/* The words toggle too, for the pointer; the toggle button is the control, and its label
-            reads the line. */}
         {before.trim() && (
-          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__words" aria-hidden>
             {before.trim()}
           </span>
         )}
@@ -105,18 +112,12 @@ export function AgentMessageRow({
             {name}
           </button>
         ) : (
-          <span
-            className="cv-agentmsg__name is-plain"
-            data-interactive=""
-            aria-hidden
-            title={nameTitle}
-            onClick={onToggle}
-          >
+          <span className="cv-agentmsg__name is-plain" aria-hidden title={nameTitle}>
             {name}
           </span>
         )}
         {after.trim() && (
-          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__words" aria-hidden>
             {after.trim()}
           </span>
         )}
