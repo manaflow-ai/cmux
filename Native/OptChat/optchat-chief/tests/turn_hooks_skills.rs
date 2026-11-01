@@ -21,7 +21,10 @@ use serde_json::{Value, json};
 fn a_chief_turn_keeps_the_named_hooks_skills_and_agent_memory() {
     // The tool list: Skill on, skills and slash commands no longer disabled.
     assert!(TURN_TOOLS.contains(&"Skill"), "{TURN_TOOLS:?}");
-    assert!(!TURN_DENIED_TOOLS.contains(&"Skill"), "{TURN_DENIED_TOOLS:?}");
+    assert!(
+        !TURN_DENIED_TOOLS.contains(&"Skill"),
+        "{TURN_DENIED_TOOLS:?}"
+    );
     let args = turn_isolation_args();
     assert!(
         !args.iter().any(|a| a == "--disable-slash-commands"),
