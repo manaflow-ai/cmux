@@ -18,13 +18,6 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
     public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath]
 
-    /// The Chat Font Size setting read by both the page and the app's Cmd +/− actions.
-    public static let fontSizePath = ["agentPane", "display", "font", "size"]
-    public static var fontSizeRange: ClosedRange<Double> {
-        Double(AgentPaneDisplaySettingsSchema.fontSizeRange.lowerBound)...Double(AgentPaneDisplaySettingsSchema.fontSizeRange.upperBound)
-    }
-    public static var fontSizeFallback: Double { AgentPaneDisplaySettingsSchema.fontSizeFallback }
-
     /// The accepted values by dotted key.
     public var values: [String: JSONValue]
 
