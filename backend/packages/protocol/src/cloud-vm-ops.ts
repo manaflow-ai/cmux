@@ -92,7 +92,6 @@ export const CloudVmAttentionEmit = def({
   name: "cloud.vm.attention.emit",
   owner: "cloud:CloudDO",
   class: "mutation",
-  idempotency: "none",
   risk: "execute",
   target: "team",
   principals: ["install"],
@@ -111,7 +110,7 @@ export const CloudVmAttentionEmit = def({
     correlation_id: Schema.optionalKey(Short(128))
   }),
   errors: [...VM_ERRORS, "idempotency.conflict"],
-  docs: "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. Duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).",
+  docs: "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).",
   cli: { path: "", visible: false },
   mcp: { expose: "never", group: "cloud" }
 })

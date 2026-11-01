@@ -133,7 +133,7 @@ public actor MobileCompatSession {
 
     private static func uint(_ value: JSONValue) -> UInt64? {
         guard case .number(let number) = value, number.isFinite, number >= 0, number.rounded() == number else { return nil }
-        return UInt64(number)
+        return UInt64(exactly: number)
     }
 
     // MARK: Events

@@ -16,6 +16,7 @@ use super::*;
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_LIMIT: u64 = 200;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
+const MAX_HISTORY_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
 /// Handles the three commands used by `mobile.chat.*`.  `None` means this is
 /// another protocol line and lets the normal command parser handle it.
@@ -89,6 +90,7 @@ fn dispatch(
         }
         "mobile-chat-history" => {
             let session = required_text(&params, "session_id")?;
+            bounded_limit(&params, "limit")?;
             let mut request = Map::new();
             request.insert("sessionId".into(), Value::String(session));
             for (mobile, wire) in [
@@ -101,15 +103,10 @@ fn dispatch(
                     request.insert(wire.into(), value.clone());
                 }
             }
-            if let Some(limit) = request.get("limit").and_then(Value::as_u64) {
-                if limit == 0 || limit > MAX_LIMIT {
-                    return Err(("bad_request", "limit must be between 1 and 200".into()));
-                }
-            }
             let raw = link
                 .call("_acpmux/attach", Value::Object(request), CALL_TIMEOUT)
                 .map_err(link_error)?;
-            Ok(normalize_history(raw, &session))
+            normalize_history(raw, &session)
         }
         "mobile-chat-send" => {
             let session = required_text(&params, "session_id")?;
@@ -126,16 +123,20 @@ fn dispatch(
                     "prompt_id must contain only letters, numbers, '-' or '_'".into(),
                 ));
             }
-            link.send_ignoring_reply(
-                "session/prompt",
-                json!({
-                    "sessionId": session,
-                    "prompt": [{"type": "text", "text": text}],
-                    "_meta": {"acpmux": {"promptId": prompt_id}},
-                }),
-            )
-            .map_err(link_error)?;
+            let accepted = link
+                .call(
+                    "session/prompt",
+                    json!({
+                        "sessionId": session,
+                        "prompt": [{"type": "text", "text": text}],
+                        "_meta": {"acpmux": {"promptId": prompt_id}},
+                    }),
+                    CALL_TIMEOUT,
+                )
+                .map_err(link_error)?;
             Ok(json!({"accepted": true, "prompt_id": prompt_id,
+                "turn_id": accepted.get("turnId").cloned().unwrap_or(Value::Null),
+                "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
                 "message": {"id": prompt_id, "role": "user", "text": text, "created_at": Value::Null}}))
         }
         _ => Err(("method_not_found", "unknown mobile chat command".into())),
@@ -149,12 +150,19 @@ fn bounded_page_params(params: &Value) -> Result<Value, (&'static str, String)> 
             result.insert(key.into(), value.clone());
         }
     }
-    if let Some(limit) = result.get("limit").and_then(Value::as_u64) {
-        if limit == 0 || limit > MAX_LIMIT {
-            return Err(("bad_request", "limit must be between 1 and 200".into()));
-        }
-    }
+    bounded_limit(&result, "limit")?;
     Ok(Value::Object(result))
+}
+
+fn bounded_limit(params: &Value, key: &str) -> Result<Option<u64>, (&'static str, String)> {
+    let Some(value) = params.get(key) else { return Ok(None) };
+    let Some(limit) = value.as_u64() else {
+        return Err(("bad_request", format!("{key} must be an integer")));
+    };
+    if limit == 0 || limit > MAX_LIMIT {
+        return Err(("bad_request", format!("{key} must be between 1 and {MAX_LIMIT}")));
+    }
+    Ok(Some(limit))
 }
 
 fn normalize_sessions(raw: Value, machine_id: Option<&str>) -> Value {
@@ -177,7 +185,7 @@ fn normalize_sessions(raw: Value, machine_id: Option<&str>) -> Value {
     json!({"sessions": sessions, "next_cursor": raw.get("nextCursor").cloned().unwrap_or(Value::Null)})
 }
 
-fn normalize_history(raw: Value, session_id: &str) -> Value {
+fn normalize_history(raw: Value, session_id: &str) -> Result<Value, (&'static str, String)> {
     let events = raw.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
     let messages = events
         .into_iter()
@@ -194,9 +202,15 @@ fn normalize_history(raw: Value, session_id: &str) -> Value {
                 .to_ascii_lowercase();
             let role = match kind.as_str() {
                 "user" | "user_message" | "prompt" | "human" => "user",
-                "assistant" | "assistant_message" | "agent" | "agent_message" | "response" => {
-                    "assistant"
-                }
+                "assistant"
+                | "assistant_message"
+                | "assistant_message_chunk"
+                | "assistant_chunk"
+                | "agent"
+                | "agent_message"
+                | "agent_message_chunk"
+                | "agent_message_delta"
+                | "response" => "assistant",
                 "system" | "system_message" => "system",
                 "tool" | "tool_message" | "tool_result" => "tool",
                 _ => return None,
@@ -224,7 +238,14 @@ fn normalize_history(raw: Value, session_id: &str) -> Value {
         .or_else(|| raw.get("next_seq"))
         .cloned()
         .unwrap_or(Value::Null);
-    json!({"session_id": session_id, "messages": messages, "next_cursor": next_cursor})
+    let result =
+        json!({"session_id": session_id, "messages": messages, "next_cursor": next_cursor});
+    let bytes = serde_json::to_vec(&result)
+        .map_err(|_| ("acpmux_invalid", "history could not be encoded".into()))?;
+    if bytes.len() > MAX_HISTORY_RESPONSE_BYTES {
+        return Err(("response_too_large", "history exceeds the mobile response limit".into()));
+    }
+    Ok(result)
 }
 
 fn value_as_string(value: &Value) -> Option<String> {
@@ -270,8 +291,7 @@ fn required_text(params: &Value, key: &str) -> Result<String, (&'static str, Str
     params
         .get(key)
         .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
+        .filter(|v| !v.trim().is_empty())
         .map(str::to_owned)
         .ok_or(("bad_request", format!("{key} is required")))
 }

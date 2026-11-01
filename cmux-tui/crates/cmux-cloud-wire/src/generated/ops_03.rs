@@ -27,7 +27,7 @@ wire_op! {
     CloudVmAttentionEmitOp {
         name: "cloud.vm.attention.emit",
         class: Mutation,
-        idempotency: None,
+        idempotency: Required,
         owner: "cloud:CloudDO",
         risk: "execute",
         principals: [Install],
