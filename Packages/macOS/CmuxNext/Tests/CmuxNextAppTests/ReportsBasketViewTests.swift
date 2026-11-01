@@ -4,7 +4,7 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The Labs reports basket is AppKit (plans/cmux-next/no-swiftui-DESIGN.md rule 4): it builds no
+/// The reports basket is AppKit (plans/cmux-next/no-swiftui-DESIGN.md rule 4): it builds no
 /// hosting view, its rows follow clicks and the model, and a reply is sent once while in flight
 /// and keeps its draft (and its id) when it was not sent.
 @MainActor @Suite(.closesItsWindows) struct ReportsBasketViewTests {

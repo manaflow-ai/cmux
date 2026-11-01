@@ -46,6 +46,10 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         (self.guestKind, self.machineLogin, self.cached) = (guestKind, machineLogin, cached)
     }
 
+    /// The start passed no personal login because the machine is a team machine (guest kind `team`):
+    /// the chat's sign-in card says so and offers no login transfer (handshake `cloudTeamMachine`).
+    public var skippedTeamMachine: Bool { reason == .guestNotOwner && guestKind == "team" }
+
     /// Whether the start reads the guest and its login: only once the earlier checks let it go on.
     public var readsMachine: Bool { gate && provider == .claude && signedIn && callerOwns == true }
 

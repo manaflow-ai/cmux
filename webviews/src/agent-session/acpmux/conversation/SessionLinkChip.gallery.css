@@ -1,0 +1,40 @@
+.session-link-chip-gallery {
+  min-height: 100%;
+  padding: 16px;
+  color: var(--cv-text);
+  background: var(--cv-page);
+}
+.session-link-chip-gallery__row {
+  position: relative !important;
+  left: auto;
+  right: auto;
+  margin: 0 0 6px;
+  contain: layout paint;
+}
+.session-link-chip-gallery__row .cv-tools {
+  margin: 0;
+}
+/* Compared looks (gallery only); the shipped one is AgentTag.css and startedSessions.css. */
+:root[data-session-chip-look="accent"] .session-link-chip-gallery {
+  --chip-look: var(--agent-accent);
+}
+:root[data-session-chip-look="link-blue"] .session-link-chip-gallery {
+  --chip-look: var(--agent-link);
+}
+:root:is([data-session-chip-look="accent"], [data-session-chip-look="link-blue"]) .session-link-chip-gallery :is(button.cv-agent-tag.is-open, .acpmux-started-chip) {
+  color: var(--chip-look);
+  background: color-mix(in srgb, var(--chip-look) 13%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--chip-look) 28%, transparent);
+}
+:root:is([data-session-chip-look="accent"], [data-session-chip-look="link-blue"]) .session-link-chip-gallery :is(button.cv-agent-tag.is-open, .acpmux-started-chip):hover {
+  background: color-mix(in srgb, var(--chip-look) 22%, transparent);
+}
+:root[data-session-chip-look="quiet"] .session-link-chip-gallery :is(button.cv-agent-tag.is-open, .acpmux-started-chip) {
+  color: var(--cv-text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+:root[data-session-chip-look="quiet"] .session-link-chip-gallery :is(button.cv-agent-tag.is-open, .acpmux-started-chip):hover {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-text) 12%, transparent);
+}

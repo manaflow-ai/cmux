@@ -24,6 +24,9 @@ import mascotMachineBlue from "../../../agent-session/acpmux/mascots/ChiefMascot
 import mascotMoon from "../../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
 import mascotMoonBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMoonBlue.png";
 import mascotMochi from "../../../agent-session/acpmux/mascots/ChiefMascotMochi.png";
+import mascotCaptain from "../../../agent-session/acpmux/mascots/ChiefMascotCaptain.png";
+import mascotSprout from "../../../agent-session/acpmux/mascots/ChiefMascotSprout.png";
+import mascotBolt from "../../../agent-session/acpmux/mascots/ChiefMascotBolt.png";
 import mascotFoxArctic from "../../../agent-session/acpmux/mascots/ChiefMascotFoxArctic.png";
 import mascotMachineViolet from "../../../agent-session/acpmux/mascots/ChiefMascotMachineViolet.png";
 import mascotMachineGold from "../../../agent-session/acpmux/mascots/ChiefMascotMachineGold.png";
@@ -51,7 +54,7 @@ export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([
 ]);
 
 /** The characters in the setting's order (`HomeChiefPetSetting.mascots`: Series 1 without the orbs,
- * Mochi, Series 2, then the orbs), with their art. Imported,
+ * the animated sets, Series 2, then the orbs), with their art. Imported,
  * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP
  * allows `img-src data:` only, so its bundler (bundle.mjs) inlines each PNG as a data URL. */
 export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string; art: string }> = [
@@ -62,6 +65,9 @@ export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string; art: string }> = [
   { id: "moon", art: mascotMoon },
   { id: "moon-blue", art: mascotMoonBlue },
   { id: "mochi", art: mascotMochi },
+  { id: "captain", art: mascotCaptain },
+  { id: "sprout", art: mascotSprout },
+  { id: "bolt", art: mascotBolt },
   { id: "fox-arctic", art: mascotFoxArctic },
   { id: "machine-violet", art: mascotMachineViolet },
   { id: "machine-gold", art: mascotMachineGold },
