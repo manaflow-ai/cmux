@@ -4,12 +4,7 @@
 // are never folded into one.
 import { expect, test } from "bun:test";
 import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
-import {
-  dedupeMessages,
-  PENDING_MESSAGES_ROW_ID,
-  pendingMessagesRow,
-  searchablePendingRows,
-} from "./pendingMessages";
+import { dedupeMessages, PENDING_MESSAGES_ROW_ID, pendingMessagesRow, searchablePendingRows } from "./pendingMessages";
 
 let at = 0;
 const queued = (promptId: string, name: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

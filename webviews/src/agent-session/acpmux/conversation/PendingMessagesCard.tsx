@@ -52,9 +52,7 @@ export function PendingMessagesCard({
   const n = counts.messages;
   const names = counts.senders;
   const count =
-    names.length <= 1
-      ? t("message.waitingFromOne", { n })
-      : t("message.waitingFrom", { n, sessions: names.length });
+    names.length <= 1 ? t("message.waitingFromOne", { n }) : t("message.waitingFrom", { n, sessions: names.length });
   return (
     <div className="cv-pending" data-open={open || undefined}>
       {/* Find counts the messages' words, not the head's names. */}

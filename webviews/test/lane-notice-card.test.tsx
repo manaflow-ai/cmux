@@ -112,12 +112,7 @@ async function mount(
           >
             {grouped.map((row) =>
               row.pendingMessages ? (
-                <PendingMessagesCard
-                  key={row.id}
-                  row={row}
-                  onOpen={(id) => void opened.push(id)}
-                  renderMessage={renderNotice}
-                />
+                <PendingMessagesCard key={row.id} row={row} renderMessage={renderNotice} />
               ) : (
                 renderNotice(row)
               ),

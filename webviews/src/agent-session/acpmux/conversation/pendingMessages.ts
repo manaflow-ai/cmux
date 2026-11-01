@@ -28,7 +28,9 @@ export const PENDING_MESSAGES_ROW_ID = "pending-messages";
 
 /// Whether `row` is another session's message the agent has not read yet in the running turn.
 export const isWaitingMessage = (row: AcpmuxRow) =>
-  row.kind === "user" && row.steer === "waiting" && (row.incoming?.kind === "message" || row.incoming?.kind === "inbox");
+  row.kind === "user" &&
+  row.steer === "waiting" &&
+  (row.incoming?.kind === "message" || row.incoming?.kind === "inbox");
 
 /// A waiting message's prompt id: the queue entry's, or the steer's.
 const promptIdOf = (row: AcpmuxRow) => row.queuedMessage?.promptId ?? row.steerPromptId;
