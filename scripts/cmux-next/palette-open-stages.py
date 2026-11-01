@@ -189,7 +189,7 @@ def search_typing(word):
         keys.append(round((time.monotonic() - started) * 1000, 3))
         time.sleep(0.12)  # test harness: a typing pace; the key's rank and answers land between keys
         # The chat rows on screen for this key (Search's Agent Chats section; at the base, ranked chat rows).
-        shown = (rpc("debug.palette.capture", {"rows": True}) or {}).get("rows") or []
+        shown = (rpc("debug.palette.capture", {"path": os.path.join(SCRATCH, "key.png")}) or {}).get("rows") or []
         CHAT_ROWS.append(sum(1 for row in shown if str(row).startswith("chat:")))
     time.sleep(0.4)  # test harness: the last key's answer lands
     hangs = rpc("debug.hangs") or {}
