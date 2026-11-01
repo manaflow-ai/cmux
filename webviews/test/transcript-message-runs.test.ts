@@ -159,7 +159,11 @@ test("Find and a link open a closed Worked for and the message run inside it at 
   const codex = { liveRuns: true, agentFamily: "codex" } as const;
   const closed = turnView(rows, new Set(), codex);
   expect(ids(closed)).not.toContain("report");
-  const folds = hiddenRowFolds(rows, closed, rows.findIndex((row) => row.id === "report"));
+  const folds = hiddenRowFolds(
+    rows,
+    closed,
+    rows.findIndex((row) => row.id === "report"),
+  );
   expect(folds[0]).toBe("worked-prompt");
   const opened = turnView(rows, new Set(folds), codex);
   expect(ids(opened)).toContain("report");
@@ -174,7 +178,13 @@ test("a run whose edit waits for its permission stays in sight, not under the li
   rows.splice(
     3,
     0,
-    activity([tool("Edit notes.md", "edit", { status: "pending", locations: [{ path: "/tmp/notes.md" }] }), send("lane-9", "hold on")], "asks"),
+    activity(
+      [
+        tool("Edit notes.md", "edit", { status: "pending", locations: [{ path: "/tmp/notes.md" }] }),
+        send("lane-9", "hold on"),
+      ],
+      "asks",
+    ),
   );
   const view = turnView(rows, new Set(), claude);
   expect(ids(view)).toContain("asks");

@@ -162,7 +162,9 @@ export function openMessageRuns(rows: readonly AcpmuxRow[], start: number, end: 
 export function messageRunRevealKey(drawn: readonly AcpmuxRow[], row: AcpmuxRow): string | undefined {
   const line = messageRunFoldFor(drawn, row.id);
   if (line) return line;
-  return row.kind === "activity" || row.kind === "compaction" || isReceivedLine(row) ? messageRunRowId(row.id) : undefined;
+  return row.kind === "activity" || row.kind === "compaction" || isReceivedLine(row)
+    ? messageRunRowId(row.id)
+    : undefined;
 }
 
 export function messageRunFoldFor(drawn: readonly AcpmuxRow[], rowId: string): string | undefined {
