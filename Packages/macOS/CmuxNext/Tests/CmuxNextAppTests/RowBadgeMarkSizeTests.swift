@@ -9,6 +9,9 @@ import Testing
 /// mark reads at one size on one column whatever its state; the blue unread dot keeps its token.
 @MainActor @Suite struct RowBadgeMarkSizeTests {
     private static func glyph(_ state: StatusIndicatorState) throws -> (frame: CGRect, cell: CGPoint) {
+        // Pinned: under the system's Reduce Motion (some CI Macs) done draws a check disc, not the dot.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let view = RowBadgeView(frame: NSRect(x: 0, y: 0, width: 60, height: 18))
         view.configure([state], look: .corner)
         view.layoutSubtreeIfNeeded()
