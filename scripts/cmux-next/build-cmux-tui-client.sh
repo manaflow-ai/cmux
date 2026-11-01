@@ -65,7 +65,8 @@ ghostty_commit="$(git -C "$repo_root/$vt_source" rev-parse HEAD 2>/dev/null || t
 default_target="$repo_root/cmux-tui/target/client-app"
 [[ -z "${CI_SHARED_CACHE_DIR:-}" ]] || default_target="$CI_SHARED_CACHE_DIR/cmux-tui-client-target"
 target_dir="${CMUX_TUI_CLIENT_TARGET_DIR:-$default_target}"
-mkdir -p "$target_dir"
+# A fresh checkout (a fleet step) has no cmux-tui/target yet when Cargo builds elsewhere.
+mkdir -p "$target_dir" "$repo_root/cmux-tui/target"
 stage="$(mktemp -d "$repo_root/cmux-tui/target/.client-local.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 
