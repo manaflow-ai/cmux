@@ -3,11 +3,14 @@
 import json
 import os
 from pathlib import Path
+import sys
 import shutil
 import socket
 import subprocess
 import tempfile
 import unittest
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / "scripts/ci/fleet-compilation-cache.sh"
@@ -73,7 +76,7 @@ class FleetCacheTests(unittest.TestCase):
     def test_nightly_xcode_command_receives_shared_settings(self):
         # Execute the workflow's actual compile command through tiny pass-through
         # wrappers. No Xcode or compiler runs; the last executable records argv.
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
+        workflow = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
         step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
         command = step[step.index("          fleet_cache_settings=()") :]
         command = "\n".join(line[10:] for line in command.splitlines() if line.startswith("          "))
@@ -105,7 +108,7 @@ class FleetCacheTests(unittest.TestCase):
         self.assertEqual(args[-1], "build")
 
     def test_warmer_and_pr_release_use_the_same_cache_settings(self):
-        nightly = (ROOT / ".github/workflows/nightly.yml").read_text()
+        nightly = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
         ci_macos = (ROOT / ".github/workflows/ci-macos.yml").read_text()
         warmer = nightly.split("      - name: Refresh universal nightly compilation cache\n", 1)[1].split("      - name:", 1)[0]
         release = ci_macos.split("      - name: Build app (Release)\n", 1)[1].split("      - name:", 1)[0]
@@ -114,7 +117,7 @@ class FleetCacheTests(unittest.TestCase):
             self.assertIn('"${fleet_cache_settings[@]}"', step)
 
     def _nightly_release_command(self):
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
+        workflow = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
         step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
         command = step[step.index("          fleet_cache_settings=()") :]
         command = "\n".join(line[10:] for line in command.splitlines() if line.startswith("          "))
@@ -179,7 +182,7 @@ class FleetCacheTests(unittest.TestCase):
         self.assertEqual(count.read_text().strip(), "1")
 
     def test_nightly_release_retries_local_cache_after_runtime_cas_failure(self):
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
+        workflow = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
         step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
         self.assertIn("run_release_build()", step)
         self.assertIn("release_status=${PIPESTATUS[0]}", step)
