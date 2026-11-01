@@ -262,6 +262,33 @@ async fn cloud_acpmux(
         .await
         .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
     let mut from_carrier = [0u8; 64 * 1024];
+    // Identify the stream before forwarding the phone's ACP frames. The VM
+    // daemon admits this capability only on an authenticated remote link and
+    // then applies its agent-session-only Cloud chat adapter; the phone never
+    // gets a local-owner session or a raw ACP socket.
+    let client_info = serde_json::json!({
+        "cmd": "set-client-info",
+        "id": "cloud-mobile-host",
+        "kind": "ios",
+        "device_kind": "iphone",
+        "capabilities": ["cloud-mobile-chat-v1"]
+    });
+    write
+        .write_all(client_info.to_string().as_bytes())
+        .await
+        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+    write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+    let mut client_info_reply = Vec::new();
+    read.read_until(b'\n', &mut client_info_reply)
+        .await
+        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+    let client_info_reply: Value = serde_json::from_slice(
+        client_info_reply.strip_suffix(b"\n").unwrap_or(&client_info_reply),
+    )
+    .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid client-info reply"))?;
+    if client_info_reply.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat capability"));
+    }
     loop {
         tokio::select! {
             event = receiver.recv() => match event {
