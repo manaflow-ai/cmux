@@ -822,12 +822,12 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking, attachmentView } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // Every template with chips draws the chat composer's box. Claude's look splits the mode, model and
-  // effort into the quiet row under it; Codex's keeps them in the box's own row (Leo 2026-10-30: "the
-  // bypass/context/model picker stuff should literally be inside the composer box"; "no just codex").
+  // Every template with chips draws the chat composer's box, split as Claude's in both looks: the
+  // mode, model and effort in the quiet row under it (composerLook.ts; Leo 2026-11-01: "we already
+  // have a good version"). Codex's look keeps only its tray over the box.
   const look = useComposerLook();
   const chatBox = props.chips !== undefined;
-  const split = chatBox && look !== "codex";
+  const split = chatBox;
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1555,7 +1555,8 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      {/* Codex's look keeps the chips in this row (no quiet row), so its labels step down here. */}
+      {/* Without the split (a page with no chips) this row holds + and the actions and is the one
+          the fit measures. */}
       <div
         ref={chatBox && !split ? foot : undefined}
         className="nt-pickers"

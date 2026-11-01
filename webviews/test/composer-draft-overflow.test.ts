@@ -183,7 +183,7 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
       surface: { name: "the composer with prompts queued", entry: "agent-pane.composer", variant: "queued" },
       widths: [300],
     },
-    // Codex's look: the actions in a row under the prompt.
+    // Codex's look: Claude's grid, the actions beside the prompt.
     { surface: { name: "Codex's composer", entry: "agent-pane.composer-look", variant: "codex-chat" }, widths: [300] },
   ];
 
