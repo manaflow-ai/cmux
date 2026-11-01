@@ -185,7 +185,7 @@ try {
     dcl: number;
     scriptKiB: number;
     scripts: string[];
-    forced: { writes: number; writeMs: number; reads: number; readMs: number; byClass: Record<string, number> };
+    forced: { writes: number; writeMs: number; reads: number; readMs: number; byClass: Record<string, number>; log: string[] };
   };
   const open = async (rail = "compact"): Promise<Round> => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -193,7 +193,7 @@ try {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
     await page.addInitScript(([latestText, instrument]) => {
-      const forced = { writes: 0, writeMs: 0, reads: 0, readMs: 0, byClass: {} as Record<string, number> };
+      const forced = { writes: 0, writeMs: 0, reads: 0, readMs: 0, byClass: {} as Record<string, number>, log: [] as string[] };
       (window as unknown as { __forced: typeof forced }).__forced = forced;
       // INSTRUMENT=1: scroll writes and layout reads the page makes, and the time each takes (a write
       // or read after a DOM change is where the browser lays out synchronously).
@@ -207,6 +207,7 @@ try {
             forced.writes += 1;
             forced.writeMs += performance.now() - started;
             const key = String(this.className).split(" ")[0] || this.tagName;
+            forced.log.push(`${key} to ${Math.round(value)} at ${started.toFixed(0)} ms, ${(performance.now() - started).toFixed(1)} ms`);
             forced.byClass[key] = (forced.byClass[key] ?? 0) + 1;
           },
         });
@@ -364,6 +365,7 @@ try {
       console.log(
         `forced layout in one load: scrollTop writes ${last.writes} (${last.writeMs.toFixed(1)} ms) ${JSON.stringify(last.byClass)}, getBoundingClientRect reads ${last.reads} (${last.readMs.toFixed(1)} ms)`,
       );
+      for (const line of last.log) console.log(`  scrollTop write: ${line}`);
     }
     console.log(`scripts loaded (${rounds[0]!.scripts.length}): ${rounds[0]!.scripts.slice(0, 12).join(", ")}`);
     console.log(
