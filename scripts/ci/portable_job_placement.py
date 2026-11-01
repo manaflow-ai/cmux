@@ -43,6 +43,8 @@ LINUX_ONLY jobs (the nightly signer compiler emits a Linux executable) never
 take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minutes
 before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
+REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh live
+capacity observation, including after the admission wait expires.
 """
 from __future__ import annotations
 
@@ -161,7 +163,8 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if refusal:
         return done(refusal)
     problem = pool.snapshot_problem(snapshot, now)
-    if (runners is None or problem) and env.get("NIGHTLY") == "1" and env.get("NIGHTLY_WAIT_FOR_FLEET") == "1":
+    if ((runners is None or problem) and env.get("NIGHTLY") == "1"
+            and env.get("NIGHTLY_WAIT_FOR_FLEET") == "1" and env.get("REQUIRE_LIVE_CAPACITY") != "1"):
         # An exhausted routing API is not evidence of a fleet no-start. Queue
         # these secret-free controls on the already configured owned pool,
         # rather than turn a missing observation into permission for paid work.

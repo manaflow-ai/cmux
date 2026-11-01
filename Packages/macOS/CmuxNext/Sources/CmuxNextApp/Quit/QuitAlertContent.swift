@@ -1,7 +1,7 @@
 /// What the quit dialog says (R96, R138: a cmux dialog, minimal and plain).
-/// One step (#17501): Keep Sessions Running is the default and Quit
-/// Everything sits beside it, so a quit never opens a second dialog. End
-/// Everything (also delete the workspaces) is the File menu's.
+/// One step (#17501): Keep Sessions Running is the default (Return), and End
+/// Sessions (Keep Layout), End Everything (also delete the workspaces) and
+/// Cancel sit beside it, so a quit never opens a second dialog (QUIT P0).
 struct QuitAlertContent: Equatable {
     enum Button: String, Equatable {
         /// Keep Sessions Running (the default).
@@ -10,10 +10,10 @@ struct QuitAlertContent: Equatable {
         case quit
         case cancel
         /// End every local terminal, keep the layout.
-        case confirmQuitEverything = "confirm-quit-everything"
-        /// Also delete the workspaces: a button only when a remembered End
-        /// Everything asks (`QuitPrompt.confirmsEndEverything`); else
-        /// `debug.quit` presses it.
+        case endKeepLayout = "end-keep-layout"
+        /// End every local terminal and delete the local workspaces (its own
+        /// button in the session choice, and when a remembered End Everything
+        /// asks: `QuitPrompt.confirmsEndEverything`).
         case endEverything = "end-everything"
     }
 
@@ -46,7 +46,7 @@ struct QuitAlertContent: Equatable {
         if prompt.runningPrograms > 0 { lines.append(QuitStrings.programsRunning(prompt.runningPrograms)) }
         if prompt.agentsInTurn > 0 { lines.append(QuitStrings.agentsWorking(prompt.agentsInTurn)) }
         if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }
-        return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .cancel, .confirmQuitEverything],
+        return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .endKeepLayout, .endEverything, .cancel],
                                 showsSuppression: true)
     }
 
@@ -55,7 +55,7 @@ struct QuitAlertContent: Equatable {
         case .keep: QuitStrings.keepSessionsRunning
         case .quit: ConfirmationStrings.quit
         case .cancel: ConfirmationStrings.cancel
-        case .confirmQuitEverything: QuitStrings.quitEverything
+        case .endKeepLayout: QuitStrings.endKeepLayout
         case .endEverything: QuitStrings.endEverything
         }
     }

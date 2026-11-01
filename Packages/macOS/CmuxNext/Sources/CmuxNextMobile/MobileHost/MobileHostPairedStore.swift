@@ -77,15 +77,25 @@ public final class MobileHostPairedStore: Sendable {
     }
 
     /// Wire synchronously before selecting the account, so even a same-turn sign-out
-    /// queues its seal revocation before the application termination flush.
-    public func configure(directory: URL) {
+    /// queues its seal revocation before the quit's drain of the state files.
+    ///
+    /// - Parameters:
+    ///   - lastQuitCutOff: Whether the last quit's record names the list as cut off (``MobileHostPairedDevicesFile``).
+    ///   - cutOffSettled: Told once a cut-off save's fact is safe without that record.
+    /// - Returns: The directory's one list file: every read and save of the list, from any transport, runs on its queue.
+    @discardableResult
+    public func configure(directory: URL, lastQuitCutOff: @escaping @Sendable () -> Bool = { false },
+                          cutOffSettled: @escaping @Sendable () -> Void = {}) -> MobileHostPairedDevicesFile {
         state.withLock { state in
-            if state.file == nil {
+            if let file = state.file { return file }
+            do {
                 let bundleID = directory.deletingLastPathComponent().lastPathComponent
-                let file = MobileHostPairedDevicesFile(directory: directory, seal: seal(bundleID))
+                let file = MobileHostPairedDevicesFile(directory: directory, seal: seal(bundleID),
+                                                       lastQuitCutOff: lastQuitCutOff, cutOffSettled: cutOffSettled)
                 state.file = file
                 for user in state.forgotten { file.saveInBackground(MobileHostPairedDevices(userID: user)) }
                 state.forgotten = []
+                return file
             }
         }
     }
@@ -97,7 +107,7 @@ public final class MobileHostPairedStore: Sendable {
                     continuation.resume(); return
                 }
                 let selected = state.generation
-                MobileHostPairedDevicesFile.enqueue { [self] in
+                file.enqueue { [self] in
                     var list = file.load(userID: user)
                     let removals = self.state.withLock { state in
                         state.generation == selected ? state.removals : [:]
@@ -128,7 +138,7 @@ public final class MobileHostPairedStore: Sendable {
             let removed = state.list?.devices.filter { $0.id == id && $0.transport == transport } ?? []
             state.list?.remove(id, transport: transport)
             if let file = state.file {
-                MobileHostPairedDevicesFile.enqueue { [self] in
+                file.enqueue { [self] in
                     var list = file.load(userID: user)
                     list.remove(id, transport: transport)
                     do {
@@ -163,7 +173,7 @@ public final class MobileHostPairedStore: Sendable {
                   generation == nil || generation == selected else {
                 done(CocoaError(.userCancelled)); return
             }
-            MobileHostPairedDevicesFile.enqueue { [self] in
+            file.enqueue { [self] in
                 guard let current = self.state.withLock({ state in
                     state.generation == selected ? state.list : nil
                 }) else { done(CocoaError(.userCancelled)); return }

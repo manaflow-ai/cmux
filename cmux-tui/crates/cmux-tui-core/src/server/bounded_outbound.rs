@@ -82,7 +82,7 @@ pub(super) struct ConnectionPermit {
 pub(super) fn claim_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, None, false)
+    claim_connection_watching(connections, None, None)
 }
 
 /// A slot for a local client, taken back if the client hangs up while its
@@ -91,25 +91,37 @@ pub(super) fn claim_watched_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     stream: &dyn transport::Stream,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, watch_peer(stream), false)
+    claim_connection_watching(connections, watch_peer(stream), None)
 }
 
 /// A slot for a process inside one of the session's terminals: it also takes
 /// a terminal slot, and is refused (its slot given back) when terminals
 /// already hold `MAX_TERMINAL_CONNECTIONS` (#27698). Watched like
 /// `claim_watched_connection`; a hang-up gives back both slots.
+/// `client`: the terminal the peer runs in (its process session), nil when
+/// unknown.
 pub(super) fn claim_watched_terminal_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     stream: &dyn transport::Stream,
+    client: Option<u32>,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, watch_peer(stream), true)
+    claim_connection_watching(connections, watch_peer(stream), Some(client))
 }
 
 #[cfg(test)]
 pub(super) fn claim_terminal_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, None, true)
+    claim_connection_watching(connections, None, Some(None))
+}
+
+/// A terminal slot for a connection from terminal `client` (its process session).
+#[cfg(test)]
+pub(super) fn claim_terminal_connection_from(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    client: u32,
+) -> Option<ConnectionPermit> {
+    claim_connection_watching(connections, None, Some(Some(client)))
 }
 
 fn watch_peer(stream: &dyn transport::Stream) -> Option<crate::diagnostics::PeerClosed> {
@@ -119,17 +131,22 @@ fn watch_peer(stream: &dyn transport::Stream) -> Option<crate::diagnostics::Peer
     }
 }
 
+/// `terminal`: nil for a connection from outside the session's terminals,
+/// else the terminal it comes from (nil inside when unknown).
 fn claim_connection_watching(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     peer_closed: Option<crate::diagnostics::PeerClosed>,
-    terminal: bool,
+    terminal: Option<Option<u32>>,
 ) -> Option<ConnectionPermit> {
     if !connections.try_claim(MAX_SERVER_CONNECTIONS as u64) {
         return None;
     }
-    if terminal
-        && !connections
-            .try_claim_terminal(MAX_TERMINAL_CONNECTIONS as u64, MAX_SERVER_CONNECTIONS as u64)
+    if let Some(client) = terminal
+        && !connections.try_claim_terminal(
+            MAX_TERMINAL_CONNECTIONS as u64,
+            MAX_SERVER_CONNECTIONS as u64,
+            client,
+        )
     {
         connections.release();
         return None;

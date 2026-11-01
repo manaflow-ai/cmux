@@ -311,7 +311,20 @@ class WorkflowTests(unittest.TestCase):
     def test_publish_takes_every_build_detail_from_the_selected_source(self):
         job = workflow()["jobs"]["publish-nightly"]
         self.assertIn("recover-nightly-next-notarization", job["needs"])
-        self.assertEqual(job["steps"][0]["name"], "Select the build to publish")
+        # Publication source selection and checkout precede the exact claim gate;
+        # no release token is minted until the gate and helper both pass.
+        gate = step(job, "Hold the whole Mac before any credential")
+        gate_index = job["steps"].index(gate)
+        self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publish ref")))
+        self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publication tooling at the workflow commit")))
+        helper_index = job["steps"].index(step(job, "Claim the whole Mac for signing"))
+        self.assertGreater(helper_index, gate_index)
+        credential_indices = [index for index, item in enumerate(job["steps"])
+                              if "secrets." in json.dumps(item)]
+        self.assertTrue(credential_indices, "publication must have a credentialed step to guard")
+        self.assertLess(gate_index, min(credential_indices))
+        self.assertLess(helper_index, min(credential_indices))
+        self.assertEqual(step(job, "Select the build to publish")["id"], "source")
         text = yaml.safe_dump(job)
         for stale in (
             "needs.resolve-nightly-cmux-tui-client.outputs.build_sha",
