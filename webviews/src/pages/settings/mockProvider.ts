@@ -466,6 +466,7 @@ export class MockSettingsProvider {
         folder: "/Users/me/Library/Application Support/cmux/Backgrounds",
       }),
       "cmux.settings.backdrop.image.folder": () => ({ id: null }),
+      "cmux.settings.backdrop.image.screen_saver": () => ({ id: this.screenSaver, pending: false }),
       "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
       "cmux.settings.backdrop.workspace.set": (params) => {
         const workspace = this.workspaceBackground(String(params.workspace));
@@ -600,6 +601,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.image.reveal",
       "cmux.settings.backdrop.image.usage",
       "cmux.settings.backdrop.image.folder",
+      "cmux.settings.backdrop.image.screen_saver",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
       "cmux.settings.backdrop.workspace.preview",
@@ -1034,6 +1036,8 @@ export class MockSettingsProvider {
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
+  /** The macOS screen saver as a background id (Use My Screen Saver); null: not an aerial. */
+  screenSaver: string | null = null;
   /** Settings > Agents (cmux.settings.agents.*); tests set `agents.state.manages` and rows. */
   readonly agents = new MockAgents();
 
