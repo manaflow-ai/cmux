@@ -51,7 +51,6 @@ export default agentPaneEntry({
   anchors: [{ selector: "nav.acpmux-minimap__rail" }],
   covers: [
     "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
-    "agent-session/acpmux/threadMinimap/useRailPlacement.ts",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
   ],
   variants: {
