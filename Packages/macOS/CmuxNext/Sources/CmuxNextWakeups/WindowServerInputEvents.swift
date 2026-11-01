@@ -6,14 +6,23 @@ import CmuxNextCompat
 @MainActor
 public final class WindowServerInputEvents: SessionInputEvents {
     private var monitor: Any?
-    /// The menus tracking now (``MenuTracking``, started with the dispatch monitor; it lives as long
-    /// as this source, the app's one budget's).
+    /// The menus tracking now (``MenuTracking``, from this source's start, so a menu opened before
+    /// the budget's first check is seen; it lives as long as this source, the app's one budget's).
     private var menus: MenuTracking?
     private var trackingMenus: Set<ObjectIdentifier> = []
     /// `kCGAnyInputEventType` (`~0`, a C macro Swift does not import).
     private let anyInput = CGEventType(rawValue: ~0)
 
-    public init() {}
+    public init() {
+        let menus = MenuTracking()
+        menus.subscribe { [weak self] change in
+            switch change {
+            case .began(let menu): self?.trackingMenus.insert(ObjectIdentifier(menu))
+            case .ended(let menu): self?.trackingMenus.remove(ObjectIdentifier(menu))
+            }
+        }
+        self.menus = menus
+    }
 
     public func secondsSinceLastInput() -> TimeInterval {
         // Without the any-input type the answer is "just now", which sends the caller to the
@@ -37,14 +46,6 @@ public final class WindowServerInputEvents: SessionInputEvents {
     public func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (TimeInterval, Bool) -> Void) -> Bool {
         guard monitor == nil else { return true }
         guard NSApp != nil else { return false }
-        let menus = MenuTracking()
-        menus.subscribe { [weak self] change in
-            switch change {
-            case .began(let menu): self?.trackingMenus.insert(ObjectIdentifier(menu))
-            case .ended(let menu): self?.trackingMenus.remove(ObjectIdentifier(menu))
-            }
-        }
-        self.menus = menus
         let mask: NSEvent.EventTypeMask = [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                                            .otherMouseDown, .otherMouseUp, .mouseMoved, .leftMouseDragged, .rightMouseDragged,
                                            .otherMouseDragged, .scrollWheel]
