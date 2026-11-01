@@ -1335,7 +1335,7 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("localhost:3000", { selector: ".nt-field" });
+        await typePrompt(ctx, "localhost:3000");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-create-strip-item"));
         // The frame loads the pane's language store before the locale's catalog; a languagechange
         // moves it to the case's locale (as new-tab-strip-overflow.test.ts does), so the labels are that locale's.
