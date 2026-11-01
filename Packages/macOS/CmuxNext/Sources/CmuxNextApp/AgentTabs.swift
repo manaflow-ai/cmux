@@ -138,6 +138,13 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
     var takeSpare: (() -> AgentPaneView?)?
+    /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
+    /// this Mac (``SpareSessionAdoption``); nil leaves the spare in the pool.
+    var takeConnectedSpare: (() -> AgentPaneView?)?
+    /// Whether this Mac's Chief home keeps session `session` (an older subagent tab recorded with
+    /// this Mac's host attaches there, ``AcpmuxChiefSessionRouter``): the spare is connected to
+    /// this Mac's acpmux, so such a chat gets its own page.
+    var chiefKeepsSession: @MainActor (String) -> Bool = { _ in false }
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
@@ -414,6 +421,16 @@ final class AgentTabStore {
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
            seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
+            track(key, in: store)
+            return spare
+        }
+        // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
+        // spare too: it is loaded and connected, and switches to the chat in place.
+        if let session = SpareSessionAdoption.session(local: local, kind: kind, session: sessions[key] ?? record.session,
+                                                      newTabPage: newTabPages[key] != nil, seeded: seed != nil,
+                                                      wake: wakeStates[key] != nil || relaunchWake.mayHold(key),
+                                                      chiefKeeps: chiefKeepsSession),
+           let spare = takeConnectedSpare?(), adoptSpare(spare, key: key, session: session, revealTurn: pendingTurns.removeValue(forKey: key)) {
             track(key, in: store)
             return spare
         }

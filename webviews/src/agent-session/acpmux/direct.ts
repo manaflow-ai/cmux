@@ -1978,6 +1978,66 @@ export class AcpmuxDirectClient {
     this.rememberCurrentTail(false);
   };
 
+  /// This prewarmed New Tab page now stands for a tab bound to chat `sessionId` (the host's
+  /// `acpmux-session-adopt`, AgentPaneView+SessionAdopt.swift): from here it is that tab's page as if
+  /// its handshake had named the session, so a session the daemon lacks, or one that goes away, says
+  /// so instead of falling back to another chat, and a reconnect reopens it. The switch itself is
+  /// `chat.select`'s.
+  bindToSession(sessionId: string): void {
+    this.host = { ...this.host, sessionId, newSession: false, sessionMustExist: true };
+  }
+
+  /// The adopted page's switch to its chat: bound to it (`bindToSession`), then opened as
+  /// `chat.select` opens a chat. A chat the daemon does not list is the tab's missing chat, said why
+  /// in the pane (chatUnavailable.ts) as a tab whose handshake named it says it, never an empty
+  /// chat; an open that fails with nothing drawn says it failed. Its answer is `select`'s.
+  async adoptSession(sessionId: string): Promise<string | undefined> {
+    this.bindToSession(sessionId);
+    const listed = () => this.sessions.some((session) => session.sessionId === sessionId);
+    // A chat this page's list lacks (it started after the page connected, or its row is on a page
+    // still being read) opens without waiting for the list: its attach proves it is there, as a
+    // cold open's does (`attachedBeforeList`), since a busy acpmux paces its whole list for seconds.
+    // The list is read again behind the open, and decides only when the attach fails.
+    const relisting = listed() ? undefined : this.refreshSessions().catch(() => false);
+    const generation = this.selectionGeneration + 1;
+    try {
+      return await this.select(sessionId);
+    } catch (error) {
+      if (relisting) await relisting;
+      if (this.closed) return undefined;
+      if (relisting && !listed() && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+        return this.adoptedMissing(sessionId);
+      // select() drops a kept tail it drew and says so itself; with nothing drawn the pane says
+      // the open failed here, for the chat this adoption still shows.
+      if (generation === this.selectionGeneration && this.selectedSessionId === sessionId && !this.drewKeptTail)
+        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+      throw error;
+    }
+  }
+
+  /// The adopted tab's chat is one the daemon neither attaches nor lists: the pane says it is
+  /// missing (chatUnavailable.ts) as a tab whose handshake named it says it, never an empty chat.
+  private async adoptedMissing(sessionId: string): Promise<undefined> {
+    this.rememberCurrentTail();
+    this.selectedSessionId = undefined;
+    this.selectionGeneration += 1;
+    this.resetSessionState();
+    this.noteMissing(sessionId);
+    this.missingReason = "notListedAtOpen";
+    // The machine the chat was on, from what the app host kept of it (another tab read it).
+    if (this.missingPeer === undefined) {
+      await readHostTail(sessionId).catch(() => undefined);
+      if (this.missingSession === sessionId) this.missingPeer = keptPeer(sessionId);
+    }
+    this.emit();
+    void this.refreshPeers()
+      .catch(() => undefined)
+      .then(() => {
+        if (!this.closed && !this.snapshotHold) this.emit();
+      });
+    return undefined;
+  }
+
   /// Hands the chat on screen to the host now, for a tab about to open it (`chat.openTab`). The
   /// page keeps it selected, so nothing else would hand it over and the new tab would open cold —
   /// the flow this cache exists for.

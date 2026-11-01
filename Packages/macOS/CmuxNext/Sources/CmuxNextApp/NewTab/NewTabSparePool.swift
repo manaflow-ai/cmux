@@ -151,6 +151,13 @@ final class NewTabSparePool {
             self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
             return spare?.view
         }
+        // A tab opening an existing chat of this Mac adopts it only once it is connected and drew
+        // (SpareSessionAdoption): it switches to the chat in place. One still loading stays here.
+        services.agentTabs.takeConnectedSpare = { [weak self] in
+            guard let self, let spare = slot.peek, spare.model.hasHandshake, spare.model.hasPainted,
+                  let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
+            return take(for: window, size: nil)?.view
+        }
         observeWindows()
         if let window = services.keyWindowSource().flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
             retarget(window)

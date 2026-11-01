@@ -317,6 +317,23 @@ public final class AgentPaneModel {
         newTab = page
     }
 
+    /// A tab bound to session `session` (an existing chat it opens) adopted this prewarmed, connected
+    /// New Tab page: the model is that tab's from here, as if its handshake had named the session
+    /// (``AgentPaneView/adoptSession(_:revealTurn:)``). Its first paint is ahead again: the pane
+    /// keeps its cover until the page draws the chat. False, changing nothing, for a page that is
+    /// not an untouched, connected New Tab page.
+    @discardableResult
+    public func adoptSpareSession(_ session: String) -> Bool {
+        guard sessionId == nil, newTab != nil, hasHandshake, !userTouched, !remoteChat, !neverPooled else { return false }
+        sessionId = session
+        transport.sessions.add(session)
+        newTab = nil
+        // The spare's start folder was no tab's; the chat's folder comes with its session.
+        handshakeCwd = nil
+        (hasPainted, paintedFromKeptTail) = (false, false)
+        return true
+    }
+
     /// A new workspace's first tab (its view made before the store's reply
     /// named it a new tab page): a chat that has no session yet becomes the
     /// page. A chat with a session keeps it.
