@@ -111,7 +111,7 @@ jobs:
   route:
     name: Pick the tour runner
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'labeled' && (github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read

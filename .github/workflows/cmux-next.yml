@@ -746,7 +746,7 @@ jobs:
   path_route:
     if: ${{ inputs.same_tree_sha == '' }}
     name: cmux-next path routing
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     # Above the probe steps' own limits, so a slow probe fails open (below)
     # instead of cancelling the job and skipping every compile and test job.
     timeout-minutes: 8
@@ -1213,7 +1213,7 @@ jobs:
     needs: path_route
     if: ${{ !cancelled() && inputs.dev_daily == true && inputs.same_tree_sha == '' && needs.path_route.outputs.tree_state == 'deferred' }}
     name: cmux NEXT DEV daily tree wait
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 60
     permissions:
       # The selected revision may inspect a publisher, never start one.
