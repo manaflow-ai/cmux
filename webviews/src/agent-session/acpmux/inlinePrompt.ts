@@ -242,19 +242,29 @@ export async function restoreInline(
   };
   let scene = false;
   for (const [index, part] of (row.inlineParts ?? []).entries()) {
-    if (part.kind === "text" && isFrame(part.text)) {
-      const note = isFramesNote(part.text) ? part.text.match(/^Frames from the video (.+) \(\d[\d:]*, \d+×\d+\)/) : null;
-      const own = note ? of(note[1]!) : undefined;
-      if (own) own.note = part.text;
+    // Only a note, label or frame that follows its video's chip is the chip's; one with no such chip
+    // (a frame restored before as an image of its own) stays what it was.
+    const owner =
+      part.kind === "text" && isFrame(part.text)
+        ? of(
+            isFramesNote(part.text)
+              ? (part.text.match(/^Frames from the video (.+) \(\d[\d:]*, \d+×\d+\)/)?.[1] ?? "")
+              : part.text.replace(/ \(new scene\)$/, "").replace(/ frame at [\d:.]+$/, ""),
+          )
+        : part.kind === "image" && isVideoFrameName(part.name)
+          ? of(part.name!.replace(/ frame at [\d:.]+$/, ""))
+          : undefined;
+    if (owner && part.kind === "text") {
+      if (isFramesNote(part.text)) owner.note = part.text;
       scene = part.text.endsWith(" (new scene)");
       continue;
     }
-    if (part.kind === "image" && isVideoFrameName(part.name)) {
+    if (owner && part.kind === "image") {
       // A frame that cannot be read back fails the restore, as any other image does: a resend never
       // goes without it.
       const data = await read(part.id);
       if (!data) throw new Error(translate("attachment.unavailable", { name: part.name ?? part.id }));
-      of(part.name!.replace(/ frame at [\d:.]+$/, ""))?.frames.push({ name: part.name!, data: data.data, scene });
+      owner.frames.push({ name: part.name!, data: data.data, scene });
       scene = false;
       continue;
     }

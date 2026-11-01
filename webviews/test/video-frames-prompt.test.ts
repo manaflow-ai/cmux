@@ -311,3 +311,19 @@ test("after a reload, two videos of one name each get back their own frames, and
   ]);
   await expect(restoreInline(row, "compare", async () => undefined)).rejects.toThrow();
 });
+
+test("after a reload, a frame with no video chip before it (an image of its own) comes back as that image", async () => {
+  const row = {
+    id: "user-6",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "again",
+    inlineParts: [
+      { kind: "text", text: "again " },
+      { kind: "image", id: "9".repeat(64), mimeType: "image/jpeg", name: "demo.mp4 frame at 0:01.0" },
+    ],
+  } as AcpmuxRow;
+  const restored = await restoreInline(row, "again", async () => ({ mimeType: "image/jpeg", data: "eA==" }));
+  expect(restored.attachments.map((chip) => [chip.kind, chip.name])).toEqual([["image", "demo.mp4 frame at 0:01.0"]]);
+});
