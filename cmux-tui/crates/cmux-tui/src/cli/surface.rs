@@ -22,6 +22,7 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "attention",
     "agent",
     "room",
+    "space",
     "closed",
     "git",
 ];
