@@ -6,18 +6,29 @@
 // sentence, else the app area it is in). No version tags, build numbers, pull request chips or
 // category headings: the Ledger (`design=ledger`) keeps them. A day with nothing a person would notice
 // says "Maintenance and fixes". Days load as they near the viewport (JournalPage.loadNear); J and K
-// move between them.
+// move between them. The rows use the pane's width, dense (Leo 2026-11-01: "this is way too narrow
+// and not info dense enough"): `layout` (the route's `sheet=`) sets them; styles.css .cls-inline.
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, type ReleaseView } from "./model";
 import { journalKeys, loadNear } from "./JournalPage";
 import { Maintenance } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
-import type { IndexEntry, ReleaseNotes, WhatsNewCategory } from "./types";
+import type { IndexEntry, ReleaseNotes, SheetLayout, WhatsNewCategory } from "./types";
 
-export function SheetPage({ store, strings, s }: { store: ChangelogStore; strings: Strings; s: ChangelogSnapshot }) {
+export function SheetPage({
+  store,
+  strings,
+  s,
+  layout = "inline",
+}: {
+  store: ChangelogStore;
+  strings: Strings;
+  s: ChangelogSnapshot;
+  layout?: SheetLayout;
+}) {
   return (
-    <KeyboardScope className="cls" handleKeyDown={journalKeys}>
+    <KeyboardScope className={`cls cls-${layout}`} handleKeyDown={journalKeys}>
       <main aria-labelledby="cls-title">
         <h1 className="cls-title" id="cls-title">
           {strings.t("changelog.page.title")}
@@ -124,11 +135,11 @@ function firstSentence(text: string): string | undefined {
   return end ? trimmed.slice(0, end.index + 1) : trimmed;
 }
 
-/** A 20 pt stroke glyph per kind: a sparkle (new), an arrow up (improved), a check (fixed), a lock
+/** A 16 pt stroke glyph per kind: a sparkle (new), an arrow up (improved), a check (fixed), a lock
     (security). Drawn in the theme's accent (styles.css .cls-icon). */
 function CategoryIcon({ category }: { category: WhatsNewCategory }) {
   return (
-    <svg viewBox="0 0 20 20" width="20" height="20">
+    <svg viewBox="0 0 20 20" width="16" height="16">
       {category === "new" && (
         <path d="M10 2.5l1.6 4.3 4.4 1.7-4.4 1.7L10 14.5l-1.6-4.3L4 8.5l4.4-1.7z M15.5 13.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" />
       )}
