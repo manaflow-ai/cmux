@@ -101,7 +101,7 @@ fn batch_close_ends_hosts_without_waiting_for_termination_receipts() {
 /// (runs 36944275265, 36785429387, 36961653859), up to 8.9 s on hosted Linux
 /// (run 36951369512). A teardown that waits for each host in turn (the 2 s
 /// receipt wait this test caught) costs tens of seconds.
-const HUNDRED_HOST_TEARDOWN_BOUND_SECS: u64 = 10;
+const HUNDRED_HOST_TEARDOWN_BOUND_SECS: u64 = 3;
 
 /// A close commits and updates the tree before its host exits, and many
 /// closes end their hosts in parallel instead of one after another.
