@@ -11,6 +11,10 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// The pane now runs on `accountName`, but the replaced Claude (`processIDs`) was still
     /// running, so cmux did not resume: the user runs `command` once it has quit.
     case previousClaudeStillRunning(accountName: String, command: String, processIDs: [Int32])
+    /// The pane now runs on `accountName`, but copying the transcript there again after the
+    /// replaced Claude quit failed, so the copy may miss its last messages. cmux did not resume;
+    /// the user runs `command` to continue from that copy anyway.
+    case transcriptResyncFailed(accountName: String, command: String)
     /// No registered account has this name.
     case unknownAccount(String)
     /// The pane already runs on this account.
@@ -62,6 +66,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
                     command: manualResume.command,
                     processIDs: processIDs
                 )
+            case .transcriptResyncFailed:
+                self = .transcriptResyncFailed(accountName: plan.target.name, command: manualResume.command)
             }
         case .refused(.noClaudeSession):
             self = .noClaudeSession
@@ -93,7 +99,7 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// Whether the switch failed and the pane was left as it was.
     var reportsFailure: Bool {
         switch self {
-        case .resumeManually, .previousClaudeStillRunning:
+        case .resumeManually, .previousClaudeStillRunning, .transcriptResyncFailed:
             return false
         default:
             return true
@@ -102,14 +108,19 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
 
     /// Whether the alert can offer to type the resume command into the respawned pane.
     var offersTypingResumeCommand: Bool {
-        if case .resumeManually(_, _, paneClosed: false) = self { return true }
-        return false
+        switch self {
+        case .resumeManually(_, _, paneClosed: false), .transcriptResyncFailed:
+            return true
+        default:
+            return false
+        }
     }
 
     /// The alert's headline.
     var title: String {
         switch self {
-        case .resumeManually(let accountName, _, _), .previousClaudeStillRunning(let accountName, _, _):
+        case .resumeManually(let accountName, _, _), .previousClaudeStillRunning(let accountName, _, _),
+             .transcriptResyncFailed(let accountName, _):
             return String(
                 format: String(
                     localized: "dialog.claudeAccountSwitch.resumeManually.title",
@@ -128,14 +139,26 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// The explanation for a cmux notification. It matches ``message`` except where the alert
     /// points at its Type Resume Command button, which a notification does not have.
     var notificationMessage: String {
-        guard case .resumeManually(_, let command, paneClosed: false) = self else { return message }
-        return String(
-            format: String(
-                localized: "notification.claudeAccountSwitch.resumeManually.message",
-                defaultValue: "cmux couldn't resume the conversation automatically. To continue it, run this command in the terminal:\n\n%@"
-            ),
-            command
-        )
+        switch self {
+        case .resumeManually(_, let command, paneClosed: false):
+            return String(
+                format: String(
+                    localized: "notification.claudeAccountSwitch.resumeManually.message",
+                    defaultValue: "cmux couldn't resume the conversation automatically. To continue it, run this command in the terminal:\n\n%@"
+                ),
+                command
+            )
+        case .transcriptResyncFailed(_, let command):
+            return String(
+                format: String(
+                    localized: "notification.claudeAccountSwitch.transcriptResyncFailed.message",
+                    defaultValue: "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, run this command in the terminal:\n\n%@"
+                ),
+                command
+            )
+        default:
+            return message
+        }
     }
 
     /// The alert's explanation.
@@ -165,6 +188,14 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
                     defaultValue: "The previous Claude (process %1$@) is still running, so cmux didn't resume the conversation here: it would run in two places. Once that Claude has quit, run this command in this terminal:\n\n%2$@"
                 ),
                 processIDs.map(String.init).joined(separator: ", "),
+                command
+            )
+        case .transcriptResyncFailed(_, let command):
+            return String(
+                format: String(
+                    localized: "dialog.claudeAccountSwitch.transcriptResyncFailed.message",
+                    defaultValue: "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, choose Type Resume Command, or run:\n\n%@"
+                ),
                 command
             )
         case .unknownAccount(let name):

@@ -116,10 +116,16 @@ extension CMUXCLI {
             return
         }
         let explanation: String
-        if response["not_resumed_reason"] as? String == "previous_claude_running" {
+        let notResumedReason = response["not_resumed_reason"] as? String
+        if notResumedReason == "previous_claude_running" {
             explanation = String(
                 localized: "cli.claudeAccount.previousClaudeStillRunning",
                 defaultValue: "The previous Claude is still running, so cmux didn't resume the conversation: it would run in two places. Once that Claude has quit, run this command in that terminal:"
+            )
+        } else if notResumedReason == "transcript_resync_failed" {
+            explanation = String(
+                localized: "cli.claudeAccount.transcriptResyncFailed",
+                defaultValue: "cmux couldn't copy the conversation's latest messages to the new account, so it didn't resume the conversation: the copy there may be missing them. To continue from that copy anyway, run this command in that terminal:"
             )
         } else if response["pane_closed"] as? Bool == true {
             explanation = String(

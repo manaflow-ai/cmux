@@ -161,6 +161,8 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
             return "no_prompt"
         case .previousClaudeStillRunning:
             return "previous_claude_running"
+        case .transcriptResyncFailed:
+            return "transcript_resync_failed"
         }
     }
 

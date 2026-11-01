@@ -82,7 +82,7 @@ extension Workspace {
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
     /// shell once it reports a prompt. A resume that cannot be typed, or must not be because the
-    /// old Claude is still running, returns
+    /// old Claude is still running or the second transcript sync failed, returns
     /// ``ClaudeAccountSwitchResult/switchedWithoutResume(_:_:_:)`` with the built command. The
     /// pane stays marked as switching until then. Remote panes are refused. Confirming a running
     /// turn is the caller's job; this never asks.
@@ -192,19 +192,22 @@ extension Workspace {
         // The old Claude can append transcript lines until it dies; copy them before resuming.
         await Self.waitForReplacedClaudeProcessesToExit(replacedAgents.processes)
         let stillRunning = replacedAgents.stillRunning
-        let outcome = await resyncClaudeAccountSwitchTranscript(sync, request, preflight: preflight)
-        // A Claude that outlived the wait still owns the session: never start a second one.
-        guard stillRunning.isEmpty else {
+        let resync = await resyncClaudeAccountSwitchTranscript(sync, request)
+        let outcome = resync.map { preflight == .alreadyCurrent ? $0 : preflight } ?? preflight
+        // A Claude that outlived the wait still owns the session: never start a second one. A
+        // failed re-sync may leave the target without that Claude's last lines: resuming would
+        // silently continue an older copy, so the user decides.
+        if let reason = ClaudeAccountSwitchManualResume.Reason.withholdingResume(
+            stillRunningProcessIDs: stillRunning.map(\.pid),
+            transcriptResynced: resync != nil
+        ) {
 #if DEBUG
-            cmuxDebugLog(
-                "claudeAccount.switch panel=\(panelId.uuidString.prefix(5)) resume=skipped " +
-                    "previousClaudeStillRunning=\(stillRunning.map(\.pid))"
-            )
+            cmuxDebugLog("claudeAccount.switch panel=\(panelId.uuidString.prefix(5)) resume=skipped reason=\(reason)")
 #endif
             return .switchedWithoutResume(plan, outcome, ClaudeAccountSwitchManualResume(
                 command: resumeCommand,
                 typedInput: resumeInput,
-                reason: .previousClaudeStillRunning(processIDs: stillRunning.map(\.pid))
+                reason: reason
             ))
         }
         let delivery = await deliverClaudeAccountSwitchResumeInput(resumeInput, to: panel, panelId: panelId)
@@ -224,22 +227,20 @@ extension Workspace {
     }
 
     /// Syncs the transcript again once the old Claude is gone, so lines it wrote after the
-    /// preflight reach the target. A failed re-sync keeps the preflight copy, which is still
-    /// resumable but may miss those last lines; it is logged, not reported.
+    /// preflight reach the target. `nil` when the re-sync failed: the target keeps the preflight
+    /// copy, which may miss those last lines.
     private func resyncClaudeAccountSwitchTranscript(
         _ sync: ClaudeTranscriptAccountSync,
-        _ request: ClaudeTranscriptAccountSyncRequest,
-        preflight: ClaudeTranscriptAccountSyncOutcome
-    ) async -> ClaudeTranscriptAccountSyncOutcome {
+        _ request: ClaudeTranscriptAccountSyncRequest
+    ) async -> ClaudeTranscriptAccountSyncOutcome? {
         do {
-            let resync = try await sync.sync(request)
-            return preflight == .alreadyCurrent ? resync : preflight
+            return try await sync.sync(request)
         } catch {
 #if DEBUG
             // The error's type only: its description can carry transcript paths.
             cmuxDebugLog("claudeAccount.switch resync.failed errorType=\(type(of: error))")
 #endif
-            return preflight
+            return nil
         }
     }
 
