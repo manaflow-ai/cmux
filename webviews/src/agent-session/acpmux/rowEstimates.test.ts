@@ -16,6 +16,7 @@ import { hasReplyActions, layoutConversation, placeRows, statusEdge, type Acpmux
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
+import { gridLength } from "./transcriptGrid";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
 // A footer carries its answer's text, for Copy (conversation/turns.ts), so the estimate never reads it.
@@ -387,10 +388,11 @@ test("a status row between two replies is estimated in the middle of the gap", (
     // The same reply over a prompt: its own action row, then the message gap.
     expect(reply).toBe(overPrompt! - 8);
   } else {
-    // No reply draws its own action row (a turn's copy lives in its footer): the plain 12px each
-    // side, the reply's 8px message gap plus 2 over the run's 2px top margin.
-    expect(step).toBe(2 + 22 + 12);
-    expect(reply).toBe(overPrompt! + 2);
+    // No reply draws its own action row (a turn's copy lives in its footer). On the grid (grid.md
+    // 5.5) the stack's block gap above and below the run centres it, so neither row adds room: the
+    // run is its one 28 row and the reply is as tall as it is over a prompt.
+    expect(step).toBe(gridLength("row"));
+    expect(reply).toBe(overPrompt!);
   }
   expect(alone).toBeGreaterThan(0);
 });
@@ -450,7 +452,8 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   const run = (items: unknown[]) => [
     { id: "run", version: 1, at: 0, kind: "activity", settled: true, foldRun: true, items },
   ];
-  const lines = (n: number) => 2 + n * 22 + 4;
+  // On the grid a run adds no margin of its own (grid.md 5.5): its lines are 28 rows.
+  const lines = (n: number) => n * gridLength("row");
   // Plain work still folds to its one summary line.
   expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
   // A send between two commands: a line each.

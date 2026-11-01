@@ -59,13 +59,17 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
                 ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
               );
               const composer = rect(".acpmux-composer-box");
-              const headerIcon = rect('[data-row-id="grid-header"] .cv-disclosure__icon');
+              // A received message's line leads with its sender (IncomingMessageCard.tsx `leading`).
+              const headerIcon = rect('[data-row-id="grid-header"] .cv-disclosure__line > :first-child');
               const toolIcon = rect(".acpmux-activity .cv-tool__icon");
               const chevron = rect(".acpmux-activity .cv-tool__chevron");
-              const copy = rect('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg');
+              // A reply's own action row, when it draws one: a turn's copy now lives in its footer
+              // (model.ts `hasReplyActions`), so the reply in this scene may have none.
+              const copyEl = document.querySelector('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg');
+              const copy = copyEl ? rect('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg') : undefined;
               const composerBox = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
               // Every tool row's trailing chevron: its 16 glyph centred on trail = col-right - 8.
-              const chevronCenters = [...document.querySelectorAll(".acpmux-row :is(.cv-tool__chevron, .cv-disclosure__toggle > .cv-rotor)")].map((el) => {
+              const chevronCenters = [...document.querySelectorAll(".acpmux-row :is(.cv-tool__chevron, .cv-disclosure__line .cv-rotor)")].map((el) => {
                 const r = el.getBoundingClientRect();
                 return composerBox.right - (r.left + r.right) / 2;
               });
@@ -74,7 +78,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
                 .filter((row) => !row.classList.contains("acpmux-user") && row.getBoundingClientRect().height > 0)
                 .map((row) => {
                   const lead = row.querySelector(
-                    ".cv-tool__icon, .cv-disclosure__icon, .cv-md > :first-child, .cv-worked, .cv-activity",
+                    ".cv-tool__icon, .cv-disclosure__line > :first-child, .cv-md > :first-child, .cv-worked, .cv-activity",
                   );
                   return {
                     id: row.getAttribute("data-row-id") ?? row.className,
@@ -88,7 +92,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
                 header,
                 prompt,
                 turn: header.top - prompt.bottom,
-                actionMid: (copy.top + copy.bottom) / 2 - message.bottom,
+                actionMid: copy ? (copy.top + copy.bottom) / 2 - message.bottom : undefined,
                 message,
                 group,
                 live,
@@ -117,11 +121,12 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           }
           for (const state of [hidden, shown]) {
             expect(Math.abs(state.turn - 32), "turn gap").toBeLessThanOrEqual(0.5);
-            expect(Math.abs(state.actionMid - 12), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
+            if (state.actionMid !== undefined)
+              expect(Math.abs(state.actionMid - 12), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
             for (const gap of state.gaps) expect(Math.abs(gap - 24), "block gap").toBeLessThanOrEqual(0.5);
             expect(Math.abs(state.inner - 12), "paragraph gap").toBeLessThanOrEqual(0.5);
             expect(Math.abs(state.composerGap - 16), "composer gap").toBeLessThanOrEqual(0.5);
-            for (const box of [state.message, state.headerIcon, state.toolIcon, state.live, state.copy]) {
+            for (const box of [state.message, state.headerIcon, state.toolIcon, state.live, ...(state.copy ? [state.copy] : [])]) {
               expect(Math.abs(box.left - state.composer.left), "col-left").toBeLessThanOrEqual(0.5);
             }
             expect(Math.abs(state.chevron.right - state.composer.right), "col-right").toBeLessThanOrEqual(0.5);
@@ -290,8 +295,8 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             result["message/gap"] = message.top - box(".cv-agentmsg__line").bottom;
             result["message/under-gap"] = box(".cv-agentmsg__under").top - message.bottom;
             for (const [name, selector] of Object.entries({
-              message: ".cv-agentmsg__toggle > .cv-tool__chevron",
-              subsession: ".cv-disclosure__toggle > .cv-rotor",
+              message: ".cv-agentmsg__line > .cv-agentmsg__chevron",
+              subsession: ".cv-disclosure__line .cv-rotor",
               group: "[data-grid-count] .cv-tool__chevron",
             }))
               result[`${name}/trail`] = box(selector).right - column.right;
@@ -306,17 +311,15 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               card.left;
             for (const count of [2, 12]) {
               const root = `[data-grid-count="${count}"]`;
-              // One ordinary space: the gap is the space glyph's own advance, nothing more.
-              result[`count-${count}/gap`] =
-                box(`${root} .cv-tool-label__subject`).left -
-                box(`${root} .cv-tool__verb`).right -
-                box(`${root} .cv-tool-label__space`).right +
-                box(`${root} .cv-tool-label__space`).left;
-              const label = document.querySelector(`${root} .cv-tool-label`)!.textContent ?? "";
-              if (!/^\S+ \d/.test(label)) throw new Error(`Count label must be "verb N": ${JSON.stringify(label)}`);
+              // One ordinary space: a count summary reads whole (ToolGroupRow.tsx `whole`), its verb
+              // never in the verb column, so the space glyph is all that parts verb and count.
+              if (document.querySelector(`${root} .cv-tool__verb`))
+                throw new Error("A count summary's verb must not take the verb column");
+              const label = document.querySelector(`${root} .cv-tool__summary, ${root} .cv-tool__text`)!.textContent ?? "";
+              if (!/^\S+ \d+ \S/.test(label)) throw new Error(`Count label must be "verb N noun": ${JSON.stringify(label)}`);
               result[`count-${count}/trail`] = box(`${root} .cv-tool__chevron`).right - column.right;
               if (
-                getComputedStyle(document.querySelector(`${root} .cv-tool-label__subject`)!).fontVariantNumeric !==
+                getComputedStyle(document.querySelector(`${root} .cv-tool__text`)!).fontVariantNumeric !==
                 "tabular-nums"
               )
                 throw new Error("Counts must use tabular numerals");
