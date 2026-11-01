@@ -10,7 +10,7 @@ import { threadTitle } from "../src/pages/home-channels/model";
 import { sliceWhole, sliceWholeEnd } from "../src/ui/wholeChars";
 
 /** A lone surrogate: a high unit not followed by a low one, or a low one not preceded by a high one. */
-const lone = (text: string) => !text.isWellFormed();
+const lone = (text: string) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
 
 test("sliceWhole and sliceWholeEnd move off the middle of an emoji", () => {
   expect(sliceWhole("ab😀cd", 3)).toBe("ab");
