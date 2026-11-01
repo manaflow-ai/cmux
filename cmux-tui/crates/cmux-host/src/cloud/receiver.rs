@@ -267,7 +267,7 @@ fn validate(p: &CloudVmNetworkPolicyView, b: &ReceiverBinding) -> Result<(), Str
         || !native_id(&p.vm, "vm_")
         || p.tenant.is_empty()
         || p.tenant.len() > 128
-        || !p.tenant.as_bytes()[0].is_ascii_alphanumeric()
+        || !p.tenant.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
         || !p.tenant.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
         || p.ipv4.as_ref().is_some_and(|ip| ip.parse::<std::net::Ipv4Addr>().is_err())
         || !canonical_origin(&p.origin)
@@ -341,7 +341,7 @@ fn public_key(text: &str, n: usize) -> bool {
     STANDARD.decode(text).is_ok_and(|bytes| {
         bytes.len() == n
             && bytes.iter().any(|b| *b != 0)
-            && (n != 65 || bytes[0] == 4)
+            && (n != 65 || bytes.first() == Some(&4))
             && STANDARD.encode(bytes) == text
     })
 }

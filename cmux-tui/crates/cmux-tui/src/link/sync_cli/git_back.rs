@@ -346,7 +346,7 @@ fn object_id(text: &str) -> anyhow::Result<String> {
 
 /// Makes the quarantine: an empty bare repository of this command's own,
 /// whose object store borrows this repository's.
-fn quarantined(quarantine: &Path, common_dir: &Path) -> anyhow::Result<()> {
+pub(super) fn quarantined(quarantine: &Path, common_dir: &Path) -> anyhow::Result<()> {
     let format = output(
         Command::new("git").arg("-C").arg(common_dir).args(["rev-parse", "--show-object-format"]),
     )?
@@ -469,14 +469,14 @@ fn set_ref(quarantine: &Path, name: &str, id: &str) -> anyhow::Result<()> {
 }
 
 /// git in the working copy at `folder`, with the person's own settings.
-fn local(folder: &Path) -> Command {
+pub(super) fn local(folder: &Path) -> Command {
     let mut command = Command::new("git");
     command.arg("-C").arg(folder);
     command
 }
 
 /// git in the quarantine, with no global or system settings.
-fn quarantine_git(quarantine: &Path) -> Command {
+pub(super) fn quarantine_git(quarantine: &Path) -> Command {
     let mut command = clean(Command::new("git"));
     command.arg("--git-dir").arg(quarantine);
     command
@@ -495,7 +495,7 @@ fn clean(mut command: Command) -> Command {
 }
 
 /// The command's stdout, or an error with its stderr.
-fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
+pub(super) fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
     let output = command.output().context("cannot run git")?;
     if !output.status.success() {
         bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());

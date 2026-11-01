@@ -406,6 +406,14 @@ export class EditorStore {
         await view.prepareSave(settings).catch(() => undefined);
       }
       if (view.format && settings.formatOnSave) await view.format().catch(() => undefined);
+      // A second save (Cmd-S pressed again) began while this one formatted and is writing now: this
+      // one saves again when it ends. Writing beside it would use the same base hash, which the
+      // first write has already moved, and raise a conflict with the person's own text.
+      if (this.saving) {
+        this.saveAgain = true;
+        return this.saving;
+      }
+      if (this.state.conflict) return;
     }
     const version = view.version();
     if (version === this.savedVersion) {
