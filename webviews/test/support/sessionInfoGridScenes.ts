@@ -76,7 +76,8 @@ export const sessionInfoGridScenes: GridScene[] = [
     },
     ...[
       ["environment", "context"],
-      ["context", "connectors"],
+      ["context", "usage"],
+      ["usage", "connectors"],
     ].map(([before, after]): GridLine => ({
       name: `${before} to ${after}: inner gap`,
       actual: point(section(after!), "top"),
