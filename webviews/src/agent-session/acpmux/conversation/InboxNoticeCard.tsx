@@ -21,7 +21,7 @@ import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { FindReveal, foldFind } from "./chatFind";
 import { SenderName } from "./IncomingMessageCard";
-import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender, MessageGroupHead } from "./MessageGroupHead";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
 import { inboxCounts, inboxThreadKey, type InboxMessage, type InboxNotice, type InboxThread } from "./inboxNotice";
@@ -218,24 +218,25 @@ export function InboxNoticeCard({
     senders.length === 1
       ? t("message.waitingFromOne", { n: messages })
       : t("message.waitingFrom", { n: messages, sessions: senders.length });
-  // One sender: its mark, from its newest thread (its session and bound harness); several: the
-  // messages glyph.
-  const lead = [...notice.threads].reverse().find((thread) => newestSender(thread) === senders[0]);
+  // One sender: its mark, from its newest thread (its session and bound harness); several, even
+  // under one name (two sessions, or two harnesses: cmux#30821), the messages glyph.
+  const lead =
+    senders.length === 1
+      ? groupSender(
+          notice.threads.map((thread) => ({
+            name: newestSender(thread) || senders[0]!,
+            text: "",
+            raw: "",
+            ...(thread.fromSession && { sessionId: thread.fromSession }),
+            ...(thread.fromHarness && { harness: thread.fromHarness }),
+          })),
+        )
+      : undefined;
   return (
     <div className="cv-inbox cv-inbox--group" data-look={look} data-open={open || undefined}>
       {/* Find counts the messages' words, not the head's names. */}
       <MessageGroupHead
-        sender={
-          senders.length === 1 && lead
-            ? {
-                name: senders[0]!,
-                text: "",
-                raw: "",
-                ...(lead.fromSession && { sessionId: lead.fromSession }),
-                ...(lead.fromHarness && { harness: lead.fromHarness }),
-              }
-            : undefined
-        }
+        sender={lead && { ...lead, name: senders[0]! }}
         count={count}
         senders={senders.join(", ")}
         open={open}

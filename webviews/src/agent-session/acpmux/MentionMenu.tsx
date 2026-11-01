@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useComposerListBox } from "./backdropLayer";
 import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
 import type { MentionItem } from "./mentionItems";
@@ -113,8 +114,10 @@ export function MentionMenu({
   onPick(item: MentionItem): void;
 }) {
   const t = useT();
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const escape = useEscapingList("top", 6);
+  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
+  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
+  const box = useComposerListBox();
+  const escape = useEscapingList("top", 6, undefined, box);
   useEffect(() => {
     document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);

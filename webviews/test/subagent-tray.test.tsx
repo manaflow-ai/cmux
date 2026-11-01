@@ -1463,6 +1463,7 @@ describe("workflow progress in the default tray and Session Info", () => {
         await view.show(
           draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
         );
+        expect(view.root.querySelectorAll(".acpmux-agent-line__progress")).toHaveLength(1);
         // Every subagent list omits usage; the dedicated Context section retains it.
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
           "37/101 agents · 2 failed · 4 queued",

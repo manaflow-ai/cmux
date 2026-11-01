@@ -50,7 +50,7 @@ extension AppActions {
         // only while its Debug tunable is on.
         registry.bind("nextSidebarTab", invoke: { SidebarNavigation.step(by: 1, scope: $0["scope"]?.stringValue, services) })
         registry.bind("prevSidebarTab", invoke: { SidebarNavigation.step(by: -1, scope: $0["scope"]?.stringValue, services) })
-        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }
+        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabsOn }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)

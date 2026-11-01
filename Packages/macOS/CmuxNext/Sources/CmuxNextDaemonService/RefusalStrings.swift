@@ -121,6 +121,11 @@ public nonisolated enum RefusalStrings {
     public static var daemonConnecting: String {
         text("handlers.refusal.daemonConnecting", "cmux is still starting its background service. Try again in a moment.")
     }
+    /// A new incognito window whose workspace the local daemon neither answered nor made within its bound
+    /// (`DaemonService.createReplyBound`): no window opens.
+    public static var incognitoUnanswered: String {
+        text("handlers.refusal.incognitoUnanswered", "The incognito window did not open: cmux’s background service did not answer.")
+    }
     /// The local daemon could not start (the window shows why).
     static var daemonUnavailable: String {
         text("handlers.refusal.daemonUnavailable", "cmux could not start its background service. Quit and reopen cmux to try again.")

@@ -537,6 +537,14 @@ class GalleryHealth(unittest.TestCase):
         # A base checker from before the shift gate wrote no `shifted` list: it still reads as whole.
         self.assertIsNone(reds.gallery_classify(health(), health()))
 
+    def test_a_geometry_break_is_red_per_violation_and_the_base_can_share_it(self):
+        broke = [{"state": "agent-pane.transcript#worked", "violations": [{"rule": "icon-column", "key": "icon-column:row r1", "detail": "x"}]}]
+        head = health(geometry=broke)
+        self.assertTrue(reds.gallery_classify(head, health()).own)
+        self.assertFalse(reds.gallery_classify(head, health(geometry=broke)).own)
+        other = [{"state": "agent-pane.transcript#worked", "violations": [{"rule": "icon-column", "key": "icon-column:row r2", "detail": "x"}]}]
+        self.assertTrue(reds.gallery_classify(head, health(geometry=other)).own)
+
     def test_a_crashed_render_is_never_the_bases(self):
         crashed = health(fresh=[("a.b#c", "did not render: page.goto: Target crashed")])
         verdict = reds.gallery_classify(crashed, crashed)

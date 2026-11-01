@@ -137,7 +137,7 @@ once to its new place, and a second move is a bounce. The stage's load, from nav
 play, is measured the same way (`window.cmuxGalleryLoadReport`).
 
 Gallery health gates the layout shift of every state it renders against
-`scripts/gallery-matrix/shift-baseline.json`: a state whose row is 0 fails on any shift (load plus
+`scripts/gallery-matrix/shift-baseline.json`: a state whose row is 0 fails on any shift past frame-timing noise (load plus
 steps), a non-zero row fails past its margin, and a state with no row yet only warns. Rows only go
 down (`bun shift-baseline.ts --from <artifacts>`); `--add` writes rows for new states.
 

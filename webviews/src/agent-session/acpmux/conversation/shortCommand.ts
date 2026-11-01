@@ -3,6 +3,7 @@
 // `export PATH="…"; B=~/x; cd repo && cmux browser open …` reads "cmux browser open …" (Leo
 // 2026-10-20: "a short human label, not the raw command").
 import { isPlainCd } from "./commandFolder";
+import { sliceWhole } from "../../../ui/wholeChars";
 
 /// A step that only sets the shell up: an export, a bare assignment, a set. A cd counts only into a
 /// plain path (isPlainCd, the rule a Ran row uses). A `source` or `.` runs a script, and a step with
@@ -68,7 +69,7 @@ export function shortCommand(command: string, max = 60): string {
   const step = at < 0 ? all[0]! : all[at]!;
   let text = programName(step.replace(LEADING_ASSIGNMENTS, "")).replace(/\s+/g, " ");
   const more = at >= 0 && at < all.length - 1;
-  if (text.length > max) text = `${text.slice(0, max - 1).trimEnd()}…`;
+  if (text.length > max) text = `${sliceWhole(text, max - 1).trimEnd()}…`;
   else if (more) text = `${text} …`;
   return text;
 }

@@ -92,7 +92,10 @@ class WorkflowShape(unittest.TestCase):
         for key, each in doc["jobs"].items():
             with self.subTest(runner=key):
                 runner = str(each["runs-on"])
+                self.assertIn("cmux-fleet-linux-x64", runner)
                 self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
+                self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
+                                "a stalled literal fleet label must not bypass the reconciled live pool")
                 self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
                 self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
         for key, each in doc["jobs"].items():
