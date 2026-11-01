@@ -392,6 +392,8 @@ impl Hub {
             q
         });
         *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = back.collect();
+        // Out of the queue, they still wait: charged under this lock (`queue_admission.rs`).
+        digest.charge(session, &queue, &taken);
         // Its turn takes them over (`take_joined`).
         let digests = &session.inbox_digests;
         digests.lock().unwrap_or_else(|e| e.into_inner()).insert(digest_id.clone(), digest.clone());
@@ -503,6 +505,12 @@ impl Hub {
                     let msg = json!({"promptId": id, "turnId": turn, "client": who, "error": e.message, "data": e.data});
                     hub.append(&s, "mux", "prompt_refused", msg);
                 }
+            }
+            // Whatever way it ended, its messages wait with it no more (`queue_admission.rs`):
+            // its turn took them over, or `requeue_joined` put them back. Once only.
+            {
+                let queue = s.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                digest.release(&s, &queue);
             }
             digest.answer.send_replace(Some(result));
         });

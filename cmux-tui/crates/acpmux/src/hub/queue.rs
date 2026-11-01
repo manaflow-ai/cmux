@@ -6,7 +6,7 @@
 //! relaunch, a quit and a reboot.
 
 use super::queue_admission::QueueLimits;
-use super::subsession_runs::{TurnGuard, WaitMark};
+use super::subsession_runs::{ClaimedTurn, TurnGuard, WaitMark};
 use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
@@ -134,6 +134,10 @@ pub(super) struct Slot<'a> {
     pub(super) no_queue: bool,
     /// `PromptOptions::admitted`.
     pub(super) admitted: bool,
+    /// An automatic continuation (`PromptOptions::after_turn`, `auto_resume.rs`): it never
+    /// queues, so a prompt about to start its turn (`Session::turn_claimed`) does not make it
+    /// queue; it waits for the lock, and `check_cut` decides after.
+    pub(super) after_turn: bool,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -237,19 +241,34 @@ impl Hub {
                     // A Stop since the read above keeps them: the release checks under the lock.
                     self.release_held_agent_messages(session, 0);
                 }
-                // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
-                let held = session.queue().iter().filter(|q| q.held).count() as u64;
-                let waiting = stop_held || session.turn().is_some() || session.queued() > held;
-                // It never queues: busy when the queue's own test says it would wait. The turn
-                // lock is tried below, and the queue read again under it.
-                if p.no_queue && waiting {
-                    return Err(Err(super::auto_resume::retry_turn::busy()));
-                }
-                let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
+                // Whether it waits, and its place in the count, are one step under `admit`: two
+                // prompts that come together never both find the chat free, so the second
+                // queues and is accepted at once instead of waiting unanswered for the lock
+                // (fuzz row g, g1). Nothing is awaited under it.
+                let waiting = {
+                    let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+                    // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
+                    let held = session.queue().iter().filter(|q| q.held).count() as u64;
+                    // A prompt that took the turn lock and has not shown its turn yet
+                    // (`start_turn` runs after awaits) is a turn too. The count is read before
+                    // the claim: a prompt counts in `queued` until it holds the claim.
+                    let waiting = stop_held
+                        || session.queued() > held
+                        || (session.turn_claimed() && !p.after_turn)
+                        || session.turn().is_some();
+                    // It never queues: busy when the queue's own test says it would wait. The
+                    // turn lock is tried below, and the queue read again under it.
+                    if p.no_queue && waiting {
+                        return Err(Err(super::auto_resume::retry_turn::busy()));
+                    }
+                    session.queued.fetch_add(1, Ordering::SeqCst);
+                    waiting
+                };
                 let withdraw = if waiting {
-                    let waits = self.enqueue_or_refuse(session, &p, position, &turn_id, limits)?;
+                    let (waits, position) =
+                        self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                     accept(
-                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
+                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
                     );
                     Some(waits)
                 } else {
@@ -270,15 +289,16 @@ impl Hub {
                     // behind it.
                     let guard = session.turn_lock.try_lock().ok();
                     match guard.filter(|_| session.turn().is_none() && !queue_waits(session)) {
-                        Some(guard) => guard,
+                        Some(guard) => ClaimedTurn::new(session, guard),
                         None => {
                             session.queued.fetch_sub(1, Ordering::SeqCst);
                             return Err(Err(super::auto_resume::retry_turn::busy()));
                         }
                     }
                 } else {
-                    session.turn_lock.lock().await
+                    ClaimedTurn::new(session, session.turn_lock.lock().await)
                 };
+                // Claimed before it leaves the count: a prompt that comes between sees one.
                 session.queued.fetch_sub(1, Ordering::SeqCst);
                 // Its close may have begun while it waited for the turn.
                 if refuses_closing(&p) && closing(session) {
@@ -293,10 +313,11 @@ impl Hub {
                 // prompt waited for the lock, not that turn, and queues behind it.
                 if session.turn().is_some() {
                     drop(guard);
-                    let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                    let waits = self.enqueue_or_refuse(session, &p, position, &turn_id, limits)?;
+                    session.queued.fetch_add(1, Ordering::SeqCst);
+                    let (waits, position) =
+                        self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                     accept(
-                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
+                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
                     );
                     (waits, None)
                 } else {
@@ -335,11 +356,11 @@ impl Hub {
                                 return Err(Err(super::auto_resume::retry_turn::busy()));
                             }
                             let mark = self.mark_waiting_for_slot(&parent, session);
-                            let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                            let waits =
-                                self.enqueue_or_refuse(session, &p, position, &turn_id, limits)?;
+                            session.queued.fetch_add(1, Ordering::SeqCst);
+                            let (waits, position) =
+                                self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                             accept(
-                                json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position, "waitsForSlot": true}),
+                                json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "waitsForSlot": true}),
                             );
                             (waits, Some(mark))
                         }
@@ -485,33 +506,33 @@ impl Hub {
 
     /// Puts a prompt that waits for the running turn in the queue and tells every client right
     /// away. The returned `Notify` fires when `remove_queued` withdraws it or it joins an earlier
-    /// agent message's turn (then `joined` is set, `digest.rs`).
-    /// [`Self::enqueue`] for `queue_slot`: a prompt the queue has no room for is counted back out
-    /// of the session's queued total, and its refusal is what `session/prompt` answers.
+    /// agent message's turn (then `joined` is set, `digest.rs`). Also returns its place in the
+    /// queue (1: next), as an inbox digest names its own (`inbox_digest.rs`): where it went in,
+    /// not the count, which a prompt about to start its turn is still in. A prompt the queue has
+    /// no room for is counted back out of the session's queued total, and its refusal is what
+    /// `session/prompt` answers.
     fn enqueue_or_refuse(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
-        position: u64,
         turn_id: &str,
         limits: QueueLimits,
-    ) -> Result<Waits, Answer> {
-        self.enqueue(session, p, position, turn_id, limits).map_err(|e| {
+    ) -> Result<(Waits, u64), Answer> {
+        self.enqueue(session, p, turn_id, limits).map_err(|e| {
             session.queued.fetch_sub(1, Ordering::SeqCst);
             Err(e)
         })
     }
 
-    /// Puts `p` in the queue, unless it has no room for it (`queue_admission.rs`): then nothing
-    /// is put in, written or replaced.
+    /// [`Self::enqueue_or_refuse`]'s step: puts `p` in the queue, unless it has no room for it
+    /// (`queue_admission.rs`): then nothing is put in, written or replaced.
     fn enqueue(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
-        position: u64,
         turn_id: &str,
         limits: QueueLimits,
-    ) -> Result<Waits, RpcError> {
+    ) -> Result<(Waits, u64), RpcError> {
         // Measured before the lock: under it only sizes measured already are added up.
         let size = super::queue_admission::slot_bytes(p);
         let withdraw = Arc::new(Notify::new());
@@ -527,11 +548,9 @@ impl Hub {
             // or waiting for the turn lock, which `Session::queued` counts already.
             let others = session.queued.load(Ordering::SeqCst).saturating_sub(1);
             // The messages an inbox digest took wait with it, out of the queue, until its turn
-            // takes them over (`digest.rs` `take_joined`); read under the queue's lock, where
-            // a digest takes them (`inbox_digest.rs`).
-            let digests = session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner());
-            let taken = digests.values().map(|d| d.taken_bytes()).sum::<u64>();
-            drop(digests);
+            // takes them over (`digest.rs` `take_joined`) or they go back in: their charge, read
+            // under the queue's lock, where every move in or out of it changes it.
+            let taken = session.digest_bytes.load(Ordering::SeqCst);
             super::queue_admission::room(&queue, others, taken, size, replaces, limits)?;
         }
         // The sender's prompts under its key leave under the lock that puts this one in
@@ -556,6 +575,7 @@ impl Hub {
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
         let at = at.unwrap_or(queue.len());
+        let position = at as u64 + 1;
         let mut message_opts = PromptOptions::default();
         super::message_events::restore_message_options(&mut message_opts, p.provenance);
         queue.insert(
@@ -612,7 +632,7 @@ impl Hub {
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
-        let images = super::prompt_images::keep(p.blocks);
+        let images = super::prompt_images::keep_sourced(p.blocks, p.display_parts);
         if !images.is_empty() {
             queued.set("images", Value::Array(images));
         }
@@ -650,7 +670,7 @@ impl Hub {
                 json!({"held": [p.prompt_id], "reason": "stop"}),
             );
         }
-        Ok((withdraw, joined))
+        Ok(((withdraw, joined), position))
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn
@@ -702,7 +722,13 @@ impl Hub {
             if head && !held && !moving && session.turn().is_none() {
                 if !self.shutting_down() {
                     match self.take_run_slot(session, provenance.as_ref()) {
-                        Ok(slot) => return Wait::Turn(TurnGuard::new(guard, slot)),
+                        // Claimed before `take_queued` takes it out of the count.
+                        Ok(slot) => {
+                            return Wait::Turn(TurnGuard::new(
+                                ClaimedTurn::new(session, guard),
+                                slot,
+                            ));
+                        }
                         // Its parent's run slots are all taken: it waits for one to free (or a
                         // limit to change), or to be withdrawn.
                         Err(parent) => {

@@ -698,6 +698,19 @@ impl DeclaredModel {
     }
 }
 
+impl HarnessProfile {
+    /// The hex SHA-256 of what starts the harness: its argv and env, never its name, models,
+    /// defaults or kind (how acpmux speaks to it, which an adopted agent's host answers for
+    /// itself). A session keeps the digest its agent started from (`SessionMeta::launch_digest`),
+    /// and a profile reload that changes it respawns the agent at its turn end
+    /// (`hub/profile_respawn.rs`). A hash, so the env's values are not kept.
+    pub fn launch_digest(&self) -> String {
+        // A list and a BTreeMap of strings: the JSON is stable.
+        let launch = serde_json::json!({"argv": self.argv, "env": self.env});
+        crate::sha256::sha256_hex(launch.to_string().as_bytes())
+    }
+}
+
 /// Session defaults for a family or a single profile (`defaults` in
 /// config.json). Precedence at `session/new`: explicit request, then the
 /// profile's own entry, then its family's entry, then the daemon defaults.
@@ -1024,8 +1037,8 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
-    /// `cpuClass`: the CPU class a macOS session's harness starts at,
-    /// `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// `cpuClass`: the CPU class a macOS session's harness runs at once its
+    /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
@@ -1165,7 +1178,8 @@ pub struct Config {
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
     /// length is how many attempts run, a chain of daemon restarts included. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 12
+    /// twelve exponential waits from 10 s capped at 20 min (about two hours); `[]` turns it off.
+    /// A provider reset hint extends the wait when needed. Checked on load: at most 12
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
         default,

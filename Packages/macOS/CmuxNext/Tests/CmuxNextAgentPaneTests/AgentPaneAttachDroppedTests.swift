@@ -66,7 +66,7 @@ struct AgentPaneAttachDroppedTests {
     @Test func refusesAMalformedRequest() {
         let method = "chat.attach.dropped"
         for params: [String: Any] in [
-            ["kind": "choose", "names": ["a.zip"]],
+            ["kind": "pick", "names": ["a.zip"]],
             ["kind": "drop", "names": [String]()],
             ["kind": "drop", "names": Array(repeating: "a.zip", count: AgentPaneDroppedPaths.maximumNames + 1)],
             ["kind": "drop", "names": ["a/b.zip"]],
@@ -89,6 +89,19 @@ struct AgentPaneAttachDroppedTests {
         let items = try #require(Self.items(reply))
         #expect(items.compactMap { $0["path"] as? String } == [folder.path, file.path])
         #expect(items.compactMap { $0["folder"] as? Bool } == [true, false])
+    }
+
+    /// Files picked in + > Attach files are linked where they are, as a drop's are: a several-GB
+    /// video is never streamed into a copy (Leo, 2026-10-31: "video attachments (big attachments?)
+    /// still sucks"). A pick's record answers only a pick's ask.
+    @Test func aPickInTheFileInputAnswersItsPathsLikeADrop() async throws {
+        let (base, _, file) = try Self.dropped()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rig = Rig()
+        rig.model.droppedPaths.stash([file], kind: .choose)
+        #expect(Self.items(await rig.ask("drop", ["build.zip"]))?.isEmpty == true)
+        let items = try #require(Self.items(await rig.ask("choose", ["build.zip"])))
+        #expect(items.compactMap { $0["path"] as? String } == [file.path])
     }
 
     /// The page's order of the same files is the order of the answer.

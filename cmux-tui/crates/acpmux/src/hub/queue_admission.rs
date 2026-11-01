@@ -11,9 +11,11 @@
 //! it. Not checked: the prompts a restart rebuilds, a failed turn or a Stop holds, or an edit
 //! changes, which were admitted already, and an inbox digest (`inbox_digest.rs`), which joins
 //! queued messages into one and so never adds a prompt. The messages it took leave the queue but
-//! wait with it (`DigestTurn::taken`) until its turn takes them over, and are charged from there
-//! (`Session::inbox_digests`), so a steer that falls back to the queue or an edit keeps them
-//! charged. Its own text is not checked: it may pass the byte limit by that much, which is at most
+//! wait with it (`DigestTurn::taken`) until its turn takes them over, and are charged to
+//! `Session::digest_bytes` meanwhile: charged in the critical section of the queue lock that takes
+//! them out, released in the one that puts them back (`requeue_joined`) or once its turn has them,
+//! so a new prompt always finds them in the queue or in the charge, and admission reads one number
+//! under the queue lock and no other lock. Its own text is not checked: it may pass the byte limit by that much, which is at most
 //! [`DIGEST_MAX_BYTES`](super::DIGEST_MAX_BYTES) of whole message texts plus, for each message it
 //! took, its heading line and the first 400 characters of a text cut short. The next new prompt
 //! then finds the queue full, so no prompt is admitted on top of it, and each message goes into
