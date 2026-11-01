@@ -98,6 +98,8 @@ final class HandoffNotices {
                     self.follower.refresh(handoff.id, changed: Date(timeIntervalSince1970: updatedAt / 1_000), running: handoff.isRunning)
                 }
             }
+            // An incognito hand-off that closed while the app was stopped is in neither: its saved id goes (#31208).
+            self.follower.keepIncognito(listed: Set(handoffs.map(\.id)))
         }
     }
 
