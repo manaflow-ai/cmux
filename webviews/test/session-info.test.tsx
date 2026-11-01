@@ -127,18 +127,21 @@ function Pane({
   sessions,
   onPanelRender,
   rerenderOnScroll = false,
+  cloudRepositoryAvailable,
 }: {
   snapshot: AcpmuxSnapshot;
   onOpenOutput: (path: string) => void;
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   onPanelRender?: () => void;
   rerenderOnScroll?: boolean;
+  cloudRepositoryAvailable?: boolean;
 }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const [scrollFrame, setScrollFrame] = useState(0);
   const sessionInfo = useSessionInfo({
     snapshot,
     machineName: "Studio",
+    cloudRepositoryAvailable,
     shell,
     onOpenOutput,
     onRender: onPanelRender,
@@ -364,6 +367,28 @@ test("Session Info opens with a first chat: its environment, context use and out
   expect(panel(container)).toBeNull();
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
   expect(sessionInfoState().open).toBe(false);
+});
+
+test("Session Info passes the Cloud repository route from the pane to Environment", async () => {
+  const container = installDom(true);
+  const cloud: AcpmuxSnapshot = {
+    ...chat([]),
+    summary: { ...chat([]).summary!, sessionId: "cloud-session", hostKind: "cloud", host: "cloud-01" },
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Pane snapshot={cloud} onOpenOutput={noop} cloudRepositoryAvailable />);
+  });
+  const environment = section(container, "environment")!;
+  expect(environment.querySelector("li[data-machine]")?.textContent).toContain("cloud-01");
+  expect(environment.textContent).toContain("Default");
+  expect(environment.textContent).toContain("Add repository…");
+
+  await act(async () => {
+    root!.render(<Pane snapshot={cloud} onOpenOutput={noop} cloudRepositoryAvailable={false} />);
+  });
+  expect(section(container, "environment")?.textContent).not.toContain("Add repository…");
+  expect(section(container, "environment")?.textContent).not.toContain("Default");
 });
 
 test("open, closed, folds and width are this pane's, and another pane's change never reaches it", async () => {
