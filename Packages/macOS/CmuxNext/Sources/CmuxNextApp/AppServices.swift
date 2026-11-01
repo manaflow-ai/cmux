@@ -10,7 +10,7 @@ import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
-import CmuxNextComputerUse
+public import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -18,7 +18,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDaemonRecovery
-import CmuxNextDictation
+public import CmuxNextDictation
 import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -337,12 +337,10 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
-    /// Share Screen with Chief (docs/chief-screen-share.md): off at every launch; its journal is this
-    /// Mac's Chief home's `optchat/screen`, which the Chief's brain reads into memory notes.
+    /// Share Screen with Chief (docs/chief-screen-share.md), read by the Computer Use helper; journal in `optchat/screen`.
     lazy var chiefScreenShare = ChiefScreenShare(
-        capture: ChiefScreenSystemCapture(),
-        journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome
-            .appending(path: "optchat/screen", directoryHint: .isDirectory)))
+        capture: ChiefScreenHelperCapture(host: ComputerUseScreenStills(helper: .shared)),
+        journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome.appending(path: "optchat/screen", directoryHint: .isDirectory)))
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
@@ -866,3 +864,5 @@ extension AppServices {
         if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }
+
+nonisolated extension ComputerUseScreenStills: ChiefScreenCaptureHost {}
