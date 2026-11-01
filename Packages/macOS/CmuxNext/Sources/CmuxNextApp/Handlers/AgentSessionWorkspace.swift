@@ -92,15 +92,12 @@ enum AgentSessionWorkspace {
            let row = SidebarEdits.predecessor(named: name, inGroup: group, inEach: windows.controllers.map(\.sidebar.model.sections)) {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
-        expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
-        // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves
-        // under it once the tab has opened.
+        let rowStays = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
+        // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
-        // No group: the workspace and chat show now (P4). A close of the stand-in is sent after this open's task sent create-workspace, on one connection.
-        let tabs = services.agentTabs, machine = MachineID(daemon.machineID)
-        let instant = group != nil || AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) != nil ? nil
-            : tabs.showWorkspace(key, name: name ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }),
-                                 index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair)
+        // Its row already at its place: the workspace and chat show now (P4); a close of the stand-in follows this task's create-workspace on one connection.
+        let tabs = services.agentTabs, machine = MachineID(daemon.machineID), instant = !rowStays || AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) != nil ? nil
+            : tabs.showWorkspace(key, name: name ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }), index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair)
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
@@ -141,8 +138,10 @@ enum AgentSessionWorkspace {
     /// row's only place: Cmd-N's slot in the window's current group first, then a move across to `group`, showed every
     /// agent's session in the wrong group for a moment (Leo, 2026-11-01: "it looks really odd when they pop up into some
     /// existing group on the sidebar as a workspace and then go to wherever they're supposed to go to").
+    /// Returns whether a stand-in's row is at that place before the daemon lists it (unplaced rows draw first under `top`, else last).
+    @discardableResult
     @MainActor static func expectPlacement(_ id: String, group: String?, top: Bool, parent: AgentSessionParents.Identity?,
-                                           windows: WindowManager) {
+                                           windows: WindowManager) -> Bool {
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
             join = { id, sidebar in
@@ -154,6 +153,7 @@ enum AgentSessionWorkspace {
         let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
         let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: nil, in: windows)
         NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: group == nil ? rule : nil, then: join, windows: windows)
+        return group == nil && slot == nil && (top ? NewWorkspacePlacements.rule(for: nil, in: windows).placement == .top : rule.placement != .afterCurrent)
     }
 
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
