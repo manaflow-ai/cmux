@@ -105,15 +105,15 @@ class Receipts(unittest.TestCase):
                      decided_at=(delivered - dt.timedelta(seconds=2)).isoformat())
         self.assertEqual(admission.routes(ENV, REQUEST, value), value["runners"])
 
-    def test_missing_admission_keeps_controls_on_existing_owned_routes(self):
+    def test_missing_admission_uses_measured_overflow_without_live_capacity(self):
         selected = admission.routes(ENV, REQUEST, None)
         for job in admission.JOBS:
-            self.assertEqual(selected[job], ENV["SIDE_LABEL"])
+            self.assertEqual(selected[job], ENV["OVERFLOW_LINUX"])
 
-    def test_unconfigured_mini_and_reruns_still_default_to_fleet_linux(self):
+    def test_unconfigured_mini_and_reruns_use_measured_overflow(self):
         for config in ({**ENV, "SIDE_LABEL": ""}, {**ENV, "GITHUB_RUN_ATTEMPT": "3"}):
             self.assertEqual(set(admission.routes(config, admission.identity(config), None).values()),
-                             {admission.FLEET_LINUX})
+                             {ENV["OVERFLOW_LINUX"]})
 
     def test_recorded_overflow_only_uses_declared_paid_set(self):
         selected = admission.routes({**ENV, "SIDE_LABEL": ""}, REQUEST, receipt("overflow"))
@@ -151,13 +151,13 @@ class Receipts(unittest.TestCase):
         self.assertEqual(timer.call_args.args, (admission.signal.ITIMER_REAL, 0))
         self.assertEqual(admission.signal.getsignal(admission.signal.SIGALRM), previous)
 
-    def test_unavailable_controller_writes_fleet_outputs_and_no_overflow_receipt(self):
+    def test_unavailable_controller_writes_overflow_without_forging_receipt(self):
         with tempfile.TemporaryDirectory() as scratch:
             output, record = Path(scratch) / "output", Path(scratch) / "receipt.json"
             config = {**ENV, "GITHUB_OUTPUT": str(output), "ADMISSION_RECEIPT_PATH": str(record)}
-            with mock.patch.object(admission, "admit", side_effect=TimeoutError):
+            with mock.patch.object(admission, "admit", side_effect=TimeoutError), mock.patch.object(admission, "read_minis", return_value=(None, None)):
                 self.assertEqual(admission.main(config), 0)
-            self.assertNotIn("blacksmith", output.read_text())
+            self.assertIn(ENV["OVERFLOW_LINUX"], output.read_text())
             self.assertNotIn("signer_build_runner", output.read_text())
             self.assertIsNone(json.loads(record.read_text())["receipt"])
 
@@ -216,7 +216,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(legacy["env"]["JOBS"], "pick-nightly-build-runner")
         self.assertEqual(legacy["env"]["FLEET_LINUX"], "")
 
-    def test_missing_stale_or_quota_failed_picker_cannot_select_blacksmith_first(self):
+    def test_missing_stale_or_quota_failed_picker_uses_measured_overflow(self):
         for name in admission.JOBS:
             source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
             key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
@@ -227,7 +227,7 @@ class Workflow(unittest.TestCase):
                                "needs.decide.outputs.early_attempt": "0", key: overflow,
                                "vars.LINUX_RUNNER": overflow}
                     with self.subTest(job=name, attempt=attempt, overflow=overflow):
-                        self.assertEqual(evaluate(parse_expression(source), context), admission.FLEET_LINUX)
+                        self.assertEqual(evaluate(parse_expression(source), context), overflow)
 
     def test_other_tracks_keep_their_existing_linux_route(self):
         for name in ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper"):
