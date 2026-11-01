@@ -450,3 +450,7 @@ fn sha256_file(path: &Path) -> io::Result<String> {
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }
+
+#[cfg(test)]
+#[path = "macos_tests.rs"]
+mod tests;
