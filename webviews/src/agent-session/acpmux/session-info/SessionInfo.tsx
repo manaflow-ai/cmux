@@ -268,6 +268,7 @@ export function useSessionInfo({
   snapshot,
   machineName,
   repository,
+  cloudRepositoryAvailable,
   shell,
   grants,
   onOpenOutput,
@@ -314,6 +315,8 @@ export function useSessionInfo({
   machineName?: string;
   /// The chat folder's GitHub repository (`git.githubRepository`), `owner/name`.
   repository?: string;
+  /// Native says whether this pane has an authenticated Cloud repository route.
+  cloudRepositoryAvailable?: boolean;
   /// The pane's shell: Session Info measures it to float or push.
   shell?: HTMLElement | null;
   /// What the chat was granted (folder trust, a chat-wide allowance), each revocable in Environment.
@@ -491,6 +494,7 @@ export function useSessionInfo({
         pullRequest={pullRequest}
         machineName={machineName}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         shell={shell}
         grants={grants}
         beside={beside}
@@ -560,6 +564,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   pullRequest,
   machineName,
   repository,
+  cloudRepositoryAvailable,
   shell,
   grants,
   beside,
@@ -596,6 +601,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   pullRequest: HeaderPullRequest | undefined;
   machineName?: string;
   repository?: string;
+  cloudRepositoryAvailable?: boolean;
   shell?: HTMLElement | null;
   grants?: readonly AccessGrant[];
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
@@ -784,6 +790,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         repository={repository}
         // A subagent's view lists its own things: the grants are the chat's.
         grants={scope ? undefined : grants}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         links={links}
         artifacts={artifacts}
@@ -1006,6 +1013,7 @@ export function SessionInfo({
   peerKinds,
   repository,
   grants,
+  cloudRepositoryAvailable,
   made,
   links = [],
   artifacts = 0,
@@ -1053,6 +1061,7 @@ export function SessionInfo({
   repository?: string;
   /// What the chat was granted, revocable in Environment.
   grants?: readonly AccessGrant[];
+  cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links?: readonly OutputLink[];
@@ -1208,6 +1217,7 @@ export function SessionInfo({
         machineName={machineName}
         peerKinds={peerKinds}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
         grants={grants}
         onSave={onSaveEnvironment}
