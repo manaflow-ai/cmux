@@ -10,7 +10,8 @@ import Testing
 /// P0 2026-10-30, lead decision on rule (b): a pane verb that is not a create (Toggle Pane Zoom, Rename Pane, Swap) on a
 /// pending split's stand-in is never sent to the daemon; it fails at once with a notice in the refusal HUD ("This pane is
 /// still opening ..."), and the layout stays as it was. Before, the stand-in's handle went to the daemon ("unknown pane",
-/// shown nowhere).
+/// shown nowhere). A create (a split, a new tab) on that stand-in is not refused: it waits for the daemon's pane
+/// (`DaemonStore.daemonTarget`, P0 STATUS 2080).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct PaneVerbOnPendingPaneTests {
     @Test func zoomOnAPendingSplitsPaneShowsANoticeAndChangesNothing() async throws {
@@ -42,10 +43,10 @@ struct PaneVerbOnPendingPaneTests {
         }
     }
 
-    /// Review #6: Split Left on a pane still opening is a non-optimistic split (it swaps after), sent through
-    /// `DaemonService.perform` with the stand-in as its target. It is not sent (no DEBUG stop either) and the person sees
-    /// the pane-still-opening notice exactly once.
-    @Test func splitLeftOnAPendingSplitsPaneShowsOneNoticeAndSendsNothing() async throws {
+    /// Split Left on a pane still opening is a non-optimistic split (it swaps after). The stand-in is never sent (rule b),
+    /// and the split is not refused either (P0 STATUS 2080, a create belongs to the pane it was pressed on): it waits for
+    /// the pending split's daemon pane (`DaemonStore.daemonTarget`) and splits that one, with no notice.
+    @Test func splitLeftOnAPendingSplitsPaneSplitsItsDaemonPaneWithNoNotice() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let content = try #require(services.windows.active?.workspaceContent)
             var terminal = ActionInvocation(origin: .user)
@@ -56,18 +57,16 @@ struct PaneVerbOnPendingPaneTests {
             #expect(pending.pane.handle.rawValue >= ProvisionalPane.firstHandle, "the split already confirmed")
             PaneHandlers.focus(pending.layoutPaneID, in: content)
             let shown = services.refusalHUD.shownCount
-            #expect(services.registry.perform("splitLeft", invocation: terminal))
+            var failures: [String] = []
+            let work = services.registry.capturingWork { _ = services.registry.perform("splitLeft", invocation: terminal) }
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
 
-            try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
-                "Split Left on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
-            })
-            #expect(services.refusalHUD.message?.contains(RefusalStrings.paneStillOpening) == true,
-                    "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
-            // The first split confirms; the refused Split Left made no third pane, and the notice showed once.
-            try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
-                                            report: { "the split did not confirm" })
-            #expect(content.panes.count == before.count + 1, "Split Left made a pane: \(content.panes.count) panes")
-            #expect(services.refusalHUD.shownCount == shown + 1, "the refusal showed \(services.refusalHUD.shownCount - shown) times")
+            // The first split confirms, and Split Left made a third pane beside its daemon pane, with no notice.
+            try await PinnedPageTests.until({
+                content.panes.count == before.count + 2 && content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle }
+            }, report: { "Split Left on the pending pane made no pane: \(content.panes.count) panes, failures \(failures)" })
+            #expect(failures.isEmpty, "Split Left on the pending pane failed: \(failures)")
+            #expect(services.refusalHUD.shownCount == shown, "a refusal showed: \(services.refusalHUD.message ?? "")")
         }
     }
 
@@ -92,10 +91,10 @@ struct PaneVerbOnPendingPaneTests {
         }
     }
 
-    /// Review #7 B1: a sender that calls the daemon connection itself, not a `DaemonService` funnel, shows the refusal
-    /// too. A cmux.json `newTabInCurrentPane` command (`ConfigCommandRunner`, the typed New Tab page path) on a pending
-    /// split's pane: the request is refused before it is sent, the notice shows once, and no tab opens.
-    @Test func aCommandTypedIntoANewTabOnAPendingPaneShowsOneNotice() async throws {
+    /// A cmux.json `newTabInCurrentPane` command (`ConfigCommandRunner`, the typed New Tab page path) on a pending split's
+    /// pane: the stand-in is never sent (rule b), and the tab is not refused either (P0 STATUS 2080): it waits for the
+    /// split's daemon pane and opens there, with no notice.
+    @Test func aCommandTypedIntoANewTabOnAPendingPaneOpensInItsDaemonPane() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let content = try #require(services.windows.active?.workspaceContent)
             var terminal = ActionInvocation(origin: .user)
@@ -109,23 +108,22 @@ struct PaneVerbOnPendingPaneTests {
             // `ConfigCommandRunner.run` for `newTabInCurrentPane`: the targeted pane's controller types into a new tab.
             pending.newTerminalTab(typing: "true\r")
 
-            try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
-                "a typed new tab on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
+            // The split confirms, and the typed tab opens in its daemon pane: the split's tab plus this one.
+            try await PinnedPageTests.until({
+                content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle }
+                    && content.panes.values.reduce(0) { $0 + $1.pane.tabs.count } == tabsBefore + 2
+            }, report: {
+                "the typed new tab did not open: \(content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }) tabs, \(tabsBefore) before the split; HUD \(services.refusalHUD.message ?? "none")"
             })
-            #expect(services.refusalHUD.message?.contains(RefusalStrings.paneStillOpening) == true,
-                    "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
-            try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
-                                            report: { "the split did not confirm" })
-            let tabs = content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }
-            #expect(tabs == tabsBefore + 1, "the refused typed new tab opened a tab: \(tabs) tabs, \(tabsBefore) before the split")
-            #expect(services.refusalHUD.shownCount == shown + 1, "the refusal showed \(services.refusalHUD.shownCount - shown) times")
+            #expect(services.refusalHUD.shownCount == shown, "a refusal showed: \(services.refusalHUD.message ?? "")")
         }
     }
 
     /// Perf review B1 at b898fc6c2d3: a person's run (a key, the menu, the palette) binds a person command scope that
-    /// never closes, and the connection's notice must still show for it. A cmux.json `newTabInCurrentPane` command run
-    /// through the registry with origin `.user` on a pending split's pane: refused before it is sent, one notice, no tab.
-    @Test func aPersonsConfigCommandOnAPendingPaneShowsOneNotice() async throws {
+    /// never closes. A cmux.json `newTabInCurrentPane` command run through the registry with origin `.user` on a pending
+    /// split's pane is a create: since P0 STATUS 2080 (#29530) it waits for the split's daemon pane and opens its tab
+    /// there, with no notice (it showed a pane-still-opening refusal before).
+    @Test func aPersonsConfigCommandOnAPendingPaneOpensInItsDaemonPane() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let content = try #require(services.windows.active?.workspaceContent)
             let command = ConfigCommandAction(name: "p0PendingTyped", title: "P0 pending typed", command: "true")
@@ -142,16 +140,14 @@ struct PaneVerbOnPendingPaneTests {
             // The palette's or a shortcut's run: the registry, origin `.user` (a person scope is bound for it).
             #expect(services.registry.perform(ActionID(rawValue: command.actionID), invocation: ActionInvocation(origin: .user)))
 
-            try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
-                "a person's typed command on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
+            // The split confirms, and the typed command's tab opens in its daemon pane: the split's tab plus this one.
+            try await PinnedPageTests.until({
+                content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle }
+                    && content.panes.values.reduce(0) { $0 + $1.pane.tabs.count } == tabsBefore + 2
+            }, report: {
+                "a person's typed command on the pending pane opened no tab: \(content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }) tabs, \(tabsBefore) before the split; HUD \(services.refusalHUD.message ?? "none")"
             })
-            #expect(services.refusalHUD.message?.contains(RefusalStrings.paneStillOpening) == true,
-                    "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
-            try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
-                                            report: { "the split did not confirm" })
-            let tabs = content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }
-            #expect(tabs == tabsBefore + 1, "the refused typed command opened a tab: \(tabs) tabs, \(tabsBefore) before the split")
-            #expect(services.refusalHUD.shownCount == shown + 1, "the refusal showed \(services.refusalHUD.shownCount - shown) times")
+            #expect(services.refusalHUD.shownCount == shown, "a refusal showed: \(services.refusalHUD.message ?? "")")
         }
     }
 }

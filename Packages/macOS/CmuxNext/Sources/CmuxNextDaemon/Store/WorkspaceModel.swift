@@ -39,6 +39,11 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var checklist: [WorkspaceChecklistItem] = []
     /// Screen groups come from the daemon's state resources.
     @ObservationIgnored var screenGroupsFromState = false
+    /// Cmd-N's stand-in pane this workspace took over, and the daemon's surface of its first tab (the New Tab page),
+    /// set when Cmd-N's create left the intent log: a create pressed on that stand-in and sent after the hand-over
+    /// still lands in the pane the person pressed it in (``DaemonStore/daemonTarget(_:)``). Lives as long as the
+    /// workspace, so it needs no cap.
+    @ObservationIgnored var tookOverStandIn: (pane: PaneID, firstTab: SurfaceID?)?
     /// Listed in the sidebar's Pinned section (`workspace-pin-v1`).
     public internal(set) var pinned: Bool
     /// Marked unread by hand (`notification-mark-unread-v1`), apart from

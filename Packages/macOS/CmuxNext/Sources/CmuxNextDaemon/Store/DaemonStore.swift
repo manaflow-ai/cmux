@@ -144,9 +144,12 @@ public final class DaemonStore: StateResourceQueries {
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
     /// Stand-in pane handles a pending create names as its target (a New Column or split pressed on
-    /// a create still in flight), by handle: the stand-in's public pane id, under which the
-    /// daemon's pane takes it over with a new handle (``daemonHandle(showing:)``).
-    @ObservationIgnored var standInTargets: [PaneID: String] = [:]
+    /// a create still in flight, a Ctrl-` on Cmd-N's pane), by handle: what made the stand-in, by
+    /// which the daemon's pane that takes it over is found (``daemonHandle(showing:)``).
+    @ObservationIgnored var standInTargets: [PaneID: StandInOrigin] = [:]
+    /// Creates waiting for the daemon's pane of a stand-in whose own create is in flight
+    /// (``daemonTarget(_:)``), resumed by the reconcile that resolves them.
+    @ObservationIgnored var standInWaits: [StandInWait] = []
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
