@@ -19,7 +19,7 @@ type Stage =
   | { at: "signedIn" }
   | { at: "sending" }
   | { at: "sent" }
-  | { at: "failed"; failure: LoginFailure; login?: LoginStart };
+  | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true };
 
 /// What the card's lead says: the agent's own name, as the person knows it.
 const SIGN_IN_LABEL = { claude: "turn.signIn.claude", codex: "turn.signIn.codex" } as const;
@@ -169,10 +169,10 @@ export function CloudSignIn({
       (saved) => {
         if (mine !== generation.current) return;
         if (saved) signedIn();
-        else setStage({ at: "failed", failure: "failed" });
+        else setStage({ at: "failed", failure: "failed", key: true });
       },
       (error) => {
-        if (mine === generation.current) setStage({ at: "failed", failure: failureOf(error) });
+        if (mine === generation.current) setStage({ at: "failed", failure: failureOf(error), key: true });
       },
     );
   };
@@ -187,6 +187,11 @@ export function CloudSignIn({
   };
 
   const retry = () => {
+    // A key that was not saved asks for the key again, not for a sign-in.
+    if (stage.at === "failed" && stage.key) {
+      setStage({ at: "key" });
+      return;
+    }
     if (stage.at === "failed" && stage.failure === "bad_code" && stage.login) {
       setStage({ at: "code", login: stage.login });
       return;
