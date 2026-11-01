@@ -61,6 +61,7 @@ import {
   shownName,
   slashMatches,
   useSlashNames,
+  pickedSkillsOf,
   withSkillDollars,
   withoutSkillDollars,
   type SlashCommand,
@@ -590,7 +591,15 @@ export function Composer({
   /// with nothing queued since, a quit compares the editor with it, so an untouched prompt never
   /// clears a draft another client (the CLI, another window) saved while this page was open.
   const hydratedText = useRef("");
-  const prompts = usePromptHistory(snapshot.rows);
+  // A Codex skill a past prompt went with as `/$name` comes back `/name`, read only as it is
+  // recalled (slashCommands.ts withoutSkillDollars).
+  const commandsNow = useRef(snapshot.commands);
+  commandsNow.current = snapshot.commands;
+  /// The Codex skills picked into this draft, by shown name (from the menu, or a prompt that came
+  /// back with them): where a command shares the name, send still writes the skill's `/$name`
+  /// (slashCommands.ts withSkillDollars).
+  const pickedSkills = useRef(new Set<string>());
+  const prompts = usePromptHistory(snapshot.rows, (sent) => withoutSkillDollars(sent, commandsNow.current));
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
@@ -818,7 +827,8 @@ export function Composer({
       restore(restoredText, restoredAttachments) {
         // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
         // as `/$name`: it is typed `/name` here, and send writes the `$` again.
-        const restored = bindMarks(withoutSkillDollars(restoredText), restoredAttachments);
+        for (const name of pickedSkillsOf(restoredText, commandsNow.current)) pickedSkills.current.add(name);
+        const restored = bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments);
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
@@ -1228,13 +1238,22 @@ export function Composer({
     setText(value);
     setCaret(at);
     setDismissed(undefined);
-    // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types.
+    // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
+    // next draft picks its own skills.
+    if (!value.trim()) pickedSkills.current.clear();
     if (!value.trim() && sessionId) onTyping?.("", sessionId);
+  };
+  const notePicked = (command: SlashCommand) => {
+    if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
+  };
+  const notePickedIn = (sent: string) => {
+    for (const name of pickedSkillsOf(sent, commands)) pickedSkills.current.add(name);
   };
   // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
   const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
+    notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
     if (field.current?.insertCommand(shownName(command))) {
       field.current.focus();
@@ -1247,6 +1266,7 @@ export function Composer({
   };
   const pickFromPlus = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
+    notePicked(command);
     const existing = field.current?.value() ?? text;
     const next = `/${shownName(command)} ${existing}`;
     pendingCaret.current = next.length;
@@ -1300,7 +1320,11 @@ export function Composer({
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
-    const typedText = withSkillDollars(field.current?.agentText(draftText) ?? draftText, commands);
+    const typedText = withSkillDollars(
+      field.current?.agentText(draftText) ?? draftText,
+      commands,
+      pickedSkills.current,
+    );
     const inText = placeInline(typedText.trim(), attachments, {
       dropped: (id) => pending.some((chip) => chip.id === id),
     });
@@ -1704,6 +1728,8 @@ export function Composer({
         if (recalled === null) return;
         pendingCaret.current = recalled.length;
         edit(recalled, recalled.length);
+        const raw = prompts.recalledRaw();
+        if (raw) notePickedIn(raw);
         return;
       }
     }
@@ -2249,6 +2275,7 @@ export function Composer({
         onLost={onQueueLost}
         onSideChat={onQueueSideChat}
         readImage={queueImage}
+        commands={commands}
         onLeave={() => field.current?.focus()}
       />
       {context}

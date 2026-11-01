@@ -649,7 +649,7 @@ export function NewTabScreen(props: Props) {
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
-    const inText = placeInline(withSkillDollars(prompt, snapshot.commands), attachments, {
+    const inText = placeInline(withSkillDollars(prompt, snapshot.commands, pickedSkills.current), attachments, {
       dropped: (id) => reading.some((chip) => chip.id === id),
     });
     // As in chat, slash commands lead with their words and carry files after the command.
@@ -774,9 +774,13 @@ export function NewTabScreen(props: Props) {
   const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
   const commandNames = useSlashNames(shell ? undefined : snapshot.commands);
+  /// The Codex skills picked into this draft, by shown name.
+  const pickedSkills = useRef(new Set<string>());
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
+    // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
+    if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
     if (field.current?.insertCommand(shownName(command))) {
       requestAnimationFrame(() => field.current?.focus());

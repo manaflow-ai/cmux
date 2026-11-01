@@ -266,3 +266,18 @@ test("a prompt that comes back to the composer reads a Codex skill as typed", as
   await press(field, "Enter");
   expect(sent).toEqual(["use /$emil-color now"]);
 });
+
+test("where a command shares a Codex skill's name, a picked skill goes as `/$name`, typed text as typed", async () => {
+  const both = (): AcpmuxSnapshot => {
+    const snapshot = codexChat();
+    return { ...snapshot, commands: [{ name: "emil-color", description: "", source: "agent" }, ...snapshot.commands!] };
+  };
+  const picked = await composer(both(), "use /emil-c");
+  expect(names()).toEqual(["/emil-color"]);
+  await press(picked.field, "Enter");
+  await press(picked.field, "Enter");
+  expect(picked.sent).toEqual(["use /$emil-color"]);
+  const typed = await composer(both(), "use /emil-color now");
+  await press(typed.field, "Enter");
+  expect(typed.sent).toEqual(["use /emil-color now"]);
+});

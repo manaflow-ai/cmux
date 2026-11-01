@@ -38,7 +38,8 @@ import {
   ROW_ICON,
 } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
-import { skillDollarsOf, withSkillDollars, withoutSkillDollars } from "../slashCommands";
+import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
+import { SkillWordsContext } from "./skillWords";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
@@ -67,10 +68,16 @@ export function UserBubble({
   // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
   // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
   // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
-  const row = useMemo(() => shownSkills(withoutVideoFrames(given)), [given]);
+  // Only a skill of the chat's list reads so (skillWords.ts).
+  const skills = useContext(SkillWordsContext);
+  const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
   const text = useMemo(
-    () => withoutSkillDollars(withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length)),
-    [givenText, given],
+    () =>
+      withoutSkillDollars(
+        withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        skills,
+      ),
+    [givenText, given, skills],
   );
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
@@ -133,8 +140,9 @@ export function UserBubble({
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
           if (!edit || through === undefined) return;
-          // The skills it named go as `/$name` again; the App writes any other skill so too.
-          const sent = withSkillDollars(value, skillDollarsOf(given.text ?? givenText));
+          // Its skills go as `/$name` again, a skill it named keeping that name where a command
+          // shares it, and a skill added in the editor too.
+          const sent = withSkillDollars(value, skills, pickedSkillsOf(given.text ?? givenText, skills));
           if (await edit.send(row.id, through, sent)) setEditing(false);
         }}
       />
@@ -250,15 +258,15 @@ export function UserBubble({
 
 /// `row` with its prompt text and placed text parts as the bubble reads them (`withoutSkillDollars`);
 /// `row` itself when it names no Codex skill.
-function shownSkills(row: AcpmuxRow): AcpmuxRow {
+function shownSkills(row: AcpmuxRow, skills: SkillCatalog): AcpmuxRow {
   const sent = [row.text, ...(row.inlineParts ?? []).map((part) => (part.kind === "text" ? part.text : ""))];
   if (!sent.some((text) => text?.includes("/$"))) return row;
   return {
     ...row,
-    ...(row.text !== undefined && { text: withoutSkillDollars(row.text) }),
+    ...(row.text !== undefined && { text: withoutSkillDollars(row.text, skills) }),
     ...(row.inlineParts && {
       inlineParts: row.inlineParts.map((part) =>
-        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text) } : part,
+        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text, skills) } : part,
       ),
     }),
   };

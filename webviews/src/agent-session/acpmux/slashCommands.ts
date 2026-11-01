@@ -56,45 +56,140 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
 /// (`withSkillDollars`), which Codex needs to take it as a skill.
 export const shownName = (command: SlashCommand) => command.name.replace(/^\$(?=.)/, "");
 
-/// The prompt as sent: each `/name` in a command position (the prompt's start, or after a space,
-/// a line break or an attachment, running to the next) that names a `$` skill without its `$` is
-/// written `/$name`, as codex-acp needs. A name a command also has without `$` stays as typed, and
-/// so does every other character. One pass over the text.
-export function withSkillDollars(text: string, commands: readonly SlashCommand[] | undefined): string {
+/// The Codex skills of a command list by the name the prompt shows (`dollar`: `$emil-color` is
+/// `emil-color`), and the names other commands have (`plain`), for the `$` the prompt adds and takes
+/// away. Only names in the list count: a `/$source` or `/$5` someone typed is never taken for one.
+export type SkillCatalog = { dollar: ReadonlySet<string>; plain: ReadonlySet<string> };
+
+export function skillCatalog(commands: readonly SlashCommand[] | undefined): SkillCatalog {
   const dollar = new Set<string>();
   const plain = new Set<string>();
   for (const command of commands ?? [])
     if (command.name.length > 1 && command.name.startsWith("$")) dollar.add(command.name.slice(1));
     else plain.add(command.name);
-  if (!dollar.size || !text.includes("/")) return text;
-  return text.replace(/(^|[\s\uFFFC])\/([^\s\uFFFC]+)(?=[\s\uFFFC]|$)/g, (whole, lead: string, name: string) =>
-    dollar.has(name) && !plain.has(name) ? `${lead}/$${name}` : whole,
+  return { dollar, plain };
+}
+
+const catalogOf = (commands: readonly SlashCommand[] | SkillCatalog | undefined): SkillCatalog =>
+  commands && !Array.isArray(commands) ? (commands as SkillCatalog) : skillCatalog(commands as SlashCommand[]);
+
+/// A fenced code block's opening line at a line start: up to three spaces, then three or more
+/// backticks or tildes.
+const FENCE_OPEN = /( {0,3})(`{3,}|~{3,})[^\n]*/y;
+
+/// `text` with each `/word` in a command position (the text's start, or after a space, a line
+/// break or an attachment, running to the next) that `visit` rewrites replaced, the rest as it is.
+/// Markdown code is never read: a fenced block (to its closing fence, or the end) and an inline code
+/// span of any backtick run (closed by a run of the same length; an unclosed run is literal). One
+/// pass: a run length with no closer further on is remembered, so no span is searched for twice.
+function mapCommandWords(text: string, visit: (word: string) => string | undefined): string {
+  if (!text.includes("/")) return text;
+  let out = "";
+  let copied = 0;
+  const unclosed = new Set<number>();
+  const length = text.length;
+  let at = 0;
+  while (at < length) {
+    const char = text[at]!;
+    if ((at === 0 || text[at - 1] === "\n") && (char === " " || char === "`" || char === "~")) {
+      FENCE_OPEN.lastIndex = at;
+      const fence = FENCE_OPEN.exec(text);
+      if (fence) {
+        const mark = fence[2]!;
+        const close = new RegExp(`\\n {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*(?=\\n|$)`, "g");
+        close.lastIndex = at + fence[0].length;
+        const found = close.exec(text);
+        at = found ? found.index + found[0].length : length;
+        continue;
+      }
+    }
+    if (char === "`") {
+      let end = at;
+      while (text[end] === "`") end++;
+      const run = end - at;
+      at = end;
+      if (unclosed.has(run)) continue;
+      // The next run of exactly `run` backticks closes the span.
+      for (let from = end; ;) {
+        const next = text.indexOf("`".repeat(run), from);
+        if (next < 0) {
+          unclosed.add(run);
+          break;
+        }
+        let stop = next;
+        while (text[stop] === "`") stop++;
+        if (stop - next === run && text[next - 1] !== "`") {
+          at = stop;
+          break;
+        }
+        from = stop;
+      }
+      continue;
+    }
+    if (char === "/" && (at === 0 || isSlashBoundary(text[at - 1]))) {
+      let end = at + 1;
+      while (end < length && !isSlashBoundary(text[end]) && text[end] !== "`") end++;
+      if (end > at + 1 && (end === length || isSlashBoundary(text[end]))) {
+        const written = visit(text.slice(at + 1, end));
+        if (written !== undefined) {
+          out += text.slice(copied, at) + written;
+          copied = end;
+        }
+      }
+      at = end;
+      continue;
+    }
+    at++;
+  }
+  return copied ? out + text.slice(copied) : text;
+}
+
+/// The prompt as sent: each `/name` in a command position outside code that names a Codex skill
+/// without its `$` is written `/$name`, as codex-acp needs. When a command also has that name
+/// without `$`, the word is that command's unless the person picked the skill in this draft
+/// (`picked`, by shown name): typed text stays as typed. Every other character stays.
+export function withSkillDollars(
+  text: string,
+  commands: readonly SlashCommand[] | SkillCatalog | undefined,
+  picked?: ReadonlySet<string>,
+): string {
+  const catalog = catalogOf(commands);
+  if (!catalog.dollar.size) return text;
+  return mapCommandWords(text, (name) =>
+    catalog.dollar.has(name) && (!catalog.plain.has(name) || picked?.has(name)) ? `/$${name}` : undefined,
   );
 }
 
-/// A `/$name` token (a Codex skill as sent) in a command position, or a code span or code block,
-/// which is kept as it is. A skill-like name is lowercase letters, digits and `-_.:`, so `$HOME`
-/// and `$5` never match.
-const SENT_SKILL =
-  /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)|(^|[\s\uFFFC])\/\$([a-z0-9][a-z0-9_.:-]*)(?=[\s\uFFFC]|$)/g;
-
-/// A sent prompt as the person reads it: each `/$name` a Codex skill went as reads `/name`, as it
-/// was typed (`withSkillDollars` wrote the `$`). For display, copy and putting the prompt back in a
-/// field only; the stored and sent text keep the `$`. One pass; code spans and blocks are kept.
-export function withoutSkillDollars(text: string): string {
+/// A sent prompt as the person reads it: each `/$name` outside code that names a Codex skill of the
+/// list reads `/name`, as it was typed (`withSkillDollars` wrote the `$`). For display, copy and
+/// putting the prompt back in a field only; the stored and sent text keep the `$`.
+export function withoutSkillDollars(
+  text: string,
+  commands: readonly SlashCommand[] | SkillCatalog | undefined,
+): string {
   if (!text.includes("/$")) return text;
-  return text.replace(SENT_SKILL, (whole, code: string | undefined, lead: string, name: string) =>
-    code !== undefined ? whole : `${lead}/${name}`,
+  const catalog = catalogOf(commands);
+  if (!catalog.dollar.size) return text;
+  return mapCommandWords(text, (word) =>
+    word.startsWith("$") && catalog.dollar.has(word.slice(1)) ? `/${word.slice(1)}` : undefined,
   );
 }
 
-/// The `$` skills a sent prompt names (`/$name`), as commands `withSkillDollars` writes back: a prompt
-/// put in an editor without its `$` (`withoutSkillDollars`) goes out with it again.
-export function skillDollarsOf(text: string): SlashCommand[] {
-  if (!text.includes("/$")) return [];
-  const names = new Set<string>();
-  for (const found of text.matchAll(SENT_SKILL)) if (found[1] === undefined && found[3]) names.add(found[3]);
-  return [...names].map((name) => ({ name: `$${name}`, description: "", source: "skill" }));
+/// The Codex skills a sent prompt names as `/$name` (outside code, in the list), by shown name: put
+/// back in an editor without its `$`, the prompt goes out with them again even where a command
+/// shares the name (`withSkillDollars` `picked`).
+export function pickedSkillsOf(
+  text: string,
+  commands: readonly SlashCommand[] | SkillCatalog | undefined,
+): Set<string> {
+  const picked = new Set<string>();
+  if (!text.includes("/$")) return picked;
+  const catalog = catalogOf(commands);
+  mapCommandWords(text, (word) => {
+    if (word.startsWith("$") && catalog.dollar.has(word.slice(1))) picked.add(word.slice(1));
+    return undefined;
+  });
+  return picked;
 }
 
 /// Whether `command` is the harness's own `/fast` (Claude Code lists it as "Toggle fast mode"). The
