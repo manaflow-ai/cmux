@@ -89,6 +89,23 @@ pub trait Orchestrator: Send + Sync {
         let _ = place;
         self.spawn_with_effort(tasks, cwd, effort)
     }
+    /// `spawn_placed` on `harness` (`codex`, `claude`, ...; None: the
+    /// calling turn's). A host that cannot route refuses a named one.
+    fn spawn_routed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+        harness: Option<String>,
+    ) -> Result<String, String> {
+        match harness {
+            Some(h) => Err(format!(
+                "spawn: this Chief host cannot route subagents to {h}; leave out harness"
+            )),
+            None => self.spawn_placed(tasks, cwd, effort, place),
+        }
+    }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
     /// `tell` with an idempotency key: a repeat of `key` is not sent again.
@@ -734,6 +751,8 @@ pub enum Call {
         effort: Option<String>,
         /// `cloud` or `local`; None: the saved default (`control cloud`).
         place: Option<String>,
+        /// The harness they run on (`codex`, `claude`, ...); None: the turn's.
+        harness: Option<String>,
     },
     Tell {
         id: String,
@@ -882,11 +901,18 @@ impl Call {
                         PLACES.join(", ")
                     ));
                 }
+                let harness = args
+                    .get("harness")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|h| !h.is_empty())
+                    .map(str::to_owned);
                 Ok(Call::Spawn {
                     tasks,
                     cwd,
                     effort,
                     place,
+                    harness,
                 })
             }
             "tell" => {
@@ -1067,8 +1093,12 @@ impl Call {
                 cwd,
                 effort,
                 place,
+                harness,
             } => {
                 let mut v = json!({"tool": "spawn", "tasks": tasks});
+                if let Some(harness) = harness {
+                    v["harness"] = json!(harness);
+                }
                 if let Some(place) = place {
                     v["place"] = json!(place);
                 }
@@ -1576,8 +1606,9 @@ fn connection(conn: UnixStream, served: &Served) {
                         cwd,
                         effort,
                         place,
+                        harness,
                     }) => match &served.orchestrator {
-                        Some(o) => o.spawn_placed(tasks, cwd, effort, place),
+                        Some(o) => o.spawn_routed(tasks, cwd, effort, place, harness),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(Call::Tell {
