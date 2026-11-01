@@ -14,13 +14,19 @@ public final class AddDeviceView: NSView {
     public var onResize: (NSSize) -> Void = { _ in }
 
     static let width: CGFloat = 440
+    /// With Labs `labs.machineJoin` on the card has four ways; it widens so each reads whole.
+    static let wideWidth: CGFloat = 540
     static let listMaxHeight: CGFloat = 228
 
-    private let stack = NSStackView()
+    let stack = NSStackView()
+    private var widthConstraint: NSLayoutConstraint?
+    /// The "Any machine: one line" way's look (the gallery draws every one; the app uses ``JoinLineLayout/card``).
+    public let joinLineLayout: JoinLineLayout
     private var actions: [AddDeviceAction] = []
 
-    public init(model: AddDeviceModel) {
+    public init(model: AddDeviceModel, joinLineLayout: JoinLineLayout = .card) {
         self.model = model
+        self.joinLineLayout = joinLineLayout
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200))
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityIdentifier("cmux.addDevice")
@@ -35,8 +41,10 @@ public final class AddDeviceView: NSView {
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            widthAnchor.constraint(equalToConstant: Self.width),
         ])
+        let widthConstraint = widthAnchor.constraint(equalToConstant: Self.width)
+        widthConstraint.isActive = true
+        self.widthConstraint = widthConstraint
         render()
     }
 
@@ -55,25 +63,35 @@ public final class AddDeviceView: NSView {
     private func build() {
         actions.removeAll()
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let width = Self.width - 2 * Metrics.space6
+        // Three ways keep the card's width; the Labs fourth way widens it so every way reads whole.
+        let wide = model.ways.count > 3
+        let cardWidth = wide ? Self.wideWidth : Self.width
+        widthConstraint?.constant = cardWidth
+        let width = cardWidth - 2 * Metrics.space6
         stack.addArrangedSubview(label(AddDeviceStrings.title, font: Typography.system(size: TypeScale.title, weight: TypeScale.emphasis),
                                        color: Palette.textPrimary, width: width, header: true))
         stack.addArrangedSubview(label(AddDeviceStrings.subtitle, font: Typography.body, color: Palette.textSecondary, width: width))
-        let ways = segmented(AddDeviceWay.allCases.map(AddDeviceStrings.way), selected: AddDeviceWay.allCases.firstIndex(of: model.way) ?? 0,
+        let ways = segmented(model.ways.map(AddDeviceStrings.way), selected: model.ways.firstIndex(of: model.way) ?? 0,
                              action: #selector(wayChanged(_:)), id: "cmux.addDevice.way")
+        if wide { ways.segmentDistribution = .fit }
         stack.addArrangedSubview(ways)
         ways.widthAnchor.constraint(equalToConstant: width).isActive = true
         switch model.way {
         case .network: buildNetwork(width)
         case .code: stack.addArrangedSubview(label(AddDeviceStrings.codeHelp, font: Typography.body, color: Palette.textPrimary, width: width))
         case .newDevice: buildNewDevice(width)
+        case .joinLine: buildJoinLine(width)
         }
-        stack.addArrangedSubview(label(AddDeviceStrings.approvalNote, font: Typography.caption, color: Palette.textTertiary, width: width))
+        // A joined machine was let in by the person's line, not by an approval: the way says its own note.
+        if model.way != .joinLine {
+            stack.addArrangedSubview(label(AddDeviceStrings.approvalNote, font: Typography.caption, color: Palette.textTertiary, width: width))
+        }
         stack.addArrangedSubview(footer(width))
     }
 
     private func buildNetwork(_ width: CGFloat) {
         stack.addArrangedSubview(label(AddDeviceStrings.networkHelp, font: Typography.body, color: Palette.textSecondary, width: width))
+        stack.addArrangedSubview(label(AddDeviceStrings.sshKeyHint, font: Typography.caption, color: Palette.textSecondary, width: width))
         switch model.candidates {
         case .loading:
             let row = NSStackView()
@@ -86,6 +104,9 @@ public final class AddDeviceView: NSView {
         case .loaded:
             if let problem = model.networkProblem {
                 stack.addArrangedSubview(label(problem, font: Typography.body, color: Palette.danger, width: width))
+                if model.canInstallTailscale {
+                    stack.addArrangedSubview(button(.installTailscale, key: nil, id: "cmux.addDevice.button.installTailscale"))
+                }
                 // The ssh config's computers do not need the network.
                 if !model.available.isEmpty { stack.addArrangedSubview(list(model.available, width: width)) }
             } else if model.available.isEmpty {
@@ -185,6 +206,25 @@ public final class AddDeviceView: NSView {
             box.widthAnchor.constraint(equalToConstant: width),
         ])
         stack.addArrangedSubview(box)
+        if model.offersOtherComputer { stack.addArrangedSubview(otherComputerRow(width)) }
+    }
+
+    /// A computer already reached with ssh needs no setup line: Other Computer… adds it by name.
+    private func otherComputerRow(_ width: CGFloat) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = Metrics.space3
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        // The hint wraps within its share of the row, so the button keeps its whole title in every language.
+        let hint = label(AddDeviceStrings.otherComputerHint, font: Typography.body, color: Palette.textSecondary, width: (width * 0.6).rounded())
+        row.addArrangedSubview(hint)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(spacer)
+        row.addArrangedSubview(button(.otherComputer, key: nil, id: "cmux.addDevice.button.otherComputer"))
+        row.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return row
     }
 
     private func footer(_ width: CGFloat) -> NSView {
@@ -208,19 +248,25 @@ public final class AddDeviceView: NSView {
         case .otherComputer: "otherComputer"
         case .newCloudMachine: "newCloudMachine"
         case .enterCode: "enterCode"
+        case .installTailscale: "installTailscale"
         case .copyLine: "copyLine"
+        case .copyJoinLine: "copyJoinLine"
+        case .makeJoinLine: "makeJoinLine"
+        case .newJoinLine: "newJoinLine"
+        case .showMachines: "showMachines"
         case .done: "done"
         case .cancel: "cancel"
         }
     }
 
-    private func button(_ action: AddDeviceAction, key: AddDeviceButton.Key?, id: String) -> NSView {
+    func button(_ action: AddDeviceAction, key: AddDeviceButton.Key?, id: String) -> NSView {
         let role: CmuxDialogButton.Role = switch key {
         case .return: .default
         case .escape: .cancel
         case nil: .normal
         }
-        let spec = CmuxDialogButton(id: Self.name(action), title: AddDeviceStrings.button(action, copied: model.copied), role: role)
+        let spec = CmuxDialogButton(id: Self.name(action), title: AddDeviceStrings.button(action, copied: action == .copyJoinLine ? model.joinLine?.copied == true : model.copied),
+                                     role: role)
         let view = CmuxDialogButtonView(standalone: spec, target: self, action: #selector(pressed(_:)))
         view.tag = actions.count
         actions.append(action)
@@ -234,8 +280,9 @@ public final class AddDeviceView: NSView {
     }
 
     @objc private func wayChanged(_ sender: NSSegmentedControl) {
-        guard AddDeviceWay.allCases.indices.contains(sender.selectedSegment) else { return }
-        model.choose(AddDeviceWay.allCases[sender.selectedSegment])
+        let ways = model.ways
+        guard ways.indices.contains(sender.selectedSegment) else { return }
+        model.choose(ways[sender.selectedSegment])
     }
 
     @objc private func platformChanged(_ sender: NSSegmentedControl) {
@@ -252,7 +299,7 @@ public final class AddDeviceView: NSView {
         return control
     }
 
-    private func label(_ text: String, font: NSFont, color: NSColor, width: CGFloat?, header: Bool = false) -> NSTextField {
+    func label(_ text: String, font: NSFont, color: NSColor, width: CGFloat?, header: Bool = false) -> NSTextField {
         let field = width == nil ? NSTextField(labelWithString: text) : NSTextField(wrappingLabelWithString: text)
         field.font = font
         field.textColor = color

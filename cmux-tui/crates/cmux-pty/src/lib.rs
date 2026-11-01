@@ -19,7 +19,7 @@
     )
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 #[cfg(unix)]
 use std::fs::File;
@@ -32,6 +32,8 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
+#[cfg(all(test, unix))]
+mod env_tests;
 #[cfg(target_vendor = "apple")]
 mod input_queue;
 #[cfg(unix)]
@@ -113,6 +115,20 @@ fn is_capacity_exhaustion(error: &io::Error) -> bool {
     matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::OutOfMemory)
 }
 
+/// Environment keys no cmux terminal child may see, whatever the daemon
+/// inherited or a caller passed. Every path that starts a terminal child
+/// applies these: pass them to [`PtyCommand::env_remove`] after the command's
+/// own values, or drop them from a spelled-out environment map.
+///
+/// `TERM_PROGRAM_VERSION`: cmux keeps `TERM_PROGRAM=ghostty` so a child
+/// detects a Ghostty-class terminal, but cmux forwards a full-screen TUI's
+/// mouse reports instead of providing Ghostty's native selection, so a child
+/// that reads a Ghostty version turns its own copy-on-select drag fallback
+/// off (cmux#22585: Codex and Claude lose drag-to-copy). The daemon's own
+/// environment carries it (`cmux-host::daemon_spec`), which is why every
+/// child path has to drop it rather than merely not set it.
+pub const UNSET_IN_TERMINAL_CHILDREN: &[&str] = &["TERM_PROGRAM_VERSION"];
+
 /// The subset of process configuration needed by both cmux PTY runtimes.
 #[derive(Debug, Clone)]
 pub struct PtyCommand {
@@ -122,6 +138,9 @@ pub struct PtyCommand {
     #[cfg(unix)]
     cwd_descriptor: Option<Arc<File>>,
     environment: BTreeMap<String, String>,
+    /// Keys the child must not have, applied after `environment`, so an
+    /// inherited value is dropped as well as a set one.
+    removed_environment: BTreeSet<String>,
     clean_environment: bool,
 }
 
@@ -134,6 +153,7 @@ impl PtyCommand {
             #[cfg(unix)]
             cwd_descriptor: None,
             environment: BTreeMap::new(),
+            removed_environment: BTreeSet::new(),
             clean_environment: false,
         }
     }
@@ -161,7 +181,18 @@ impl PtyCommand {
     }
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.environment.insert(key.into(), value.into());
+        let key = key.into();
+        self.removed_environment.remove(&key);
+        self.environment.insert(key, value.into());
+    }
+
+    /// The child must not see `key`, whether this command set it or the
+    /// parent would pass it down. Wins over an earlier [`Self::env`] of the
+    /// same key; a later `env` wins over this.
+    pub fn env_remove(&mut self, key: impl Into<String>) {
+        let key = key.into();
+        self.environment.remove(&key);
+        self.removed_environment.insert(key);
     }
 
     pub fn env_clear(&mut self) {
@@ -271,6 +302,9 @@ mod platform {
         }
         for (key, value) in command.environment {
             builder.env(key, value);
+        }
+        for key in command.removed_environment {
+            builder.env_remove(key);
         }
         let child = slave.0.spawn_command(builder)?;
         Ok(Box::new(super::windows_jobs::JobChild::new(child)))

@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use super::tests::{mutate, read, tab_id};
+use super::tests::{error_code, mutate, read, send, tab_id};
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
@@ -208,6 +208,51 @@ fn a_reopened_workspace_shows_its_shown_screen_zoom_and_presentation() {
     assert_eq!(workspace["extra"]["title"], "Two", "{workspace}");
     assert_eq!(workspace["extra"]["color"], "#336699", "{workspace}");
     assert_eq!(workspace["extra"]["icon"], "server.rack", "{workspace}");
+}
+
+/// A `cmux://workspace/` link to a closed workspace (cmux#25572): `closed.reopen
+/// {workspace}` names it by the `ws_` id it had and reopens it with its layout, even
+/// when newer closes came after it; a live or unknown id is not in the history.
+#[test]
+fn a_closed_workspace_reopens_by_the_id_it_had() {
+    let mux = Mux::new_for_test("closed-layout-by-id", SurfaceOptions::default());
+    mux.new_workspace(Some("keeper".into()), None).unwrap();
+    let (workspace, _) = nested_workspace(&mux, "linked");
+    let before = layout_of(&mux, "linked");
+    let id = workspace_public_id(&mux, workspace);
+    mutate(&mux, "workspace.close", json!({"workspace": id}), "close-linked");
+    // A newer close: Cmd-Shift-T would reopen this one, the link must not.
+    let (newer, _) = nested_workspace(&mux, "newer");
+    let newer = workspace_public_id(&mux, newer);
+    mutate(&mux, "workspace.close", json!({"workspace": newer}), "close-newer");
+
+    let reopened = mutate(&mux, "closed.reopen", json!({"workspace": id}), "reopen-linked");
+    assert_eq!(reopened["kind"], "workspace", "{reopened}");
+    assert_eq!(layout_of(&mux, "linked"), before);
+    let named = mux.with_state(|state| {
+        state
+            .workspaces
+            .iter()
+            .find(|open| open.name == "linked")
+            .map(|open| open.public_id.to_string())
+    });
+    assert_eq!(named.as_deref(), reopened["workspace_id"].as_str(), "{reopened}");
+
+    // Reopened already, open, or never a workspace here: not in the history.
+    let keeper = mux.with_state(|state| {
+        state.workspaces.iter().find(|open| open.name == "keeper").unwrap().public_id.to_string()
+    });
+    for (gone, key) in [
+        (id.as_str(), "again"),
+        (keeper.as_str(), "live"),
+        ("ws_00000000000000000000000000000000", "unknown"),
+    ] {
+        let reply = send(&mux, "closed.reopen", json!({"workspace": gone}), Some(key));
+        assert_eq!(error_code(reply), "resource.not_found", "{gone}");
+    }
+    // The newer close stays in the history.
+    let reply = send(&mux, "closed.reopen", json!({"workspace": newer}), Some("reopen-newer"));
+    assert!(reply.is_ok(), "{reply:?}");
 }
 
 #[test]

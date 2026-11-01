@@ -32,10 +32,12 @@ final class CEFLinkClickTracker {
     private var monitor: Any?
     /// The pages a click can land on now (the runtime's shown tabs).
     private var targets: () -> [CEFClickTarget] = { [] }
-    /// A mouse down or key down on page `browser`: a fresh user gesture
-    /// (the tab's `AutomaticDownloadGate`). The shim reports no gesture
-    /// for downloads, so the app's own input events are the signal, as
-    /// for WebKit (`WebKitWebView`).
+    /// A mouse down, mouse up or key down on page `browser`: a fresh user
+    /// gesture (the tab's `AutomaticDownloadGate`, an app page's write). The
+    /// shim reports no gesture for downloads, so the app's own input events
+    /// are the signal, as for WebKit, whose page views count the up too
+    /// (`PageWKWebView`): a page that saves on a drag's release (Settings >
+    /// Menus) acts on the person's input after a drag of any length.
     var onGesture: (Int32) -> Void = { _ in }
 
     /// The context for placing a tab Chromium wants to open now.
@@ -44,7 +46,7 @@ final class CEFLinkClickTracker {
     }
 
     /// Records left and middle mouse-ups on Chromium pages, per page, and
-    /// reports mouse downs and key downs on them (`onGesture`). A
+    /// reports mouse downs, mouse ups and key downs on them (`onGesture`). A
     /// Chromium page draws in its own child window over its pane's host
     /// view; a click in a cmux window itself (strip, sidebar, omnibar) or
     /// on native UI over the page records nothing (`CEFLinkClicks.browser`).
@@ -66,10 +68,17 @@ final class CEFLinkClickTracker {
             : window.convertPoint(toScreen: event.locationInWindow)
         guard let browser = CEFLinkClicks.browser(clickedIn: ObjectIdentifier(window), parent: window.parent.map(ObjectIdentifier.init),
                                                   at: point, targets: targets()) else { return }
-        guard event.type == .leftMouseUp || event.type == .otherMouseUp else { return onGesture(browser) }
-        let button = event.type == .otherMouseUp ? event.buttonNumber : 0
-        clicks[browser] = CEFLinkClickRecord(gesture: BrowserLinkGesture(flags: event.modifierFlags, button: button),
-                                             timestamp: event.timestamp)
+        record(event.type, on: browser, button: event.buttonNumber, flags: event.modifierFlags, timestamp: event.timestamp)
+    }
+
+    /// An input event of `type` on page `browser`: every press, release and key is the person's
+    /// gesture (the release too: a page that saves on a drag's release acts on it); a left or
+    /// middle release is also the page's last click.
+    func record(_ type: NSEvent.EventType, on browser: Int32, button: Int, flags: NSEvent.ModifierFlags, timestamp: TimeInterval) {
+        onGesture(browser)
+        guard type == .leftMouseUp || type == .otherMouseUp else { return }
+        clicks[browser] = CEFLinkClickRecord(gesture: BrowserLinkGesture(flags: flags, button: type == .otherMouseUp ? button : 0),
+                                             timestamp: timestamp)
     }
 
     func forget(opener: Int32) {

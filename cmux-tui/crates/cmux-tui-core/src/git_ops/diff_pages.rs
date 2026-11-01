@@ -13,8 +13,16 @@ const MAX_CAPTURES: usize = 8;
 const TARGET_BYTES: u64 = 256 * 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(120);
 
+/// A captured patch and its page revision (`diff::page_revision`): the
+/// patch bytes and the page-zero listing together.
+pub(super) struct Capture {
+    pub(super) revision: String,
+    pub(super) window: GitWindow,
+}
+
 struct Entry {
     key: String,
+    revision: String,
     window: GitWindow,
     metadata: Value,
     used: Instant,
@@ -31,14 +39,22 @@ impl Captures {
     fn get(&mut self, key: &str, revision: &str, now: Instant) -> Option<(GitWindow, Value)> {
         self.prune(now);
         let entry =
-            self.0.iter_mut().find(|entry| entry.key == key && entry.window.sha256 == revision)?;
+            self.0.iter_mut().find(|entry| entry.key == key && entry.revision == revision)?;
         entry.used = now;
         Some((entry.window.clone(), entry.metadata.clone()))
     }
 
-    fn put(&mut self, key: String, window: GitWindow, metadata: Value, now: Instant) {
+    fn put(&mut self, key: String, capture: Capture, metadata: Value, now: Instant) {
         self.prune(now);
-        self.0.retain(|entry| entry.key != key);
+        // A request key describes the comparison inputs, but not the bytes that
+        // were captured at a particular revision. Keep older revisions alive so
+        // a continuation for an in-flight page cannot be evicted by a newer
+        // offset-zero capture for the same request. A revision covers the
+        // listing too, so an equal key/revision already holds this metadata.
+        let Capture { revision, window } = capture;
+        if self.0.iter().any(|entry| entry.key == key && entry.revision == revision) {
+            return;
+        }
         self.0.sort_by_key(|entry| entry.used);
         while !self.0.is_empty()
             && (self.0.len() >= MAX_CAPTURES
@@ -52,7 +68,7 @@ impl Captures {
         {
             self.0.remove(0);
         }
-        self.0.push(Entry { key, window, metadata, used: now });
+        self.0.push(Entry { key, revision, window, metadata, used: now });
     }
 }
 
@@ -65,9 +81,9 @@ pub(super) fn get(key: &str, revision: &str) -> Option<(GitWindow, Value)> {
     captures().lock().ok()?.get(key, revision, Instant::now())
 }
 
-pub(super) fn put(key: String, window: GitWindow, metadata: Value) {
+pub(super) fn put(key: String, capture: Capture, metadata: Value) {
     if let Ok(mut captures) = captures().lock() {
-        captures.put(key, window, metadata, Instant::now());
+        captures.put(key, capture, metadata, Instant::now());
     }
 }
 
@@ -76,6 +92,10 @@ mod tests {
     use super::*;
     use cmux_git::run::run_git_window_within;
     use serde_json::json;
+
+    fn capture(window: &GitWindow, revision: &str) -> Capture {
+        Capture { revision: revision.to_owned(), window: window.clone() }
+    }
 
     #[test]
     fn captures_are_scope_bound_count_bounded_and_expire_when_idle() {
@@ -96,7 +116,7 @@ mod tests {
         for index in 0..MAX_CAPTURES + 2 {
             cache.put(
                 format!("repository/path/{index}"),
-                window.clone(),
+                capture(&window, &revision),
                 json!({"index":index}),
                 now + Duration::from_millis(index as u64),
             );
@@ -114,5 +134,105 @@ mod tests {
         assert!(cache.get("repository/path/9", &revision, now + Duration::from_secs(1)).is_some());
         cache.prune(now + IDLE + Duration::from_secs(2));
         assert!(cache.0.is_empty());
+    }
+
+    #[test]
+    fn captures_keep_distinct_revisions_for_the_same_request() {
+        let first = run_git_window_within(
+            &std::env::temp_dir(),
+            &[],
+            &["--version"],
+            0,
+            512,
+            Duration::from_secs(2),
+        )
+        .unwrap()
+        .window
+        .unwrap();
+        let second = run_git_window_within(
+            &std::env::temp_dir(),
+            &[],
+            &["--exec-path"],
+            0,
+            512,
+            Duration::from_secs(2),
+        )
+        .unwrap()
+        .window
+        .unwrap();
+        assert_ne!(first.sha256, second.sha256);
+
+        let now = Instant::now();
+        let mut cache = Captures::default();
+        cache.put(
+            "same request".into(),
+            capture(&first, &first.sha256),
+            json!({"revision":"first"}),
+            now,
+        );
+        cache.put(
+            "same request".into(),
+            capture(&second, &second.sha256),
+            json!({"revision":"second"}),
+            now + Duration::from_millis(1),
+        );
+
+        assert_eq!(cache.0.len(), 2);
+        assert_eq!(
+            cache.get("same request", &first.sha256, now + Duration::from_millis(2)).unwrap().1,
+            json!({"revision":"first"})
+        );
+        assert_eq!(
+            cache.get("same request", &second.sha256, now + Duration::from_millis(2)).unwrap().1,
+            json!({"revision":"second"})
+        );
+    }
+
+    #[test]
+    fn same_patch_with_a_different_listing_keeps_each_listing_with_its_revision() {
+        // BLOCK at 659ca591: an identical patch whose page-zero listing changed
+        // (`complete` flipped by an oversized untracked file) replayed the
+        // first listing on continuations of the second page zero.
+        let window = run_git_window_within(
+            &std::env::temp_dir(),
+            &[],
+            &["--version"],
+            0,
+            512,
+            Duration::from_secs(2),
+        )
+        .unwrap()
+        .window
+        .unwrap();
+        let now = Instant::now();
+        let mut cache = Captures::default();
+        cache.put(
+            "same request".into(),
+            capture(&window, "complete"),
+            json!({"complete":true}),
+            now,
+        );
+        cache.put(
+            "same request".into(),
+            capture(&window, "incomplete"),
+            json!({"complete":false}),
+            now + Duration::from_millis(1),
+        );
+        cache.put(
+            "same request".into(),
+            capture(&window, "incomplete"),
+            json!({"complete":true}),
+            now + Duration::from_millis(2),
+        );
+        assert_eq!(cache.0.len(), 2);
+        let later = now + Duration::from_millis(3);
+        assert_eq!(
+            cache.get("same request", "complete", later).unwrap().1,
+            json!({"complete":true})
+        );
+        assert_eq!(
+            cache.get("same request", "incomplete", later).unwrap().1,
+            json!({"complete":false})
+        );
     }
 }

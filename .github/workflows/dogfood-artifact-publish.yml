@@ -263,6 +263,9 @@ jobs:
       PR: ${{ needs.publish.outputs.pr }}
       HEAD_SHA: ${{ needs.publish.outputs.sha }}
       CAPTURE_HOST_TOOL: ${{ vars.CMUX_NEXT_CAPTURE_HOST_TOOL || 'capture-host' }}
+      # capture-host records the owner of every lease from CMUX_AGENT_ID only and refuses an acquire without it
+      # (cmuxterm-hq#5650): this job's leases name its workflow run.
+      CMUX_AGENT_ID: gha-dogfood-capture-${{ github.run_id }}
       CUA_SSH: ${{ vars.CMUX_NEXT_CUA_SSH || 'cua-ssh' }}
     steps:
       - name: Mint the cmux-bot token

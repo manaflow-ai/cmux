@@ -1,0 +1,30 @@
+.lg-picker-loading-row {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.lg-picker-placeholder {
+  flex: none;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--page-text) 9%, transparent);
+}
+
+.lg-picker-placeholder-check {
+  width: 1em;
+  height: 1em;
+}
+
+.lg-picker-placeholder-avatar {
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  border-radius: 50%;
+}
+
+.lg-picker-placeholder-name {
+  width: 40%;
+  height: var(--ds-space-3);
+}
+
+.lg-picker-loading-row:nth-child(even) .lg-picker-placeholder-name {
+  width: 55%;
+}

@@ -5,7 +5,7 @@ import QuartzCore
 
 /// Small borderless icon button with the shared chrome hover and pressed
 /// fills (`ChromeHover`, no blue).
-final class SidebarIconButton: NSButton {
+final class SidebarIconButton: ClickableButton {
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
     var onPress: (() -> Void)?
     /// A fixed glyph color for a button on a colored surface (the group
@@ -46,6 +46,14 @@ final class SidebarIconButton: NSButton {
     /// An SF Symbol drawn through the pack (`NSImage.icon(symbol:)`) for a glyph
     /// the pack has no name for, such as the group editor's emoji button.
     private var symbol: String?
+
+    /// Replaces the SF Symbol a ``init(symbol:pointSize:label:)`` button draws.
+    func setSymbol(_ name: String) {
+        guard name != symbol else { return }
+        symbol = name
+        renderedSize = 0
+        renderIcon()
+    }
 
     init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
         self.icon = icon
@@ -105,6 +113,23 @@ final class SidebarIconButton: NSButton {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         menuProvider?() ?? super.menu(for: event)
+    }
+
+    /// Told `true` while a right-click menu this button opened is open, `false` once it closes
+    /// (the sidebar keeps its hover-revealed + shown meanwhile).
+    var onMenuOpenChange: ((Bool) -> Void)?
+
+    /// The button stays pressed (lit) while its own menu is open, after the pointer leaves it.
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        changeHover { $0.pressed = true }
+        onMenuOpenChange?(true)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        changeHover { $0.pressed = false }
+        onMenuOpenChange?(false)
     }
 
     private func renderIcon() {

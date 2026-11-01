@@ -8,6 +8,7 @@
 //! was set, never a value: `ls` reads it, and the app's `cloud deliver-secrets` uses the times to
 //! deliver a changed value again. Values reach a machine only over its daemon link.
 
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use acpmux::cli::harness_secret::{read_value, run_store, store_item};
@@ -50,6 +51,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Command {
+    Help,
     Set { account: String },
     Ls,
     Rm { account: String },
@@ -78,7 +80,10 @@ const USAGE: &str =
     "usage: cmux cloud secret set|rm NAME [--repo OWNER/NAME], or cmux cloud secret ls";
 
 pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
-    let Some((verb, rest)) = args.split_first() else { return Err(UsageError::new(USAGE)) };
+    let Some((verb, rest)) = args.split_first() else { return Ok(Command::Help) };
+    if rest.is_empty() && matches!(verb.as_str(), "--help" | "-h" | "help") {
+        return Ok(Command::Help);
+    }
     if verb == "ls" || verb == "list" {
         return if rest.is_empty() { Ok(Command::Ls) } else { Err(UsageError::new(USAGE)) };
     }
@@ -233,11 +238,22 @@ impl IndexLock {
 
 fn run(command: Command, output: OutputMode) -> Result<i32, String> {
     let fail = |message: String| message;
-    let path = index_path().ok_or_else(|| fail("HOME is not set".into()))?;
-    let _lock = IndexLock::take(&path).map_err(|e| fail(format!("cannot lock the index: {e}")))?;
-    let mut secrets = read_index(&path)?;
+    let load_index = || -> Result<_, String> {
+        let path = index_path().ok_or_else(|| fail("HOME is not set".into()))?;
+        let lock =
+            IndexLock::take(&path).map_err(|e| fail(format!("cannot lock the index: {e}")))?;
+        let secrets = read_index(&path)?;
+        Ok((path, lock, secrets))
+    };
     let answer = match command {
+        Command::Help => {
+            let description = crate::localization::catalog().app_control.cloud_secret_help;
+            let mut stdout = std::io::stdout().lock();
+            writeln!(stdout, "{USAGE}\n\n{description}").map_err(|e| e.to_string())?;
+            return Ok(0);
+        }
         Command::Ls => {
+            let (_, _lock, secrets) = load_index()?;
             let rows: Vec<Value> = secrets
                 .iter()
                 .map(|(account, at)| {
@@ -248,6 +264,7 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
             json!({"secrets": rows})
         }
         Command::Set { account } => {
+            let (path, _lock, mut secrets) = load_index()?;
             if std::env::consts::OS != "macos" {
                 return Err(fail("cloud secrets live in this Mac's Keychain: run it on the Mac with the cmux app".into()));
             }
@@ -281,6 +298,7 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
             json!({"stored": account, "next": "cmux cloud deliver-secrets --target machine:<id>"})
         }
         Command::Rm { account } => {
+            let (path, _lock, mut secrets) = load_index()?;
             if std::env::consts::OS != "macos" {
                 return Err(fail("cloud secrets live in this Mac's Keychain: run it on the Mac with the cmux app".into()));
             }
@@ -311,6 +329,17 @@ mod tests {
 
     fn words(text: &str) -> Vec<String> {
         text.split_whitespace().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn secret_help_forms_parse_and_succeed_without_a_secret_operation() {
+        for suffix in ["", "--help", "-h", "help"] {
+            assert_eq!(parse(&words(suffix)), Ok(Command::Help), "{suffix:?} should be help");
+            assert_eq!(run_if_requested(&words(&format!("cloud secret {suffix}"))), Some(0));
+        }
+        for bad in ["help extra", "--help extra", "-h extra", "set", "rm", "unknown"] {
+            assert!(parse(&words(bad)).is_err(), "{bad:?} is still invalid");
+        }
     }
 
     #[test]

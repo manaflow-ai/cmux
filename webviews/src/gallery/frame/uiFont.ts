@@ -11,4 +11,9 @@ export function installUiFont(): void {
     `@font-face{font-family:"Inter";src:url(${interWoff2}) format("woff2");` +
     "font-weight:100 900;font-style:normal;font-display:block}";
   document.head.append(style);
+  // Loaded now, not when text first asks for it: a stage whose first text shows only after a play's
+  // step (the PR status popover) drew that text in the fallback font for two frames, then in Inter,
+  // and its words moved (1 px on macOS, 4 px on Linux), a layout shift the play graded. The
+  // gallery's readiness waits on document.fonts.ready, which covers this load.
+  void document.fonts.load('400 1em "Inter"').catch(() => undefined);
 }

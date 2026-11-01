@@ -104,6 +104,7 @@ public final class LiveCoordinator {
     @ObservationIgnored let pairing: LinkPairing?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored private var presence: PresenceListener?
+    @ObservationIgnored private var isBackgrounded = false
     @ObservationIgnored private var teamTask: Task<Void, Never>?
     @ObservationIgnored var bannerTask: Task<Void, Never>?
     @ObservationIgnored var everConnected = false
@@ -653,6 +654,7 @@ public final class LiveCoordinator {
         let apiForLink = api
         let controller = LinkController(transport: transport, relayOnly: relayOnly, blockUDP: blockUDP, dialer: dialer, clock: clock,
                                         accessToken: { try await apiForLink.accessToken($0) })
+        if isBackgrounded { controller.send(.background) }
         let session = MacSession(macID: mac.id, name: mac.name, link: controller, deviceID: identity.link,
                                  deviceName: deviceName, feedStore: feedStore)
         wire(session)
@@ -668,6 +670,7 @@ public final class LiveCoordinator {
         if session.fedData { store.handleMacData(.disconnected(at: Date()), macID: id) }
         store.macConnection[id] = nil
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
+        store.macLinkDiagnostics[id] = nil
         session.offlineTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
@@ -811,12 +814,25 @@ public final class LiveCoordinator {
     }
 
     /// Where a notification's session lives: the agent tab bound to it, or
-    /// the tab the Mac named.
-    public func destination(sessionID: String?, workspaceID: String?, tabID: String?) -> AgentChatDestination? {
-        if let sessionID, let place = place(sessionID: sessionID) {
-            return AgentChatDestination(workspaceID: place.workspaceID, tabID: place.tabID)
+    /// the tab the Mac named. A push includes its Mac's identity, so resolve
+    /// that Mac only; the same session or workspace ids on a different Mac
+    /// must never open the wrong chat. Links without a Mac keep the global lookup.
+    public func destination(sessionID: String?, workspaceID: String?, tabID: String?,
+                            macID: String? = nil) -> AgentChatDestination? {
+        if let sessionID {
+            let found: LiveFeed.Place?
+            if let macID {
+                found = sessions[macID]?.place(sessionID: sessionID)
+            } else {
+                found = place(sessionID: sessionID)
+            }
+            if let found {
+                return AgentChatDestination(workspaceID: found.workspaceID, tabID: found.tabID)
+            }
         }
-        guard let workspaceID, let tabID, store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tabID }) == true else { return nil }
+        guard let workspaceID, let tabID, let workspace = store.workspace(id: workspaceID),
+              (macID == nil || workspace.macID == macID),
+              workspace.tabs.contains(where: { $0.id == tabID }) else { return nil }
         return AgentChatDestination(workspaceID: workspaceID, tabID: tabID)
     }
 
@@ -881,8 +897,15 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.blockUDP(blockUDP)) }
     }
 
-    /// App foreground: probe or redial the link and the presence socket.
+    /// Keep background work usable, but do not trust these links after suspension.
+    public func background() {
+        isBackgrounded = true
+        for session in sessions.values { session.link.send(.background) }
+    }
+
+    /// App foreground: immediately replace stale links and refresh presence.
     public func foreground() {
+        isBackgrounded = false
         log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
         // The first activation is the launch itself, already being measured.
         if ConnectTimeline.shared.sinceProcessStart > 5 { ConnectTimeline.shared.begin("foreground") }
@@ -891,7 +914,7 @@ public final class LiveCoordinator {
         }
         presence?.kick()
         if discoveryTask != nil { startDiscovery() }
-        for session in sessions.values { session.link.send(.foreground) }
+        for session in sessions.values { session.link.send(.resume) }
     }
 
 }
@@ -911,7 +934,7 @@ final class UnboundAgentSource: AgentSessionSource {
     }
 
     static func notStarted(agent: String, mac: String) -> String {
-        "\(agent) hasn't started in this tab yet. Send the first message from cmux on \(mac); the chat continues here."
+        "\(agent) hasn't started in this tab. Send the first message from cmux on \(mac); the chat continues here."
     }
 
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []

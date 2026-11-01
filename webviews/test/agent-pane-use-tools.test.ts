@@ -103,8 +103,11 @@ await requireBrowserLane("agent-pane-use-tools.test.ts", async () => {
         return {
           result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } },
         };
-      case "_acpmux/watch":
-        return { result: { sessions: [session()] } };
+      case "_acpmux/watch": {
+        // The census is compact; Use tools must come from the per-session attach.
+        const { tools: _tools, toolsMutable: _mutable, ...summary } = session();
+        return { result: { sessions: [summary] } };
+      }
       case "_acpmux/attach":
         return { result: { session: session(), lastSeq: events.length, events } };
       case "_acpmux/events":

@@ -6,11 +6,14 @@ use super::*;
 
 #[cfg(unix)]
 mod dev_orphan_exit;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) mod lost_paths;
 
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
     exit_with: Option<local_owner::ExitWith>,
+    #[cfg(any(target_os = "macos", target_os = "linux"))] reachable: Option<lost_paths::Reachable>,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -21,6 +24,8 @@ where
         "{BIN}: headless, control socket at {}",
         socket_path.display()
     );
+    #[cfg(target_vendor = "apple")]
+    fatal_faults_end_the_owner();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
@@ -64,6 +69,10 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // An owner whose socket or state directory is gone, with no client
+    // connected, stops: nothing can reach it again (lost_paths.rs).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let lost_paths = reachable.and_then(|reachable| lost_paths::start(mux, reachable));
     // `--exit-with-pid`: armed once startup work has begun, so the stop
     // ends every terminal that work made (a starter already gone stops the
     // owner at once).
@@ -95,7 +104,41 @@ where
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
     }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Some(lost_paths) = lost_paths {
+        lost_paths.stop();
+    }
     Ok(())
+}
+
+/// macOS: a memory fault ends a headless owner at once, with no handler.
+///
+/// When the volume holding the owner's executable is force-removed (an
+/// ejected disk image, a CI runner's instance-store volume that vanished
+/// under a DerivedData build), every code page that is not resident can no
+/// longer be read. The Rust runtime's SIGBUS/SIGSEGV handler (its
+/// stack-overflow check) is itself code in that executable, so the kernel
+/// cannot run it and the faulting thread retries without end at about 100%
+/// system time. Two orphaned probe owners on aws-m4pro-5 spun at 390-570%
+/// for 13 hours this way. With the default action the kernel ends the
+/// process on the first such fault (with a crash report) and runs none of
+/// its code. Reproduced on Blacksmith macOS: with the handler the owner
+/// spun at about 3.7 s of CPU a second after `hdiutil detach -force`; with
+/// the default it was gone within 200 ms.
+///
+/// The only loss is the runtime's "has overflowed its stack" message: a
+/// stack overflow still ends the owner, as a plain SIGBUS/SIGSEGV crash.
+/// The owner's terminal hosts are separate processes and keep running for
+/// the next owner to adopt. Nothing in the owner handles these signals
+/// otherwise; Linux keeps an unlinked executable's pages readable, so it
+/// is unaffected.
+#[cfg(target_vendor = "apple")]
+fn fatal_faults_end_the_owner() {
+    for signal in [libc::SIGBUS, libc::SIGSEGV] {
+        // SAFETY: restores the default action of a synchronous fault
+        // signal; no handler of this process is replaced but the runtime's.
+        unsafe { libc::signal(signal, libc::SIG_DFL) };
+    }
 }
 
 /// The WebSocket token: `--ws-token`, else `server.ws_token`. A headless

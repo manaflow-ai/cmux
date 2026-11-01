@@ -18,6 +18,10 @@ public final class AgentPageRedraw {
     private var frameWaiters: [() -> Void] = []
     private var probing = false
     private var generation: UInt64 = 0
+    /// Tests drive capture completion without a window-server compositor. Nil uses the page's
+    /// real frame and snapshot paths; neither override changes capture ownership or visibility.
+    var nextFrameOverride: (@MainActor (@escaping () -> Void) -> Void)?
+    var snapshotOverride: (@MainActor () async -> NSImage?)?
 
     init(webView: WKWebView) {
         self.webView = webView
@@ -92,6 +96,7 @@ public final class AgentPageRedraw {
     /// moved into another view has drawn there (cx-21zkz: the page's task ran a few frames before).
     /// Now when it has no web view.
     public func afterNextFrame(_ body: @escaping () -> Void) {
+        if let nextFrameOverride { return nextFrameOverride(body) }
         if let page {
             frameWaiters.append(body)
             guard frameWaiters.count == 1 else { return }
@@ -107,24 +112,39 @@ public final class AgentPageRedraw {
     }
 
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
-    public var givesNewTabFrame = false
+    public var givesNewTabFrame = false {
+        didSet {
+            if givesNewTabFrame != oldValue { newTabFrameCaptureChanged?(givesNewTabFrame) }
+        }
+    }
+    /// A parked spare wakes for a fresh cover capture and sleeps once it finishes. Its owner
+    /// removes this callback on adoption or drop, so a late capture cannot hide an active page.
+    public var newTabFrameCaptureChanged: ((Bool) -> Void)?
 
     /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
     private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?
 
+    /// The capture source shared by a parked page's remembered cover and the app's New Tab frame.
+    func snapshot() async -> NSImage? {
+        if let snapshotOverride { return await snapshotOverride() }
+        if let page { return await page.snapshot() }
+        return try? await webView?.takeSnapshot(configuration: nil)
+    }
+
     /// Snapshots the page as WebKit draws it now in `pane` (a parked New Tab spare), kept when `pane`
     /// is still where and as large as it was when the snapshot is ready: the image its move into a
     /// pane shows until it draws there is then this page at that size.
-    public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?) {
+    public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?, completion: @escaping @MainActor () -> Void = {}) {
         // Only a page that draws today's chats and model (`AgentPaneNewTabFrame`).
-        guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return }
+        guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return completion() }
         // A Chromium picture draws the page's clear areas black (``PageWebView/snapshotKeepsClearAreas``):
         // checked before and after, as the page can move to or from Chromium while its picture is taken.
-        guard page?.snapshotKeepsClearAreas ?? true else { return }
+        guard page?.snapshotKeepsClearAreas ?? true else { return completion() }
         let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
-        Task { @MainActor [weak self, weak webView, weak page, weak pane, weak place] in
-            let image: NSImage? = if let page { await page.snapshot() } else { try? await webView?.takeSnapshot(configuration: nil) }
+        Task { @MainActor [weak self, weak page, weak pane, weak place] in
+            defer { completion() }
+            let image = await self?.snapshot()
             guard let image, image.size == size, page?.snapshotKeepsClearAreas ?? true,
                   let pane, pane.superview === place, pane.frame.size == size else { return }
             self?.remembered = (image, size, appearance, generation)

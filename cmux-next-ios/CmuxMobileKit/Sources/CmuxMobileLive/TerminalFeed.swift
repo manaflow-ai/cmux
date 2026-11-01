@@ -100,6 +100,8 @@ public final class TerminalFeed {
     /// The pause between the keys of an answer: the agent's screen redraws after each.
     var keyPause: Duration = .milliseconds(300)
     var clock: any Clock<Duration> = ContinuousClock()
+    /// Bounds a silent notification ledger without closing the shared daemon channel.
+    var requestDeadline: Duration = .seconds(20)
 
     /// Pastes `text` into the terminal of `surface` and submits it with Return
     /// in one `send` on the Mac's `daemon` channel of `connection`, only while
@@ -170,7 +172,7 @@ public final class TerminalFeed {
     /// The Mac's tree arrived (`connection` names the daemon channel it came
     /// on): a new connection reads the ledger (history); a changed unread
     /// marker reads it again (a new notification, or a read on the Mac).
-    public func treeChanged(_ tree: DaemonTree, macID: String, connection: Int) {
+    public func treeChanged(_ tree: DaemonTree, macID: String, connection: Int, changedWorkspaceIDs: Set<String>? = nil) {
         if macID != self.macID {
             texts = [:]
             textOrder = []
@@ -193,7 +195,7 @@ public final class TerminalFeed {
         }
         self.tree = tree
         var resumed: Set<Int> = []
-        for workspace in tree.workspaces + tree.homeWorkspaces {
+        for workspace in tree.workspaces + tree.homeWorkspaces where changedWorkspaceIDs?.contains(workspace.id) ?? true {
             for tab in workspace.tabs where tab.kind == .terminal {
                 guard let surface = tree.surfaces[tab.id] else { continue }
                 if let harness = tab.harness { harnesses[surface] = harness }
@@ -206,9 +208,9 @@ public final class TerminalFeed {
                 statuses[surface] = .some(tab.agentStatus)
             }
         }
-        let changed = tree.notificationMarkers != markers
+        let changed = changedWorkspaceIDs == nil && tree.notificationMarkers != markers
         markers = tree.notificationMarkers
-        apply()
+        apply(changedWorkspaceIDs: changedWorkspaceIDs)
         // Back at work or no longer waiting: the asks shown on that terminal were answered there.
         // An ask that arrives later waits again.
         for entry in entries {
@@ -220,6 +222,10 @@ public final class TerminalFeed {
         }
         if !hydrated || changed { Task { await refresh() } }
     }
+
+    /// Titles do not change terminal notification state. Keep placement fresh
+    /// for the next ledger event without walking every terminal and Feed item.
+    public func updateTreeMetadata(_ tree: DaemonTree) { self.tree = tree }
 
     /// The daemon posted a notification: keeps an agent's texts for its row, then reads the ledger.
     public func notificationPosted(_ post: NotificationPost = NotificationPost()) {
@@ -324,9 +330,9 @@ public final class TerminalFeed {
     /// Maps the ledger onto the Feed: history merges in, a row new to this
     /// connection goes on top, the Mac's reads mark items read, and a
     /// terminal waiting for input is resolved once it moved on.
-    private func apply() {
+    private func apply(changedWorkspaceIDs: Set<String>? = nil) {
         guard let tree, !macID.isEmpty else { return }
-        let places = Self.places(tree)
+        let places = Self.places(tree, workspaceIDs: changedWorkspaceIDs)
         var history: [FeedItem] = []
         var fresh: [FeedItem] = []
         for entry in entries {
@@ -370,13 +376,15 @@ public final class TerminalFeed {
                     if known.kind == item.kind, known.markdown == item.markdown, known.quote == item.quote,
                        known.agentName == item.agentName,
                        known.harness == item.harness, known.workspaceID == item.workspaceID,
-                       known.workspaceTitle == item.workspaceTitle, known.tabID == item.tabID { continue }
+                       known.workspaceTitle == item.workspaceTitle, known.tabTitle == item.tabTitle,
+                       known.tabID == item.tabID { continue }
                 }
                 history.append(item)
             }
         }
         if !history.isEmpty { store.mergeHistory(history) }
         for item in fresh { store.upsert(item, atTop: true) }
+        guard changedWorkspaceIDs == nil else { return }
         // The Mac's reads.
         for entry in entries where entry.acknowledged {
             let id = Self.itemID(macID: macID, entry: entry.id)
@@ -412,10 +420,10 @@ public final class TerminalFeed {
         var tab: WorkspaceTab
     }
 
-    static func places(_ tree: DaemonTree) -> [Int: Place] {
+    static func places(_ tree: DaemonTree, workspaceIDs: Set<String>? = nil) -> [Int: Place] {
         var places: [Int: Place] = [:]
         // The Mac's home workspace too: an agent there still reaches the Feed.
-        for workspace in tree.workspaces + tree.homeWorkspaces {
+        for workspace in tree.workspaces + tree.homeWorkspaces where workspaceIDs?.contains(workspace.id) ?? true {
             for tab in workspace.tabs {
                 if let surface = tree.surfaces[tab.id] { places[surface] = Place(workspace: workspace, tab: tab) }
             }
@@ -444,6 +452,7 @@ public final class TerminalFeed {
         )
         item.opensTerminal = true
         item.macID = workspace.macID.isEmpty ? nil : workspace.macID
+        item.tabTitle = tab.title
         return item
     }
 
@@ -534,7 +543,7 @@ public final class TerminalFeed {
             }
             if error.message.contains("foreground changed") { return "The agent left that terminal, so the reply was not sent." }
             if error.message.contains("agent not waiting") {
-                return "The agent is busy, asking something, or restarted. The reply was not sent. Open the terminal to reply."
+                return "Open the terminal to answer the agent."
             }
             return "The Mac refused the reply: \(error.message)"
         } catch {

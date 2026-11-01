@@ -54,6 +54,15 @@ extension TabDragSession {
         return false
     }
 
+    /// The ghost's panel went out of sight (FrameScheduler+Sight): a landing ghost lands now and its
+    /// landing finishes; a live drag's ghost takes its target (the next pointer event wakes it again).
+    func settleGhost(_ current: Drag) {
+        guard current === drag || current === landing else { return }
+        current.motion.snap()
+        current.ghost.render(current.motion)
+        if current === landing { finishLanding() }
+    }
+
     /// Auto-scrolls the columns screen under the pointer. Strips and the
     /// sidebar auto-scroll themselves while they hold a drag.
     func autoscroll(_ drag: Drag, dt: Double) -> Bool {
@@ -94,6 +103,8 @@ extension TabDragSession {
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
         case .moveWorkspaceToNewWindow, .moveWorkspace:
             // The tabs stay in their workspace; the workspace itself moves.
+            // Its winning sidebar still owns a gap, even when the workspace stays in its current slot.
+            winner?.provider.dropEnded(committed: winner?.proposal)
             drag.lifecycle.cancel()
             moveSourceWorkspace(outcome, drag: drag)
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)

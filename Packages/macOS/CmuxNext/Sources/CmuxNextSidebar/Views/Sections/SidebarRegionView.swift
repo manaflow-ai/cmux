@@ -32,6 +32,9 @@ final class SidebarRegionView: NSView {
     var dropToListProbe: ((NSPoint?) -> Bool)?
     /// A workspace item was dropped on the list.
     var onDropToList: ((LayoutItemID) -> Void)?
+    /// The older path's drag out (the list's `removesOnDragOut` and `onDragOutRemove`): an item released beside the sidebar comes off it.
+    var removesOnDragOut: ((String) -> Bool)?
+    var onDragOutRemove: ((String) -> Void)?
     /// The list this region draws one section in (the sidebar document's
     /// one renderer, `SidebarBlockRowView`): its item drags are the list's.
     weak var docList: SidebarListView?
@@ -40,8 +43,6 @@ final class SidebarRegionView: NSView {
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
     var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
-    /// A workspace tile's close x: closes that workspace (the sidebar sends `.close`).
-    var onCloseWorkspace: ((WorkspaceID) -> Void)?
     /// The sidebar's edit mode (`SidebarView.isEditingItems`): every item but a client-only one
     /// wiggles and shows its ✕, which asks `onRemoveItem` to take it out.
     var isEditing = false {
@@ -84,11 +85,22 @@ final class SidebarRegionView: NSView {
             }
         }
     }
+    /// The sidebar's multi-selection (`SidebarModel.selection`): a pinned workspace's tile in it draws
+    /// the secondary fill a selected list row draws. Only the tiles that joined or left repaint.
+    var selectedWorkspaces: Set<WorkspaceID> = [] {
+        didSet {
+            let changed = oldValue.symmetricDifference(selectedWorkspaces)
+            guard !changed.isEmpty else { return }
+            for (id, view) in itemViews where view.info.workspace.map(changed.contains) == true {
+                view.configure(activeInfo(view.info, id), style: view.style)
+            }
+        }
+    }
     private(set) var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
     private(set) var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
     /// The drag in progress (R77) and the order the region shows while it
     /// runs and until its card has landed.
-    var reorder: SidebarRegionDrag?
+    var reorder: SidebarRegionDrag? { didSet { followPointerEnd(from: oldValue) } }
     /// Where a drag's lifted card lives: a view above the band's scroll
     /// view (the sidebar), so the card and its shadow are never clipped to
     /// the band. Nil: the region itself (tests, a region on its own).
@@ -226,6 +238,7 @@ final class SidebarRegionView: NSView {
                 let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
+                view.trailingTrim = SidebarRegionLayout.itemTrailingTrim(section, look: content.look, metrics: content.metrics)
                 view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
@@ -262,6 +275,7 @@ final class SidebarRegionView: NSView {
                 view.configure(info, style: style)
                 view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
+                view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
                 edit(view, id)
@@ -349,21 +363,19 @@ final class SidebarRegionView: NSView {
         // A client-only item (What's New) only opens: no drag, no menu.
         guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
-        view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
         }
-        // A workspace tile's hover more button opens the same menu under itself; its x closes the
-        // workspace as a workspace row's x does (SidebarItemRowView+HoverActions).
+        // A workspace tile's hover more button opens the same menu under itself (SidebarItemRowView+HoverActions).
+        // A pinned item has no hover x (Lawrence msg 19392): Close Workspace is in this menu.
         view.onMore = { [weak self, weak view] in
             guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
+            view.showsMenu = true
+            defer { view.showsMenu = false }
             _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
-        }
-        view.onClose = { [weak self, weak view] in
-            guard let workspace = view?.info.workspace else { return }
-            self?.onCloseWorkspace?(workspace)
         }
         return view
     }
@@ -407,10 +419,11 @@ final class SidebarRegionView: NSView {
         contextMenuProvider?(emptySpaceTarget)
     }
 
-    /// `info` drawn active when `id` is the selected item.
+    /// `info` drawn active when `id` is the selected item, and as part of the multi-selection when its workspace is.
     private func activeInfo(_ info: SidebarItemInfo, _ id: LayoutItemID) -> SidebarItemInfo {
         var info = info
         info.isActive = id == activeItem
+        info.isSecondarySelected = !info.isActive && info.workspace.map(selectedWorkspaces.contains) == true
         return info
     }
 

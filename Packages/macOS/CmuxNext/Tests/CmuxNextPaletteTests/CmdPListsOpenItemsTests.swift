@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// Cmd-P lists only what is open now: the workspaces and, once typed, their groups, panes and
 /// tabs. Browser history, agent chat history, closed tabs and past commands are Search's
 /// (Cmd-Shift-A, `CmdShiftASearchesEverythingTests`). Cmd-Shift-P stays the command palette.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct CmdPListsOpenItemsTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = [PaletteWorkspace(id: "w1", title: "Zebra backend"), PaletteWorkspace(id: "w2", title: "Docs")]
@@ -51,7 +52,7 @@ struct CmdPListsOpenItemsTests {
     /// Cmd-P (`goToWorkspace` with no workspace) opens the Workspaces scope, not Search.
     @Test func cmdPOpensTheWorkspacesScope() async {
         let (palette, registry) = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         _ = registry.perform("goToWorkspace", invocation: ActionInvocation(arguments: [:], origin: .user))
         await palette.model.settle()
         #expect(palette.isVisible)
@@ -65,7 +66,7 @@ struct CmdPListsOpenItemsTests {
     @Test func typedQueriesListOnlyOpenItems() async {
         let workspaces = Workspaces()
         let (palette, registry) = Self.palette(workspaces: workspaces)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         _ = registry.perform("goToWorkspace", invocation: ActionInvocation(arguments: [:], origin: .user))
         palette.model.send(.setQuery("zebra"))
         await palette.model.settle()
@@ -82,7 +83,7 @@ struct CmdPListsOpenItemsTests {
     @Test func goToWorkspaceWithAWorkspaceStillSwitches() async {
         let workspaces = Workspaces()
         let (palette, registry) = Self.palette(workspaces: workspaces)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         _ = registry.perform("goToWorkspace", invocation: ActionInvocation(arguments: ["workspace": .string("w2")], origin: .user))
         #expect(workspaces.selected == ["w2"])
         #expect(!palette.isVisible)
@@ -91,7 +92,7 @@ struct CmdPListsOpenItemsTests {
     /// The scope rows show the keys that open them: Cmd-P on Workspaces, Cmd-Shift-A on Search.
     @Test func scopeRowsNameTheirKeys() {
         let (palette, registry) = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         let scopes = palette.scopeDescriptors()
         #expect(scopes.first { $0.id == PaletteScopeID.workspaces }?.openAction == "goToWorkspace")
         #expect(scopes.first { $0.id == PaletteScopeID.search }?.openAction == "search.chats")

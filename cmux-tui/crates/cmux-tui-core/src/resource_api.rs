@@ -4,6 +4,8 @@
 //! live in the outer runtime, so the public router crosses this injected
 //! boundary instead of importing provider implementation details into core.
 
+use cmux_json::JsonSet as _;
+
 #[cfg(test)]
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -302,8 +304,8 @@ fn machine_snapshot(context: &LocalResourceContext, catalog: bool) -> Value {
     if catalog {
         // Strict older SDKs reject these fields, even on a local record.
         // The reader opts in; this metadata grants no execution authority.
-        machine["platform"] = machine_platform();
-        machine["capabilities"] = machine_capabilities();
+        machine.set("platform", machine_platform());
+        machine.set("capabilities", machine_capabilities());
     }
     machine
 }
@@ -476,10 +478,10 @@ pub(crate) fn public_terminal_snapshot(
         // This is a coalesced output revision, not the resource revision. It
         // lets external observers skip a full screen read when the PTY did
         // not change.
-        terminal["stream_revision"] = json!(revision.to_string());
+        terminal.set("stream_revision", json!(revision.to_string()));
     }
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
-        terminal["cwd"] = json!(cwd);
+        terminal.set("cwd", json!(cwd));
     }
     let running = durable.lifecycle == TerminalLifecycle::Running;
     let mut extra = Map::new();
@@ -507,11 +509,13 @@ pub(crate) fn public_terminal_snapshot(
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
     }
     if !extra.is_empty() {
-        terminal["extra"] = Value::Object(extra);
+        terminal.set("extra", Value::Object(extra));
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
-        terminal["exit"] =
-            durable.exit.clone().context("exited terminal omitted its durable outcome")?;
+        terminal.set(
+            "exit",
+            durable.exit.clone().context("exited terminal omitted its durable outcome")?,
+        );
     } else {
         debug_assert!(
             durable.exit.is_none(),
@@ -534,7 +538,9 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
 ) -> Result<(Value, u64), ResourceError> {
-    mux.publish_pending_terminal_directories();
+    // No pending terminal directory is published here: a read runs no
+    // write. Terminal output, resize, reconnect and every committed graph
+    // change publish a pending one (`publish_resource_event`).
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -596,24 +602,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .map(|(host_id, terminal_id)| (terminal_id, host_id))
             .collect::<HashMap<_, _>>();
 
-        let workspaces = registry_snapshot
-            .workspaces
-            .iter()
-            .enumerate()
-            .map(|(index, workspace)| {
-                Ok(json!({
-                    "id": workspace.public_id,
-                    "session_id": topology.session_id,
-                    "name": workspace.name,
-                    "index": checked_index(index)?,
-                    "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
-                    "extra": crate::resource_name::workspace_name_extra(
-                        workspace.name_source,
-                        workspace.name_revision,
-                    ),
-                }))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let workspaces = public_workspace_values(&registry_snapshot, &topology)?;
 
         let screens = topology
             .screens
@@ -768,12 +757,12 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                     "read_by": notification.read_by,
                 });
                 if let Some(terminal_id) = notification.terminal_id {
-                    snapshot["terminal_id"] = json!(terminal_id);
+                    snapshot.set("terminal_id", json!(terminal_id));
                 }
                 if let Some(subtitle) = notification.subtitle {
-                    snapshot["subtitle"] = json!(subtitle);
+                    snapshot.set("subtitle", json!(subtitle));
                 }
-                snapshot["extra"] = json!({"source": notification.source.as_str()});
+                snapshot.set("extra", json!({"source": notification.source.as_str()}));
                 snapshot
             })
             .collect::<Vec<_>>();
@@ -832,14 +821,79 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         });
         registry.read_state(|connection| {
             crate::state::values::decorate_snapshot(connection, &mut snapshot)?;
-            snapshot["extra"] = json!({
+            snapshot.set("extra", json!({
                 "state": crate::state::store::state_snapshot(connection)?,
-            });
+            }));
             Ok(())
         })?;
         Ok((snapshot, journal_head))
     })
     .map_err(operation_failed)
+}
+
+/// The public workspaces before decoration, in session order: one builder
+/// for the session snapshot and the workspace list.
+fn public_workspace_values(
+    registry_snapshot: &crate::workspace_registry::RegistrySnapshot,
+    topology: &crate::workspace_registry::ResourceTopologySnapshot,
+) -> anyhow::Result<Vec<Value>> {
+    registry_snapshot
+        .workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| {
+            Ok(json!({
+                "id": workspace.public_id,
+                "session_id": topology.session_id,
+                "name": workspace.name,
+                "index": checked_index(index)?,
+                "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
+                "extra": crate::resource_name::workspace_name_extra(
+                    workspace.name_source,
+                    workspace.name_revision,
+                ),
+            }))
+        })
+        .collect()
+}
+
+/// The session snapshot's `workspaces`, built alone (`workspace.list`, the
+/// list agents' CLI calls make most): the same decorated values, from the
+/// workspace rows and the topology frame. It reads no screens, panes, tabs,
+/// terminals, notifications, agents or live state, and holds only the
+/// registry lock, not state.
+pub(crate) fn public_workspaces(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
+    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // One connection hold for the whole read, as the snapshot's pin: no
+    // late writer commit lands between the rows, the frame and the
+    // decorations. The registry methods below re-enter it.
+    let _connection = registry.connection.get();
+    (|| -> anyhow::Result<Vec<Value>> {
+        let registry_snapshot = registry.snapshot()?;
+        let frame = registry.resource_topology_frame()?;
+        anyhow::ensure!(
+            registry_snapshot.generation == frame.generation
+                && registry_snapshot.resource_revision == frame.revision,
+            "resource projection changed while listing workspaces"
+        );
+        let mut workspaces = public_workspace_values(&registry_snapshot, &frame)?;
+        registry.read_state(|connection| {
+            for workspace in &mut workspaces {
+                crate::state::values::decorate_value(connection, "workspace", workspace)?;
+            }
+            Ok(())
+        })?;
+        Ok(workspaces)
+    })()
+    .map_err(operation_failed)
+}
+
+/// The session snapshot's `cursor` alone (`session.ping`): the topology
+/// generation and resource revision, from the topology frame.
+pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
+    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let frame = registry.resource_topology_frame().map_err(operation_failed)?;
+    Ok(json!({"generation": frame.generation, "revision": frame.revision.to_string()}))
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {

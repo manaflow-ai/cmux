@@ -88,6 +88,17 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       const column = node.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, left: column.left, right: column.right };
     }, id);
+  /// Press the explicit empty row padding. The midpoint between prose boxes can hit the
+  /// reply's action footer, which must retain native control ownership.
+  const gapAfter = (page: Page, above: string) =>
+    page.evaluate((id) => {
+      const gap = document.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-transcript-gap="row"]`)!;
+      const rect = gap.getBoundingClientRect();
+      const point = { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 };
+      if (rect.height <= 0 || document.elementFromPoint(point.x, point.y) !== gap)
+        throw new Error(`No exposed row gap after ${id}`);
+      return point;
+    }, above);
   /// Waits for the transcript to draw rows (`prefix`'s, when given): React commits the shown rows after
   /// the harness call returns, so the scroller may not be in the page yet.
   const rowsIn = (page: Page, prefix = "") =>
@@ -270,6 +281,24 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
+    test(`${name}: a drag from each row gap starts at its nearest mounted caret`, async () => {
+      const page = await open(name);
+      for (const [above, below] of [
+        ["m1", "m2"],
+        ["m2", "m3"],
+      ] as const) {
+        const gap = await gapAfter(page, above);
+        const lower = await box(page, below);
+        await drag(page, gap, { x: lower.left + 220, y: lower.top + 4 });
+        const text = await selected(page);
+        expect(text.length).toBeGreaterThan(0);
+        expect(text).toContain(below === "m2" ? "Bravo tide." : "Charlie gull.");
+        await page.mouse.click(gap.x, gap.y);
+        expect(await selected(page)).toBe("");
+      }
+      await page.close();
+    });
+
     test(`${name}: a click in the margin selects nothing and takes focus off the composer, as before`, async () => {
       const page = await open(name);
       // A field outside the transcript holds focus, as the composer does. Fixed, so it moves nothing.
@@ -397,7 +426,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       const unmountedOnBase = await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         for (let step = 0; step < 12; step += 1) {
-          scroller.scrollTop += 400;
+          scroller.scrollTop += scroller.scrollHeight / 12;
           for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
         }
         return scroller.scrollTop;
@@ -468,7 +497,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         for (let step = 0; step < 12; step += 1) {
-          scroller.scrollTop += 400;
+          scroller.scrollTop += scroller.scrollHeight / 12;
           for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
         }
       });
@@ -520,7 +549,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         for (let step = 0; step < 12; step += 1) {
-          scroller.scrollTop += 400;
+          scroller.scrollTop += scroller.scrollHeight / 12;
           for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
         }
       });

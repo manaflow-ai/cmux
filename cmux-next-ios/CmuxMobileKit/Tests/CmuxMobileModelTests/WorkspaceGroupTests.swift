@@ -124,6 +124,8 @@ import Testing
         func setUnread(_ workspace: Workspace, _ unread: Bool) async throws {}
         func setIcon(_ workspace: Workspace, _ icon: String?) async throws {}
         func clearName(_ workspace: Workspace) async throws {}
+        func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {}
+        func close(_ workspace: Workspace) async throws { try record("close \(workspace.id)") }
         func groups(on macID: String) -> [MacWorkspaceGroup] { known }
         func place(_ workspace: Workspace, in group: MacWorkspaceGroup?) async throws {
             try record("place \(workspace.id) \(group?.id ?? "nil")")
@@ -170,6 +172,47 @@ import Testing
     }
 
     private func ws(_ store: AppStore, _ id: String) -> Workspace { store.workspaces.first { $0.id == id }! }
+
+    /// Collapse Others, Collapse All Groups, Expand All Groups (the Mac's group Options).
+    @Test func collapseOthersAllAndExpandAll() async {
+        let (store, creator, recorder, mac) = setup()
+        let green = MacWorkspaceGroup(id: "grp_g", name: "Green", color: "green")
+        store.updateWorkspace("a") { $0.group = green }
+        #expect(creator.shownGroups(on: mac).map(\.id) == ["grp_g", "grp_r"])
+        creator.collapseOtherGroups(keeping: red, on: mac)
+        #expect(ws(store, "a").group?.isCollapsed == true && ws(store, "b").group?.isCollapsed == false)
+        #expect(!creator.canCollapseOthers(keeping: red, on: mac))
+        creator.setAllGroupsCollapsed(on: mac, true)
+        #expect(ws(store, "b").group?.isCollapsed == true && ws(store, "c").group?.isCollapsed == true)
+        creator.setAllGroupsCollapsed(on: mac, false)
+        await creator.settle()
+        #expect(recorder.calls == ["update grp_g - - true", "update grp_r - - true", "update grp_g - - false", "update grp_r - - false"])
+    }
+
+    /// Close All in Group / Close Other Groups: a pinned group stays, folded; another goes; then
+    /// its workspaces close.
+    @Test func closingGroupsClosesTheirWorkspaces() async {
+        let (store, creator, recorder, mac) = setup()
+        var pinned = red
+        pinned.isPinned = true
+        for id in ["b", "c"] { store.updateWorkspace(id) { $0.group = pinned } }
+        #expect(creator.members(of: [pinned], on: mac).map(\.id) == ["b", "c"])
+        creator.closeGroups([pinned], on: mac)
+        await creator.settle()
+        #expect(recorder.calls == ["update grp_r - - true", "close b", "close c"])
+        #expect(store.workspaces.map(\.id) == ["a"])
+        let green = MacWorkspaceGroup(id: "grp_g", name: "Green", color: "green")
+        store.updateWorkspace("a") { $0.group = green }
+        recorder.calls = []
+        creator.closeGroups([green], on: mac)
+        await creator.settle()
+        #expect(recorder.calls == ["delete grp_g", "close a"])
+    }
+
+    @Test func parsesThePinnedFlag() {
+        let reply: [String: Any] = ["data": ["groups": [["id": "g1", "name": "A", "pinned": true], ["id": "g2", "name": "B"]]]]
+        #expect(SidebarArrangement.groups(personal: reply).map(\.isPinned) == [true, nil])
+    }
 
     @Test func moveAndRemoveApplyAtOnce() async {
         let (store, creator, recorder, _) = setup()

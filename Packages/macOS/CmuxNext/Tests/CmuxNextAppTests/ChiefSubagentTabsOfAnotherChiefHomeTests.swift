@@ -119,6 +119,46 @@ import CmuxNextWakeups
         #expect(await reached(pane, session: kept) == "starts")
     }
 
+    /// #27712: a named Chief (`<home>/c/<id>`, cmux-tui chief_brains.rs) runs its subagents in its
+    /// home's acpmux (`<home>/acpmux`), and its tabs name its own home (`chief:<id of c/<id>>`).
+    /// No directory listed that home, so the tab attached to this Mac's acpmux, which said "Can't
+    /// find this chat… doesn't have it". Its chat opens from the home's acpmux.
+    @Test func aNamedChiefsTabOpensItsChatFromItsHomesAcpmux() async throws {
+        let (base, current, _) = try homes()
+        defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
+        let named = current.root.appendingPathComponent("c/dbh2607j", isDirectory: true)
+        try FileManager.default.createDirectory(at: named.appendingPathComponent("optchat", isDirectory: true),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: current.acpmuxHome.appendingPathComponent("sessions/\(kept)", isDirectory: true),
+                                                withIntermediateDirectories: true)
+        let directory = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: current, root: base),
+                                           work: BackgroundWork(), environment: { _ in nil }) { _, starts in
+            NamedHost(name: starts ? "home acpmux, started" : "home acpmux")
+        }
+        let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: named), homes: directory,
+                                        fallback: NamedHost(name: "app"))
+        // The home's acpmux keeps the chat: the tab attaches there, never to this Mac's.
+        #expect(await reached(pane, session: kept) == "home acpmux, started")
+        // While the named Chief's host runs (its own lock), the tab only attaches to that daemon.
+        let lockPath = named.appendingPathComponent("state/host.lock")
+        try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let lock = try #require(ChiefMigration.HostLock(path: lockPath))
+        #expect(await reached(pane, session: kept) == "home acpmux")
+        lock.release()
+        // The home's own host on its own acpmux owns that daemon too: the tab only attaches.
+        let homeLockPath = current.root.appendingPathComponent("state/host.lock")
+        try FileManager.default.createDirectory(at: homeLockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let homeLock = try #require(ChiefMigration.HostLock(path: homeLockPath))
+        #expect(await reached(pane, session: kept) == "home acpmux")
+        // That host runs on the app's acpmux (its launch mark names another home): it owns nothing
+        // here, so the tab may start the home's acpmux again.
+        try "1\n/tmp/app-acpmux\n".write(to: ChiefAppAcpmuxMove.markFile(current), atomically: true, encoding: .utf8)
+        #expect(await reached(pane, session: kept) == "home acpmux, started")
+        homeLock.release()
+        // A session the home's acpmux does not keep is this Mac's.
+        #expect(await reached(pane, session: "01a1610c-24e0-75a3-8440-e4bcf537a4ba") == "app")
+    }
+
     /// A Chief home no longer on this Mac: its chat is looked for in this Mac's acpmux, never
     /// refused as another machine's.
     @Test func aChiefHostWithNoHomeHereAttachesToThisMacsAcpmux() async throws {

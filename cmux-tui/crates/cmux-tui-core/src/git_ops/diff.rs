@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 
 use super::{Repository, clamp, git_failed, parse};
 use crate::resource::{ResourceError, WireDecimal};
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.diff";
 const MAX_LISTING_BYTES: usize = 8 * 1024 * 1024;
@@ -72,19 +73,19 @@ impl ChangedFile {
             "deletions":clamp(self.deletions),
         });
         if let Some(previous_path) = &self.previous_path {
-            value["previous_path"] = json!(previous_path);
+            value.set("previous_path", json!(previous_path));
         }
         if self.binary {
-            value["binary"] = json!(true);
+            value.set("binary", json!(true));
         }
         if let Some(patch) = &self.patch {
-            value["patch"] = json!(patch);
+            value.set("patch", json!(patch));
         }
         if let Some(fingerprint) = &self.blob_fingerprint {
-            value["blob_fingerprint"] = json!(fingerprint);
+            value.set("blob_fingerprint", json!(fingerprint));
         }
         if self.patch_truncated {
-            value["patch_truncated"] = json!(true);
+            value.set("patch_truncated", json!(true));
         }
         value
     }
@@ -166,7 +167,7 @@ pub(super) fn continuation(
             json!({"code":"patch_read_failed"}),
         )
     })?;
-    metadata["patch_page"] = page_value(&window, offset, bytes)?;
+    metadata.set("patch_page", page_value(&window, revision, offset, bytes)?);
     Ok(Some(metadata))
 }
 
@@ -195,7 +196,7 @@ pub(in crate::git_ops) fn between(
     let comparison = cmux_git::diff::between(repository, from, to);
     let mut metadata = json!({"from":fields.get("from"), "complete":complete});
     if let Some(to) = fields.get("to") {
-        metadata["to"] = to.clone();
+        metadata.set("to", to.clone());
     }
     report(repository, &comparison, operation, fields, metadata)
 }
@@ -281,46 +282,51 @@ fn report(
         "files_omitted":clamp(files_omitted as u64),
     });
     if let Some(head) = &comparison.head {
-        value["head"] = json!(head);
+        value.set("head", json!(head));
     }
     if let Some(base) = &comparison.base {
-        value["base"] = json!(base);
+        value.set("base", json!(base));
     }
     if untracked_skipped > 0 {
-        value["untracked_skipped"] = json!(clamp(untracked_skipped as u64));
+        value.set("untracked_skipped", json!(clamp(untracked_skipped as u64)));
     }
-    if files_omitted > 0 {
-        if let Some(last) = files.last() {
-            value["next_path"] = json!(last.path);
-        }
+    if files_omitted > 0
+        && let Some(last) = files.last()
+    {
+        value.set("next_path", json!(last.path));
     }
-    if let Some(extra) = metadata.as_object() {
-        if let Some(object) = value.as_object_mut() {
-            object.extend(extra.clone());
-        }
+    if let Some(extra) = metadata.as_object()
+        && let Some(object) = value.as_object_mut()
+    {
+        object.extend(extra.clone());
     }
     if let Some(offset) = page_offset {
-        if files.len() != 1 || files[0].path != paths[0] || !files[0].has_patch() {
-            return Err(ResourceError::validation_invalid(
-                Some("paths"),
-                "a patch page requires one changed text file",
-            ));
-        }
-        let (page, window) = patch_page(
+        let file = match files.as_slice() {
+            [file] if paths.first() == Some(&file.path) && file.has_patch() => file,
+            _ => {
+                return Err(ResourceError::validation_invalid(
+                    Some("paths"),
+                    "a patch page requires one changed text file",
+                ));
+            }
+        };
+        let (page, revision) = patch_page(
             repository,
             comparison,
             operation,
-            &files[0],
+            file,
             context_lines,
             offset,
             fields,
+            &value,
         )?;
-        super::diff_pages::put(page_key, window, value.clone());
-        value["patch_page"] = page;
+        super::diff_pages::put(page_key, revision, value.clone());
+        value.set("patch_page", page);
     }
     Ok(value)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn patch_page(
     repository: &Repository,
     comparison: &Comparison,
@@ -329,7 +335,8 @@ fn patch_page(
     context_lines: usize,
     offset: u64,
     fields: &Map<String, Value>,
-) -> Result<(Value, GitWindow), ResourceError> {
+    metadata: &Value,
+) -> Result<(Value, super::diff_pages::Capture), ResourceError> {
     let paths = returned_paths(std::slice::from_ref(file));
     let unified = format!("--unified={context_lines}");
     let arguments = diff_args(comparison, &["--patch", "--full-index", &unified], &paths);
@@ -343,10 +350,11 @@ fn patch_page(
             json!({"code":"patch_read_failed"}),
         ));
     };
+    let revision = page_revision(&window, metadata);
     if fields
         .get("patch_revision")
         .and_then(Value::as_str)
-        .is_some_and(|expected| expected != window.sha256)
+        .is_some_and(|expected| expected != revision)
     {
         return Err(ResourceError::operation_failed(
             operation,
@@ -360,11 +368,30 @@ fn patch_page(
             "patch_offset is past the end of the patch",
         ));
     }
-    let page = page_value(&window, offset, output.stdout)?;
-    Ok((page, window))
+    let page = page_value(&window, &revision, offset, output.stdout)?;
+    Ok((page, super::diff_pages::Capture { revision, window }))
 }
 
-fn page_value(window: &GitWindow, offset: u64, bytes: Vec<u8>) -> Result<Value, ResourceError> {
+/// A page revision names the captured patch bytes and the listing returned
+/// with page zero together. Continuations replay that listing, so a later
+/// page zero with the same bytes but a different listing (say `complete`
+/// changed) is a different revision and can never lend its listing to an
+/// earlier reader's continuation, or the reverse.
+fn page_revision(window: &GitWindow, metadata: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(window.sha256.as_bytes());
+    hash.update([0]);
+    hash.update(metadata.to_string().as_bytes());
+    hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn page_value(
+    window: &GitWindow,
+    revision: &str,
+    offset: u64,
+    bytes: Vec<u8>,
+) -> Result<Value, ResourceError> {
     if offset > window.total_bytes {
         return Err(ResourceError::validation_invalid(
             Some("patch_offset"),
@@ -376,7 +403,7 @@ fn page_value(window: &GitWindow, offset: u64, bytes: Vec<u8>) -> Result<Value, 
         "offset": WireDecimal::new(offset),
         "next_offset": WireDecimal::new(next),
         "total_bytes": WireDecimal::new(window.total_bytes),
-        "revision": window.sha256,
+        "revision": revision,
         "data_base64": base64::engine::general_purpose::STANDARD.encode(bytes),
         "complete": next == window.total_bytes,
     }))

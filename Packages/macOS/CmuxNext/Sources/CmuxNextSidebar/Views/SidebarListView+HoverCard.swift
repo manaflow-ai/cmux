@@ -23,6 +23,8 @@ extension SidebarListViewComponents {
             return false
         }
         let target = HoverTarget(id: WorkspaceHoverCardController.targetID(id), window: window.windowNumber, delay: hoverCard.delay)
+        // The action asks for resource usage, which lives in the card's details.
+        hoverCard.requestDetails(for: id)
         hoverCards.pin(target, from: hoverCard)
         return hoverCards.isShowing(target.id)
     }
@@ -60,24 +62,23 @@ extension SidebarListViewComponents {
     private func isEmptyTree(_ id: GroupID) -> Bool {
         (groupSubtrees[id] ?? [id]).allSatisfy { groups[$0]?.workspaces.isEmpty ?? true }
     }
-    /// The group header's frame on screen, nil when it is not laid out.
+    /// The group's row on screen (its header, or the one row it draws as), nil when it is not laid out.
     func hoverCardAnchor(forGroup id: GroupID) -> CGRect? {
-        guard let window, let row = displayed.row(for: .group(id)) else { return nil }
+        guard let window, let row = displayed.groupRow(id) else { return nil }
         return window.convertToScreen(convert(frame(for: row), to: nil))
     }
     /// The row's frame on screen, nil when it is not laid out.
-    /// A pinned workspace's row anchors its card as a list row does: its frame across the list.
+    /// A pinned workspace uses its drawn pill rather than its wider layout cell.
     func hoverCardAnchor(for id: WorkspaceID) -> CGRect? {
         guard let window else { return nil }
         if let row = displayed.row(for: .workspace(id)) { return window.convertToScreen(convert(frame(for: row), to: nil)) }
         guard let pinned = blockItemView(for: id) else { return nil }
-        return window.convertToScreen(convert(convert(pinned.bounds, from: pinned), to: nil))
+        return window.convertToScreen(pinned.convert(pinned.pill.frame, to: nil))
     }
-    /// Where a workspace row's hover card goes: the row's band across the sidebar column
-    /// (`HoverCardEscapeGeometry.rowBand`), so the card's top is the row's top and its near edge
-    /// one device pixel off the sidebar's visible edge. Nil when the row is not laid out.
+    /// A workspace preview touches the row's fill, before the sidebar's resize/drag thumb.
+    /// Pinned items use their drawn pill rather than their wider layout cell.
     func hoverCardBand(for id: WorkspaceID) -> CGRect? {
-        hoverCardAnchor(for: id).flatMap(hoverCardBand(row:))
+        hoverCardAnchor(for: id)
     }
     /// A group header's band across the sidebar column, as `hoverCardBand(for:)`.
     func hoverCardBand(forGroup id: GroupID) -> CGRect? {
@@ -133,11 +134,22 @@ extension SidebarViewComponents {
         return list.hoverCardAnchor(for: id)
     }
 
-    /// Group `id`'s header row on screen, scrolled into view first; nil when
-    /// the header is not shown (the icon picker anchors its popover here).
+    /// Group `id`'s row on screen (its header, or the one row it draws as), scrolled into view first; nil when
+    /// neither is shown (the icon picker anchors its popover here).
     public func groupRowFrameOnScreen(for id: GroupID) -> CGRect? {
-        guard let row = list.displayed.row(for: .group(id)), let window = list.window else { return nil }
+        guard let row = list.displayed.groupRow(id), let window = list.window else { return nil }
         list.scrollToVisible(list.frame(for: row))
         return window.convertToScreen(list.convert(list.frame(for: row), to: nil))
+    }
+
+    /// The name of the shown group called `name` on screen, scrolled into view first (a capture tour double-clicks it
+    /// to rename the group in place); nil when no shown group has that name.
+    public func groupNameFrameOnScreen(named name: String) -> CGRect? {
+        guard let id = list.groups.values.first(where: { $0.name == name })?.id, groupRowFrameOnScreen(for: id) != nil,
+              let window = list.window else { return nil }
+        list.realizeVisibleRows()
+        guard let header = list.rowViews[.group(id)] as? GroupHeaderRowView else { return nil }
+        header.layoutSubtreeIfNeeded()
+        return window.convertToScreen(header.convert(header.name.frame, to: nil))
     }
 }

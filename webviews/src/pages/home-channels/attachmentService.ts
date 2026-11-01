@@ -8,7 +8,14 @@
 // from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
-import { HomeOps, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
+import { imageSize, MAX_DECODE_PIXELS, MAX_UNSIZED_DECODE_BYTES } from "../../agent-session/acpmux/composer/imageWork";
+import {
+  HomeOps,
+  MESSAGE_PARTS,
+  type HomeAttachment,
+  type HomeAttachmentSupport,
+  type HomeDerivedImage,
+} from "./types";
 
 export type AttachmentClass = "image" | "video" | "audio" | "file";
 
@@ -51,10 +58,8 @@ const BY_EXTENSION: Readonly<Record<string, string>> = {
   heic: "image/heic",
 };
 
-export const MAX_ATTACHMENT_BYTES = 100_000_000;
-export const MAX_ATTACHMENTS = 10;
-const PREVIEW_MAX_BYTES = 512_000;
-const POSTER_MAX_BYTES = 2_000_000;
+const PREVIEW_BYTES_LIMIT = 512_000;
+const POSTER_BYTES_LIMIT = 2_000_000;
 const PREVIEW_EDGE = 720;
 const POSTER_EDGE = 1280;
 /** Upload chunk (decoded): about 1.4 MB of base64 per frame. */
@@ -62,7 +67,7 @@ const CHUNK_BYTES = 1024 * 1024;
 /** Read chunk: a multiple of 3, so base64 pieces join into one string. */
 const READ_BYTES = 3 * 1024 * 1024;
 /** Images up to this size come back as data URLs; a larger one shows from its URL. */
-const DATA_URL_MAX_BYTES = 16_000_000;
+const DATA_URL_BYTES_LIMIT = 16_000_000;
 /** Image data URLs kept (least recently used goes first). */
 const IMAGE_CACHE_ENTRIES = 64;
 /** The longest wait for the browser to read a video's first frame. */
@@ -113,16 +118,30 @@ export function resolvedType(file: File, bytes: Uint8Array): string {
   const listed = attachmentType(file);
   if (listed) return listed;
   const prefix = bytes.subarray(0, SNIFF_BYTES);
-  return looksLikeText(prefix, prefix.length === bytes.length) ? "text/plain" : GENERIC_FILE_TYPE;
+  return looksLikeText(prefix, file.size <= prefix.length) ? "text/plain" : GENERIC_FILE_TYPE;
 }
 
 export type Refusal = "size";
 
-/** Why the owner would refuse `file`, before any byte moves: only an empty file or one over the
- * size cap (any type attaches). */
+/** Why the owner would refuse `file`, before any byte moves: only an empty file is refused. */
 export function refusal(file: File): Refusal | undefined {
-  if (file.size <= 0 || file.size > MAX_ATTACHMENT_BYTES) return "size";
+  if (file.size <= 0) return "size";
   return undefined;
+}
+
+/** The messages one send of `text` and `files` becomes, in order: each within `MESSAGE_PARTS`, the
+ * text (when there is any) with the first files. No files: the text alone. */
+export function messageGroups<T>(text: string, files: readonly T[]): { text: string; files: T[] }[] {
+  const groups: { text: string; files: T[] }[] = [];
+  let at = 0;
+  let first = true;
+  do {
+    const room = MESSAGE_PARTS - (first && text ? 1 : 0);
+    groups.push({ text: first ? text : "", files: files.slice(at, at + room) });
+    at += room;
+    first = false;
+  } while (at < files.length);
+  return groups;
 }
 
 export function formatBytes(bytes: number): string {
@@ -136,9 +155,117 @@ export function formatBytes(bytes: number): string {
   return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
+/** Incremental SHA-256 so an attachment's hash never requires a whole-file allocation. */
+class StreamingSha256 {
+  private readonly state = new Uint32Array([
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  ]);
+  private readonly pending = new Uint8Array(64);
+  private readonly words = new Uint32Array(64);
+  private pendingLength = 0;
+  private bytes = 0;
+
+  update(input: Uint8Array): void {
+    this.bytes += input.length;
+    let offset = 0;
+    if (this.pendingLength) {
+      const count = Math.min(64 - this.pendingLength, input.length);
+      this.pending.set(input.subarray(0, count), this.pendingLength);
+      this.pendingLength += count;
+      offset = count;
+      if (this.pendingLength === 64) {
+        this.block(this.pending);
+        this.pendingLength = 0;
+      }
+    }
+    while (offset + 64 <= input.length) {
+      this.block(input.subarray(offset, offset + 64));
+      offset += 64;
+    }
+    if (offset < input.length) {
+      this.pending.set(input.subarray(offset), 0);
+      this.pendingLength = input.length - offset;
+    }
+  }
+
+  digest(): string {
+    const tail = new Uint8Array(128);
+    tail.set(this.pending.subarray(0, this.pendingLength));
+    tail[this.pendingLength] = 0x80;
+    const bitLength = this.bytes * 8;
+    const blockLength = this.pendingLength + 1 <= 56 ? 64 : 128;
+    const view = new DataView(tail.buffer);
+    view.setUint32(blockLength - 8, Math.floor(bitLength / 0x1_0000_0000));
+    view.setUint32(blockLength - 4, bitLength >>> 0);
+    this.block(tail.subarray(0, 64));
+    if (blockLength === 128) this.block(tail.subarray(64, 128));
+    return [...this.state].map((word) => word.toString(16).padStart(8, "0")).join("");
+  }
+
+  private block(block: Uint8Array): void {
+    const words = this.words;
+    const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
+    for (let i = 0; i < 16; i++) words[i] = view.getUint32(i * 4);
+    for (let i = 16; i < 64; i++) {
+      const x = words[i - 15]!,
+        y = words[i - 2]!;
+      const s0 = ((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3);
+      const s1 = ((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10);
+      words[i] = (words[i - 16]! + s0 + words[i - 7]! + s1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, h] = this.state;
+    for (let i = 0; i < 64; i++) {
+      const s1 = ((e! >>> 6) | (e! << 26)) ^ ((e! >>> 11) | (e! << 21)) ^ ((e! >>> 25) | (e! << 7));
+      const choose = (e! & f!) ^ (~e! & g!);
+      const t1 = (h! + s1 + choose + K[i]! + words[i]!) >>> 0;
+      const s0 = ((a! >>> 2) | (a! << 30)) ^ ((a! >>> 13) | (a! << 19)) ^ ((a! >>> 22) | (a! << 10));
+      const majority = (a! & b!) ^ (a! & c!) ^ (b! & c!);
+      const t2 = (s0 + majority) >>> 0;
+      const nextA = (t1 + t2) >>> 0;
+      const nextE = (d! + t1) >>> 0;
+      h = g;
+      g = f;
+      f = e;
+      e = nextE;
+      d = c;
+      c = b;
+      b = a;
+      a = nextA;
+    }
+    this.state[0] = (this.state[0]! + a!) >>> 0;
+    this.state[1] = (this.state[1]! + b!) >>> 0;
+    this.state[2] = (this.state[2]! + c!) >>> 0;
+    this.state[3] = (this.state[3]! + d!) >>> 0;
+    this.state[4] = (this.state[4]! + e!) >>> 0;
+    this.state[5] = (this.state[5]! + f!) >>> 0;
+    this.state[6] = (this.state[6]! + g!) >>> 0;
+    this.state[7] = (this.state[7]! + h!) >>> 0;
+  }
+}
+
+const K = Uint32Array.from([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
+  0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+  0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8,
+  0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
+  0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+  0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+  0xc67178f2,
+]);
+
 async function sha256(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
+  const hash = new StreamingSha256();
+  for (let offset = 0; offset < file.size; offset += READ_BYTES) {
+    if (signal?.aborted) throw new DOMException("cancelled", "AbortError");
+    hash.update(new Uint8Array(await file.slice(offset, offset + READ_BYTES).arrayBuffer()));
+  }
+  return hash.digest();
 }
 
 function base64(bytes: Uint8Array): string {
@@ -182,15 +309,27 @@ async function jpeg(source: CanvasImageSource, width: number, height: number, ed
 
 /** An image's size and small preview (none for a GIF, which would stop moving, or a type the
  * browser cannot decode). */
-async function imageFacts(file: File): Promise<Facts> {
+async function imageFacts(file: File, mimeType: string): Promise<Facts> {
+  const size = await imageSize(file).catch(() => undefined);
+  if (
+    size &&
+    (size.width === undefined ||
+      size.height === undefined ||
+      (size.height > 0 && size.width > MAX_DECODE_PIXELS / size.height))
+  )
+    return {};
+  const heic = mimeType === "image/heic";
+  // Follow the shared unsized-image decode budget. This limits only optional preview work;
+  // the original is still hashed and uploaded in slices, regardless of its byte count.
+  if (!size && (!heic || file.size > MAX_UNSIZED_DECODE_BYTES)) return {};
   const bitmap = await createImageBitmap(file).catch(() => undefined);
   if (!bitmap) return {};
   const facts = { width: bitmap.width, height: bitmap.height };
-  const small = file.size <= PREVIEW_MAX_BYTES && Math.max(bitmap.width, bitmap.height) <= PREVIEW_EDGE;
+  const small = file.size <= PREVIEW_BYTES_LIMIT && Math.max(bitmap.width, bitmap.height) <= PREVIEW_EDGE;
   const preview =
-    file.type === "image/gif" || small
+    mimeType === "image/gif" || (small && !heic)
       ? undefined
-      : await jpeg(bitmap, bitmap.width, bitmap.height, PREVIEW_EDGE, PREVIEW_MAX_BYTES).catch(() => undefined);
+      : await jpeg(bitmap, bitmap.width, bitmap.height, PREVIEW_EDGE, PREVIEW_BYTES_LIMIT).catch(() => undefined);
   bitmap.close();
   return preview ? { ...facts, preview } : facts;
 }
@@ -225,7 +364,7 @@ async function videoFacts(file: File): Promise<Facts> {
     const seeked = once("seeked");
     video.currentTime = Math.min(1, (video.duration || 0) / 10);
     if (!(await seeked) || !video.videoWidth) return facts;
-    const poster = await jpeg(video, video.videoWidth, video.videoHeight, POSTER_EDGE, POSTER_MAX_BYTES).catch(
+    const poster = await jpeg(video, video.videoWidth, video.videoHeight, POSTER_EDGE, POSTER_BYTES_LIMIT).catch(
       () => undefined,
     );
     return poster ? { ...facts, poster } : facts;
@@ -268,17 +407,18 @@ export class AttachmentService {
     signal?: AbortSignal,
   ): Promise<HomeAttachment> {
     if (refusal(file)) throw new Error("refused");
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const mimeType = resolvedType(file, bytes);
+    const prefix = new Uint8Array(await file.slice(0, Math.min(SNIFF_BYTES, file.size)).arrayBuffer());
+    const mimeType = resolvedType(file, prefix);
     const kind = attachmentClass(mimeType);
-    const facts: Facts = kind === "image" ? await imageFacts(file) : kind === "video" ? await videoFacts(file) : {};
+    const facts: Facts =
+      kind === "image" ? await imageFacts(file, mimeType) : kind === "video" ? await videoFacts(file) : {};
     const derived = facts.preview ?? facts.poster;
     const part: HomeAttachment = {
       type: "attachment",
-      hash: await sha256(bytes),
+      hash: await hashFile(file, signal),
       name: file.name,
       mimeType,
-      byteCount: bytes.length,
+      byteCount: file.size,
     };
     if (facts.width) part.width = facts.width;
     if (facts.height) part.height = facts.height;
@@ -304,7 +444,7 @@ export class AttachmentService {
       ...(part.durationMs !== undefined ? { duration_ms: part.durationMs } : {}),
       ...(declared ? { [kind === "video" ? "poster" : "preview"]: declared } : {}),
     });
-    const total = bytes.length + (derived?.bytes.length ?? 0);
+    const total = file.size + (derived?.bytes.length ?? 0);
     // The conversation already holds these bytes (the first record of a hash wins: send what it kept).
     if (!begun.upload) {
       onProgress({ sent: total, total });
@@ -314,11 +454,15 @@ export class AttachmentService {
     let sent = 0;
     try {
       for (const piece of begun.needs ?? []) {
-        const data = piece === "original" ? bytes : derived?.bytes;
-        if (!data) throw new Error(`no bytes for ${piece}`);
-        for (let offset = 0; offset < data.length; offset += CHUNK_BYTES) {
+        const data = piece === "original" ? undefined : derived?.bytes;
+        if (piece !== "original" && !data) throw new Error(`no bytes for ${piece}`);
+        const size = piece === "original" ? file.size : data!.length;
+        for (let offset = 0; offset < size; offset += CHUNK_BYTES) {
           if (signal?.aborted) throw new DOMException("cancelled", "AbortError");
-          const chunk = data.subarray(offset, offset + CHUNK_BYTES);
+          const chunk =
+            piece === "original"
+              ? new Uint8Array(await file.slice(offset, offset + CHUNK_BYTES).arrayBuffer())
+              : data!.subarray(offset, offset + CHUNK_BYTES);
           await this.client.call(HomeOps.attachmentUpload, { op: "chunk", upload, piece, offset, data: base64(chunk) });
           sent += chunk.length;
           onProgress({ sent, total });
@@ -380,7 +524,7 @@ export class AttachmentService {
 
   /** Whether an image of this size comes back as a data URL (else from its URL). */
   static inline(byteCount: number): boolean {
-    return byteCount <= DATA_URL_MAX_BYTES;
+    return byteCount <= DATA_URL_BYTES_LIMIT;
   }
 
   private async readDataUrl(conversation: string, hash: string, variant: string): Promise<string> {

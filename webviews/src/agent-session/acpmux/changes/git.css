@@ -1,6 +1,6 @@
 /* The changes view's Commit and Push (GitActions.tsx), shared with the diff viewer (cx-ueuc8). Colors come
    from the page's theme tokens only: --agent-* and --acpmux-motion-* (the diff viewer maps them). */
-.acpmux-git-tool{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-git-tool{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-git-tool:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-git-tool:active:not(:disabled){background:var(--acpmux-step-pressed);color:var(--agent-text)}
 .acpmux-git-tool[aria-expanded=true]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
@@ -14,7 +14,7 @@
 .acpmux-git-message-keys{display:contents}
 /* A ui/ChoiceGroup fieldset: its native border, margin and min-width reset. */
 .acpmux-git-scope{display:inline-flex;gap:2px;margin:0;border:0;min-width:0;padding:2px;border-radius:8px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)))}
-.acpmux-git-scope-option{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:6px;color:var(--agent-muted);font-size:var(--text-detail);cursor:pointer;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-git-scope-option{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:6px;color:var(--agent-muted);font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-git-scope-option input{position:absolute;opacity:0;pointer-events:none}
 .acpmux-git-scope-option[data-checked=true]{background:var(--agent-page-bg);color:var(--agent-text)}
 .acpmux-git-scope-option:has(input:focus-visible){outline:1.5px solid var(--agent-muted);outline-offset:1px}

@@ -45,7 +45,7 @@ const USAGE: &str = "usage: cmux host enable [--owner LOGIN] [--session NAME] [-
        cmux host serve [--dir DIR]
        cmux host ticket new [--role daemon|client|read-only] [--ttl 15m] [--url WSS_URL] [--label TEXT] [--json]
        cmux host ticket ls [--json] | ticket revoke ID [--json]
-       cmux host join TICKET [--name NAME] [--peer-name NAME] [--advertise WSS_URL] [--serve] [--json]";
+       printf '%s\\n' TICKET | cmux host join [--name NAME] [--peer-name NAME] [--advertise WSS_URL] [--serve] [--json]";
 
 const VERBS: &[&str] = &[
     "enable",
@@ -141,6 +141,8 @@ pub(crate) fn run(rest: &[String]) -> i32 {
 /// first turns remote hosting on (`cmux host enable`, which needs a signed-in
 /// tailnet and changes nothing in it); its report goes to stderr, so stdout
 /// stays the join's one JSON object, and a failure there never stops the join.
+/// The join reads its ticket from this process's stdin, so the enable child
+/// gets none of it: no ticket in its argv, and a closed stdin.
 #[cfg(unix)]
 fn pairing(verb: &str, args: &[String]) -> i32 {
     let mut rest = args.to_vec();
@@ -148,10 +150,9 @@ fn pairing(verb: &str, args: &[String]) -> i32 {
     rest.retain(|arg| verb != "join" || arg != "--serve");
     if rest.len() != before {
         let enabled = self_exe().and_then(|exe| {
-            Ok(std::process::Command::new(exe)
-                .args(["host", "enable"])
-                .stdout(std::process::Stdio::from(std::io::stderr()))
-                .status()?)
+            use std::os::fd::AsFd;
+            let stderr = std::io::stderr().as_fd().try_clone_to_owned()?;
+            Ok(enable_before_join(exe).stdout(stderr).status()?)
         });
         match enabled {
             Ok(status) if status.success() => {}
@@ -163,6 +164,14 @@ fn pairing(verb: &str, args: &[String]) -> i32 {
     }
     let argv = ["host", verb].into_iter().map(String::from).chain(rest);
     crate::acp::run_scope("acp", argv.map(std::ffi::OsString::from).collect())
+}
+
+/// `cmux host enable`, run by `join --serve` before the join reads stdin.
+#[cfg(unix)]
+fn enable_before_join(exe: impl AsRef<std::ffi::OsStr>) -> cmux_process::Command {
+    let mut cmd = cmux_process::Command::new(exe);
+    cmd.args(["host", "enable"]).stdin(cmux_process::Stdio::null());
+    cmd
 }
 
 #[cfg(unix)]
@@ -770,4 +779,55 @@ fn list_grants(args: &[String]) -> anyhow::Result<()> {
         print_teammates(&value);
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod join_tests {
+    use std::io::Write;
+
+    use cmux_process::{Command, Stdio};
+
+    const NAME: &str = "remote_host::join_tests::the_enable_before_a_join_gets_no_ticket";
+    const FAKE: &str = "CMUX_TEST_JOIN_ENABLE_FAKE";
+
+    /// `join --serve` runs `cmux host enable` first, with the ticket waiting
+    /// on this process's stdin for the join: that child carries no ticket in
+    /// its argv and reads none of stdin, so it can neither show the ticket in
+    /// `ps` nor take it from the join. This test runs itself again with a
+    /// ticket on stdin; the copy starts the enable child, which records its
+    /// argv and what it read.
+    #[test]
+    fn the_enable_before_a_join_gets_no_ticket() {
+        if let Some(fake) = std::env::var_os(FAKE) {
+            let status = super::enable_before_join(fake).status().unwrap();
+            assert!(status.success());
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("cmux-join-enable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("cmux");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$0.args\"\ncat > \"$0.stdin\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut parent = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", NAME, "--test-threads=1"])
+            .env(FAKE, &fake)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        parent.stdin.take().unwrap().write_all(b"cmxt1.ticket-for-the-join\n").unwrap();
+        let out = parent.wait_with_output().unwrap();
+        let args = std::fs::read_to_string(dir.join("cmux.args")).unwrap_or_default();
+        let stdin = std::fs::read_to_string(dir.join("cmux.stdin")).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(args, "host enable\n");
+        assert_eq!(stdin, "", "the enable child read the join's stdin");
+    }
 }
