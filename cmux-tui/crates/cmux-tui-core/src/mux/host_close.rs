@@ -189,6 +189,14 @@ fn signal_host_close(close: PendingHostClose) -> Option<PendingHostClose> {
                     identity.terminal_id
                 );
             }
+            runtime.kill();
+            if let (Some(identity), Some(root)) = (identity.as_ref(), host_root.as_ref()) {
+                terminate_discovered_terminal_host_in(
+                    root,
+                    &identity.terminal_id,
+                    Some(&identity.incarnation),
+                );
+            }
             None
         }
     };
