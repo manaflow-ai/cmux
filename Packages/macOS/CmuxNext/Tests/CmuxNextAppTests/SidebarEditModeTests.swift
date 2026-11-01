@@ -143,12 +143,12 @@ import Testing
         #expect(edit.title == "Edit Sidebar")
     }
 
-    /// Add Items' cards: Home, Notifications, History, Bookmarks and the launchers (Search Chats, New
-    /// Terminal, New Browser Tab, New Agent Chat, Customize) beside the Chief's, each on when the
-    /// sidebar shows it (Home as the app it is now), Get and Remove the sidebar's own actions.
+    /// Add Items' cards: Home, Notifications, History, Bookmarks, Automations (opt-in, 3c579beb) and the
+    /// launchers (Search Chats, New Terminal, New Browser Tab, New Agent Chat, Customize) beside the Chief's,
+    /// each on when the sidebar shows it (Home as the app it is now), Get and Remove the sidebar's own actions.
     @Test func theSidebarCategoryListsTheBuiltInItems() {
-        let builtIns: Set<String> = ["home", "notifications", "history", "bookmarks", "search_chats", "new_terminal", "new_browser",
-                                     "new_agent_chat", "customize"]
+        let builtIns: Set<String> = ["home", "notifications", "history", "bookmarks", "automations", "search_chats", "new_terminal",
+                                     "new_browser", "new_agent_chat", "customize"]
         let items = AppFeature.catalog.filter { $0.category == .sidebar }.compactMap(\.sidebarItem)
         #expect(Set(items) == builtIns)
 
