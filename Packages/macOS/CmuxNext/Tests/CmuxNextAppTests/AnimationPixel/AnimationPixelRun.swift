@@ -104,9 +104,12 @@ struct AnimationPixelRun {
         var judge = ScanlineJudge(oracle: oracle, elements: tracked, trigger: trigger, period: fixture.display.refreshPeriod)
         if structural { judge.previous = (labels: before.map(\.color), boundaries: before.dropLast().map { Int($0.end.rounded()) }) }
         let captured = stream.captured
-        let grid = ScanlineJudge.onVsyncGrid(captured.map(\.time), link: sampler.samples.map(\.time), period: fixture.display.refreshPeriod)
-        failures += grid.invalid
-        let frames = zip(grid.times, captured).map { (time: $0, line: axis == .row ? $1.row : $1.column) }
+        let timing = Self.retime(captured.map { (time: $0.time, line: axis == .row ? $0.row : $0.column) }, samples: sampler.samples,
+                                 palette: palette, axis: axis, position: CGFloat(axis == .row ? rowY : columnX) / scale,
+                                 windowHeight: window.frame.height, scale: scale, length: axis == .row ? width : height,
+                                 period: fixture.display.refreshPeriod, trigger: trigger)
+        failures += timing.failures
+        let frames = timing.frames
         let verdict = judge.judge(frames, palette: palette, moves: moves)
         failures += verdict.failures
         failures += sampler.gridFailures(from: trigger - fixture.display.refreshPeriod, scale: scale)
@@ -118,11 +121,82 @@ struct AnimationPixelRun {
         }
         print("ANIMATION-PIXEL \(name): scale \(Int(scale))x, \(window.effectiveAppearance.name.rawValue), refresh "
             + "\(String(format: "%.2f", fixture.display.refreshPeriod * 1000)) ms, \(frames.count) complete and \(stream.idleFrames) idle "
-            + "frames (ScreenCaptureKit own-process capture, no Screen Recording grant asked), capture times put on the display link's "
-            + "vsync grid (max shift \(String(format: "%.2f", grid.maxResidual * 1000)) ms, \(String(format: "%.2f", grid.linkOffset * 1000)) ms from the display link's phase), \(failures.count) failures")
+            + "frames (ScreenCaptureKit own-process capture, no Screen Recording grant asked), frames timed by the "
+            + "display-link tick that committed what they show (\(timing.matched) matched), \(failures.count) failures")
+        // The raw capture stamps and display-link ticks, so a run can be refitted offline.
+        print("ANIMATION-PIXEL \(name): raw capture stamps (ms after the change): "
+            + captured.map { AnimationPixelRun.ms($0.time - trigger) }.joined(separator: " "))
+        print("ANIMATION-PIXEL \(name): display-link ticks (ms after the change): "
+            + sampler.samples.map { AnimationPixelRun.ms($0.time - trigger) }.filter { !$0.hasPrefix("-") }.prefix(60).joined(separator: " "))
         for line in verdict.report { print("ANIMATION-PIXEL \(name): \(line)") }
         for failure in failures.prefix(40) { print("ANIMATION-PIXEL \(name): FAIL \(failure)") }
         return failures
+    }
+
+    /// Times each captured frame by the display-link tick that committed what it shows, not by
+    /// ScreenCaptureKit's stamp: on cmux10s and cmux14 the stamps sat up to half a refresh from any
+    /// vsync grid (green5 292c759a, green6 8a83669d), so no snap of them was sound. At every tick the
+    /// layer channel recorded each pane host's frame; a captured frame's pane runs (exact colors)
+    /// must equal the pane edges some tick committed. The frame takes the time of the first tick of
+    /// that committed state (the window shows a commit at the next refresh, the same for every
+    /// frame; the oracle's origin absorbs it). Times are the display link's, positions are pixels:
+    /// the oracle still judges where each frame is against the declared curve at its tick.
+    ///
+    /// `adjust` moves a pane's committed edges by fixed pixels, measured on the window before the
+    /// change: a pressed divider's lit band covers the panes' edges beside it by a constant amount.
+    ///
+    /// A frame after the change whose panes match no committed state FAILS ("drawn but never
+    /// committed"); frames with no exact pane run (a blend) keep their stamp: the blend check fails them.
+    static func retime(_ frames: [(time: Double, line: [UInt32])], samples: [PresentationSampler.Sample], palette: ScanlinePalette,
+                       axis: Axis, position: CGFloat, windowHeight: CGFloat, scale: CGFloat, length: Int, period: Double,
+                       trigger: Double, adjust: [String: [Int]] = [:]) -> (frames: [(time: Double, line: [UInt32])], failures: [String], matched: Int) {
+        func committed(_ sample: PresentationSampler.Sample) -> [String: [Int]] {
+            var edges: [String: [Int]] = [:]
+            for (name, rect) in sample.rects where name.hasPrefix("host:") {
+                let top = windowHeight - rect.maxY, bottom = windowHeight - rect.minY
+                let crosses = axis == .row ? top <= position && position < bottom : rect.minX <= position && position < rect.maxX
+                guard crosses else { continue }
+                let low = axis == .row ? rect.minX : top, high = axis == .row ? rect.maxX : bottom
+                let start = max(Int((low * scale).rounded()), 0), end = min(Int((high * scale).rounded()), length)
+                // `adjust`: where a pane's exact color stops short of its host edge by design (a pressed divider's halo).
+                let label = String(name.dropFirst(5)), shift = adjust[label] ?? [0, 0]
+                if end > start { edges[label] = [start + shift[0], end + shift[1]] }
+            }
+            return edges
+        }
+        let states = samples.map { (time: $0.time, edges: committed($0)) }
+        var out: [(time: Double, line: [UInt32])] = [], failures: [String] = [], matched = 0
+        for frame in frames {
+            var shown: [String: [Int]] = [:]
+            for run in palette.runs(frame.line) {
+                guard let label = run.label, ScanlineSpan.color(of: label) == label, label != "background" else { continue }
+                shown[label] = [run.start, run.end]
+            }
+            let fits: (Int) -> Bool = { index in
+                let edges = states[index].edges
+                return !shown.isEmpty && shown.allSatisfy { edges[$0.key] == $0.value }
+            }
+            // The latest tick up to a refresh after the stamp that committed this picture, then back to the
+            // first tick of that unchanged state.
+            guard !shown.isEmpty, var index = states.indices.last(where: { states[$0].time <= frame.time + period && fits($0) }) else {
+                if frame.time >= trigger + period, !shown.isEmpty {
+                    failures.append("frame stamped t=\(ms(frame.time - trigger)) ms shows panes \(shown.sorted { $0.key < $1.key }) "
+                        + "that no display-link tick committed (drawn but never committed)")
+                }
+                out.append(frame)
+                continue
+            }
+            while index > 0, states[index - 1].edges == states[index].edges { index -= 1 }
+            matched += 1
+            out.append((time: states[index].time, line: frame.line))
+        }
+        // Two pictures of one committed state are one frame shown twice: keep the first.
+        var seen = Set<String>(), deduped: [(time: Double, line: [UInt32])] = []
+        for frame in out {
+            let key = "\(frame.time)"
+            if seen.insert(key).inserted || frame.time < trigger { deduped.append(frame) }
+        }
+        return (deduped, failures, matched)
     }
 
     /// The scanline's elements after a change, each with where it was before: a pane or divider

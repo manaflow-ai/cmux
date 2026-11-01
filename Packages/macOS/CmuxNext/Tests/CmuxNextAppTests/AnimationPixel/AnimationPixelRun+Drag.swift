@@ -73,11 +73,13 @@ extension AnimationPixelRun {
         }, originWindow: 0...5 * fixture.display.refreshPeriod, overshoot: [Double](repeating: 0, count: starts.count))
         let judge = ScanlineJudge(oracle: oracle, elements: judged, trigger: trigger, period: fixture.display.refreshPeriod)
         let captured = stream.captured
-        let grid = ScanlineJudge.onVsyncGrid(captured.map(\.time), link: sampler.samples.map(\.time), period: fixture.display.refreshPeriod)
-        let all = zip(grid.times, captured).map { (time: $0, line: axis == .row ? $1.row : $1.column) }
+        let timing = Self.retime(captured.map { (time: $0.time, line: axis == .row ? $0.row : $0.column) }, samples: sampler.samples,
+                                 palette: palette, axis: axis, position: position, windowHeight: window.frame.height, scale: scale,
+                                 length: length, period: fixture.display.refreshPeriod, trigger: trigger, adjust: bandAdjust(geometry, tracked))
+        let all = timing.frames
         // The drag's frames: those shown before the release was sent (the band goes with the release).
         let verdict = judge.judge(all.filter { $0.time < release }, palette: palette, moves: true)
-        var failures = grid.invalid + verdict.failures
+        var failures = timing.failures + verdict.failures
         failures += sampler.gridFailures(from: trigger - fixture.display.refreshPeriod, scale: scale)
         for gap in sampler.missedRefreshes(from: trigger, to: release, period: fixture.display.refreshPeriod) {
             failures.append("the main thread missed a display refresh in the drag: \(String(format: "%.1f", gap)) ms between ticks")
@@ -93,13 +95,28 @@ extension AnimationPixelRun {
             }
         }
         print("ANIMATION-PIXEL \(name): scale \(Int(scale))x, \(window.effectiveAppearance.name.rawValue), \(all.count) complete and "
-            + "\(stream.idleFrames) idle frames, \(moves.count) pointer moves, capture times on the vsync grid (max shift "
-            + "\(String(format: "%.2f", grid.maxResidual * 1000)) ms, \(String(format: "%.2f", grid.linkOffset * 1000)) ms from the link's phase), \(failures.count) failures")
+            + "\(stream.idleFrames) idle frames, \(moves.count) pointer moves, frames timed by the committing tick "
+            + "(\(timing.matched) matched), \(failures.count) failures")
         print("ANIMATION-PIXEL \(name): pointer moves (ms after the first, offset pt): "
             + moves.map { "\(AnimationPixelRun.ms($0.time - trigger)):\(Int($0.offset))" }.joined(separator: " "))
         for line in verdict.report { print("ANIMATION-PIXEL \(name): \(line)") }
         for failure in failures.prefix(40) { print("ANIMATION-PIXEL \(name): FAIL \(failure)") }
         return failures
+    }
+
+    /// How far the pressed band moves the exact-color edges of the panes beside it from their host
+    /// edges (measured on the pressed frame, constant while the band moves rigidly).
+    private func bandAdjust(_ geometry: [ScanlineSpan], _ tracked: [ScanlineElement]) -> [String: [Int]] {
+        guard let index = tracked.firstIndex(where: \.free), index > 0, index + 1 < tracked.count else { return [:] }
+        var adjust: [String: [Int]] = [:]
+        let before = tracked[index - 1], after = tracked[index + 1]
+        if let host = geometry.first(where: { $0.label == before.label }) {
+            adjust[before.label] = [0, Int((before.before.end - host.end).rounded())]
+        }
+        if let host = geometry.first(where: { $0.label == after.label }) {
+            adjust[after.label] = [Int((after.before.start - host.start).rounded()), 0]
+        }
+        return adjust
     }
 
     /// The scanline's elements with the pressed divider `band` as a free zone measured on the
