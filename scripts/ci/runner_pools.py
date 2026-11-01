@@ -38,7 +38,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
 
 LINUX_RUNNER predates RUNNER_POOLS and most Linux runs-on still read it (`vars.LINUX_RUNNER || ...`),
 so each pass also writes the linux pool's live member to it (MIRRORS, mirror_writes()) unless the
-overflow switch's record is set, and --check fails while it names a label outside the pool.
+overflow switch's record names it among the variables it changed, and --check fails while it names a
+label outside the pool.
 
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
 creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
@@ -52,7 +53,7 @@ that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) 
 `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
 
 --check validates a RUNNER_POOLS value (every pool set, each to one of its own members) and the
-MIRRORS variables (each a member of its pool while the overflow record is unset).
+MIRRORS variables (each a member of its pool unless the overflow record changed it).
 """
 
 from __future__ import annotations
@@ -202,18 +203,41 @@ def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, An
     return found
 
 
+def switch_owned(record: str | None) -> frozenset[str] | None:
+    """The MIRRORS variables the overflow switch's record says it changed (and so puts back), or None for all.
+
+    No record: none. A record whose `changed` cannot be read: all of them, as before, so an unreadable
+    record never lets this script race the switch. Otherwise only the variables `changed` names. On
+    2026-11-01 the record (set 04:23Z) changed only macOS variables, yet any record stopped the mirror,
+    so LINUX_RUNNER stayed on blacksmith-32vcpu-ubuntu-2404 after RUNNER_POOLS marked it dead at 05:30Z
+    and moved the linux pool to 16 vCPU; about 1,900 jobs sat queued on the dead size.
+    """
+    if not (record or "").strip():
+        return frozenset()
+    try:
+        changed = json.loads(str(record)).get("changed")
+    except (ValueError, AttributeError):
+        return None
+    if not isinstance(changed, dict):
+        return None
+    return frozenset(name for name in MIRRORS if name in changed)
+
+
 def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
                   record: str | None) -> list[tuple[str, str]]:
     """(variable, label) for each MIRRORS variable that does not hold its pool's live member.
 
-    Nothing while the overflow switch's record is set: the switch moved those variables and puts them
-    back. A variable is moved only when it is unset or holds a Blacksmith label; any other value is a
-    deliberate choice, left alone here and named by --check (mirror_problems()).
+    Not a variable the overflow switch's record changed (switch_owned()): the switch moved it and puts
+    it back. A variable is moved only when it is unset or holds a Blacksmith label; any other value is
+    a deliberate choice, left alone here and named by --check (mirror_problems()).
     """
-    if (record or "").strip():
+    owned = switch_owned(record)
+    if owned is None:
         return []
     writes = []
     for name, pool in MIRRORS.items():
+        if name in owned:
+            continue
         want = value.get(pool)
         current = (live.get(name) or "").strip()
         if not isinstance(want, str) or not want or current == want:
@@ -226,11 +250,14 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
 
 def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[str, Any]], *,
                     record: str | None) -> list[str]:
-    """Why a MIRRORS variable misroutes its jobs: it names no member of its pool (overflow off)."""
-    if (record or "").strip():
+    """Why a MIRRORS variable misroutes its jobs: it names no member of its pool (and the switch did not move it)."""
+    owned = switch_owned(record)
+    if owned is None:
         return []
     found = []
     for name, pool in MIRRORS.items():
+        if name in owned:
+            continue
         current = (live.get(name) or "").strip()
         allowed = members(pools[pool]) if pool in pools else []
         if current not in allowed:

@@ -20,6 +20,12 @@ import runner_pools  # noqa: E402
 # The queue janitor's macos-pool-load snapshot as main's janitor wrote it at 22:53Z on 2026-10-28
 # (runner names and warm state dropped). Its starved and unserved are empty: they describe owned
 # glaeda-* labels, never pool members.
+# CI_CLOUD_OVERFLOW_SAVED as the switch wrote it at 04:23Z on 2026-11-01 (trimmed): only macOS variables.
+MACOS_ONLY_RECORD = json.dumps({"changed": {"MACOS_RUNNER_PR": {"after": "glaeda-std-xcode-26.6",
+                                                                "before": "blacksmith-6vcpu-macos-26"}},
+                                "since": "2026-11-01T04:23:40Z"})
+SWITCHED_LINUX = json.dumps({"changed": {"LINUX_RUNNER": {"after": "blacksmith-16vcpu-ubuntu-2404",
+                                                          "before": "blacksmith-32vcpu-ubuntu-2404"}}})
 RECORDED = json.loads((ROOT / "tests/fixtures/runner-pools/macos-pool-load-2026-10-28T2253Z.json").read_text())
 SNAPSHOT_AT = dt.datetime(2026, 10, 28, 22, 53, 37, tzinfo=dt.timezone.utc)
 NOW = SNAPSHOT_AT + dt.timedelta(minutes=2)
@@ -319,7 +325,31 @@ class Main(unittest.TestCase):
         self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="blacksmith-4vcpu-ubuntu-2404")), 1)
         self.assertEqual(runner_pools.main(["--check"], env), 1)
         self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04",
-                                                             CI_CLOUD_OVERFLOW_SAVED='{"changed": {}}')), 0)
+                                                             CI_CLOUD_OVERFLOW_SAVED=SWITCHED_LINUX)), 0)
+        # A record that left LINUX_RUNNER alone does not excuse it.
+        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04",
+                                                             CI_CLOUD_OVERFLOW_SAVED=MACOS_ONLY_RECORD)), 1)
+
+    def test_a_macos_only_overflow_record_does_not_freeze_linux_runner_on_a_dead_member(self) -> None:
+        # 2026-11-01: the record (04:23Z) changed only macOS variables; RUNNER_POOLS marked 32 vCPU dead at
+        # 05:30Z and moved linux to 16 vCPU, but LINUX_RUNNER stayed on 32 and its jobs queued there.
+        current, _ = runner_pools.parse_value(json.dumps({"linux": "blacksmith-32vcpu-ubuntu-2404"}),
+                                              runner_pools.load_pools())
+        value, _ = runner_pools.reconcile(current, runner_pools.load_pools(),
+                                          dead_now={"blacksmith-32vcpu-ubuntu-2404"}, served_now=(), now=NOW)
+        self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
+        live = {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}
+        self.assertEqual(runner_pools.mirror_writes(value, live, record=MACOS_ONLY_RECORD),
+                         [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
+        # The switch's own change stays the switch's, and an unreadable record still defers everything.
+        self.assertEqual(runner_pools.mirror_writes(value, live, record=SWITCHED_LINUX), [])
+        self.assertEqual(runner_pools.mirror_writes(value, live, record="not json"), [])
+        self.assertEqual(runner_pools.mirror_writes(value, live, record='{"since": "x"}'), [])
+        env = {"RUNNER_POOLS": runner_pools.render(value)}
+        switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
+                              "CI_CLOUD_OVERFLOW_SAVED": MACOS_ONLY_RECORD})
+        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(switch.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
 
     def test_the_repo_variable_check_hands_in_what_the_mirror_check_reads(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-repo-variables.yml").read_text())
