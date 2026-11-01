@@ -7,16 +7,32 @@ import UIKit
 public struct CloudChatSession: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let title: String
-    public let machineID: String
+    public let machineID: String?
     public let state: String
     public let updatedAt: Date?
 
-    public init(id: String, title: String, machineID: String, state: String = "active", updatedAt: Date? = nil) {
+    public init(id: String, title: String, machineID: String? = nil, state: String = "active", updatedAt: Date? = nil) {
         self.id = id
         self.title = title
         self.machineID = machineID
         self.state = state
         self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, machineID = "machine_id", machineIDLegacy = "machineID", state
+        case updatedAt = "updated_at", updatedAtLegacy = "updatedAt"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        machineID = try values.decodeIfPresent(String.self, forKey: .machineID)
+            ?? (try values.decodeIfPresent(String.self, forKey: .machineIDLegacy))
+        state = try values.decodeIfPresent(String.self, forKey: .state) ?? "active"
+        updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt)
+            ?? (try values.decodeIfPresent(Date.self, forKey: .updatedAtLegacy))
     }
 }
 
@@ -33,6 +49,17 @@ public struct CloudChatMessage: Codable, Equatable, Identifiable, Sendable {
         self.role = role
         self.text = text
         self.createdAt = createdAt
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, role, text, createdAt = "created_at", createdAtLegacy = "createdAt" }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        role = try values.decode(Role.self, forKey: .role)
+        text = try values.decode(String.self, forKey: .text)
+        createdAt = try values.decodeIfPresent(Date.self, forKey: .createdAt)
+            ?? (try values.decodeIfPresent(Date.self, forKey: .createdAtLegacy))
     }
 }
 

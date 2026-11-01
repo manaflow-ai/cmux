@@ -81,3 +81,13 @@ func cloudRelayAcceptedSendEnvelope() async throws {
     #expect(message.role == .user)
     #expect(message.text == "hello")
 }
+
+@Test("Cloud relay decodes a session without a machine id")
+func cloudRelaySessionWithoutMachineID() async throws {
+    let transport = CloudChatRPCTransport { method, _ in
+        #expect(method == "mobile.chat.sessions")
+        return Data(#"[{"id":"s1","title":"Cloud","state":"active"}]"#.utf8)
+    }
+    let sessions = try await transport.sessions()
+    #expect(sessions == [CloudChatSession(id: "s1", title: "Cloud")])
+}
