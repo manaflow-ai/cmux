@@ -39,7 +39,7 @@ public struct NewColumnCommand: Sendable {
     }
 
     /// The optimistic column in two steps: `provisional` (made with
-    /// ``ProvisionalPane/init(columnWidth:widths:treeWidth:)``) is in the store's visible records
+    /// ``ProvisionalPane/init(columnWidth:left:)``) is in the store's visible records
     /// when this returns, in the caller's turn; the returned work sends `new-pane-right` under its
     /// client-minted ids, so the daemon's pane replaces it under the same public id. A refusal
     /// removes it exactly; a close of the provisional pane first cancels it (``PaneSplitCancelled``).
@@ -55,7 +55,7 @@ public struct NewColumnCommand: Sendable {
         // The target at send time: a stand-in (a create pressed on a create in flight) has become the
         // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
         // out in order, each once the store holds the one before).
-        let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
         let send = daemon.intendNowReporting("new-pane-right", intent, transaction: transaction) { connection in
             try await connection.newColumn(beside: try await target(), left: left, width: width, options: sent)
         }

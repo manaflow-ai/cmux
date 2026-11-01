@@ -327,7 +327,7 @@ extension View {
 }
 
 /// The connection banner's slot: dismissible like every toast (`cmuxMobileDismissibleToast`); a
-/// dismissed state stays hidden until the state changes.
+/// dismissed state stays hidden until the state changes (to no banner, or to another one).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
     let retry: (() -> Void)?
@@ -348,6 +348,15 @@ private struct BannerHost: View {
         }
         .frame(maxWidth: .infinity)
         .animation(theme.motion.snappy.animation, value: state)
+        .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+    }
+}
+
+/// What a dismissed connection banner remembers: only the state it hid. Any other state, no banner
+/// included, ends the dismissal, so the next episode of the same state shows again.
+enum BannerDismissal {
+    static func remembered(_ dismissed: ConnectionBannerState?, after state: ConnectionBannerState?) -> ConnectionBannerState? {
+        state == dismissed ? dismissed : nil
     }
 }
 

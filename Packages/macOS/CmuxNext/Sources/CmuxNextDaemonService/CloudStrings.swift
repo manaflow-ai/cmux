@@ -15,6 +15,8 @@ public enum CloudStrings {
         String(format: String(localized: "cloud.machine.defaultNameNumbered", defaultValue: "Cloud Machine %lld", table: "Cloud", bundle: .module), number)
     }
     nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.", table: "Cloud", bundle: .module) }
+    /// Under a signed-out Cloud action in the command palette and context menus: running it signs in first, then the action runs.
+    nonisolated public static var signInToContinue: String { String(localized: "cloud.signIn.toContinue", defaultValue: "Sign in to use Cloud machines: choose it to sign in, then it runs.", table: "Cloud", bundle: .module) }
     public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>; `cmux cloud list-machines` lists ids.", table: "Cloud", bundle: .module) }
     /// Why a Cloud machine needs an update, for its sidebar header and the
     /// Cloud diagnostics: the build it runs and what an update turns on.
@@ -138,6 +140,11 @@ public enum CloudStrings {
     public static var deleteFirewallRuleTitle: String { String(localized: "cloud.prompt.deleteFirewallRule", defaultValue: "Delete Cloud Firewall Rule?", table: "Cloud", bundle: .module) }
     public static var deleteFirewallRuleBody: String { String(localized: "cloud.prompt.deleteFirewallRuleBody", defaultValue: "This permanently removes the selected firewall rule.", table: "Cloud", bundle: .module) }
     public static var deleteFirewallRule: String { String(localized: "cloud.button.deleteFirewallRule", defaultValue: "Delete", table: "Cloud", bundle: .module) }
+
+    /// `cloud resize-machine` with neither `--size` nor `--disk`, or a `--disk` that is not a positive whole number.
+    public static func resizeNeedsSizeOrDisk(_ sizes: String) -> String {
+        String(format: String(localized: "cloud.failed.resizeNeedsSizeOrDisk", defaultValue: "Pass --size (%@), --disk with a whole number of GiB (4 GiB steps, up to 256, grow-only), or both.", table: "Cloud", bundle: .module), sizes)
+    }
 
     public static func sizeMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.failed.sizeMustBeOneOf", defaultValue: "Size must be one of: %@.", table: "Cloud", bundle: .module), list)

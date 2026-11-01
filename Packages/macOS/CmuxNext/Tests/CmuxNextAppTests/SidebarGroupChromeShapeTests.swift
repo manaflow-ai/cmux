@@ -89,7 +89,8 @@ import Testing
             defer { window.close() }
             let header = try #require(sidebar.list.rowViews[.group(SidebarGroupLineLayoutTests.group)])
             let rail = try #require(sidebar.list.groupLineViews.shown[SidebarGroupLineLayoutTests.group]?.frame)
-            #expect(rail.minY == header.frame.maxY + SidebarStyle.groupLineCut)
+            let first = try #require(sidebar.list.rowViews[.workspace(SidebarGroupLineLayoutTests.members[0])]).frame
+            #expect(rail.minY == min(header.frame.maxY + SidebarStyle.groupLineCut, max(header.frame.maxY, first.minY)))
         }
     }
 

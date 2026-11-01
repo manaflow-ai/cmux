@@ -14,6 +14,7 @@ import CmuxHomeCoreTestSupport
         await store.open(conversation)
         await waitUntil { store.agentMessageReads[conversation] == nil }
         let question = try #require(store.transcript(for: conversation).first?.messageID)
+        let questionKey = try #require(store.transcript(for: conversation).first?.key)
         let chief = ParticipantID("agent_mux")
         func run(_ text: String, missingStep: Bool = false) -> HomeAgentRun {
             var messages: [HomeAgentRun.Message] = [
@@ -41,8 +42,13 @@ import CmuxHomeCoreTestSupport
         await source.release()
         await hydration.value
 
+        // The tell and the report fold into one row; open it to read both (a click on that row).
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: questionKey)
+        #expect(store.transcript(for: conversation).filter(\.isReadOnly).count == 1)
+        store.toggleAgentMessages(group, in: conversation)
+        #expect(store.isAgentMessagesExpanded(group, in: conversation))
         let hydrated = store.transcript(for: conversation).filter(\.isReadOnly)
-        #expect(hydrated.count == 2)
+        #expect(hydrated.count == 3)
         #expect(hydrated.contains { $0.plainText.hasSuffix("Tell refused: agent cancelled") })
         #expect(hydrated.contains { $0.plainText.hasSuffix("Earlier report") })
         #expect(!hydrated.contains { $0.plainText.hasSuffix("Pending tell") })

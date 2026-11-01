@@ -19,7 +19,7 @@ mod search;
 mod types;
 
 pub use attachments::{
-    AttachmentClass, AttachmentReject, DerivedVariant, GENERIC_FILE_TYPE, MAX_ATTACHMENT_BYTES,
+    AttachmentClass, AttachmentReject, DerivedVariant, GENERIC_FILE_TYPE,
     MAX_ATTACHMENT_NAME_CHARS, MAX_DIMENSION, MAX_DURATION_MS, MAX_POSTER_BYTES,
     MAX_PREVIEW_IMAGE_BYTES, attachment_class, is_derived_image_type, is_sha256,
     valid_attachment_name, valid_attachment_part, validate_attachment_meta, validate_derived,

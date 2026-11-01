@@ -296,12 +296,25 @@ enum TabHandlers {
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
         PinnedPage.bind(registry, ctx: ctx)
-        // Edit Source (u18051): a tab rendering a local HTML or SVG file opens its source in the code editor (Open as Text).
-        registry.bindEffect("browser.editSource", effect: { invocation in
-            guard let (tab, pane) = ctx.daemonTab(invocation), let file = FileOpenKind.sourceFile(ofPage: tab.url) else { return .refused(FilePageStrings.notAFile) }
-            ctx.services.linkOpener.openFile(file, from: ctx.services.paneController(for: pane), asText: true); return .done
-        })
-        ActionTargetVisibility.hide("browser.editSource", in: registry) { ($0.target?.id).flatMap { ctx.services.locateTab($0) }.map { FileOpenKind.sourceFile(ofPage: $0.0.url) == nil } ?? false }
+        // Edit Source and Open as Page (u18051, u18462): a rendered page and its source in the code editor, one action apart.
+        for (id, asText) in [("browser.editSource", true), ("file.openAsPage", false)] as [(ActionID, Bool)] {
+            registry.bindEffect(id, effect: { switchView($0, ctx, asText: asText) })
+            ActionTargetVisibility.hide(id, in: registry) { otherView($0, ctx, asText: asText) == nil }
+        }
+    }
+
+    /// The file the targeted (else focused) tab's other view shows (``FileOpenKind/otherView(asText:editorFile:markdownFile:pageURL:)``).
+    private static func otherView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> URL? {
+        let s = ctx.services
+        guard let id = (invocation.target?.kind == .tab ? invocation.target?.id : nil) ?? s.windows.active?.focusedPane?.stripModel.selectedID?.rawValue else { return nil }
+        let page = LocalPageTab.page(of: FilePageHandlers.providerKey(id, s)), file = FilePageHandlers.file(ofTab: id, s)
+        return FileOpenKind.otherView(asText: asText, editorFile: page == FilePageKind.editor.page ? file : nil, markdownFile: page == FilePageKind.markdown.page ? file : nil,
+                                      pageURL: s.locateTab(id)?.0.url ?? s.cache.existingBrowser(id)?.tab.state.url?.absoluteString)
+    }
+
+    private static func switchView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> ActionEffect {
+        guard let file = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
+        ctx.services.linkOpener.openFile(file, from: ctx.services.locateTab(invocation.target?.id ?? "").flatMap { ctx.services.paneController(for: $0.1) }, asText: asText); return .done
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

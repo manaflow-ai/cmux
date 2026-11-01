@@ -84,10 +84,6 @@ enum CmuxStrings {
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
     }
-    /// The placeholder of the thread header's rename field.
-    static var threadTitlePlaceholder: String {
-        String(localized: "home.thread.titlePlaceholder", defaultValue: "Thread Title", table: "CmuxHome", bundle: .module)
-    }
     static var notDelivered: String {
         String(localized: "label.notDelivered", defaultValue: "Not Delivered", table: "CmuxHome", bundle: .module)
     }
@@ -145,6 +141,16 @@ enum CmuxStrings {
     static var copyAttachment: String { Strings.menuCopy }
     static var saveAttachmentAs: String {
         String(localized: "home.attachment.saveAs", defaultValue: "Save As…", table: "CmuxHome", bundle: .module)
+    }
+    /// An agent-message fold's link while folded: how many messages it holds ("Agent messages (6)").
+    static func showAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.show", defaultValue: "Agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
+    }
+    /// The same link while its messages show in full.
+    static func hideAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.hide", defaultValue: "Hide agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
     }
     /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
     static var openLink: String {
