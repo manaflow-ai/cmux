@@ -150,15 +150,14 @@ impl Backend for Runtime<'_> {
                         "Retry repository discovery. If it still fails, reconnect GitHub from Add repository."
                     },
                 );
-                if code == "repo.no_access" {
-                    if let Some(url) = error
+                if code == "repo.no_access"
+                    && let Some(url) = error
                         .get("install_url")
                         .and_then(Value::as_str)
                         .map(str::to_owned)
                         .or(store::install_url(self.mux)?)
-                    {
-                        failure.0.set("install_url", json!(url));
-                    }
+                {
+                    failure.0.set("install_url", json!(url));
                 }
                 return Err(failure);
             }
@@ -264,7 +263,12 @@ impl Backend for Runtime<'_> {
                 Err(failure) => {
                     // An expired/unknown job needs a fresh start on retry;
                     // transport failures retain it to avoid a duplicate clone.
-                    if failure.0.get("code").and_then(Value::as_str) == Some("seed.bad_request") {
+                    // git-seed-v1 answers seed.unknown_job for a job it
+                    // no longer has (its daemon restarted).
+                    if matches!(
+                        failure.0.get("code").and_then(Value::as_str),
+                        Some("seed.bad_request" | "seed.unknown_job")
+                    ) {
                         store::set_job(self.mux, session, name, None)?;
                     }
                     return Err(failure);
@@ -284,7 +288,7 @@ impl Backend for Runtime<'_> {
                     return Err(self.seed_failure(&status, repo)?);
                 }
                 Some("running") if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(250))
+                    std::thread::sleep(Duration::from_millis(250));
                 }
                 Some("running") => {
                     return Err(Failure::new(

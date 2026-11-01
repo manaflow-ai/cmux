@@ -5,7 +5,6 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
-import CmuxNextSettings
 
 // Swap, close, rename, flash and workspace font size.
 extension PaneHandlers {
@@ -140,21 +139,6 @@ extension PaneHandlers {
         ]
         for (id, binding) in bindings {
             registry.bind(id, invoke: { invocation in
-                // The same keys change the chat's text size when its composer or transcript
-                // owns focus. The page-zoom actions remain available from the View menu/palette.
-                // A selected chat is not enough to claim a keyboard shortcut: the key router
-                // records the window's actual focused surface on the invocation. Keep direct
-                // palette/menu runs (which have no key context) target-scoped, but let a sidebar
-                // or native control retain the workspace-terminal action while a chat remains
-                // selected.
-                let inAppUser = invocation.origin == .user && !invocation.viaControlSocket
-                let chatOwnsKeyboard = inAppUser && invocation.keyContext?.contains(.agentPaneFocused) == true
-                let targetIsChat = inAppUser && invocation.keyContext == nil
-                    && ctx.scope(invocation).pane.map { if case .agent = $0.currentContent { true } else { false } } == true
-                if chatOwnsKeyboard || targetIsChat {
-                    changeChatFontSize(id, ctx)
-                    return
-                }
                 guard let content = ctx.content(invocation) else { return }
                 var applied = 0
                 for pane in content.panes.values {
@@ -165,50 +149,5 @@ extension PaneHandlers {
                 if applied == 0 { ctx.refuse(RefusalStrings.noLiveTerminal) }
             })
         }
-    }
-
-    // Key repeats read after the preceding write, or two quick Cmd-Plus presses
-    // both read 14 and save 15. Keep the chain only until its last write settles.
-
-    /// One point per key press, within the Settings row's range. An absent value is its 14 pt
-    /// default; reset removes the override so later default changes still apply.
-    private static func changeChatFontSize(_ id: ActionID, _ ctx: AppActionContext) {
-        guard let settings = ctx.services.settings else { return ctx.refuse(RefusalStrings.settingsNotLoaded) }
-        let path = AgentPaneDisplaySetting.fontSizePath
-        if let managed = settings.managedKey(forPath: path) {
-            return ctx.refuse(RefusalStrings.settingManaged(managed.key))
-        }
-        let writer = SettingWriter.currentRun()
-        let queue = ctx.services.agentChatFontSizeWrites
-        let previous = queue.latest
-        queue.generation += 1
-        let generation = queue.generation
-        let task: Task<ActionWorkFailure?, Never> = Task { @MainActor in
-            _ = await previous?.value
-            defer {
-                if queue.generation == generation { queue.latest = nil }
-            }
-            let value: CmuxNextSettings.JSONValue?
-            if id == "resetWorkspaceTerminalFontSize" {
-                value = nil
-            } else {
-                let current = AgentPaneDisplaySetting(fileRoot: settings.fileRoot)
-                    .values[path.joined(separator: ".")]?.doubleValue ?? AgentPaneDisplaySetting.fontSizeFallback
-                let delta = id == "increaseWorkspaceTerminalFontSize" ? 1.0 : -1.0
-                let range = AgentPaneDisplaySetting.fontSizeRange
-                let next = min(max(current + delta, range.lowerBound), range.upperBound)
-                guard next != current else { return nil }
-                value = .number(next)
-            }
-            do {
-                try await settings.setSetting(at: path, to: value, by: writer)
-                return nil
-            } catch {
-                await settings.reload()
-                return ActionWorkFailure(String(describing: error))
-            }
-        }
-        queue.latest = task
-        ctx.report { await task.value }
     }
 }

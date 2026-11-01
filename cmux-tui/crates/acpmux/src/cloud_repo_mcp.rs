@@ -159,25 +159,25 @@ async fn run_cli_with(
     })?
     .map_err(|e| format!("Could not reach the Cloud machine; reconnect and retry ({e})."))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{')) {
-        if let Ok(value) = serde_json::from_str::<Value>(line) {
-            if value.get("code").is_some()
-                || value.get("repos").is_some()
-                || value.get("state").is_some()
-            {
-                return Ok(value);
-            }
-            if let Some(data) = value.get("data") {
-                return Ok(data.clone());
-            }
-            // `cmux --json` wraps a rejected machine reply as error_code/error;
-            // restore the shared flat typed action result for the agent.
-            if value.get("error_code").is_some() {
-                return Ok(json!({
-                    "code": value.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
-                    "message": value.get("error").and_then(Value::as_str).unwrap_or("Reconnect to the Cloud machine and retry.")
-                }));
-            }
+    if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{'))
+        && let Ok(value) = serde_json::from_str::<Value>(line)
+    {
+        if value.get("code").is_some()
+            || value.get("repos").is_some()
+            || value.get("state").is_some()
+        {
+            return Ok(value);
+        }
+        if let Some(data) = value.get("data") {
+            return Ok(data.clone());
+        }
+        // `cmux --json` wraps a rejected machine reply as error_code/error;
+        // restore the shared flat typed action result for the agent.
+        if value.get("error_code").is_some() {
+            return Ok(json!({
+                "code": value.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
+                "message": value.get("error").and_then(Value::as_str).unwrap_or("Reconnect to the Cloud machine and retry.")
+            }));
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);

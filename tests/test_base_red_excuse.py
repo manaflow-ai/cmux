@@ -1558,6 +1558,181 @@ class PanicRatchet(unittest.TestCase):
             self.judge()
 
 
+GUARD = "nightly-guards / workflow-guard-tests / release-notary"
+GUARD_STEP = "Validate the car guards"
+MERGE_BASE = "c" * 40
+CAR_TEST = "test_cmux_next_follows_the_committed_target_graph"
+
+
+def guard_log(*tests, file="tests/test_car_guards.py", exit_line=True):
+    """A unittest step's log: its echo, one FAIL block per test with its traceback, the summary and exit."""
+    lines = [f"##[group]Run python3 {file}", f"python3 {file}", "shell: /usr/bin/bash -e {0}", "##[endgroup]"]
+    for test in tests:
+        lines += ["=" * 70, f"FAIL: {test} (__main__.FocusedTests.{test})", "-" * 70,
+                  "Traceback (most recent call last):",
+                  f'  File "/home/runner/work/cmux/cmux/{file}", line 160, in {test}',
+                  "    self.assertEqual(", "AssertionError: Lists differ"]
+    lines += ["-" * 70, "Ran 40 tests in 1.204s", "", f"FAILED (failures={len(tests)})"]
+    if exit_line:
+        lines.append("##[error]Process completed with exit code 1.")
+    return log(GUARD, GUARD_STEP, *lines)
+
+
+class FixedOnBaseGitHub(FakeGitHub):
+    """The head's guard job red; the newest base run (20, at BASE_SHA, after the merge-base) passes it."""
+
+    def __init__(self, changed=("Sources/App/Feature.swift",), status="ahead"):
+        super().__init__()
+        self.jobs = {1: failed_job(1, 10, HEAD, name=GUARD, step=GUARD_STEP),
+                     2: dict(failed_job(2, 20, BASE_SHA, name=GUARD, step=GUARD_STEP), conclusion="success")}
+        self.logs = {1: guard_log(CAR_TEST), 2: ""}
+        self.changed = list(changed)
+        self.status = status
+
+    def json(self, route, *, paginate=False):
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            self.routes.append(route)
+            return {"merge_base_commit": {"sha": MERGE_BASE}, "files": [{"filename": f} for f in self.changed]}
+        if f"/compare/{MERGE_BASE}...{BASE_SHA}" in route:
+            self.routes.append(route)
+            return {"status": self.status}
+        return super().json(route, paginate=paginate)
+
+
+class FixedOnBase(unittest.TestCase):
+    """A guard test red on a head whose merge-base predates the base fix (#27584, #27918, #27905, #27775)."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_guard_test_that_passes_on_the_newest_base_is_excused_as_fixed_on_base(self):
+        text = self.judge(FixedOnBaseGitHub())
+        self.assertIn(f"excused '{GUARD}': fixed on base (passes at {BASE_SHA[:12]}", text)
+        self.assertIn("PR does not touch tests/test_car_guards.py, .github/, scripts/, tests/", text)
+        self.assertIn(CAR_TEST, text)
+
+    def test_a_pr_that_touches_the_test_file_is_not_excused(self):
+        with self.assertRaisesRegex(excuse.Refused, "not fixed on base: .*tests/test_car_guards.py"):
+            self.judge(FixedOnBaseGitHub(changed=("tests/test_car_guards.py",)))
+
+    def test_a_pr_that_touches_the_default_guard_paths_is_not_excused(self):
+        for path in (".github/workflows/ci.yml", "scripts/ci/car_guards.py", "tests/other.py", "package.json",
+                     "release-notes/next/kill-switches.json", "homebrew-cmux/cmux.rb"):
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes"):
+                self.judge(FixedOnBaseGitHub(changed=(path,)))
+
+    def test_a_pr_that_touches_a_declared_read_path_is_not_excused(self):
+        # test_car_guards reads the CmuxNext target graph; the default set alone would miss it.
+        with self.assertRaisesRegex(excuse.Refused, "Packages/macOS/CmuxNext/Package.swift"):
+            self.judge(FixedOnBaseGitHub(changed=("Packages/macOS/CmuxNext/Package.swift",)))
+
+    def test_an_undeclared_guard_test_is_never_fixed_on_base(self):
+        # tests/test_docs_deploy_auth_guard.py reads web/vercel.docs-channel.json: an undeclared test may read anything.
+        github = FixedOnBaseGitHub(changed=("web/vercel.docs-channel.json",))
+        github.logs[1] = guard_log("test_docs_channel", file="tests/test_docs_deploy_auth_guard.py")
+        with self.assertRaisesRegex(excuse.Refused, "test_docs_deploy_auth_guard.py declares no read paths"):
+            self.judge(github)
+
+    def test_a_base_pass_not_after_the_merge_base_is_not_excused(self):
+        for status in ("identical", "behind", "diverged"):
+            with self.subTest(status=status), self.assertRaisesRegex(excuse.Refused, "not after the merge-base"):
+                self.judge(FixedOnBaseGitHub(status=status))
+
+    def test_a_crash_is_never_fixed_on_base(self):
+        github = FixedOnBaseGitHub()
+        github.logs[1] = guard_log(CAR_TEST, exit_line=False) + "\n" + log(
+            GUARD, GUARD_STEP, "##[error]Process completed with exit code 134.")
+        with self.assertRaisesRegex(excuse.Refused, "crash"):
+            self.judge(github)
+
+    def test_a_cut_short_run_is_never_fixed_on_base(self):
+        github = FixedOnBaseGitHub()
+        github.logs[1] = log(GUARD, GUARD_STEP, "##[group]Run python3 tests/test_car_guards.py",
+                             "python3 tests/test_car_guards.py", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                             f"FAIL: {CAR_TEST} (__main__.FocusedTests.{CAR_TEST})",
+                             f'  File "/w/tests/test_car_guards.py", line 160, in {CAR_TEST}',
+                             f"{CAR_TEST} (__main__.FocusedTests.{CAR_TEST}) ... ok",
+                             "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge(github)
+        self.assertFalse([route for route in github.routes if "/compare/" in route])
+
+    def test_a_failed_step_with_no_guard_test_is_not_excused(self):
+        github = FixedOnBaseGitHub()
+        github.logs[1] += "\n" + log(GUARD, "Validate create-dmg", "##[group]Run ./tests/test_ci_create_dmg_pinned.sh",
+                                     "./tests/test_ci_create_dmg_pinned.sh", "shell: /usr/bin/bash -e {0}",
+                                     "##[endgroup]", "create-dmg is not pinned",
+                                     "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test"):
+            self.judge(github)
+
+    def test_a_non_guard_test_job_is_never_fixed_on_base(self):
+        # A Swift test reads product code: a pass on the base proves only that the head broke it.
+        github = FakeGitHub()
+        github.jobs[2]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "not a declared guard job"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertFalse([route for route in github.routes if "/compare/" in route])
+
+    def test_a_guard_test_line_printed_by_another_job_is_never_fixed_on_base(self):
+        github = FixedOnBaseGitHub()
+        for job in github.jobs.values():
+            job["name"] = SWIFT
+        github.logs[1] = github.logs[1].replace(GUARD, SWIFT)
+        with self.assertRaisesRegex(excuse.Refused, "not a declared guard job"):
+            self.judge(github)
+
+    def test_a_step_that_does_not_run_the_test_file_is_not_excused(self):
+        github = FixedOnBaseGitHub()
+        github.logs[1] = github.logs[1].replace("python3 tests/test_car_guards.py", "./build.sh")
+        with self.assertRaisesRegex(excuse.Refused, "script does not run tests/test_car_guards.py"):
+            self.judge(github)
+
+    def test_a_pytest_line_with_no_test_run_is_not_excused(self):
+        github = FixedOnBaseGitHub()
+        github.logs[1] = log(GUARD, GUARD_STEP, "##[group]Run python3 tests/test_car_guards.py",
+                             "python3 tests/test_car_guards.py", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                             f"FAILED tests/test_car_guards.py::FocusedTests::{CAR_TEST}",
+                             "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, "printed no test-run summary"):
+            self.judge(github)
+
+    def test_the_checks_job_is_a_guard_job(self):
+        self.assertTrue(excuse.guard_job("cmux-next checks (god files, concurrency, crash safety, l10n)"))
+        self.assertTrue(excuse.guard_job("nightly-guards / workflow-guard-tests / release-notary"))
+        self.assertFalse(excuse.guard_job("nightly-guards / workflow-guard-tests / ci"))
+
+    def test_a_too_long_diff_is_not_excused(self):
+        github = FixedOnBaseGitHub(changed=[f"Sources/App/F{n}.swift" for n in range(excuse.COMPARE_FILES_CAP)])
+        with self.assertRaisesRegex(excuse.Refused, "too many"):
+            self.judge(github)
+
+    def test_the_checks_job_rollup_step_is_read_as_its_guard_tests(self):
+        github = FixedOnBaseGitHub(changed=("Sources/App/Feature.swift",))
+        github.logs[1] = guard_log("test_every_part_of_bun_run_check_runs_in_the_warn_branch",
+                                   file="tests/test_cmux_next_checks_workflow.py") + "\n" + log(
+            GUARD, "Fail on any red check", "##[group]Run failed=()", "failed=()", "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]", "##[error]red check: Checks job structure", "##[error]Process completed with exit code 1.")
+        self.assertIn("fixed on base", self.judge(github))
+        for path in ("webviews/package.json", "cmux-tui/Cargo.toml", "Native/OptChat/chief/Cargo.toml"):
+            github.changed = [path]
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, path):
+                self.judge(github)
+
+    def test_a_rollup_naming_more_reds_than_guard_tests_is_not_excused(self):
+        github = FixedOnBaseGitHub()
+        github.logs[1] += "\n" + log(
+            GUARD, "Fail on any red check", "##[group]Run failed=()", "failed=()", "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]", "##[error]red check: Checks job structure", "##[error]red check: God files",
+            "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, "rollup names 2 red checks"):
+            self.judge(github)
+
+    def test_a_pytest_id_names_its_file(self):
+        self.assertEqual(excuse.guard_test_file("tests/test_x.py::Case::test_y", []), "tests/test_x.py")
+        self.assertIsNone(excuse.guard_test_file("web/test_x.py::test_y", []))
+
+
 class Script(unittest.TestCase):
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()

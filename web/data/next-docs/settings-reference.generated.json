@@ -15,7 +15,8 @@
           "group": "Agent Chat",
           "values": [
             "inline",
-            "strip"
+            "strip",
+            "both"
           ]
         },
         {

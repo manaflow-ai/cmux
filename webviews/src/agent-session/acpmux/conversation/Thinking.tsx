@@ -42,9 +42,10 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
 /// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
 /// each step replaces in place: "Thinking 18s" (the turn's time, and its tokens when the harness
-/// reports them), or the call in flight ("Running bun test 13s", or what it says it does, "Run the
-/// web tests 13s"), its time from the call's start, or "Writing a command 9s" while the agent still
-/// writes the command (`draft`). All shimmer. While text streams (`quietKey` moves) the line keeps
+/// reports them), the call in flight ("Running bun test 13s", or what it says it does, "Run the
+/// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
+/// "Writing a command 9s" while the agent still writes the command (`draft`). One clock and one
+/// token count for all of them, the turn's, so the line just keeps going. All shimmer. While text streams (`quietKey` moves) the line keeps
 /// its height but draws nothing.
 export function Thinking({
   status,
@@ -57,6 +58,7 @@ export function Thinking({
   sendTo,
   sendSession,
   draft = false,
+  done = false,
   untimed = false,
   quietKey,
   below = false,
@@ -74,6 +76,8 @@ export function Thinking({
   sendTo?: string;
   sendSession?: string;
   draft?: boolean;
+  /// `doing` is the latest step, finished ("Ran grep …"): the line holds it until the next one.
+  done?: boolean;
   untimed?: boolean;
   quietKey?: string;
   /// The turn's last row (conversation/turns.ts): as tall as the footer that replaces it.
@@ -84,7 +88,9 @@ export function Thinking({
 } = {}) {
   const t = useT();
   const waiting = useContext(WaitingOnContext);
-  const from = doing !== undefined ? doingAt : untimed ? undefined : since;
+  // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
+  // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
+  const from = untimed ? undefined : since;
   const timed = !status && !waiting && from !== undefined;
   const time = useTicking(timed, now);
   const quiet = useQuiet(status || waiting || doing !== undefined ? undefined : quietKey);
@@ -97,10 +103,10 @@ export function Thinking({
         ? t("send.sending", { target: sendName })
         : doingShell
           ? doing
-            ? t("tools.runningCommand", { command: doing })
+            ? t(done ? "tools.ranCommand" : "tools.runningCommand", { command: doing })
             : draft
               ? t("tools.writingCommand")
-              : t("tools.runningUnnamed")
+              : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
           : doing);
   const elapsed = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
@@ -108,7 +114,7 @@ export function Thinking({
   // (App.tsx counts nothing while the tray lists it).
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
-  const showTokens = Boolean(tokens) && timed && doing === undefined;
+  const showTokens = Boolean(tokens) && timed;
   const parts = counts && !status && !waiting ? workingParts(t, counts) : [];
   return (
     <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
@@ -154,7 +160,7 @@ export function Thinking({
         </span>
       ))}
       {/* Keyed by the call, so each command's hint waits its moment again. */}
-      {command && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
+      {command && !done && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
       {status && onCancel && (
         <button type="button" className="cv-thinking__cancel" onClick={onCancel}>
           {t("switch.cancelPrompt")}
