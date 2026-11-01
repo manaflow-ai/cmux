@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextControl
 @testable import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -66,6 +67,29 @@ struct IncognitoSurfacesTests {
         let posted = try #require(try banner(incognito: false))
         #expect(posted.title.hasPrefix("secret-project"))
         #expect(posted.body == "Rotated the production signing key.")
+    }
+
+    /// An agent's passkey request from an incognito browser tab names neither the agent nor the site.
+    @Test func anIncognitoPasskeyBannerNamesNothing() async {
+        let services = Self.services()
+        services.cache.browserTabs.isIncognitoTab = { $0 == "tab_secret" }
+        let host = AppBrowserPasskeyHost(services: services)
+        await host.post(BrowserPasskeyRequest(id: "p1", tabID: "tab_secret", agent: "Chief", site: "bank.example"))
+        let posted = services.notifications.desktop.posted.last
+        #expect(posted?.title == DesktopNotifier.incognitoTitle && posted?.body == DesktopNotifier.incognitoBody,
+                "an incognito tab's passkey banner names its agent or site: \(String(describing: posted))")
+        await host.post(BrowserPasskeyRequest(id: "p2", tabID: "tab_normal", agent: "Chief", site: "bank.example"))
+        #expect(services.notifications.desktop.posted.last?.body.contains("bank.example") == true)
+    }
+
+    /// The tabs the quit leaves out are taken before its window step closes the incognito workspaces (after
+    /// that, a removed tab no longer reads as incognito): every chat view's tab and every held composer's.
+    @Test func theQuitTakesTheIncognitoTabsUpFront() {
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
+                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
+        tabs.wakeStates["tab_secret"] = AgentPaneWakeState(shell: true, shellText: "cat ~/.ssh/id_ed25519")
+        tabs.wakeStates["tab_normal"] = AgentPaneWakeState(shell: true, shellText: "make test")
+        #expect(AgentQuitFiles.incognitoTabs(tabs, isIncognito: { $0 == "tab_secret" }) == ["tab_secret"])
     }
 
     // MARK: Leak 6: the quit's agent tab files
