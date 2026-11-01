@@ -78,7 +78,8 @@ extension WorkspaceRowView {
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
-            if let machine { machineMark.setTint(machine.color) }
+            // One neutral colour for every machine (Leo 2026-11-01): no per-machine tint on the row's mark.
+            machineMark.setTint(Palette.textTertiary)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
@@ -168,12 +169,16 @@ extension WorkspaceRowView {
         // nothing moves. Marks under them hide while they show. An unread
         // badge keeps its slot at rest, and the action that lands there on
         // hover hides it.
-        let showClose = revealsHoverControls && !isShowingPlaceholder && isClosable
+        // A pinned workspace's row draws no x on hover; it closes from its right-click menu (Lawrence msg 19392:
+        // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
+        // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
+        let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
+        let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
         let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
         setHoverShown(closeButton, showClose, fades: controlFades)
-        setHoverShown(badge, !(showClose || (showMore && !isClosable) || !badge.state.isUnread), fades: fades)
+        setHoverShown(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
-        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !isClosable)), fades: fades)
+        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
         var slot: CGFloat = 0
         if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
         if badge.state.isUnread {
@@ -191,7 +196,7 @@ extension WorkspaceRowView {
         // row that cannot close). Hidden (not only clear) when it does not
         // show; VoiceOver uses the row's custom action.
         setHoverShown(moreButton, showMore, fades: controlFades)
-        moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
+        moreButton.frame = closeButton.frame.offsetBy(dx: hoverCloses && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
         let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: b.width, cy: cy, control: control,
                                           showClose: showClose, showMore: showMore)
         let pinStart = layoutPin(showMore: showMore, control: control, fades: controlFades)
@@ -207,6 +212,14 @@ extension WorkspaceRowView {
         if !mutedMark.isHidden {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
+        }
+        if !machineMark.isHidden, columnMark?.view !== machineMark {
+            // The computer the row runs on: a status mark's box on the trailing column's line, centered on the row
+            // (Leo 2026-11-01, on the small tinted cloud before the name: "I HATE HOW SMALL THEY ARE I HATE THAT
+            // THEY'RE ON THE LEFT I HATE THAT THEY'RE ON THE BOTTOM"). It gives way to the hover controls as the
+            // other marks do.
+            machineMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+            trailing = machineMark.frame.minX - Metrics.space2
         }
         if !usageWarningMark.isHidden {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
@@ -234,10 +247,6 @@ extension WorkspaceRowView {
         var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth, reservesColorRail: railSlot)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
-            textX = SidebarStyle.titleXAfterLeadingMark(textX)
-        }
-        if !machineMark.isHidden {
-            machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
         let textW = max(0, trailing - textX)

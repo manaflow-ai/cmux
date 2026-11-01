@@ -750,6 +750,7 @@ class Place(unittest.TestCase):
         self.assertEqual(lines["blacksmith_12_jobs"], " swift-canary ")
         self.assertEqual(lines["blacksmith_6_jobs"], " cmux-scheme-compile ")
         self.assertEqual(lines["retry_runner"], "")
+        self.assertEqual(lines["retry_jobs"], "")
         self.assertNotIn("hosted_jobs", lines)
 
     def test_side_lane_placement_reads_the_promotion_minis_load(self):
@@ -949,7 +950,7 @@ class FeedNeverHosted(unittest.TestCase):
     resolves to hosted macos-26: a run with FRESH_JOBS places nothing there, whatever Blacksmith's state."""
 
     def test_no_feed_run_places_a_job_on_hosted(self):
-        runs = " fast-tier swift-canary cmux-scheme-compile release-compile "
+        runs = " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files "
         waits = (0.0, float(cascade.FRESH_STALL_MINUTES), float(cascade.STALL_MINUTES) + 60)
         counts = (None, ({LARGE: 0, SMALL: 0}, None), ({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}),
                   ({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), ({LARGE: 0, SMALL: 0}, {LARGE: 9, SMALL: 40}))
@@ -1341,6 +1342,7 @@ class Wiring(unittest.TestCase):
         context["needs"] = {"macos-placement": {"outputs": {
             "runner": runner, "gui_runner": GUI if runner else "", "fallback_jobs": "", "owned_jobs": " fast-tier ",
             "blacksmith_12_jobs": large, "blacksmith_6_jobs": small, "retry_runner": retry,
+            "retry_jobs": " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files " if retry else "",
             "hosted_jobs": hosted, "hosted_runner": HOSTED if hosted else "",
             # The attempt the placement ran in: by default where it really runs (attempt 1, the bot's
             # attempt 2); any other attempt carries attempt 1's job and outputs.
@@ -1614,6 +1616,24 @@ class Wiring(unittest.TestCase):
                 # owned queue rather than bypassing Blacksmith exclusions.
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), expected_without_retry)
+
+    def test_retry_runner_is_limited_to_the_placement_retry_set(self):
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        capped = self.context("2", BOT, retry=SMALL, runner="")
+        capped["needs"]["macos-placement"]["outputs"]["retry_jobs"] = " fast-tier swift-canary "
+        self.assertEqual(evaluate(runs_on, capped), SIDE)
+        capped["needs"]["macos-placement"]["outputs"]["retry_jobs"] = " release-compile "
+        self.assertEqual(evaluate(runs_on, capped), SMALL)
+
+    def test_retry_jobs_are_capped_by_the_placement_limit(self):
+        runs = " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files "
+        result = cascade.place(env(CASCADE_RUNS=runs,
+                                   CASCADE_JOBS="swift-test daemon-test generated-files",
+                                   JOBS="fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files"), (),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(result.retry_runner, SMALL)
+        self.assertEqual(result.retry_jobs, ())
+        self.assertLessEqual(len(result.jobs[SMALL]) + len(result.retry_jobs), cascade.MAX_PER_RUN)
 
     def test_fast_tier_keeps_fork_and_disabled_pool_routes(self):
         runs_on = self.jobs["fast-tier"]["runs-on"]

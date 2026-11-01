@@ -206,7 +206,7 @@ extension TabStripView {
         let cell = TabCell(item: item)
         cell.style = model.style
         cell.metrics = metrics
-        cell.titleFont = Typography.body
+        cell.titleFont = Typography.tabTitle
         cell.themeScope = themeScope
         cell.scale = window?.backingScaleFactor ?? 2
         cell.isWindowMain = windowMain.isMain
