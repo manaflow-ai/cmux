@@ -30,6 +30,7 @@ function lengthOf(ms: number): string {
 /// The name of a frame's image block: the video's name and the frame's time. The bubble knows a
 /// frame by it (`isVideoFrameName`); acpmux keeps it with the image (prompt_images.rs `decode`).
 export function frameName(video: string, atMs: number): string {
+  // l10n-allow: an image block's name for the agent (prompt_images.rs), matched by FRAME_NAME, not UI.
   return `${video} frame at ${frameTime(atMs)}`;
 }
 
@@ -41,8 +42,8 @@ export function isVideoFrameName(name: string | undefined): boolean {
 
 /// The note that comes before a video's frames: one line, so the bubble can leave it out whole.
 export function framesNote(video: string, durationMs: number, width: number, height: number, times: number[]) {
-  // l10n-allow: text for the agent, sent in the prompt, not UI.
   const at = times.map(frameTime).join(", ");
+  // l10n-allow: text for the agent, sent in the prompt, not UI.
   return `Frames from the video ${video} (${lengthOf(durationMs)}, ${width}×${height}), in order, at: ${at}.`;
 }
 
@@ -68,14 +69,12 @@ export function videoFrameBlocks(attachment: ComposerAttachment): PromptBlock[] 
         video.frames.map((frame) => frame.atMs),
       ),
     },
-    ...video.frames.map(
-      (frame): PromptBlock => ({
-        type: "image",
-        mimeType: "image/jpeg",
-        data: frame.data,
-        name: frameName(attachment.name, frame.atMs),
-      }),
-    ),
+    ...video.frames.map((frame): PromptBlock => ({
+      type: "image",
+      mimeType: "image/jpeg",
+      data: frame.data,
+      name: frameName(attachment.name, frame.atMs),
+    })),
   ];
 }
 

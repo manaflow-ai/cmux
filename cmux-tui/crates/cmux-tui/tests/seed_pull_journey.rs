@@ -148,6 +148,14 @@ impl World {
         run_json(&mut command)
     }
 
+    /// Bring Back Local's pull: `cmux link seed pull --or-copy`.
+    fn bring_back(&self, local: &Path, name: &str) -> (bool, Value) {
+        let mut command = self.mac.command();
+        command.args(["link", "seed", "pull", "--socket"]);
+        command.arg(&self.vm.socket).arg(local).arg(self.folder(name)).arg("--or-copy");
+        run_json(&mut command)
+    }
+
     /// `cmux link seed push` on the Mac (it keeps the record).
     fn push(&self, repo: &Path, name: &str, since_last: bool) -> (bool, Value) {
         let mut command = self.mac.command();
@@ -397,4 +405,44 @@ fn a_pull_never_brings_back_hooks_or_repositories() {
     assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
     assert_eq!(conflicted(&refused), vec![".githooks/pre-commit"], "{refused}");
     assert_eq!(everything(&repo), before, "a refused hook changed something here");
+}
+
+/// Bring Back Local's pull (`--or-copy`): a seeded project comes back as the
+/// seed's diff, a folder that was copied up as the copy's pull, and a seed's
+/// conflict stays a conflict (never a copy over it).
+#[test]
+fn bring_back_pulls_a_seed_as_its_diff_and_a_copy_as_a_copy() {
+    let world = World::new("back");
+    let repo = world.project("app");
+    let (ok, pushed) = world.push(&repo, "app", false);
+    assert!(ok && pushed["mode"] == "seed", "{pushed}");
+    let vm = world.folder("app");
+    write(&vm.join("a"), "a\nfrom the vm\n");
+    let (ok, back) = world.bring_back(&repo, "app");
+    assert!(ok, "{back}");
+    assert_eq!(back["mode"], "seed", "{back}");
+    assert_eq!(read(&repo.join("a")), "a\nfrom the vm\n");
+
+    write(&repo.join("b"), "b\nfrom the mac\n");
+    write(&vm.join("b"), "b\nfrom the vm\n");
+    let before = everything(&repo);
+    let (ok, refused) = world.bring_back(&repo, "app");
+    assert!(!ok, "{refused}");
+    assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
+    assert_eq!(conflicted(&refused), vec!["b"], "{refused}");
+    assert_eq!(everything(&repo), before, "a conflict changed something here");
+
+    // Not a git folder: `cmux link seed push` copied it.
+    let plain = world.mac.home().join("plain");
+    write(&plain.join("notes.txt"), "notes\n");
+    let (ok, pushed) = world.push(&plain, "plain", false);
+    assert!(ok && pushed["mode"] == "copy", "{pushed}");
+    write(&world.folder("plain").join("notes.txt"), "notes\nfrom the vm\n");
+    let (ok, back) = world.bring_back(&plain, "plain");
+    assert!(ok, "{back}");
+    assert_eq!(back["mode"], "copy", "{back}");
+    assert_eq!(read(&plain.join("notes.txt")), "notes\nfrom the vm\n");
+    // Without --or-copy a copy has no seed to merge against.
+    let (ok, none) = world.pull(&plain, "plain", None);
+    assert!(!ok && none["error_code"] == "seed.no_previous", "{none}");
 }

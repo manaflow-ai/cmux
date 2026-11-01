@@ -64,8 +64,11 @@ async fn read_bootstrap(control: &mut UnixStream) -> anyhow::Result<NativeBootst
     control.read_exact(&mut prefix).await?;
     let length = NativeBootstrap::frame_length(prefix).map_err(|error| anyhow!(error))?;
     let mut frame = Zeroizing::new(vec![0; length]);
-    frame[..4].copy_from_slice(&prefix);
-    control.read_exact(&mut frame[4..]).await?;
+    let (head, body) = frame
+        .split_at_mut_checked(4)
+        .ok_or_else(|| anyhow!("cloud.receiver.invalid_bootstrap_frame"))?;
+    head.copy_from_slice(&prefix);
+    control.read_exact(body).await?;
     NativeBootstrap::decode(&frame).map_err(|error| anyhow!(error))
 }
 

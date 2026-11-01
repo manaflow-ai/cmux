@@ -87,8 +87,8 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   const tightInset = (width: number) =>
     railPlacement(width, undefined, { min: 4, max: 16, compact: 12, narrowest: 12 }).left;
   /// Opens the pane under the `edge-strip` gutter arm, through the experiments' debug key.
-  const edgeStrip = (page: Page) =>
-    page.addInitScript(() => {
+  const edgeStrip = async (page: Page) => {
+    await page.addInitScript(() => {
       const key = "cmux.experiments";
       let stored: Record<string, string> = {};
       try {
@@ -98,6 +98,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
       }
       localStorage.setItem(key, JSON.stringify({ ...stored, "thread-minimap-gutter": "edge-strip" }));
     });
+  };
   /// Settings > Agent Chat > Prompt Rail Side, as the rail's right-click menu writes it (railSide.ts).
   const railSide = (page: Page, side: "left" | "right") =>
     page.evaluate(async (side) => {
