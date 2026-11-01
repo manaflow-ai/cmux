@@ -2018,15 +2018,17 @@ mod tests {
     fn a_sparse_file_bsdtar_packs_is_counted_at_its_full_size() {
         // bsdtar (macOS's tar) stores holes as a map, so its stream is tiny
         // while the guest writes the file out in full. `pack` is called
-        // directly, as if the file turned sparse after the size sum.
-        if std::process::Command::new("bsdtar")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
+        // directly, as if the file turned sparse after the size sum. On
+        // macOS bsdtar is `tar` itself.
+        let Some(program) = ["tar", "bsdtar"].into_iter().find(|program| {
+            std::process::Command::new(program)
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("bsdtar"))
+        }) else {
             eprintln!("skipped: no bsdtar on this host");
             return;
-        }
+        };
         let dir = std::env::temp_dir().join(format!(
             "cmux-vm-run-sync-bsdtar-sparse-{}",
             std::process::id()
@@ -2037,9 +2039,24 @@ mod tests {
         file.set_len(256 * 1024 * 1024).unwrap();
         drop(file);
         let files = vec![PathBuf::from("sparse.img")];
-        let error = pack_with("bsdtar", &dir, &files, MAX_SYNC_BYTES, 1024 * 1024).unwrap_err();
+        let error = pack_with(program, &dir, &files, MAX_SYNC_BYTES, 1024 * 1024).unwrap_err();
         assert!(error.message().contains("unpack"), "{}", error.message());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_runs_with_none_of_the_callers_tar_options() {
+        // `TAR_OPTIONS=--sparse` would let GNU tar shrink a hole past the
+        // stream count; bsdtar reads the other two.
+        let command = tar_command("tar");
+        for name in ["TAR_OPTIONS", "TAR_READER_OPTIONS", "TAR_WRITER_OPTIONS"] {
+            assert!(
+                command
+                    .get_envs()
+                    .any(|(key, value)| key == name && value.is_none()),
+                "{name} is passed through"
+            );
+        }
     }
 
     #[test]
