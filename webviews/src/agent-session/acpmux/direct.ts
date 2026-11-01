@@ -1,3 +1,4 @@
+import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
@@ -56,6 +57,7 @@ import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } fr
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
@@ -94,13 +96,14 @@ import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } f
 import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
-import { errorMessage } from "./transportErrors";
+import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
-import { SessionPageError, SessionPager, type SessionPage } from "./sessionPages";
+import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
+import { promptContext } from "./composer/videoTranscript";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
@@ -487,6 +490,8 @@ const SUBSESSION_KIND = "subsession";
 const BACKGROUND_TURN_KIND = "background_turn";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
+/// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
+const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -1555,6 +1560,10 @@ export class AcpmuxDirectClient {
   /// not change (a streamed token, a row's change) hands the pane the same array, so what the pane
   /// derives from `snapshot.sessions` keeps its identity and no row redraws for it.
   private sessionEntriesOf?: { sessions: Session[]; entries: AcpmuxSessionEntry[] };
+  /// The snapshot summary's `usageStats`, kept while acpmux's numbers are the same (sameUsageStats).
+  private summaryUsage?: SessionUsageStats;
+  /// The usage read in flight (refreshUsage).
+  private usageRead?: Promise<void>;
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
@@ -3471,6 +3480,32 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     const params = { sessionId: this.selectedSessionId, ...(toolCallId ? { toolCallId } : {}) };
     return this.request("_acpmux/process/background", params, 10_000);
+  }
+
+  /// Reads every listed chat's usage now and lays it over the list and the chat's own summary
+  /// (Session Info's Usage, the sessions by usage list). A plain list read carries acpmux's last
+  /// pass, or none when nothing asked since acpmux started, so the pane asks once each time Session
+  /// Info shows; after that each chat's turn end brings its own (`_acpmux/session_changed`). No
+  /// timer: one read at a time, and one asked for meanwhile is dropped (acpmux reads at most every
+  /// 5 s anyway). A failed read leaves the numbers as they were.
+  refreshUsage(): void {
+    if (this.closed || this.replayMode || this.usageRead) return;
+    this.usageRead = this.sessionPages
+      .usage()
+      .then((usage) => {
+        if (this.closed) return;
+        const sessions = withUsage(this.sessions, usage);
+        const summary =
+          typeof this.summary?.sessionId === "string" ? withUsage([this.summary as Session], usage)[0] : this.summary;
+        if (sessions === this.sessions && summary === this.summary) return;
+        this.sessions = sessions;
+        this.summary = summary;
+        this.emit("session changed");
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.usageRead = undefined;
+      });
   }
 
   /// Reconnects MCP server `server` (its `mcpServers` name) of the Claude Code chat on screen: acpmux
@@ -5994,11 +6029,17 @@ export class AcpmuxDirectClient {
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
+    const publishedRows = this.rows.sorted();
+    const progressSource = this.subagents.progressSource;
+    markAgentProgressSource(publishedRows, progressSource);
+    const changedProgress = progressSource.takeChangedProgress();
     this.listener({
       type: "snapshot",
       protocolVersion: 1,
-      rows: this.rows.sorted(),
+      rows: publishedRows,
       subagentViews: this.subagents.views(),
+      ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
+      subagentStructureVersion: progressSource.structureVersion,
       sessions: this.sessionEntryList(),
       peers: this.peers,
       peerKinds: this.peerKinds,
@@ -6013,6 +6054,7 @@ export class AcpmuxDirectClient {
             turnCount: summary.turnCount,
             usage: this.usage,
             contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
+            usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
             host: text(summary.host),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
@@ -6429,8 +6471,10 @@ export class AcpmuxDirectClient {
     let released = false;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
-    const context = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
-    if (context) this.contextInFlight = true;
+    const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
+    if (workspace) this.contextInFlight = true;
+    // Each attached video's speech, as the host heard it, goes beside it (composer/videoTranscript.ts).
+    const context = promptContext(workspace, carried);
     /// The sender (the composer) lets go of the prompt.
     const release = () => {
       if (released) return;
@@ -6442,7 +6486,7 @@ export class AcpmuxDirectClient {
       if (taken) return;
       taken = true;
       tookIt();
-      if (context) this.host = { ...this.host, workspaceContext: undefined };
+      if (workspace) this.host = { ...this.host, workspaceContext: undefined };
       if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
       release();
       onTaken?.();
@@ -6556,7 +6600,7 @@ export class AcpmuxDirectClient {
         this.emit();
       }
       // A refused prompt did not use the context: the next send carries it.
-      if (context && !taken) this.contextInFlight = false;
+      if (workspace && !taken) this.contextInFlight = false;
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
       // Only into the chat it was sent in, still shown: its Retry sends there.
@@ -7270,6 +7314,32 @@ export class AcpmuxDirectClient {
   }
   /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
+  /// Whether this acpmux runs an agent's own login on its machine (`agent_login` in `initialize`'s
+  /// `_meta.acpmux.features`, or `agent-login-v1` in its capabilities): a Cloud chat's sign-in card.
+  get supportsAgentLogin(): boolean {
+    return AGENT_LOGIN_CAPABILITIES.some((id) => this.capabilities?.has(id) || this.features.has(id));
+  }
+  /// Starts `agent`'s own login on chat `sessionId`'s machine (`_acpmux/agent_login/start`; acpmux
+  /// forwards a call that names a chat to the machine it lives on): the page to open, Codex's
+  /// device code, and whether the page gives a code to paste back (Claude).
+  agentLoginStart(agent: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/start", { agent, sessionId });
+  }
+  /// Finishes login `loginId` (`_acpmux/agent_login/finish`) with Claude's pasted `code`, or waits
+  /// for Codex's approval; acpmux restarts chat `sessionId`'s agent signed in. The wire log keeps
+  /// no code (wire.ts).
+  agentLoginFinish(loginId: string, sessionId: string, code?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/finish", { loginId, sessionId, ...(code ? { code } : {}) });
+  }
+  /// Saves an API key for `agent` on the machine (`_acpmux/agent_login/api_key`) and restarts chat
+  /// `sessionId`'s agent on it. The wire log keeps no key (wire.ts).
+  agentLoginApiKey(agent: string, sessionId: string, key: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/api_key", { agent, key, sessionId });
+  }
+  /// Stops login `loginId` on chat `sessionId`'s machine (`_acpmux/agent_login/cancel`).
+  agentLoginCancel(loginId: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/cancel", { loginId, sessionId });
+  }
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
     try {
@@ -7631,7 +7701,7 @@ export class AcpmuxDirectClient {
                 if (settled || running) return;
                 running = true;
                 void this.startSession(harness, cwd, peer, run, noProject, model, () =>
-                  finish(undefined, new Error(translate("switch.cancelled"))),
+                  finish(undefined, startCancelled()),
                 ).then(
                   (id) => finish(id),
                   (error: unknown) => {
@@ -8866,6 +8936,11 @@ export class AcpmuxDirectClient {
     // from before this page keeps finding its row (links.ts). The held events' entries win, since
     // they are the live turn's.
     const messageRows = new Map([...this.messageRows, ...live.messageRows]);
+    // History brings ended agents absent from the live fold; preserve their progress without
+    // replacing newer live values. This reconciliation runs only when loading an older page.
+    for (const agent of this.subagents.all()) {
+      if (!live.subagents.progressSource.has(agent.id)) live.subagents.progressSource.updateAgent(agent);
+    }
     Object.assign(this, live, { forkedAtSeq, messageRows });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);

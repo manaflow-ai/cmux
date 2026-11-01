@@ -288,12 +288,53 @@ NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-(?:aws-)?nightly-(?:xl|std|light)-xcode
 # workflow_run runs and holds the full UNRESCUED_WORKFLOW_PATHS; an entry here changes no behaviour (an unlisted
 # workflow is already not watched) and only records the acknowledgement while main takes no merges.
 # tests/test_ci_owned_pool_sources.py accepts an entry from either copy.
+# Secretless Linux jobs moved from a hard-coded Blacksmith size to vars.RUNNER_POOLS.linux (cmux#30878): the
+# pool reconciler keeps it on a live Linux member and the queue janitor re-runs jobs queued on a dead one, so
+# nothing here is an owned Mac the rescue would move; its job timeout or a person's cancel clears a stuck run.
+_POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#30878), which the pool reconciler keeps "
+                  "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
+                  "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/backend.yml":
         "migrations-push-guard reads vars.RUNNER_POOLS.linux (cmux#30685, kept by #30761), which runner_pools.py "
         "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
         "run (cancel-in-progress is false), and the deploy jobs take bounded Blacksmith routes the rescue does not "
         "act on",
+    ".github/workflows/automation-bench.yml": _POOL_READ_WHY,
+    ".github/workflows/ci-artifact-transport.yml": _POOL_READ_WHY,
+    ".github/workflows/ci-cache-receipts.yml": _POOL_READ_WHY,
+    ".github/workflows/ci-fast-guards.yml": _POOL_READ_WHY,
+    ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
+    ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
+    ".github/workflows/cloud-vm-image-bake.yml": _POOL_READ_WHY,
+    ".github/workflows/cloud-vm-image-contract.yml": _POOL_READ_WHY,
+    ".github/workflows/cloud-vm-image-lock.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-chromium-currency.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-crash-class.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-docs-shortcuts.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-notices.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-perf-budgets.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-pr-merge-tree.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-remote-daemon.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-skill-contract.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-tui-spec.yml": _POOL_READ_WHY,
+    ".github/workflows/fleet-test-compile.yml": _POOL_READ_WHY,
+    ".github/workflows/indexnow-tests.yml": _POOL_READ_WHY,
+    ".github/workflows/indexnow.yml": _POOL_READ_WHY,
+    ".github/workflows/ios-e2e.yml": _POOL_READ_WHY,
+    ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
+    ".github/workflows/mux.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-capture-check.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-design-spec-check.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-perf-section-check.yml": _POOL_READ_WHY,
+    ".github/workflows/r2-upload-tests.yml": _POOL_READ_WHY,
+    ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
+    ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
+    ".github/workflows/signing-keychain-macos.yml": _POOL_READ_WHY,
+    ".github/workflows/testbox-broker-guard.yml": _POOL_READ_WHY,
+    ".github/workflows/vendored-agent-cursor.yml": _POOL_READ_WHY,
 }
 SIDE_WORKFLOW_PATHS = frozenset({
     # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1

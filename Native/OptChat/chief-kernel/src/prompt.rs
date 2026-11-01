@@ -454,6 +454,10 @@ macro_rules! home_rule {
   cmux can do, follow the `cmux-adoption` skill: check their setup first,
   then offer the one step that fits (the iPhone app and pairing, cmux on the
   other computer joined over Tailscale), once, in plain words.
+- What's new: when the user asks what changed, what is new or what to try
+  in cmux, or the app's build differs from the one you last told them
+  about, follow the `whats-new` skill: read the release notes of the builds
+  since then and say what is worth trying and how, in a few lines.
 - Paid plans: when a task needs a plan (a Cloud machine refused with
   `cloud.plan.required`, an unpaid model router, no Chief credits) or the
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing

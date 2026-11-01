@@ -58,16 +58,15 @@ final class SidebarRows {
         return visible
     }
 
-    /// The layout window `windowID` draws: `visibleLayout` without the band's
-    /// workspaces another window owns, so a new window starts clean. Only on
-    /// the sidebar document, whose band moves anchor on a drawn neighbour; the
-    /// older owner's index ops count the stored layout; the bridge translates
-    /// visible item indexes back to stored indexes before sending edits.
-    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, profile: ProfileID? = nil, machines: MachineRegistry,
-                              registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
-        guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
-        return visibleLayout(document, showAppStore: showAppStore)
-            .scopedToWindow(ownedElsewhere: bandHides(window: windowID, profile: profile, machines: machines, registry: registry))
+    /// The layout `window` draws, the model's (the one rule: its tests compare with it): `visibleLayout` (App
+    /// Store only under Preview Features) without the band's workspaces another window owns or its space hides,
+    /// so a new window starts clean. Only on the sidebar document, whose band moves anchor on a drawn neighbour;
+    /// the older owner's index ops count the stored layout; the bridge translates visible item indexes back.
+    static func visibleLayout(_ services: AppServices, window: WindowState) -> SidebarLayoutDocument {
+        let visible = visibleLayout(services.sidebarLayout.document, showAppStore: services.settings?.snapshot.previewFeatures == true)
+        guard SidebarDocWiring.isActive else { return visible }
+        return visible.scopedToWindow(ownedElsewhere: bandHides(window: window.id, profile: window.profileID, machines: services.machines,
+                                                                 registry: services.windows.registry.value))
     }
 
     /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another

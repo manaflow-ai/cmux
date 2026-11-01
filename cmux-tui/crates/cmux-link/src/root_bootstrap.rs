@@ -500,7 +500,7 @@ impl Host {
             let role = state.role.as_mut().ok_or_else(refused)?;
             let payload = role.payload.as_ref().ok_or_else(refused)?;
             let mut writer = &*role.host;
-            match writer.write(&payload[role.offset..]) {
+            match writer.write(payload.get(role.offset..).ok_or_else(refused)?) {
                 Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(count) => role.offset += count,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}

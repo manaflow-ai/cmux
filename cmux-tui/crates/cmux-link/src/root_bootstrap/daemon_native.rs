@@ -75,14 +75,14 @@ pub(super) fn run(
             }
             return Err(error);
         }
-        if fds[0].revents != 0 {
+        if fds.first().is_some_and(|fd| fd.revents != 0) {
             return Ok(());
         }
         // Complete the previous recipient before reading a replacement role.
         if fds.get(2).is_some_and(|fd| fd.revents != 0) {
             active.take().ok_or_else(refused)?.finish()?;
         }
-        if fds[1].revents != 0 {
+        if fds.get(1).is_some_and(|fd| fd.revents != 0) {
             let (bytes, descriptor) = cmux_unix_socket::descriptor::receive(control, 1)?;
             if bytes != [2] || active.is_some() {
                 return Err(refused());
