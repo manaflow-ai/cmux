@@ -48,7 +48,7 @@ struct RowPixelTests {
             Issue.record("the own-process window capture needs macOS 14.4")
             return
         }
-        let fixture = try await LayoutPixelFixture(layout: three, focused: "p1", scale: scale, dark: false, animations: true)
+        let fixture = try await LayoutPixelFixture(layout: Self.three, focused: "p1", scale: scale, dark: false, animations: true)
         defer { fixture.close() }
         fixture.model.rowsEnabledOverride = true
         fixture.root.syncWithModel()
@@ -57,7 +57,7 @@ struct RowPixelTests {
         let period = fixture.display.refreshPeriod
         let declared = try DeclaredSpring.declared(.split)
         let failures = try await run.judge(.column, moves: false, oracle: { ScanlineOracle.spring(declared, $0, period: period) }) {
-            fixture.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: twoOfThree)])
+            fixture.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.twoOfThree)])
             fixture.root.syncWithModel()
         }
         AnimationPixelHarnessTests.record(failures)
