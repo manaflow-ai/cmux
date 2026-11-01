@@ -11,6 +11,10 @@
 version = 1
 
 [[test]]
+path = "tests/test_ci_fleet_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_ota_publication_contract.py"
 lane = "linux-guard"
 
@@ -1421,6 +1425,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_side_lane_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_linux_admission.py"
 lane = "linux-guard"
 
 [[test]]
