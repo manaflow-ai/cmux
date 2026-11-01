@@ -131,13 +131,35 @@ def step_real_quit(j, step):
         return sent
 
     j.marks["real-cmd-q"] = D.now()
+    wall = time.time()
     j.key = real_cmd_q  # the driver's relaunch presses Cmd-Q through self.key: here, the real key
     try:
         record = D.Journey.step_relaunch(j, dict(step, how="quit"))
     finally:
         del j.key
     record["quit_dialog"] = seen
+    record["why"] = _why(j, wall)
     return record
+
+
+def _why(j, since_wall):
+    """Evidence of what ended or kept the daemon: the app's own quit and daemon log lines since the key (unified log,
+    the app's subsystem: "quit origin=", "quit choice=", "handing off to", "daemon handoff"), the new launch's
+    `daemon_version_handoff` mark, and the new daemon pid."""
+    seconds = max(int(time.time() - since_wall) + 5, 10)
+    predicate = ('subsystem == "com.cmuxterm.app.next" AND (category == "app.quit" OR category == "daemon")')
+    try:
+        out = D.subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--last", f"{seconds}s", "--predicate", predicate],
+                               capture_output=True, text=True, timeout=60).stdout
+    except (OSError, D.subprocess.TimeoutExpired) as error:
+        out = f"log show failed: {error}"
+    keep = ("quit origin", "quit choice", "handing off", "handoff", "end sessions", "shutdown")
+    lines = [line[-300:] for line in out.splitlines() if any(k in line for k in keep)]
+    try:
+        marks = (j.app.rpc("debug.timings", timeout=10) or {}).get("launch_ms_since_process_start") or {}
+    except (D.StepError, OSError, ValueError):
+        marks = {}
+    return {"log": lines[-40:], "handoff_mark": marks.get("daemon_version_handoff"), "daemon_pid_now": _daemon_pid(j)}
 
 
 def cond_quit_asked(j, want, cache):
