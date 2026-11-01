@@ -163,7 +163,13 @@ class Wiring(unittest.TestCase):
             runs_on = JOBS[name]["runs-on"]
             with self.subTest(job=name):
                 self.assertIn("needs.pick-nightly-sign-runner.outputs.linux", runs_on)
-                self.assertNotIn("ubuntu-24.04", runs_on)
+                # Fork/manual runs have no repository variables; the owner
+                # guard keeps their expression from evaluating RUNNER_POOLS.
+                # The production branch after that guard must never use hosted
+                # Ubuntu or a fixed Linux label.
+                owner_guard = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' ||"
+                self.assertIn(owner_guard, runs_on)
+                self.assertNotIn("ubuntu-24.04", runs_on.split(owner_guard, 1)[1])
                 self.assertNotIn("vars.LINUX_RUNNER", runs_on)
                 self.assertIn("blacksmith-16vcpu-ubuntu-2404", runs_on)
                 self.assertIn("blacksmith-32vcpu-ubuntu-2404", runs_on)
