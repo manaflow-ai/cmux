@@ -770,6 +770,16 @@ class VisibleSampler:
         if target == "app":
             first = next((at for at, st, _ in self.samples if st), None)
             killed = first if first is not None else end
+        seen = {}
+        for _, st, su in self.samples:
+            shows = ",".join(sorted({w.get("shows", "?") for w in (st or {}).get("windows") or []})) or "no answer"
+            links = set()
+            for window in (su or {}).get("windows") or [] if isinstance(su, dict) else []:
+                links |= {str(p.get("link")).split(":")[0] for p in window.get("panes") or []
+                          if p.get("kind") == "terminal" and p.get("presence") == "visible"}
+            key = f"{(st or {}).get('connection', 'no answer')}/{shows}/{'+'.join(sorted(links)) or '-'}"
+            seen[key] = seen.get(key, 0) + 1
+        self.seen = seen
         return judge_visible(self.samples, killed, end), len(self.samples)
 
 
@@ -967,8 +977,11 @@ def iteration(seed, targets, keep=None, label="i"):
     if sampler:
         seen, n = sampler.finish(target)
         rec["visible_samples"] = n
-        if seen:
+        rec["visible_states"] = getattr(sampler, "seen", {})
+        if seen and not (DISK.get("volume") and DISK.get("phase") == "full" and problem):
             rec["problems"].append(f"no designed visible state during the restore: {'; '.join(seen[:4])}")
+        elif seen:
+            rec["visible_problems_full"] = seen[:4]
     rec["timings"] = timings
     log_daemon_env(f"after-restore-{target}")
     rec["hosts_after_restore"] = log_hosts(f"after-restore-{target}")["hosts"]
@@ -980,6 +993,21 @@ def iteration(seed, targets, keep=None, label="i"):
     if problem:
         rec["problems"].append(problem)
         rec["crash_reports"] = safe_evidence(f"{label}-{seed}")
+        if DISK.get("volume") and DISK.get("phase") == "full":
+            rec["full_disk_problem"] = rec["problems"].pop()
+            rec_rec = recover_after_space(target, old_daemons)
+            state = rec_rec.pop("state")
+            rec["recovery"] = rec_rec
+            if not rec_rec["recovered"]:
+                rec["problems"].append(f"no recovery after the space came back: {rec_rec['problem']}")
+            else:
+                # Recovered by itself: nothing confirmed may be lost, and the full-disk stretch must have been visible.
+                rec["problems"] += judge(state, confirmed, inflight)
+                rec["problems"] += [f"not visible on the full disk: {v}" for v in rec.get("visible_problems_full", [])]
+                rec["problems"] += [f"not visible during recovery: {v}" for v in rec_rec["visible_problems"]]
+                if not rec["problems"]:
+                    rec["verdict"] = "degraded"
+                    return rec
     else:
         rec["problems"] += judge(state, confirmed, inflight)
         if rec["problems"]:
@@ -1237,6 +1265,24 @@ def disk_phase(i):
     return {"phase": want, "free_kb": vol.free() >> 10}
 
 
+def recover_after_space(target, old_daemons):
+    """diskfull: the restore failed on a full disk. Free the space (no other action) and see whether the build comes
+    back by itself within 60 s, with the visible state sampled. The person's way out must not need a restart."""
+    vol = DISK["volume"]
+    freed_at = time.time()
+    free = vol.unfill()
+    DISK["phase"] = "free"
+    say(f"  diskfull: restore failed on a full disk; space freed ({free >> 10} KB), waiting for the build to recover")
+    sampler = VisibleSampler()
+    state, timings, problem = restore(target, freed_at, old_daemons)
+    seen, n = sampler.finish(target)
+    out = {"recovered": problem is None, "state": state, "after_free_s": timings.get("settled_s"), "problem": problem,
+           "visible_problems": seen[:4], "visible_states": getattr(sampler, "seen", {}), "samples": n}
+    say(f"  diskfull: recovery {'OK' if problem is None else 'FAILED'} "
+        f"{json.dumps({k: v for k, v in out.items() if k != 'state'})[:400]}")
+    return out
+
+
 def teardown_diskfull():
     """Detaches the image, puts the original state dir back, removes the image file. Logs each step."""
     vol = DISK.pop("volume", None)
@@ -1399,7 +1445,8 @@ def main():
             say("a chaos process ended before the run did; the last iterations may have run without chaos")
         stop_chaos()
         teardown_diskfull()
-    judged = [r for r in records if r["verdict"] in ("pass", "fail")]
+    # A degraded iteration is judged too: on a full disk it refused or stalled visibly, recovered by itself, lost nothing.
+    judged = [r for r in records if r["verdict"] in ("pass", "fail", "degraded")]
     degraded = [r for r in records if r["verdict"] == "degraded"]
     kills = {}
     for r in judged:
