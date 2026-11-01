@@ -48,21 +48,15 @@ const FOLDER_DELAY_MS = 1200;
 const field = (ctx: PlayContext) => ctx.document.querySelector<MarkdownFieldElement>(".nt-field");
 const EDITOR = ".nt-field [contenteditable]";
 const draft = (ctx: PlayContext) => field(ctx)?.acpmuxMarkdownField?.plainText();
-const notice = (ctx: PlayContext) =>
-  ctx.document.querySelector('.nt-composer .acpmux-switch-notice[role="alert"]');
+const notice = (ctx: PlayContext) => ctx.document.querySelector('.nt-composer .acpmux-switch-notice[role="alert"]');
 const frames = async (ctx: PlayContext, count = 4) => {
   const view = ctx.document.defaultView!;
-  for (let i = 0; i < count; i += 1)
-    await new Promise((done) => view.requestAnimationFrame(() => done(undefined)));
+  for (let i = 0; i < count; i += 1) await new Promise((done) => view.requestAnimationFrame(() => done(undefined)));
 };
 
 /// The page's own Return, after the mock's handshake installed the chat's actions.
 /// `ctx.waitFor` that says which wait did not hold.
-async function waitFor(
-  ctx: PlayContext,
-  what: string,
-  condition: () => boolean | Element | null | undefined,
-) {
+async function waitFor(ctx: PlayContext, what: string, condition: () => boolean | Element | null | undefined) {
   try {
     await ctx.waitFor(condition, { capMs: 10_000 });
   } catch {
@@ -90,8 +84,7 @@ async function patchDaemon(
   const socket = MockAcpmuxSocket.live as unknown as { answer: Answer } | undefined;
   if (!socket) throw new Error("no live mock daemon");
   const answer = socket.answer.bind(socket);
-  socket.answer = (method, params) =>
-    wrap(method, params, () => answer(method, params)) ?? answer(method, params);
+  socket.answer = (method, params) => wrap(method, params, () => answer(method, params)) ?? answer(method, params);
 }
 
 /// Picks the devbox machine: the machine chip's main list is This Mac and Cloud, and every machine is
@@ -105,9 +98,7 @@ async function pickDevbox(ctx: PlayContext) {
         }))
       : undefined,
   );
-  const chip = ctx.document.querySelector<HTMLElement>(
-    '.acpmux-location-picker[data-kind="computer"] button',
-  )!;
+  const chip = ctx.document.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button')!;
   const box = chip.getBoundingClientRect();
   chip.dispatchEvent(
     new MouseEvent("contextmenu", {
@@ -124,9 +115,7 @@ async function pickDevbox(ctx: PlayContext) {
   );
   await ctx.click({ role: "menuitem", name: t("composer.machinesList") });
   await waitFor(ctx, "devbox in Machines…", () =>
-    [...ctx.document.querySelectorAll(".acpmux-menu-label")].some(
-      (node) => node.textContent === "devbox",
-    ),
+    [...ctx.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
   );
   const devbox = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
     (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
@@ -142,18 +131,13 @@ async function notNow(ctx: PlayContext) {
   await pickDevbox(ctx);
   await ctx.type(DRAFT, { selector: EDITOR });
   await ctx.press("Enter");
-  await waitFor(ctx, "Trust question after Return", () =>
-    ctx.document.querySelector(".acpmux-trust-ask-primary"),
-  );
+  await waitFor(ctx, "Trust question after Return", () => ctx.document.querySelector(".acpmux-trust-ask-primary"));
   await ctx.click({ role: "button", name: "Not now" });
   await waitFor(ctx, "Undo after Not now", () =>
-    [...ctx.document.querySelectorAll(".acpmux-trust-ask-action")].some(
-      (node) => node.textContent === "Undo",
-    ),
+    [...ctx.document.querySelectorAll(".acpmux-trust-ask-action")].some((node) => node.textContent === "Undo"),
   );
   await frames(ctx);
-  if (notice(ctx))
-    throw new Error(`a cancelled start shows a failure notice: ${notice(ctx)!.textContent}`);
+  if (notice(ctx)) throw new Error(`a cancelled start shows a failure notice: ${notice(ctx)!.textContent}`);
   if (draft(ctx) !== DRAFT) throw new Error(`the draft is gone after Not now (${draft(ctx)})`);
 }
 
@@ -170,19 +154,15 @@ async function staleFolder(ctx: PlayContext) {
   // FOLDER_DELAY_MS); before it answers, a newer folder request (the pane's own pick of relay)
   // replaces it, so the send's late reply is stale.
   await ctx.press("Enter");
-  if (ctx.document.querySelector(".cv-user__bubble"))
-    throw new Error("the send started before its folder reply");
+  if (ctx.document.querySelector(".cv-user__bubble")) throw new Error("the send started before its folder reply");
   view.cmuxAcpmuxDebug!.pickFolder(FOLDER_B);
   // The newer request's own reply lands last (asked later, same delay) and the pane asks about
   // relay's trust: both replies are in.
   await ctx.waitFor(() => trustAsk().includes("relay"), { capMs: 10_000 });
   await frames(ctx);
-  if (notice(ctx))
-    throw new Error(`a stale folder reply shows a failure notice: ${notice(ctx)!.textContent}`);
-  if (ctx.document.querySelector(".cv-user__bubble"))
-    throw new Error("the stale reply started a chat");
-  if (draft(ctx) !== DRAFT)
-    throw new Error(`the draft is gone after a stale folder reply (${draft(ctx)})`);
+  if (notice(ctx)) throw new Error(`a stale folder reply shows a failure notice: ${notice(ctx)!.textContent}`);
+  if (ctx.document.querySelector(".cv-user__bubble")) throw new Error("the stale reply started a chat");
+  if (draft(ctx) !== DRAFT) throw new Error(`the draft is gone after a stale folder reply (${draft(ctx)})`);
   // Not stuck asking: the next Return starts the chat.
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"), { capMs: 10_000 });
@@ -197,9 +177,7 @@ const kept = (ctx: PlayContext) =>
 /// once (#28965), which says why it did not start, and the prompt is kept there.
 async function refused(ctx: PlayContext) {
   await ready(ctx);
-  await patchDaemon((method) =>
-    method === "session/new" ? Promise.reject(new Error(REFUSAL)) : undefined,
-  );
+  await patchDaemon((method) => (method === "session/new" ? Promise.reject(new Error(REFUSAL)) : undefined));
   await ctx.type(DRAFT, { selector: EDITOR });
   await ctx.press("Enter");
   await ctx.waitFor(() => !field(ctx), { capMs: 10_000 });
