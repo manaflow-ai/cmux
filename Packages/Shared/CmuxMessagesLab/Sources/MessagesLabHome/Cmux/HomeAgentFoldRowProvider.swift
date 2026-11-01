@@ -25,7 +25,19 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         var open: Bool
         var label: String
         var chips: [String]
+        /// SCRATCH (scratch-chief-agent-header-styles): the header style prototype, 1 the default.
+        var style = 1
     }
+
+    #if DEBUG
+    /// SCRATCH: the style this launch draws, from the `-cmuxAgentFoldStyle N` launch argument (default 1).
+    let style: Int = {
+        let n = UserDefaults.standard.integer(forKey: "cmuxAgentFoldStyle")
+        return n == 0 ? 1 : n
+    }()
+    #else
+    let style = 1
+    #endif
 
     /// The registered provider (nil: fold rows stay text bubbles).
     static var installed: HomeAgentFoldRowProvider? { CustomRows.provider(kind) as? HomeAgentFoldRowProvider }
@@ -38,17 +50,19 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
     /// The caption part for a fold or notes row; nil for a message or note row, or when not installed.
     static func part(_ row: HomeAgentMessageRow) -> Part? {
         guard installed != nil else { return nil }
-        let payload: Payload
+        let made: Payload
         switch row.kind {
         case let .fold(count, peers, expanded):
-            payload = Payload(open: expanded, label: expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count),
+            made = Payload(open: expanded, label: expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count),
                               chips: expanded ? [] : peers)
         case let .notes(count, peers, reason, expanded):
-            payload = Payload(open: expanded, label: CmuxStrings.agentNotes(reason, count), chips: expanded ? [] : peers)
+            made = Payload(open: expanded, label: CmuxStrings.agentNotes(reason, count), chips: expanded ? [] : peers)
         case .message, .note:
             return nil
         }
-        let key = "\(payload.open)\u{0}\(payload.label)\u{0}\(payload.chips.joined(separator: ","))"
+        var payload = made
+        payload.style = installed?.style ?? 1
+        let key = "\(payload.style)\u{0}\(payload.open)\u{0}\(payload.label)\u{0}\(payload.chips.joined(separator: ","))"
         guard let custom = try? CustomPart(kind: kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }
         return .custom(custom)
     }
@@ -73,6 +87,6 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
 
     func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) {
         guard let payload = Self.payload(part) else { return }
-        HomeAgentFoldLine(payload, width: rect.width).draw(ctx, at: rect.origin)
+        HomeAgentFoldLine(payload, width: rect.width).draw(ctx, at: rect.origin, width: rect.width)
     }
 }

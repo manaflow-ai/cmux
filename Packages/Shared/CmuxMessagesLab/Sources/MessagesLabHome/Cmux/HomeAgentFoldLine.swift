@@ -7,6 +7,7 @@ import Foundation
 /// the rest. Pure CoreText and CoreGraphics, any thread (row bitmaps draw off main).
 struct HomeAgentFoldLine {
     let open: Bool
+    let style: Int
     let label: NSAttributedString
     let chips: [NSAttributedString]
     /// Chips that did not fit ("+3"), nil when all fit.
@@ -15,9 +16,13 @@ struct HomeAgentFoldLine {
     init(_ payload: HomeAgentFoldRowProvider.Payload, width: CGFloat) {
         let color = Fixture.secondaryText
         open = payload.open
-        label = NSAttributedString(string: payload.label, attributes: [.font: HomeFonts.system(ofSize: 12, weight: .medium), .foregroundColor: color])
+        style = payload.style
+        let labelText = payload.style == 2 ? "" : payload.label
+        let labelFont = payload.style == 5 ? HomeFonts.system(ofSize: 12, weight: .bold) : HomeFonts.system(ofSize: payload.style == 3 || payload.style == 4 ? 11 : 12, weight: .medium)
+        let labelColor = payload.style == 8 ? NSColor.controlAccentColor : color
+        label = NSAttributedString(string: labelText, attributes: [.font: labelFont, .foregroundColor: labelColor])
         let chipFont = HomeFonts.system(ofSize: 11, weight: .regular)
-        let all = payload.chips.map { NSAttributedString(string: $0, attributes: [.font: chipFont, .foregroundColor: color]) }
+        let all = (payload.style == 5 ? [] : payload.chips).map { NSAttributedString(string: $0, attributes: [.font: chipFont, .foregroundColor: color]) }
         typealias P = HomeAgentFoldRowProvider
         var x = P.chevronWidth + P.gap + HomeTableGrid.lineWidth(label) + P.gap
         var fitting: [NSAttributedString] = []
@@ -34,6 +39,32 @@ struct HomeAgentFoldLine {
         more = rest > 0 ? NSAttributedString(string: "+\(rest)", attributes: [.font: chipFont, .foregroundColor: color]) : nil
     }
 
+    /// The line's natural width (chevron, label, chips, "+N").
+    var contentWidth: CGFloat {
+        typealias P = HomeAgentFoldRowProvider
+        var w = P.chevronWidth + P.gap + HomeTableGrid.lineWidth(label) + P.gap
+        for chip in chips { w += HomeTableGrid.lineWidth(chip) + 2 * P.chipPadX + P.chipGap }
+        if let more { w += HomeTableGrid.lineWidth(more) + 2 }
+        return w
+    }
+
+    /// SCRATCH: draws the line in its style across `width` (centered styles 3 and 4, indented 7).
+    func draw(_ ctx: CGContext, at origin: CGPoint, width: CGFloat) {
+        switch style {
+        case 3, 4:
+            let w = contentWidth
+            let start = CGPoint(x: origin.x + max(0, (width - w) / 2), y: origin.y)
+            if style == 4 {
+                let mid = origin.y + HomeAgentFoldRowProvider.height / 2
+                HomeCardDraw.hairline(ctx, from: CGPoint(x: origin.x, y: mid), to: CGPoint(x: start.x - 8, y: mid), strong: false)
+                HomeCardDraw.hairline(ctx, from: CGPoint(x: start.x + w + 8, y: mid), to: CGPoint(x: origin.x + width, y: mid), strong: false)
+            }
+            draw(ctx, at: start)
+        case 7: draw(ctx, at: CGPoint(x: origin.x + Fixture.bubblePadX, y: origin.y))
+        default: draw(ctx, at: origin)
+        }
+    }
+
     func draw(_ ctx: CGContext, at origin: CGPoint) {
         typealias P = HomeAgentFoldRowProvider
         let mid = origin.y + P.height / 2
@@ -44,7 +75,7 @@ struct HomeAgentFoldLine {
         ctx.setLineWidth(1.5)
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
-        let c = CGPoint(x: origin.x + P.chevronWidth / 2, y: mid)
+        let c = CGPoint(x: style == 6 ? origin.x + contentWidth - P.chevronWidth / 2 : origin.x + P.chevronWidth / 2, y: mid)
         if open {
             ctx.move(to: CGPoint(x: c.x - 3.5, y: c.y - 1.75))
             ctx.addLine(to: CGPoint(x: c.x, y: c.y + 1.75))
@@ -57,7 +88,8 @@ struct HomeAgentFoldLine {
         ctx.strokePath()
         ctx.restoreGState()
         var x = origin.x + P.chevronWidth + P.gap
-        x += Self.drawText(ctx, label, x: x, mid: mid) + P.gap
+        if style == 6 { x = origin.x }
+        if label.length > 0 { x += Self.drawText(ctx, label, x: x, mid: mid) + P.gap }
         for chip in chips {
             let w = HomeTableGrid.lineWidth(chip) + 2 * P.chipPadX
             let pill = CGRect(x: x, y: mid - P.chipHeight / 2, width: w, height: P.chipHeight)
