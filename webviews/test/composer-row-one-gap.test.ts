@@ -151,7 +151,8 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
     const fixed = gaps.filter(({ gap }) => gap !== widest);
     const list = fixed.map(({ between, gap }) => `${between} ${gap.toFixed(1)}`).join(", ");
     const values = fixed.map(({ gap }) => gap);
-    if (values.length > 1 && Math.max(...values) - Math.min(...values) > 1) problems.push(`${name}: uneven gaps: ${list}`);
+    if (values.length > 1 && Math.max(...values) - Math.min(...values) > 1)
+      problems.push(`${name}: uneven gaps: ${list}`);
     // And that gap is the tokens' (inset + group gap + inset), the same in every look's row.
     if (unit && values.some((gap) => Math.abs(gap - row.unit) > 1))
       problems.push(`${name}: gaps are not the tokens' ${row.unit.toFixed(1)} px: ${list}`);
@@ -183,7 +184,10 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
           ".acpmux-composer[data-composer-look='codex'] .acpmux-model",
         );
         try {
-          const row = await page.evaluate(measure, [".acpmux-composer-box", ".acpmux-composer-bar"] as [string, string]);
+          const row = await page.evaluate(measure, [".acpmux-composer-box", ".acpmux-composer-bar"] as [
+            string,
+            string,
+          ]);
           expect(row?.controls.map(({ name }) => name)).toEqual(["plus", "mode", "ring", "model", "mic", "send"]);
           const problems = check(`codex chat ${width}`, row);
           // The row's center line stands as far over the box's bottom as +'s glyph center stands in
@@ -193,7 +197,9 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
             const side = (plus.left + plus.right) / 2 - row.box.left;
             const bottom = row.box.bottom - plus.cy;
             if (Math.abs(side - bottom) > 1)
-              problems.push(`the row's center stands ${bottom.toFixed(1)} px over the bottom, + ${side.toFixed(1)} px in`);
+              problems.push(
+                `the row's center stands ${bottom.toFixed(1)} px over the bottom, + ${side.toFixed(1)} px in`,
+              );
           }
           expect(problems).toEqual([]);
         } finally {
@@ -212,7 +218,10 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
         );
         try {
           // A draft brings Send in beside the mic, so the box's trailing cluster has two controls.
-          await page.locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea").first().click();
+          await page
+            .locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea")
+            .first()
+            .click();
           await page.keyboard.type("Also cover the 503 path");
           await page.locator(".acpmux-composer-box .acpmux-send:not(.acpmux-cancel)").waitFor();
           await page.evaluate(
