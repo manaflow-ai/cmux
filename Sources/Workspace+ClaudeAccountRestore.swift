@@ -7,12 +7,15 @@ extension Workspace {
     /// switched, and `""` only for a cleared key one of those environments would supply. Empty for
     /// a pane that never switched.
     func restoredClaudeAccountEnvironmentOverrides(_ terminal: SessionTerminalPanelSnapshot?) -> [String: String] {
-        guard let account = terminal?.claudeAccountEnvironment else { return [:] }
-        return ClaudeAccountSwitchSurfaceEnvironment(
-            accountEnvironment: account.accountEnvironment,
-            workspaceEnvironment: workspaceEnvironment,
-            processEnvironment: ProcessInfo.processInfo.environment
-        ).overrides
+        claudeAccountSurfaceEnvironment(terminal?.claudeAccountEnvironment)?.overrides ?? [:]
+    }
+
+    /// What `account` gives a new surface in this workspace now (see
+    /// ``ClaudeAccountPaneEnvironment/surfaceEnvironment(workspaceEnvironment:processEnvironment:)``),
+    /// or `nil` for a pane that never switched. A relaunch restore and a plain respawn share it, so
+    /// a pane keeps its account the same way through both, whatever the workspace supplies by then.
+    func claudeAccountSurfaceEnvironment(_ account: ClaudeAccountPaneEnvironment?) -> ClaudeAccountSwitchSurfaceEnvironment? {
+        account?.surfaceEnvironment(workspaceEnvironment: workspaceEnvironment)
     }
 
     /// The restore's startup `input` with the account keys the pane cleared unset, when it runs
