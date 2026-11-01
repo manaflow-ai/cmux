@@ -42,6 +42,7 @@ mod names;
 mod place;
 mod pull;
 mod remote;
+mod seed_pull;
 mod skips;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -248,6 +249,11 @@ pub(super) fn pull_into(socket: &Path, local: &Path, remote_root: &str) -> Back 
 /// answer), not a connection that failed.
 pub(super) fn is_refusal(error: &anyhow::Error) -> bool {
     remote::refusal_code(error).is_some()
+}
+
+/// `cmux link seed pull ...` ([`seed_pull`]): `args` from `pull` on.
+pub(super) fn seed_pull_cli(args: &[String]) -> i32 {
+    seed_pull::run(args)
 }
 
 /// The error code of a failed push.

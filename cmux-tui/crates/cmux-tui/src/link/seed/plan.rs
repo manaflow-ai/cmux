@@ -421,6 +421,33 @@ const SEED_NAME: &str = "cmux seed";
 const SEED_EMAIL: &str = "seed@cmux.invalid";
 const SEED_DATE: &str = "946684800 +0000";
 
+/// The working copy at `folder` as a seed would send it now: HEAD and its
+/// branch, and the INDEX and WORK commits [`plan`] would make (written to
+/// the repository's object store, unreferenced). `cmux link seed pull`
+/// compares them with the seed's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Current {
+    pub head_ref: Option<String>,
+    pub head: String,
+    pub index: String,
+    pub work: String,
+}
+
+pub(crate) fn current(folder: &Path) -> Result<Current, Fallback> {
+    let repo = Repo::open(folder)?;
+    let scratch = Scratch::new()?;
+    let made = commits(&repo, &scratch)?;
+    Ok(Current { head_ref: repo.head_ref, head: repo.head, index: made.index, work: made.work })
+}
+
+/// The INDEX and WORK commits of a seed, and what WORK left out.
+struct Commits {
+    index: String,
+    work: String,
+    skipped: Vec<Skipped>,
+    sparse: Option<String>,
+}
+
 fn build(
     repo: &Repo,
     out_bundle: &Path,
@@ -429,6 +456,8 @@ fn build(
 ) -> Result<Planned, Fallback> {
     let submodules = submodules(repo)?;
     let scratch = Scratch::new()?;
+    let Commits { index: index_commit, work: work_commit, skipped, sparse } =
+        commits(repo, &scratch)?;
     let store = scratch.0.join("store.git");
     git::output(git::at(&scratch.0).args(["init", "-q", "--bare", "--template="]).arg(&store))
         .map_err(|error| failed("making the scratch repository", error))?;
@@ -442,53 +471,6 @@ fn build(
         std::fs::copy(shallow, store.join("shallow"))
             .map_err(|error| failed("copying the shallow list", error.to_string()))?;
     }
-    let index = scratch.0.join("index");
-    let real_index = repo.git_path("index")?;
-    if real_index.is_file() {
-        std::fs::copy(real_index, &index)
-            .map_err(|error| failed("copying the index", error.to_string()))?;
-    } else {
-        run(repo.scratch_git(&index).args(["read-tree", repo.head.as_str()]), "reading HEAD")?;
-    }
-
-    let index_tree = repo.write_tree(&index)?;
-    let index_commit = commit(repo, &index_tree, &repo.head, "cmux seed index")?;
-
-    let skipped = untracked_left_out(repo)?;
-    let sparse = sparse_patterns(repo)?;
-    // In a sparse checkout `--sparse` also takes untracked files outside
-    // the patterns; entries git keeps out of the working tree stay as they
-    // are either way.
-    let sparse_flag: &[&str] = if sparse.is_some() { &["--sparse"] } else { &[] };
-    run(repo.scratch_git(&index).args(["add", "-A"]).args(sparse_flag), "adding the working tree")?;
-    if !skipped.is_empty() {
-        let list = scratch.0.join("left-out");
-        let mut paths = Vec::new();
-        for item in &skipped {
-            paths.extend_from_slice(item.path.trim_end_matches('/').as_bytes());
-            paths.push(0);
-        }
-        write(&list, paths)?;
-        run(
-            repo.scratch_git(&index)
-                .env("GIT_LITERAL_PATHSPECS", "1")
-                .args([
-                    "rm",
-                    "--cached",
-                    "-r",
-                    "-f",
-                    "-q",
-                    "--ignore-unmatch",
-                    "--pathspec-file-nul",
-                ])
-                .args(sparse_flag)
-                .arg(format!("--pathspec-from-file={}", list.display())),
-            "leaving out secrets",
-        )?;
-    }
-    let work_tree = repo.write_tree(&index)?;
-    let work_commit = commit(repo, &work_tree, &index_commit, "cmux seed work")?;
-
     let stash = repo.commit("refs/stash");
     let lfs = uses_lfs(repo, &skipped);
 
@@ -559,6 +541,60 @@ fn build(
         bundle_bytes,
         unchanged,
     })
+}
+
+/// The INDEX commit (the staged tree on HEAD) and the WORK commit (the
+/// working tree with untracked files that are not ignored, less
+/// [`untracked_left_out`], on INDEX), built through a copy of the index in
+/// `scratch`.
+fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
+    let index = scratch.0.join("index");
+    let real_index = repo.git_path("index")?;
+    if real_index.is_file() {
+        std::fs::copy(real_index, &index)
+            .map_err(|error| failed("copying the index", error.to_string()))?;
+    } else {
+        run(repo.scratch_git(&index).args(["read-tree", repo.head.as_str()]), "reading HEAD")?;
+    }
+
+    let index_tree = repo.write_tree(&index)?;
+    let index_commit = commit(repo, &index_tree, &repo.head, "cmux seed index")?;
+
+    let skipped = untracked_left_out(repo)?;
+    let sparse = sparse_patterns(repo)?;
+    // In a sparse checkout `--sparse` also takes untracked files outside
+    // the patterns; entries git keeps out of the working tree stay as they
+    // are either way.
+    let sparse_flag: &[&str] = if sparse.is_some() { &["--sparse"] } else { &[] };
+    run(repo.scratch_git(&index).args(["add", "-A"]).args(sparse_flag), "adding the working tree")?;
+    if !skipped.is_empty() {
+        let list = scratch.0.join("left-out");
+        let mut paths = Vec::new();
+        for item in &skipped {
+            paths.extend_from_slice(item.path.trim_end_matches('/').as_bytes());
+            paths.push(0);
+        }
+        write(&list, paths)?;
+        run(
+            repo.scratch_git(&index)
+                .env("GIT_LITERAL_PATHSPECS", "1")
+                .args([
+                    "rm",
+                    "--cached",
+                    "-r",
+                    "-f",
+                    "-q",
+                    "--ignore-unmatch",
+                    "--pathspec-file-nul",
+                ])
+                .args(sparse_flag)
+                .arg(format!("--pathspec-from-file={}", list.display())),
+            "leaving out secrets",
+        )?;
+    }
+    let work_tree = repo.write_tree(&index)?;
+    let work = commit(repo, &work_tree, &index_commit, "cmux seed work")?;
+    Ok(Commits { index: index_commit, work, skipped, sparse })
 }
 
 impl Repo {
