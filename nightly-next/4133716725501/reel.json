@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4133716725501",
+  "notes": "notes/4133716725501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31207,
+      "title": "ci(cmux-tui artifacts): no Windows build on pushes; dispatch with include_windows only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31167,
+      "title": "fix(diff): find folds İ so match offsets after it stay on the right character",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31198,
+      "title": "cmux-tui: a chat moved to a Cloud machine starts its acpmux there",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31202,
+      "title": "cmux-api: log why a personal VM API tenant ensure is not ready",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31201,
+      "title": "ci: run the nightly static capability guard in its own cmux-next-guards job",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31199,
+      "title": "ci(perf bench): gate, tabswitch and palette are dispatch inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31179,
+      "title": "Agent chat: an unlabeled code card's first line keeps room for its corner actions; its height estimate follows the drawn card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30956,
+      "title": "cmux-tui: a crashed app's incognito workspaces close instead of coming back",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
