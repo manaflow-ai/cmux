@@ -2,6 +2,7 @@ import {
   footerAfter,
   gridLength,
   rowMark,
+  gridScale,
   tailGap,
   TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_INNER_GAP,
@@ -996,6 +997,8 @@ export type ConversationLayout = {
   marks?: Uint8Array;
   /// The composer gap under the last drawn row (transcriptGrid.ts tailGap).
   tailGap?: number;
+  /// The interface scale the gaps were placed at (transcriptGrid.ts gridScale).
+  scale?: number;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -1886,8 +1889,10 @@ export function layoutConversation(
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
   const messages = new MessagePlacement(rows, previous?.layout);
+  const scale = gridScale();
   let start = 0;
-  if (previous) {
+  // Kept rows keep their gaps only at the scale they were placed at.
+  if (previous && (previous.layout.scale ?? 1) === scale) {
     const limit = Math.min(rows.length, previous.rows.length);
     while (start < limit && rows[start] === previous.rows[start]) start += 1;
     // A row after the kept ones can change the height of the last kept row that draws (a footer
@@ -1949,7 +1954,7 @@ export function layoutConversation(
       known?.set(row, { width, height, edge });
     }
     if (height > 0) {
-      if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!);
+      if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!) * scale;
       top += gaps[index]!;
       beforeContent = previousContent;
       previousContent = index;
@@ -1963,7 +1968,8 @@ export function layoutConversation(
     heights,
     gaps,
     marks,
-    tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)),
+    tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)) * scale,
+    scale,
     totalHeight: top,
   };
   messages.finish(rows, layout);
@@ -1992,13 +1998,14 @@ export function placeRows(
   let beforeContent = previousContent - 1;
   while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
   const marks = estimate.marks;
+  const scale = estimate.scale ?? 1;
   for (let index = kept; index < heights.length; index += 1) {
     // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
     const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
     if (height > 0) {
       if (previousContent >= 0)
-        top += marks ? transcriptGap(marks[previousContent]!, marks[index]!) : (estimate.gaps?.[index] ?? 0);
+        top += marks ? transcriptGap(marks[previousContent]!, marks[index]!) * scale : (estimate.gaps?.[index] ?? 0);
       beforeContent = previousContent;
       previousContent = index;
     }
@@ -2012,8 +2019,9 @@ export function placeRows(
     gaps: estimate.gaps,
     marks,
     tailGap: marks
-      ? tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights))
+      ? tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)) * scale
       : estimate.tailGap,
+    scale,
     totalHeight: top,
   };
 }

@@ -25,9 +25,17 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
     await browser?.close();
     await vite?.close();
   });
-  for (const width of [480, 1000])
-    for (const theme of ["light", "dark"]) {
-      test(`${theme} ${width}px: transcript column and block rhythm survive hover`, async () => {
+  // Every width and theme at the default Interface Size, and one at the largest (the gaps scale
+  // with --cmux-interface-scale, in the CSS tokens and in the virtual placement alike).
+  const rhythmCases: [number, string, number][] = [
+    [480, "light", 1],
+    [480, "dark", 1],
+    [1000, "light", 1],
+    [1000, "dark", 1],
+    [1000, "light", 1.25],
+  ];
+  for (const [width, theme, scale] of rhythmCases) {
+      test(`${theme} ${width}px${scale === 1 ? "" : ` at ${scale}x interface`}: transcript column and block rhythm survive hover`, async () => {
         const page = await browser.newPage({ viewport: { width, height: 900 } });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
@@ -36,6 +44,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               variant: "grid-rhythm",
               theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors",
               colorScheme: theme,
+              interfaceScale: scale === 1 ? undefined : scale,
             })}`,
           );
           await page.locator('[data-row-id="grid-message"] .cv-md').waitFor();
@@ -117,15 +126,15 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               console.log(`TRANSCRIPT_RHYTHM ${JSON.stringify({ width, theme, state, metric, value })}`);
           if (process.env.CMUX_RHYTHM_CAPTURES) {
             await mkdir(process.env.CMUX_RHYTHM_CAPTURES, { recursive: true });
-            await page.screenshot({ path: `${process.env.CMUX_RHYTHM_CAPTURES}/${theme}-${width}.png` });
+            await page.screenshot({ path: `${process.env.CMUX_RHYTHM_CAPTURES}/${theme}-${width}${scale === 1 ? "" : `-${scale}x`}.png` });
           }
           for (const state of [hidden, shown]) {
-            expect(Math.abs(state.turn - 32), "turn gap").toBeLessThanOrEqual(0.5);
+            expect(Math.abs(state.turn - 32 * scale), "turn gap").toBeLessThanOrEqual(0.5);
             if (state.actionMid !== undefined)
-              expect(Math.abs(state.actionMid - 12), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
-            for (const gap of state.gaps) expect(Math.abs(gap - 24), "block gap").toBeLessThanOrEqual(0.5);
-            expect(Math.abs(state.inner - 12), "paragraph gap").toBeLessThanOrEqual(0.5);
-            expect(Math.abs(state.composerGap - 16), "composer gap").toBeLessThanOrEqual(0.5);
+              expect(Math.abs(state.actionMid - 12 * scale), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
+            for (const gap of state.gaps) expect(Math.abs(gap - 24 * scale), "block gap").toBeLessThanOrEqual(0.5);
+            expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
+            expect(Math.abs(state.composerGap - 16 * scale), "composer gap").toBeLessThanOrEqual(0.5);
             for (const box of [state.message, state.headerIcon, state.toolIcon, state.live, ...(state.copy ? [state.copy] : [])]) {
               expect(Math.abs(box.left - state.composer.left), "col-left").toBeLessThanOrEqual(0.5);
             }

@@ -3659,7 +3659,7 @@ export function VirtualTranscript({
         : foldBase.current;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
   // The last row's gap to the bottom stack (transcriptGrid.ts `tailGap`) is the rows' own.
-  const tailGap = measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP;
+  const tailGap = measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1);
   const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + tailGap + dockSpace - trayHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
