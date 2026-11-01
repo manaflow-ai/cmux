@@ -206,7 +206,8 @@ struct PlanRequest {
 pub(super) type EnsureCall<'a> =
     &'a dyn Fn(&Ensure, &str) -> Result<Value, crate::cli::PlatformCallError>;
 
-/// `plan`: where the send goes, pinned when it is a machine that exists.
+/// `plan`: where the send goes, pinned when it is a machine that exists (no platform: [`plan_with`] makes the CLI's).
+#[cfg(test)]
 pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     plan_with(ledger, request, &mut std::io::empty(), &|_, _| {
         Err(crate::cli::PlatformCallError::Unreachable("no platform here".into()))
