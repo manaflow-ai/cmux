@@ -448,6 +448,16 @@ impl ChiefTools {
         client.manage(args)
     }
 
+    /// Every Chief record of this daemon (`chief.profile.list`) on this
+    /// Chief's bound connection, whatever its grant: who it may tell
+    /// (local_chiefs.rs).
+    pub fn records(&self) -> Result<Vec<Value>, String> {
+        self.client
+            .as_ref()
+            .ok_or("this Chief has no record here, so it knows no other Chief")?
+            .list()
+    }
+
     /// The `profile` tool: read the record, or change the fields in `args`.
     pub fn profile_call(&self, args: &Value) -> Result<String, String> {
         if !self.grant().allows("profile") {
@@ -753,6 +763,17 @@ const MANAGE_FIELDS: [&str; 10] = [
 ];
 
 impl ProfileClient {
+    /// The Chief records (`chief.profile.list`).
+    pub fn list(&self) -> Result<Vec<Value>, String> {
+        let v = self
+            .v2_raw("chief.profile.list", Map::new(), false, None)
+            .map_err(manage_denied)?;
+        Ok(v.get("chiefs")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
+    }
+
     /// The `chiefs` tool's work (schemas/chief-profile/chiefs-tool.json).
     pub fn manage(&self, args: &Value) -> Result<String, String> {
         let args = args.as_object().cloned().unwrap_or_default();

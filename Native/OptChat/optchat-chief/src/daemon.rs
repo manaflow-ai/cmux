@@ -798,6 +798,21 @@ pub fn select_chief_of(conversations: Vec<Summary>, chief: &str) -> Option<Summa
         .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
 }
 
+/// The id of Chief `chief`'s own conversation on the daemon at `socket`
+/// ([`select_chief_of`]), read on an owner connection; None when it has none
+/// yet (local_chiefs.rs: where another Chief's tell goes).
+pub fn chief_conversation(socket: &std::path::Path, chief: &str) -> Result<Option<String>, String> {
+    let mut client = Client::connect(ClientConfig::from_socket_path(socket))
+        .map_err(|e| format!("connecting to the session daemon: {e}"))?;
+    let listed = client
+        .conversation_list(ConversationListRequest {})
+        .map_err(|e| format!("listing the conversations: {e}"))?;
+    let listed: Vec<Summary> =
+        rewire(&listed.conversations, "conversation-list").map_err(|e| e.to_string())?;
+    client.close();
+    Ok(select_chief_of(listed, chief).map(|s| s.id))
+}
+
 /// True for the person: `user_local`, or a paired device of the person (a
 /// `remote_<install>` participant whose `person` is `user_local`; pairing
 /// adds it to every conversation of the person). A device does not make a

@@ -328,6 +328,13 @@ pub enum Input {
     PeerChiefNote {
         text: String,
     },
+    /// The reply of another Chief on this Mac to this Chief's `tell(id:
+    /// "chief:<it>")` (local_chiefs.rs), framed as `[chief:<it>] ...`:
+    /// another agent's words, queued as its report under the ask floor.
+    LocalChiefReply {
+        from: String,
+        text: String,
+    },
     /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
     EscalateAuth {
         agent: String,
@@ -1515,6 +1522,7 @@ impl Brain {
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.queue(text, Source::Note),
+            Input::LocalChiefReply { from, text } => self.queue(text, Source::Agent { from }),
             Input::EscalateAuth {
                 agent,
                 request,

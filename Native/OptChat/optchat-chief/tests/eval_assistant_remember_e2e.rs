@@ -61,6 +61,7 @@ fn remember_over_the_socket_writes_the_profile_once() {
             chief: None,
             turn: None,
             peers: None,
+            local: None,
         },
     )
     .unwrap();

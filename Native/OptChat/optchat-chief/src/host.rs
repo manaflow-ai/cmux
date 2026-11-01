@@ -1505,6 +1505,27 @@ fn start(
             Arc::new(|line: &str| log(line)),
         );
     }
+    // The other Chiefs of this Mac (local_chiefs.rs): `tell("chief:<name>")`
+    // posts into that Chief's conversation and its reply comes back here.
+    let local_chiefs = matches!(source, Source::Local { .. }).then(|| {
+        let tx = Mutex::new(tx.clone());
+        // The CLI the turns run (the pinned bundled one), else the one beside this host.
+        let cli = pinned
+            .get(crate::cmux_env::BUNDLED_CLI_KEY)
+            .filter(|p| !p.is_empty())
+            .map_or_else(crate::agent_memory::relay::cmux_cli, PathBuf::from);
+        Arc::new(crate::local_chiefs::LocalChiefs::on_mac(
+            chief_tools.clone(),
+            PathBuf::from(daemon_socket),
+            cli,
+            Arc::new(move |from, text| {
+                let _ = tx
+                    .lock()
+                    .expect("local chiefs tx")
+                    .send(Input::LocalChiefReply { from, text });
+            }),
+        ))
+    });
     crate::tools::serve_all(
         &paths.tools_socket,
         crate::tools::Served {
@@ -1520,6 +1541,7 @@ fn start(
                 &crate::paths::home_id(home),
             )),
             peers,
+            local: local_chiefs,
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;

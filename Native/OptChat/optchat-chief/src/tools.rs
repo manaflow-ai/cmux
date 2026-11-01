@@ -1209,6 +1209,35 @@ pub struct Served {
     /// The Chiefs on other machines (peer_chiefs.rs): `tell("chief:<name>")`
     /// posts to them through the agent hub and `chiefs` lists them. None: off.
     pub peers: Option<Arc<crate::peer_chiefs::PeerChiefs>>,
+    /// The other Chiefs of this Mac (local_chiefs.rs): `tell("chief:<name>")`
+    /// posts into that Chief's conversation and `chiefs` gives each its tell
+    /// id. None: off (no local registry).
+    pub local: Option<Arc<crate::local_chiefs::LocalChiefs>>,
+}
+
+/// `tell("chief:<name>")`: a peer Chief the hub config names goes through the
+/// hub as before; any other name is a Chief of this Mac.
+fn tell_chief(served: &Served, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
+    match (&served.peers, &served.local) {
+        (Some(peers), _) if peers.peer(id).is_some() => peers.tell(id, message, key),
+        (peers, Some(local)) => match local.find(id) {
+            Ok(Some(_)) => local.tell(id, message, key),
+            // The peers' own refusal lists them; the local one lists this Mac's.
+            Ok(None) if peers.is_some() => {
+                let local_err = local.tell(id, message, key).err().unwrap_or_default();
+                let peer_err = peers
+                    .as_ref()
+                    .and_then(|p| p.tell(id, message, key).err())
+                    .unwrap_or_default();
+                Err(format!("{local_err}; {peer_err}"))
+            }
+            Ok(None) | Err(_) => local.tell(id, message, key),
+        },
+        (Some(peers), None) => peers.tell(id, message, key),
+        (None, None) => Err(format!(
+            "tell: no other Chief is reachable from this host, so {id} cannot be reached"
+        )),
+    }
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -1233,6 +1262,7 @@ pub fn serve_with(
             chief: None,
             turn: None,
             peers: None,
+            local: None,
         },
     )
 }
@@ -1510,7 +1540,10 @@ fn connection(conn: UnixStream, served: &Served) {
                             if chief.is_turn(turn_key.as_deref())
                                 && role() == crate::turn_caller::Role::Turn =>
                         {
-                            let answer = chief.chiefs_call(&args);
+                            let mut answer = chief.chiefs_call(&args);
+                            if let Some(local) = &served.local {
+                                answer = local.merge_list(&args, answer);
+                            }
                             match &served.peers {
                                 Some(peers) => peers.merge_list(&args, answer),
                                 None => answer,
@@ -1532,19 +1565,15 @@ fn connection(conn: UnixStream, served: &Served) {
                     {
                         Err(crate::chief_profile::Grant::refusal("tell"))
                     }
-                    // A Chief on another machine (peer_chiefs.rs), through the agent hub.
+                    // A Chief on another machine (peer_chiefs.rs), through the agent hub,
+                    // else another Chief of this Mac (local_chiefs.rs).
                     Ok(Call::Tell {
                         ref id,
                         ref message,
                         ref key,
                         ..
                     }) if id.trim().starts_with(crate::peer_chiefs::PREFIX) => {
-                        match &served.peers {
-                            Some(peers) => peers.tell(id, message, key.as_deref()),
-                            None => Err(format!(
-                                "tell: no peer Chiefs are set up on this host, so {id} cannot be reached (peer-chiefs.json)"
-                            )),
-                        }
+                        tell_chief(served, id, message, key.as_deref())
                     }
                     Ok(Call::Profile { args }) => match &served.chief {
                         Some(chief) => chief.profile_call(&args),

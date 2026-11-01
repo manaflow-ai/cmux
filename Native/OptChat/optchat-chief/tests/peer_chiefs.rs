@@ -109,6 +109,7 @@ fn tell_to_a_peer_chief_posts_to_its_hub_box_with_the_reply_box() {
             chief: None,
             turn: None,
             peers: Some(peers(dir.path(), &hub)),
+            local: None,
         },
     )
     .unwrap();
@@ -147,6 +148,7 @@ fn tell_to_a_peer_chief_without_peers_says_why() {
             chief: None,
             turn: None,
             peers: None,
+            local: None,
         },
     )
     .unwrap();
