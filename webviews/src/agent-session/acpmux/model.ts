@@ -933,6 +933,9 @@ export type AcpmuxSnapshot = {
   /// The rows of the steers the agent has not read yet (direct.ts `waitingSteers`), oldest first, only
   /// while two or more wait: the transcript draws other sessions' among them as one card.
   waitingSteers?: readonly string[];
+  /// While two or more steers wait: the row of the person's newest one, the only one that offers
+  /// Send now (direct.ts `newestOwnSteer`, conversation/PendingSteer.tsx).
+  newestOwnSteer?: string;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;

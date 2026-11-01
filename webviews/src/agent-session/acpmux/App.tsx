@@ -554,7 +554,7 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
-import { PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
+import { NewestSteerContext, PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
@@ -12177,6 +12177,7 @@ function AcpmuxPane() {
         <ImageViewerContext.Provider value={openImage}>
           <ShellActionsContext.Provider value={shellActions}>
             <TurnActionsContext.Provider value={turnActions}>
+              <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
               <RunInBackgroundContext.Provider value={backgroundHint}>
                 <TurnCountsContext.Provider value={turnCountsFor}>
                   <SessionEditsContext.Provider value={editRows}>
@@ -12308,6 +12309,7 @@ function AcpmuxPane() {
                   </SessionEditsContext.Provider>
                 </TurnCountsContext.Provider>
               </RunInBackgroundContext.Provider>
+              </NewestSteerContext.Provider>
             </TurnActionsContext.Provider>
           </ShellActionsContext.Provider>
         </ImageViewerContext.Provider>
