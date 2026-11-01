@@ -28,7 +28,7 @@ LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d{4}|ubuntu-24\.04")
 # The nightly jobs that hold no release secrets and need no Mac.
 LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                       "pick-nightly-build-runner", "prepare-nightly-variant-primary",
-                      "prepare-nightly-variant", "pick-nightly-sign-runner",
+                      "prepare-nightly-variant",
                       "find-nightly-next-recovery")
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
@@ -43,7 +43,7 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
     "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
-    "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-app", "signer-app-notary",
+    "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
     "signer-dmg", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
     "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
     "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
