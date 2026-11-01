@@ -216,7 +216,8 @@ extension AgentPaneView {
     }
 
     /// More (…) on a message's action row: the menu a right-click on that message opens, with the
-    /// same items, under the button (`anchor`, CSS px in the page's viewport).
+    /// same items, under the button (`anchor`, CSS px in the page's viewport), or above it with no
+    /// room below.
     private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect, popupID: String?) {
         // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
         defer { reportMessageMenuClosed(popupID) }
@@ -225,11 +226,27 @@ extension AgentPaneView {
         let menu = NSMenu()
         fillContextMenu(menu, target: target, selection: nil)
         guard !menu.items.isEmpty else { return }
+        popUp(menu, from: anchor, in: view)
+    }
+
+    /// Opens `menu` from the page's button at `anchor` (CSS px in the page's viewport) in `view`:
+    /// under it, or above it when the window has no room below (`AgentPaneContextMenu.popUpOrigin`).
+    private func popUp(_ menu: NSMenu, from anchor: CGRect, in view: NSView) {
+        guard let window = view.window else { return }
         // View points per CSS px, as the page host (`uiScale` times its zoom) or the pane's WebKit view shows it.
         let zoom: CGFloat = page.map { CGFloat(Double(DesignSettings.shared.uiScale) * $0.additionalZoom) }
             ?? webView.pageZoom * webView.magnification
-        let left = anchor.minX * zoom, bottom = anchor.maxY * zoom + 2
-        menu.popUp(positioning: nil, at: NSPoint(x: left, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
+        // The page's viewport runs down from the view's top.
+        let top = anchor.minY * zoom, height = anchor.height * zoom
+        let local = CGRect(x: anchor.minX * zoom, y: view.isFlipped ? top : view.bounds.height - top - height,
+                           width: anchor.width * zoom, height: height)
+        let button = window.convertToScreen(view.convert(local, to: nil))
+        // The display holding the button, not the window's main one: a window across two displays
+        // would clamp the menu onto the other display, away from its button.
+        let origin = AgentPaneContextMenu.popUpOrigin(
+            button: button, size: menu.size, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            window: window.convertToScreen(window.contentLayoutRect))
+        menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
     }
 
     /// The page lit the opener of the menu `popupID` names (`messageMenu.ts`); it goes dark now.
@@ -254,10 +271,7 @@ extension AgentPaneView {
             menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
             return
         }
-        let zoom: CGFloat = page.map { CGFloat(Double(DesignSettings.shared.uiScale) * $0.additionalZoom) }
-            ?? webView.pageZoom * webView.magnification
-        let bottom = anchor.maxY * zoom + 2
-        menu.popUp(positioning: nil, at: NSPoint(x: anchor.minX * zoom, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
+        popUp(menu, from: anchor, in: view)
     }
 
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).

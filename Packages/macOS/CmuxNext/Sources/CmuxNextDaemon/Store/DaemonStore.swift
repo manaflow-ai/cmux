@@ -177,6 +177,10 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
+    /// Test seam (nil in the app): while it returns true for the buffered events, `drain` leaves them
+    /// buffered and asks for no frame, as a daemon whose events arrive late; ``releaseHeldEvents()``
+    /// applies them. A test holds one report this way to order it after an app step deterministically.
+    @ObservationIgnored public var eventHold: (@MainActor ([DaemonEventEnvelope]) -> Bool)?
     @ObservationIgnored var isResyncing = false
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()

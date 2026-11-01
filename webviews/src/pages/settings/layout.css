@@ -352,6 +352,19 @@
   color: var(--accent-text);
 }
 
+/* A Channels build row's Switch: one per row, shown only while the pointer or focus is on the row,
+   and kept while its switch runs, so the track reads as a list, not a column of buttons. */
+.channel-build .channel-switch {
+  opacity: 0;
+}
+
+.channel-build:hover .channel-switch,
+.channel-build:focus-within .channel-switch,
+.channel-build:has([data-popup-open]) .channel-switch,
+.channel-build .channel-switch[data-busy] {
+  opacity: 1;
+}
+
 /* P3: the Theme section. */
 .theme-studio {
   margin-bottom: 4px;

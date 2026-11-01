@@ -92,6 +92,9 @@ pub fn awaits_owner(provenance: Option<&Value>) -> bool {
 /// The `initialize` feature of a daemon that holds a prompt for the owner: a peer forwards one,
 /// and the owner's answer to one, only to a peer that lists it (`server/peer_forward.rs`).
 pub const QUEUE_APPROVAL_FEATURE: &str = "queueApproval";
+/// The `initialize` feature of a daemon that serves `_acpmux/queue_get`: forwarded to a peer only
+/// when it lists it, on the link that listed it (`server/peer_forward.rs`).
+pub const QUEUE_GET_FEATURE: &str = "queueGet";
 
 /// `queue.approval_unsupported`: a prompt that waits for the owner, or an answer to one, for a
 /// peer on an older build, which would run the prompt unapproved. Nothing is forwarded.

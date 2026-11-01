@@ -65,7 +65,12 @@
           "type": "string"
         },
         "harness": {
-          "description": "The agent harness they run on, chosen per task: codex (GPT) for long autonomous coding, refactors, CI fixes and a second opinion on Claude-written code; claude for writing, design, research, UI and computer use; another acpmux profile by its name. Split a spawn when tasks want different harnesses. By default, the one you run on. A harness the person has not granted, or routing they turned off, is refused: then leave it out.",
+          "description": "The agent harness they run on, chosen per task: codex (GPT) for long autonomous coding, refactors, CI fixes and a second opinion on Claude-written code; claude for writing, design, research, UI and computer use; another acpmux profile by its name. Split a spawn when tasks want different harnesses. By default, the one you run on. Routing is off unless the person turned it on, and a harness they have not granted is refused: then leave it out. With routing on, a spawn that names neither harness nor model is routed task by task (code to Codex, writing and research to Claude, a review to the other model), and the answer names each pick.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "model": {
+          "description": "The model they run on, an id the harness takes (for example gpt-6-astra or claude-sonnet-5-5); by default, the harness's. Refused, like harness, while routing is off: then leave it out.",
           "minLength": 1,
           "type": "string"
         },
