@@ -333,6 +333,9 @@ class MainNightlyBootstrapGuard(unittest.TestCase):
                 "github.ref == 'refs/heads/main' && "
                 "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
                 "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+                "github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && "
+                "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+                "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
                 "'blacksmith-2vcpu-ubuntu-2404' }}")
 
     def check(self, *, selector=SELECTOR, job="decide", workflow="nightly.yml",

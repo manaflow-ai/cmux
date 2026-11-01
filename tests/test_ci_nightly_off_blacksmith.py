@@ -113,6 +113,22 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                                   "github.ref": ref, "github.event_name": event,
                                                   "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}),
                                      "blacksmith-2vcpu-ubuntu-2404")
+        # NEXT's push bootstrap uses the owned nightly control runner only on
+        # its first attempt; retries keep the paid fallback route.
+        for attempt in ("1", "2"):
+            for configured in ("", "blacksmith-2vcpu-ubuntu-2404", "glaeda-nightly-light-xcode-26.6"):
+                with self.subTest(next_attempt=attempt, configured=configured):
+                    label = select(node, {"github.repository_owner": "manaflow-ai",
+                                          "github.run_attempt": attempt,
+                                          "github.ref": "refs/heads/nightly-next",
+                                          "github.event_name": "push",
+                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured})
+                    if attempt == "1":
+                        self.assertTrue(label.startswith("glaeda-nightly-"), label)
+                        self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
+                                         else "glaeda-nightly-std-xcode-26.6")
+                    else:
+                        self.assertEqual(label, "blacksmith-2vcpu-ubuntu-2404")
         self.assertNotIn("secrets.", body)
         self.assertNotRegex(body, r"(?m)^    environment:")
 

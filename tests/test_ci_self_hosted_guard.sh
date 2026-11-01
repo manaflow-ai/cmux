@@ -1627,6 +1627,9 @@ selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "github.ref == 'refs/heads/main' && "
             "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+            "github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && "
+            "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
             "'blacksmith-2vcpu-ubuntu-2404' }}")
 if job.get("runs-on") != selector or "environment" in job:
     sys.exit(0)

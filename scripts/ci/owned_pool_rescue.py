@@ -574,6 +574,11 @@ E2E_PICKER_JOB = "runner"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
 PICKER_JOB = "changes"
 DEFAULT_BUDGET_SECONDS = 90
+# NEXT's push bootstrap starts with the light `decide` job on the owned fleet.
+# Give that first attempt the same three-minute no-start window as the
+# stall-aware nightly rescue; later attempts and other nightly tracks retain
+# the configured rescue budget.
+NIGHTLY_NEXT_BOOTSTRAP_SECONDS = 180
 # Side lanes deliberately queue on the owned label while minis drain. Their
 # overflow is a measured queue decision, not the 90-second CI rescue budget.
 SIDE_DEFAULT_BUDGET_SECONDS = 600
@@ -4069,7 +4074,7 @@ _DELIVERY_CONTROL_JOBS = frozenset({
 })
 
 
-def _started_delivery_job(job: Mapping[str, Any]) -> bool:
+def _started_delivery_job(job: Mapping[str, Any], *, allow_decide: bool = False) -> bool:
     """Whether a delivery job has started work (or has a runner assigned).
 
     A jobs listing can be behind the workflow graph: a later signing job may
@@ -4079,7 +4084,22 @@ def _started_delivery_job(job: Mapping[str, Any]) -> bool:
     skipped or never-acquired cancellations are the only non-started states.
     """
     name = str(job.get("name") or "").split("(", 1)[0].strip()
-    if name in _DELIVERY_CONTROL_JOBS:
+    # Control jobs normally finish before delivery work is created and are
+    # therefore not evidence that a delivery job has started.  NEXT's first
+    # push bootstrap opts `decide` in: only GitHub's started_at record plus an
+    # in-progress or non-skipped conclusion proves that it acquired execution.
+    # A runner assignment alone can still be queued.
+    if name == "decide" and not allow_decide:
+        return False
+    # A completed fixture with no started_at is still a synthetic result, not
+    # evidence that the bootstrap acquired a runner.
+    if name == "decide" and not (
+            job.get("started_at")
+            and (job.get("status") == "in_progress"
+                 or job.get("conclusion") is not None and job.get("conclusion") != "skipped")
+    ):
+        return False
+    if name in _DELIVERY_CONTROL_JOBS and name != "decide":
         return False
     status = job.get("status")
     assigned = bool(job.get("runner_name") or job.get("runner_id"))
@@ -4090,10 +4110,16 @@ def _started_delivery_job(job: Mapping[str, Any]) -> bool:
     return True
 
 
-def _started_delivery_jobs(jobs: Sequence[Mapping[str, Any]]) -> str:
+def _started_delivery_jobs(jobs: Sequence[Mapping[str, Any]], *, allow_decide: bool = False) -> str:
     """Names of delivery jobs that have run, in stable order."""
-    started = sorted(str(job.get("name") or job.get("id")) for job in jobs if _started_delivery_job(job))
+    started = sorted(str(job.get("name") or job.get("id"))
+                     for job in jobs if _started_delivery_job(job, allow_decide=allow_decide))
     return ", ".join(started)
+
+
+def _allows_next_bootstrap_decide(target: Target) -> bool:
+    return (target.nightly and target.push_branch == "nightly-next" and target.event == "push"
+            and target.attempt == 1)
 
 
 def started_nightly_work(api: GitHub, target: Target, sleep: Callable[[float], None],
@@ -4109,7 +4135,7 @@ def started_nightly_work(api: GitHub, target: Target, sleep: Callable[[float], N
     if not target.nightly:
         return ""
     jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-    return _started_delivery_jobs(jobs)
+    return _started_delivery_jobs(jobs, allow_decide=_allows_next_bootstrap_decide(target))
 
 
 def started_delivery_work(api: GitHub, target: Target, sleep: Callable[[float], None],
@@ -4125,7 +4151,7 @@ def started_delivery_work(api: GitHub, target: Target, sleep: Callable[[float], 
     if not delivery:
         return ""
     jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-    return _started_delivery_jobs(jobs)
+    return _started_delivery_jobs(jobs, allow_decide=_allows_next_bootstrap_decide(target))
 
 
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
@@ -4583,6 +4609,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     rescue_sleep = rescue_sleep or sleep
     clock = now
     effective_seconds = side_seconds if target.path == CMUX_NEXT_WORKFLOW_PATH and side_seconds is not None else seconds
+    if (target.nightly and target.push_branch == "nightly-next" and target.event == "push"
+            and target.attempt == 1):
+        effective_seconds = max(effective_seconds, NIGHTLY_NEXT_BOOTSTRAP_SECONDS)
     if target.path == IOS_KIT_WORKFLOW_PATH:
         effective_seconds = min(effective_seconds, 180)
 
