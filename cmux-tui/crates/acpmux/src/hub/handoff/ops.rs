@@ -325,6 +325,7 @@ impl Hub {
             updated_at: at,
             drafts: Vec::new(),
             web: false,
+            cloud_mobile: false,
         };
         if let Err(e) = self.handoffs.put(&record) {
             let _ = self.kill(&target, true).await;
@@ -399,6 +400,8 @@ impl Hub {
         let _id = self.handoffs.lock(format!("id:{id}")).await;
         let mut r = self.handoffs.get(id).ok_or_else(|| not_found(id))?;
         let web = control == crate::hub::Control::Web;
+        let cloud_mobile = web
+            && p.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile");
         // A start refused before delivery kept its promptId for the retry.
         let prompt_id = text_param(p, "promptId")
             .or(r.prompt_id.as_deref())
@@ -426,8 +429,9 @@ impl Hub {
                     ));
                 }
                 // A remote device's retry resends (if it must) as a Web turn.
-                if web && !r.web {
+                if web && (!r.web || (cloud_mobile && !r.cloud_mobile)) {
                     r.web = true;
+                    r.cloud_mobile |= cloud_mobile;
                     self.handoffs.put(&r)?;
                 }
                 return self.handoff_deliver(r, true).await;
@@ -458,6 +462,7 @@ impl Hub {
         // Who starts it decides the target's turn: a remote device's start
         // is a Web turn (the remote floor).
         r.web = web;
+        r.cloud_mobile = cloud_mobile;
         r.updated_at = now();
         // Recorded before the send, so a lost reply or a restart is
         // reconciled by promptId instead of sent again.
@@ -598,7 +603,7 @@ impl Hub {
             // A Web start is checked against the target in the remote guard,
             // and its turn there is a Web turn (the remote floor).
             control: if r.web { crate::hub::Control::Web } else { crate::hub::Control::Local },
-            cloud_mobile: false,
+            cloud_mobile: r.cloud_mobile,
             trust_gate: false,
             steer_only: false,
             interrupt: false,
