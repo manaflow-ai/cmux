@@ -23,6 +23,10 @@ test("un-pinned previews close at a session switch; Pin preserves source version
   // Chat B happens to produce a document with the same title. It is never version 3 of A.
   expect(artifactVersionsForSession(pinned, "chat-b", [unrelated])).toEqual([v1, v2]);
   expect(artifactVersionsForSession(pinned, undefined, [unrelated])).toEqual([v1, v2]);
+  // Returning to A during paging can temporarily expose only one version. Keep both pinned.
+  expect(artifactVersionsForSession(pinned, "chat-a", [v2])).toEqual([v1, v2]);
+  expect(artifactVersionsForSession(pinned, "chat-a", [])).toEqual([v1, v2]);
+  // Once A's complete history is available, its genuinely new revision becomes visible.
   expect(artifactVersionsForSession(pinned, "chat-a", [v1, v2, unrelated])).toEqual([v1, v2, unrelated]);
 });
 
