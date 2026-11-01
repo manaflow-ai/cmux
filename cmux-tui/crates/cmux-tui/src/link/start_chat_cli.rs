@@ -333,6 +333,7 @@ pub(super) fn plan_with(
                     json!({"ok": true, "machine": id, "ensured": {
                         "created": line.get("created"), "snapshot": line.get("snapshot"),
                         "environment": line.get("environment"),
+                        "environment_id": line.get("environment_id"), "setup": line.get("setup"),
                     }})
                 }
                 // The platform made no machine: the App makes it, as before.
@@ -388,11 +389,15 @@ pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
 
 /// A cloud environment's id, as the cmux platform makes them: `env_` and 24 hex digits.
 pub(super) fn valid_environment(id: &str) -> bool {
-    id.len() == 28
-        && id.starts_with("env_")
-        && id
-            .get(4..)
-            .is_some_and(|hex| hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
+    let (prefix, hex) = if let Some(hex) = id.strip_prefix("env_") {
+        ("env_", hex)
+    } else if let Some(hex) = id.strip_prefix("denv_") {
+        ("denv_", hex)
+    } else {
+        return false;
+    };
+    id.len() == prefix.len() + 24
+        && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// A repository as the cmux platform names one: `owner/name`, GitHub's characters, at most 140 bytes.
@@ -554,8 +559,70 @@ impl Ensure {
         )
         .map_err(|failure| unreachable(failure.message))?;
         let path = format!("/v1/workspaces/{}/machine", percent_segment(&self.workspace));
-        platform.post(&path, self.body())
+        let mut body = platform.post(&path, self.body())?;
+        // The machine answer identifies the derived environment. Read its step timings through
+        // the same authenticated client so the startup card can distinguish a first setup from a
+        // snapshot boot. Progress is telemetry: a failed read must not strand a machine that is
+        // already being admitted.
+        if let Some(environment_id) = body.pointer("/environment/id").and_then(Value::as_str) {
+            let path = format!("/v1/environments/{}", percent_segment(environment_id));
+            if let Ok(environment) =
+                platform.get_with_timeout(&path, std::time::Duration::from_secs(10))
+                && let Some(setup) = setup_state(&environment, has_snapshot(body.get("snapshot")))
+                && let Some(object) = body.as_object_mut()
+            {
+                object.insert("setup".into(), setup);
+            }
+        }
+        Ok(body)
     }
+}
+
+fn has_snapshot(value: Option<&Value>) -> bool {
+    value.is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
+}
+
+/// Convert the environment endpoint's ordered step record into the small wire used by the
+/// startup checklist. `done` install means the script ran; a snapshot boot is cached; no install
+/// step means there is no setup script to report, unless the environment is still building.
+pub(super) fn setup_state(environment: &Value, snapshot: bool) -> Option<Value> {
+    let status = environment.get("status").and_then(Value::as_str);
+    let install = environment.get("steps").and_then(Value::as_array).and_then(|steps| {
+        steps.iter().find(|step| step.get("id").and_then(Value::as_str) == Some("install"))
+    });
+    let install_state = install.and_then(|step| step.get("state").and_then(Value::as_str));
+    if snapshot {
+        return Some(json!({"state": "done", "status": "ready"}));
+    }
+    let Some(install) = install else {
+        return (status == Some("building") || status == Some("pending"))
+            .then(|| json!({"state": "running", "status": "building"}));
+    };
+    let mut setup = serde_json::Map::new();
+    match install_state {
+        Some("done") => {
+            setup.insert("state".into(), json!("done"));
+        }
+        Some("running") | Some("pending") => {
+            setup.insert("state".into(), json!("running"));
+            setup.insert("status".into(), json!("building"));
+        }
+        Some("failed") => {
+            setup.insert("state".into(), json!("failed"));
+            setup.insert("status".into(), json!("failed"));
+            if let Some(detail) = install.get("detail").and_then(Value::as_str) {
+                setup.insert("error".into(), json!(detail));
+            }
+        }
+        Some("skipped") | None => return None,
+        Some(_) => return None,
+    }
+    for (source, target) in [("started_at", "started_at"), ("finished_at", "finished_at")] {
+        if let Some(value) = install.get(source).filter(|value| value.is_number()) {
+            setup.insert(target.into(), value.clone());
+        }
+    }
+    Some(Value::Object(setup))
 }
 
 /// One URL path segment: unreserved bytes kept, every other byte percent-encoded.
@@ -575,17 +642,35 @@ pub(super) fn percent_segment(segment: &str) -> String {
 pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>) -> Value {
     use crate::cli::PlatformCallError as E;
     match answer {
-        Ok(body) => match body.pointer("/machine/id").and_then(Value::as_str) {
-            Some(id) => json!({
-                "ok": true,
-                "machine": id,
-                "team": body.get("team"),
-                "created": body.get("created").and_then(Value::as_bool).unwrap_or(false),
-                "snapshot": body.get("snapshot"),
-                "environment": body.get("environment"),
-            }),
-            None => refused("bad_answer", "the cmux platform answered without the machine"),
-        },
+        Ok(body) => {
+            match body.pointer("/machine/id").and_then(Value::as_str) {
+                Some(id) => {
+                    let mut line = json!({
+                        "ok": true,
+                        "machine": id,
+                        "team": body.get("team"),
+                        "created": body.get("created").and_then(Value::as_bool).unwrap_or(false),
+                        "snapshot": body.get("snapshot"),
+                        "environment": body.get("environment"),
+                    });
+                    if let Some(environment) = body.get("environment")
+                        && let Some(environment_id) = environment.get("id").and_then(Value::as_str)
+                    {
+                        if let Some(object) = line.as_object_mut() {
+                            object.insert("environment_id".into(), json!(environment_id));
+                        }
+                        if let Some(setup) = body.get("setup").cloned().or_else(|| {
+                            setup_state(environment, has_snapshot(body.get("snapshot")))
+                        }) && let Some(object) = line.as_object_mut()
+                        {
+                            object.insert("setup".into(), setup);
+                        }
+                    }
+                    line
+                }
+                None => refused("bad_answer", "the cmux platform answered without the machine"),
+            }
+        }
         Err(E::Status { status: 404, code: "" | "not_found" }) => {
             refused("unavailable", "this cmux platform has no workspace machines (it answered 404)")
         }

@@ -151,12 +151,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var newName: String?
         public var createKey: String
         public var tabKey: String
+        public var environmentId: String?
+        public var setup: CloudStartSetup?
 
-        public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String) {
+        public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
+                    environmentId: String? = nil, setup: CloudStartSetup? = nil) {
             self.machine = machine
             self.newName = newName
             self.createKey = createKey
             self.tabKey = tabKey
+            self.environmentId = environmentId
+            self.setup = setup
         }
     }
 
@@ -164,8 +169,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
         let run = try await parsed(["link", "start-chat", "plan", "--request", request], stdin: access.map { Data(($0 + "\n").utf8) })
         let object = run.object ?? [:]
+        let start = CloudStartInfo(object: object)
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
-                                 createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "")
+                                 createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "",
+                                 environmentId: start.environmentId, setup: start.setup)
         // An ok answer without its keys is no answer: a create or open without them is not idempotent.
         guard !run.answer.ok || (!plan.createKey.isEmpty && !plan.tabKey.isEmpty) else {
             return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat plan answered ok without its keys"), plan)
