@@ -120,10 +120,6 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
   const children: AcpmuxRow[] = [];
   for (const thread of notice.threads ?? []) {
     for (const [index, delivery] of inboxDeliveries(thread).entries()) {
-      // A queued inbox wrapper has one queue target for the whole notice. Keep that target on the
-      // first synthetic row only, so the pending group retains Send now/Dismiss without repeating
-      // the same menu on every delivery.
-      const queueSource = row.queuedMessage && children.length === 0 ? row.queuedMessage : undefined;
       children.push({
         id: `${row.id}:inbox:${thread.id}:${index}`,
         version: row.version,
@@ -133,7 +129,6 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
         untyped: true,
         inboxDelivery: true,
         ...(row.steer ? { steer: row.steer } : {}),
-        ...(queueSource ? { inboxQueue: queueSource } : {}),
         ...(!thread.messages?.length
           ? {
               inboxThread: {
@@ -163,6 +158,16 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
   }
   inboxChildrenCache.set(row, children);
   return children;
+}
+
+/// Preserve a queued wrapper's single action target on the first delivery that survives shared
+/// inbox dedupe. The source prompt may duplicate an earlier direct message, so attaching it before
+/// filtering could leave the retained rows without Send now/Dismiss.
+function attachQueueSource(row: AcpmuxRow, children: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  if (!row.queuedMessage || children.length === 0) return children;
+  const first = children[0]!;
+  if (first.inboxQueue?.promptId === row.queuedMessage.promptId) return children;
+  return [{ ...first, inboxQueue: row.queuedMessage }, ...children.slice(1)];
 }
 
 const projectedBatches = new WeakMap<AcpmuxRow, { children: readonly AcpmuxRow[]; row: AcpmuxRow }>();
@@ -255,7 +260,7 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
       }
       const notice = noticeOf(row);
       if (notice?.kind === "inbox") {
-        const children = inboxChildren(row, notice).filter(keepDelivery);
+        const children = attachQueueSource(row, inboxChildren(row, notice).filter(keepDelivery));
         if (foldNotices && !insideInbox && children.length > 1) out.push(projectedBatch(row, children));
         else out.push(...children);
       } else if (row.inboxDelivery) {

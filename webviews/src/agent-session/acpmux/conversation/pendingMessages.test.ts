@@ -262,6 +262,21 @@ test("a waiting wrapper prompt id does not deduplicate its individual deliveries
   expect(display.filter((row) => row.inboxQueue?.promptId === "wrapper-prompt")).toHaveLength(1);
 });
 
+test("a deduped first inbox delivery keeps the queue menu on the retained delivery", () => {
+  const duplicate = queued("direct", "lane-a", "already delivered");
+  const wrapperText = [
+    "New messages from other agents in 2 threads.",
+    "- 1 new in #1 from lane-a: already delivered (thread from:lane-a/pr:1)",
+    "- 1 new in #2 from lane-b: keep this (thread from:lane-b/pr:2)",
+  ].join("\n");
+  const wrapper = queued("wrapper", "inbox", wrapperText, {
+    incoming: { kind: "message", message: { name: "inbox", text: wrapperText, raw: wrapperText } },
+  });
+  const display = pendingMessagesRow([], [duplicate, wrapper])?.pendingMessages?.displayRows ?? [];
+  expect(display.map((row) => row.text)).toEqual(["already delivered", "keep this"]);
+  expect(display.filter((row) => row.inboxQueue?.promptId === "wrapper")).toHaveLength(1);
+});
+
 test("turn shaping keeps all expanded waiting deliveries in the pending group", async () => {
   const text = [
     "New messages from other agents in 13 threads.",
