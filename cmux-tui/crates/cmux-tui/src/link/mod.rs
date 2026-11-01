@@ -11,6 +11,9 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
+// Not wired into start-chat yet; its CLI entry is `cmux link seed plan`.
+#[cfg_attr(not(test), allow(dead_code))]
+mod seed;
 mod start_chat_cli;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
@@ -114,6 +117,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("seed") {
+        return seed::run(&args[1..]);
     }
     // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {
