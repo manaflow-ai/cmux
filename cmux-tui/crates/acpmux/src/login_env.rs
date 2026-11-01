@@ -249,6 +249,9 @@ async fn import_once(read: &str) -> bool {
     let marker = run_marker();
     // Capture before reading the shell. import() retries when files change mid-read.
     let machine_stamp = machine_files_stamp();
+    // Keep declarations seen before and after the shell read out of generic
+    // imports, including a file revoked or renamed while the shell was running.
+    let machine_before = machine::read();
     // Names only, read with the stamp: the values still come from the shell.
     let delivered = delivered_names();
     *DELIVERED.write().unwrap_or_else(|e| e.into_inner()) = delivered;
