@@ -438,7 +438,7 @@ export default agentPaneEntry({
     // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
     // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….
     "computer-first-setup": {
-      note: "Fresh home with Labs off and only Studio Mac: the Computer menu exposes Add a computer and New Cloud Machine.",
+      note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Cloud (signed out, with Sign in for Cloud); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
       snapshot: noChat(),
       native: { "cloudMachine.list": { signedIn: false, loaded: true, machines: [] } },
