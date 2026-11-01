@@ -123,6 +123,7 @@
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "resolve-nightly-cmux-tui-client": {
+        "Fix this run's build number": {"plumbing": true},
         "Install gh if this Linux runner lacks it": {"plumbing": true},
         "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -234,8 +235,7 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
 
         "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
-        "List newer pending nightly-next notarizations": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"},
-        "Read the visual gate's verdicts": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"}},
+        "List newer pending nightly-next notarizations": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"}},
       "recover-nightly-next-notarization": {
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
@@ -441,7 +441,7 @@
         "Enforce the verdict": {"plumbing": true}},
       "visual-gate-nightly-verdict": {
         "Wait for the visual gate, at most 10 min past the signed build": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},
-        "Fail with the gate when it holds the build": {"plumbing": true}},
+        "Record failed advisory verdict": {"plumbing": true}},
       "report-visual-gate-nightly": {
         "Record the verdict in the visual gate issue": {"nightly_only": "writes the verdict comment to the nightly-next visual gate issue with the run's token"}}
     },
