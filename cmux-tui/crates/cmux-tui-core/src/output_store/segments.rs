@@ -16,6 +16,10 @@
 //! quit. The files hold every byte in order, and an idle terminal writes
 //! almost nothing.
 //!
+//! A frame that cannot be written stays in memory and is retried on the next
+//! pass, up to [`MAX_UNWRITTEN_BYTES`] per terminal; past it the oldest
+//! unwritten bytes are dropped and a read reports the gap.
+//!
 //! Caps: per terminal (`terminal.persistence.maxBytesPerTerminal`, default
 //! 100 MB) and in total (`terminal.persistence.maxTotalBytes`, default
 //! 2 GB). Past a cap the oldest files go first.
@@ -41,7 +45,8 @@ const FRAME_HEADER_BYTES: usize = 16;
 const UNCHANGED_FLUSH_BYTES: usize = 1024 * 1024;
 /// The largest raw frame a reader accepts (a flush is at most a few MB).
 const MAX_FRAME_RAW_BYTES: u32 = 64 * 1024 * 1024;
-/// Bytes a terminal keeps in memory while its segment writes fail.
+/// Bytes a terminal keeps in memory while its segment writes fail: the
+/// newest are kept for the retry, older ones are dropped (a reported gap).
 const MAX_UNWRITTEN_BYTES: usize = SEGMENT_FILE_BYTES as usize;
 
 /// Whether full mode collects bytes (set by the writer from the policy).
@@ -198,8 +203,11 @@ pub(super) fn flush_logs(
             state.pending_start = start + bytes.len() as u64;
         } else if ours {
             // Not written (a full disk, an IO error): the next pass tries
-            // again, changed content or not. Memory stays bounded: past
-            // MAX_UNWRITTEN_BYTES the oldest go (a gap a read reports).
+            // again, changed content or not. Memory stays bounded on
+            // purpose (a busy terminal on a full disk must not grow the
+            // daemon without limit): past MAX_UNWRITTEN_BYTES the oldest
+            // unwritten bytes go, and a read reports the gap (the window
+            // ends truncated and the next one starts after it).
             state.segment_digest = None;
             state.dirty = true;
             failed = true;
@@ -239,18 +247,17 @@ fn append_frame(
     // once: a cut frame at its end is cut off, so the frames written after
     // it stay readable.
     let newest = generation_files(terminal_directory, generation).pop();
-    // A file that cannot be checked (a stat, open or read error) is left as
-    // it is, and the frame goes to a new file.
-    let reusable = newest.and_then(|(file_start, path)| {
+    // A file that cannot be checked (a stat, open or read error) or that
+    // holds a whole frame that does not decode is left as it is, and the
+    // frame goes to a new file: a read stops at an undecodable frame in its
+    // file, so frames appended after it would never be read.
+    let reusable = newest.and_then(|(_, path)| {
         let len = fs::metadata(&path).ok()?.len();
         if len >= SEGMENT_FILE_BYTES {
             return None;
         }
-        let whole = if verified.get(&path) == Some(&len) {
-            len
-        } else {
-            frame_extent(&path, file_start)?.0
-        };
+        let whole =
+            if verified.get(&path) == Some(&len) { len } else { whole_decodable_frames(&path)? };
         Some((path, len, whole))
     });
     let file = match reusable {
@@ -469,6 +476,15 @@ fn read_frame(path: &Path, handle: &mut Option<fs::File>, header: &FrameHeader) 
         .read_to_end(&mut bytes)
         .ok()?;
     (bytes.len() == header.raw as usize).then_some(bytes)
+}
+
+/// The bytes of whole frames of a segment file when every whole frame
+/// decodes to its raw length (a cut frame at the end is not counted), else
+/// `None`: frames appended after an undecodable one would be unreadable.
+fn whole_decodable_frames(path: &Path) -> Option<u64> {
+    let (frames, whole) = frame_headers(path)?;
+    let mut handle = None;
+    frames.iter().all(|header| read_frame(path, &mut handle, header).is_some()).then_some(whole)
 }
 
 /// (bytes of whole frames, offset after the last frame) of a segment file,

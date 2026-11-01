@@ -349,3 +349,64 @@ fn a_frame_that_does_not_decode_ends_the_window_as_truncated() {
     assert!(!window.truncated);
     fs::remove_dir_all(&directory).unwrap();
 }
+
+#[test]
+fn a_newest_file_with_a_frame_that_does_not_decode_is_left_and_new_frames_stay_readable() {
+    let directory = store_directory("corrupt-newest");
+    let terminal_directory = terminal_directory(&directory, &terminal());
+    fs::create_dir_all(&terminal_directory).unwrap();
+    write_frame_file(&terminal_directory, 0, b"abc");
+    // A whole frame for 3..6 whose body is not gzip (an earlier run's file).
+    let path = terminal_directory.join(format!("{}-{:020}.{SUFFIX}", generation_key("g1"), 0));
+    let mut handle = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    handle.write_all(&3_u64.to_le_bytes()).unwrap();
+    handle.write_all(&4_u32.to_le_bytes()).unwrap();
+    handle.write_all(&3_u32.to_le_bytes()).unwrap();
+    handle.write_all(&[0xde, 0xad, 0xbe, 0xef]).unwrap();
+    drop(handle);
+    let before = fs::read(&path).unwrap();
+    // The writer resumes at 6: the frame must not go after the bad one.
+    append_frame(&Segments::default(), &terminal_directory, "g1", 6, b"ghi").unwrap();
+    assert_eq!(fs::read(&path).unwrap(), before, "the file is left as it is");
+    assert_eq!(
+        generation_files(&terminal_directory, "g1").len(),
+        2,
+        "the frame went to a new file"
+    );
+    let window = read_after(&directory, &terminal(), "g1", 6, 1024).unwrap();
+    assert_eq!(window.bytes, b"ghi", "the newly flushed bytes are readable");
+    assert!(!window.truncated);
+    // The next frame goes on in the new file.
+    append_frame(&Segments::default(), &terminal_directory, "g1", 9, b"jkl").unwrap();
+    assert_eq!(generation_files(&terminal_directory, "g1").len(), 2);
+    let window = read_after(&directory, &terminal(), "g1", 6, 1024).unwrap();
+    assert_eq!(window.bytes, b"ghijkl");
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn a_failing_write_keeps_at_most_the_unwritten_bound_and_a_read_reports_the_gap() {
+    let directory = store_directory("failed-bound");
+    fs::write(terminal_directory(&directory, &terminal()), b"").unwrap();
+    let extra = 10;
+    let bytes = (0..MAX_UNWRITTEN_BYTES + extra).map(|at| (at % 251) as u8).collect::<Vec<_>>();
+    let log = pending_log(&bytes);
+    let policy = PersistencePolicy::resolve(Some("full"), None, None);
+    assert!(flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false));
+    {
+        let state = log.state.lock().unwrap();
+        // The bound is deliberate: a busy terminal on a full disk must not
+        // grow the daemon without limit. The newest bytes are kept.
+        assert_eq!(state.pending.len(), MAX_UNWRITTEN_BYTES);
+        assert_eq!(state.pending_start, extra as u64);
+        assert_eq!(state.pending.as_slice(), &bytes[extra..]);
+    }
+    fs::remove_file(terminal_directory(&directory, &terminal())).unwrap();
+    flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
+    assert!(log.state.lock().unwrap().pending.is_empty());
+    // A read from the start begins after the dropped bytes and says where.
+    let window = read_after(&directory, &terminal(), "g1", 0, bytes.len()).unwrap();
+    assert_eq!(window.start_offset, extra as u64, "the dropped range is a reported gap");
+    assert_eq!(window.bytes.as_slice(), &bytes[extra..]);
+    fs::remove_dir_all(&directory).unwrap();
+}
