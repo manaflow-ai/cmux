@@ -725,7 +725,7 @@ button.cv-subagent > :last-child {
   width: var(--acpmux-tray-stop-width);
 }
 .acpmux-running-tray .acpmux-agent-line__stop-slot > button {
-  scroll-margin-bottom: 1px;
+  scroll-margin-block: 2px;
 }
 .acpmux-running-tray :is(.acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
   grid-area: 1 / 5;
