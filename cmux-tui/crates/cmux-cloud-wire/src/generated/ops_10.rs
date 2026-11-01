@@ -4,6 +4,67 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmEnsureAwakeResult {
+    pub lease: TeamVmLeaseId,
+    pub expires_at: i64,
+    pub status: TeamVmStatus,
+    pub vm: Option<String>,
+    pub epoch: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ensure_awake declares.
+    TeamVmEnsureAwakeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmProviderFailed = "team_vm.provider_failed",
+        TeamVmProviderRefused = "team_vm.provider_refused",
+        TeamVmSlugConflict = "team_vm.slug_conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
+    TeamVmJournalAppendOp {
+        name: "team_vm.journal.append",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamVmDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: TeamVmJournalAppendParams,
+        result: TeamVmJournalAppendResult,
+        error: TeamVmJournalAppendError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendParams {
+    pub stream: TeamJournalStream,
+    pub epoch: i64,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub bytes: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendResult {
+    pub stream: TeamJournalStream,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub epoch: i64,
+    pub high_water: i64,
+    pub replayed: bool,
+}
+
 wire_errors! {
     /// The error codes team_vm.journal.append declares.
     TeamVmJournalAppendError {
@@ -838,61 +899,6 @@ wire_errors! {
         IdempotencyConflict = "idempotency.conflict",
         RevisionConflict = "revision.conflict",
         TeamRolesRequired = "team.roles_required",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs.
-    UsageSummaryOp {
-        name: "usage.summary",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UsageMeterDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: UsageSummaryParams,
-        result: UsageSummary,
-        error: UsageSummaryError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageSummaryParams {}
-
-wire_errors! {
-    /// The error codes usage.summary declares.
-    UsageSummaryError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Create or refresh the caller's user record from the Stack session.
-    UserEnsureOp {
-        name: "user.ensure",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: UserEnsureParams,
-        result: UserProfile,
-        error: UserEnsureError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserEnsureParams {}
-
-wire_errors! {
-    /// The error codes user.ensure declares.
-    UserEnsureError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
 }

@@ -23,60 +23,6 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Durable attention transition emitted by a VM principal when a Cloud chat needs its owner.
-    CloudVmAttentionEmitOp {
-        name: "cloud.vm.attention.emit",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmAttentionEmitParams,
-        result: CloudVmAttentionEmitResult,
-        error: CloudVmAttentionEmitError,
-    }
-}
-
-wire_enum! {
-    CloudVmAttentionEmitParamsKind {
-        Question = "question",
-        Permission = "permission",
-        Done = "done",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmAttentionEmitParams {
-    pub machine: MachineId,
-    pub event_id: String,
-    pub kind: CloudVmAttentionEmitParamsKind,
-    pub session: String,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    pub occurred_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmAttentionEmitResult {
-    pub delivered: bool,
-    pub replayed: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub correlation_id: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.attention.emit declares.
-    CloudVmAttentionEmitError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
     /// Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudSnapshotCreateOp {
         name: "cloud.snapshot.create",
@@ -265,6 +211,61 @@ wire_errors! {
         MutationIndeterminate = "mutation.indeterminate",
         OwnerUnreachable = "owner.unreachable",
         RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmAttentionEmitOp {
+        name: "cloud.vm.attention.emit",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmAttentionEmitParams,
+        result: CloudVmAttentionEmitResult,
+        error: CloudVmAttentionEmitError,
+    }
+}
+
+wire_enum! {
+    CloudVmAttentionEmitParamsKind {
+        Question = "question",
+        Permission = "permission",
+        Done = "done",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmAttentionEmitParams {
+    pub machine: MachineId,
+    pub event_id: String,
+    pub kind: CloudVmAttentionEmitParamsKind,
+    pub session: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    pub occurred_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmAttentionEmitResult {
+    pub delivered: bool,
+    pub replayed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.attention.emit declares.
+    CloudVmAttentionEmitError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
         ValidationInvalid = "validation.invalid",
     }
 }
@@ -892,57 +893,4 @@ pub struct DmOpenParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DmOpenResult {
     pub conversation: HomeConversationSummary,
-}
-
-wire_errors! {
-    /// The error codes dm.open declares.
-    DmOpenError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        HomeRateLimited = "home.rate_limited",
-        HomeUserNotReady = "home.user_not_ready",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InviteLimit = "invite_limit",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        NotReachable = "not_reachable",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.
-    DomainClaimOp {
-        name: "domain.claim",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: DomainClaimParams,
-        result: TeamDomain,
-        error: DomainClaimError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainClaimParams {
-    pub domain: EmailDomain,
-}
-
-wire_errors! {
-    /// The error codes domain.claim declares.
-    DomainClaimError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

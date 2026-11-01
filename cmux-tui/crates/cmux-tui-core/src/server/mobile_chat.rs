@@ -6,17 +6,23 @@
 //! chat/session rules here means the Swift adapter stays a transport forwarder.
 
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
+use super::agent_session_attach::agent_session_link::{AcpmuxLink, Inbound, LinkError};
 use super::*;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_LIMIT: u64 = 200;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_HISTORY_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+enum PromptOutcome {
+    Accepted(Value),
+    Error(LinkError),
+}
 
 /// Handles the three commands used by `mobile.chat.*`.  `None` means this is
 /// another protocol line and lets the normal command parser handle it.
@@ -47,10 +53,23 @@ pub(super) fn try_handle(
         return Some(refuse(writer, id, "unavailable", "acpmux is unavailable"));
     };
     let params = Value::Object(object);
+    let expected_prompt_id = (command == "mobile-chat-send")
+        .then(|| params.get("prompt_id").and_then(Value::as_str).map(str::to_owned))
+        .flatten();
+    let (prompt_tx, prompt_rx) = sync_channel(2);
+    let prompt_tx_for_call = prompt_tx.clone();
     let writer = writer.clone();
     std::thread::spawn(move || {
-        let result = match AcpmuxLink::connect(&socket, |_| {}) {
-            Ok(link) => dispatch(&link, &command, params),
+        let prompt_id = expected_prompt_id;
+        let result = match AcpmuxLink::connect(&socket, move |inbound| {
+            if let Inbound::Notification(method, notification) = inbound
+                && method == "_acpmux/prompt_accepted"
+                && prompt_id.as_deref() == notification.get("promptId").and_then(Value::as_str)
+            {
+                let _ = prompt_tx.try_send(PromptOutcome::Accepted(notification));
+            }
+        }) {
+            Ok(link) => dispatch(&link, &command, params, Some((prompt_rx, prompt_tx_for_call))),
             Err(_) => Err(("unavailable", "acpmux is unavailable".to_owned())),
         };
         match result {
@@ -79,6 +98,7 @@ fn dispatch(
     link: &AcpmuxLink,
     command: &str,
     params: Value,
+    acceptance: Option<(Receiver<PromptOutcome>, SyncSender<PromptOutcome>)>,
 ) -> Result<Value, (&'static str, String)> {
     match command {
         "mobile-chat-sessions" => {
@@ -123,17 +143,25 @@ fn dispatch(
                     "prompt_id must contain only letters, numbers, '-' or '_'".into(),
                 ));
             }
-            let accepted = link
-                .call(
-                    "session/prompt",
-                    json!({
-                        "sessionId": session,
-                        "prompt": [{"type": "text", "text": text}],
-                        "_meta": {"acpmux": {"promptId": prompt_id}},
-                    }),
-                    CALL_TIMEOUT,
-                )
-                .map_err(link_error)?;
+            let Some((acceptance, outcome_tx)) = acceptance else {
+                return Err(("internal_error", "prompt acceptance channel unavailable".into()));
+            };
+            let caller = link.clone();
+            let prompt = json!({
+                "sessionId": session,
+                "prompt": [{"type": "text", "text": text}],
+                "_meta": {"acpmux": {"promptId": prompt_id}},
+            });
+            std::thread::spawn(move || {
+                if let Err(error) = caller.call("session/prompt", prompt, CALL_TIMEOUT) {
+                    let _ = outcome_tx.send(PromptOutcome::Error(error));
+                }
+            });
+            let accepted = match acceptance.recv_timeout(CALL_TIMEOUT) {
+                Ok(PromptOutcome::Accepted(params)) => params,
+                Ok(PromptOutcome::Error(error)) => return Err(link_error(error)),
+                Err(_) => return Err(("timeout", "acpmux did not acknowledge the prompt".into())),
+            };
             Ok(json!({"accepted": true, "prompt_id": prompt_id,
                 "turn_id": accepted.get("turnId").cloned().unwrap_or(Value::Null),
                 "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),

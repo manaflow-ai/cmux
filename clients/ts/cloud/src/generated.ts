@@ -1852,6 +1852,23 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
+  /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.attention.emit": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly event_id: string
+      readonly kind: "question" | "permission" | "done"
+      readonly session: string
+      readonly title: string
+      readonly body?: string
+      readonly occurred_at: number
+    }
+    readonly result: {
+      readonly delivered: boolean
+      readonly replayed: boolean
+      readonly correlation_id?: string
+    }
+  }
   /** Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.event.emit": {
     readonly params: {
@@ -3811,6 +3828,7 @@ export const cloudOpMeta = {
   "cloud.snapshot.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.vm.attention.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
