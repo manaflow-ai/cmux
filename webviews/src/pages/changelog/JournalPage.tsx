@@ -121,22 +121,7 @@ function DaySection({
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
-  const near = (el: HTMLElement | null) => {
-    if (!el || !pending) return;
-    const load = () => builds.forEach((b) => void store.ensure(b.build));
-    // A day already near the viewport loads now: the first frame waits for it (paintGate.ts).
-    if (typeof IntersectionObserver === "undefined" || nearViewport(el)) return load();
-    const observer = new IntersectionObserver(
-      (records) => {
-        if (!records.some((r) => r.isIntersecting)) return;
-        observer.disconnect();
-        load();
-      },
-      { rootMargin: `${NEAR_MARGIN}px 0px` },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  };
+  const near = loadNear(builds, store, pending);
   const view = mergedView(loaded, ctx.strings.language);
   const installed = builds.some((b) => b.build === s.current);
   const title = ledger ? releaseTitle(loaded, ctx.strings.language) : undefined;
@@ -171,6 +156,26 @@ function DaySection({
       <SectionBody view={view} pending={pending} ctx={ctx} />
     </section>
   );
+}
+
+/** A day section's ref: it loads the notes of `builds` once the section nears the viewport (at once
+    when it already is: the first frame waits for it, paintGate.ts). Nothing while none is pending. */
+export function loadNear(builds: IndexEntry[], store: ChangelogStore, pending: boolean) {
+  return (el: HTMLElement | null) => {
+    if (!el || !pending) return;
+    const load = () => builds.forEach((b) => void store.ensure(b.build));
+    if (typeof IntersectionObserver === "undefined" || nearViewport(el)) return load();
+    const observer = new IntersectionObserver(
+      (records) => {
+        if (!records.some((r) => r.isIntersecting)) return;
+        observer.disconnect();
+        load();
+      },
+      { rootMargin: `${NEAR_MARGIN}px 0px` },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  };
 }
 
 /** How far outside the viewport a day starts loading its notes. */
@@ -221,7 +226,7 @@ function SectionBody({
 
 /** J and K (from any focused control in the page) jump to the next or previous section. The
     document scrolls, so Space, Page Down and the arrows work with nothing focused. */
-function journalKeys(event: KeyboardEvent<HTMLDivElement>) {
+export function journalKeys(event: KeyboardEvent<HTMLDivElement>) {
   if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
   const key = event.key.toLowerCase();
   if (key !== "j" && key !== "k") return;

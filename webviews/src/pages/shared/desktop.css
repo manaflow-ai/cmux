@@ -624,7 +624,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-queue-lead-center: calc(22px * var(--cmux-interface-scale, 1)); /* Leading glyph center from the left edge. */
   --grid-queue-text: calc(44px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
   --grid-queue-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
-  --grid-composer-box: calc(44px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
+  --grid-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1)); /* Control inset from the top and bottom of a one-line composer. */
+  --grid-composer-box: calc(48px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
   --grid-composer-radius: calc(12px * var(--cmux-interface-scale, 1)); /* Composer corner radius. */
   --grid-composer-quiet-row-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Gap below composer box. */
   --grid-composer-quiet-row-height: calc(28px * var(--cmux-interface-scale, 1)); /* Quiet row height. */

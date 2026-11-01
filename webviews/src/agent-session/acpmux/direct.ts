@@ -1380,6 +1380,18 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
+  /// An optimistic row has been accepted by an event: keep its id, but make the event its order.
+  adoptEventOrder(id: string): void {
+    if (!this.has(id)) return;
+    this.local.delete(id);
+    if (this.current !== undefined) {
+      this.order.set(id, this.current);
+      this.latest = Math.max(this.latest, this.current);
+    }
+    this.ordered = undefined;
+    this.snapshot = undefined;
+  }
+
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
@@ -1855,7 +1867,7 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
-  /// `_acpmux/process_update` listeners (inspector/processes.ts).
+  /// `_acpmux/process_update` listeners (session-info/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
@@ -2004,7 +2016,7 @@ export class AcpmuxDirectClient {
     if (this.peerCopy && this.peerCopy.sessionId === this.selectedSessionId) this.peerCopy.attaching = true;
     // Any attach of the copy already out (a select's, a recovery's) leaves it to this one when it
     // fails, copy drawn yet or not.
-    const mine = ++this.copyAttaches;
+    let mine = ++this.copyAttaches;
     // A chat another tab read already is held by the app host: ask for its tail now, while the
     // socket connects and acpmux lists the chats, so drawing it below costs this open no round
     // trip of its own (tailCache.ts). A page that read the chat itself has the newer tail.
@@ -2239,33 +2251,42 @@ export class AcpmuxDirectClient {
           }
         }
         let page: EventRecord[] = [];
+        // The attach that goes out last decides the chat: a select's that went out before this one
+        // (while the socket connected or the chats were listed) leaves the chat to it. Only when this
+        // attach goes out: one a select took over while the tail or copy was read sends nothing, and
+        // must not take the chat from the select's attach.
+        if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) mine = ++this.copyAttaches;
         try {
           page = await this.attach(sessionId, generation, keptThrough, 1, adopted);
         } catch (error) {
-          // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy, and
-          // reads the machine when its row says it is back (`sessionChanged`): the page stays open.
-          const kept = await this.keepPeerCopy(sessionId, generation, error);
-          // The chat could not be read: a tail drawn from the host must not stay on screen as if
-          // this page had read the chat, here as in `select` — and the pane has to be told, or it
-          // keeps drawing the snapshot that carried those rows.
-          if (
-            !kept &&
-            keptThrough > 0 &&
-            generation === this.selectionGeneration &&
-            this.selectedSessionId === sessionId
-          ) {
-            forgetTail(sessionId);
-            this.peerCopy = undefined;
-            this.copyLive = undefined;
-            this.events = [];
-            this.queue = [];
-            // Those rows are off screen again, so the frame the host shows is the failure, not a
-            // chat: it fades in as any first draw of a chat does.
-            this.drewKeptTail = false;
-            this.rebuild();
-            this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+          // A newer attach of the chat (a select, a switch) took it over while this one was out:
+          // its outcome decides, so this one's failure neither draws, clears nor fails the open on
+          // the socket that newer attach read the chat over.
+          const superseded =
+            mine !== this.copyAttaches ||
+            generation !== this.selectionGeneration ||
+            this.selectedSessionId !== sessionId;
+          if (!superseded || this.socket?.readyState !== WebSocket.OPEN) {
+            // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy, and
+            // reads the machine when its row says it is back (`sessionChanged`): the page stays open.
+            const kept = await this.keepPeerCopy(sessionId, generation, error);
+            // The chat could not be read: a tail drawn from the host must not stay on screen as if
+            // this page had read the chat, here as in `select` — and the pane has to be told, or it
+            // keeps drawing the snapshot that carried those rows.
+            if (!kept && !superseded && keptThrough > 0) {
+              forgetTail(sessionId);
+              this.peerCopy = undefined;
+              this.copyLive = undefined;
+              this.events = [];
+              this.queue = [];
+              // Those rows are off screen again, so the frame the host shows is the failure, not a
+              // chat: it fades in as any first draw of a chat does.
+              this.drewKeptTail = false;
+              this.rebuild();
+              this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+            }
+            if (!kept) throw error;
           }
-          if (!kept) throw error;
         }
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
         if (resumeAfter > 0 && oldest > resumeAfter + 1)
@@ -5198,6 +5219,7 @@ export class AcpmuxDirectClient {
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
         });
+        if (optimisticRowId) this.rows.adoptEventOrder(durableRowId);
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(durableRowId, attachments);
@@ -5974,7 +5996,8 @@ export class AcpmuxDirectClient {
   /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
-  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
+  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it. Without one,
+  /// a send into a shown chat binds the person's Enter or click to this prompt before any waits.
   /// `steer`: into the running turn, read when the agent's current step ends; an agent that
   /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
   /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`. No send carries
@@ -5985,14 +6008,26 @@ export class AcpmuxDirectClient {
     this.presence.typed(text, sessionId);
   }
 
+  /// Binds the person's current gesture to one prompt before the caller waits for a start or
+  /// persistence. The host still refuses frames without a ticket, so forged/script sends remain
+  /// denied; a ticket is scoped to this prompt id and can be spent only once.
+  bindSendGesture(
+    promptId: string = crypto.randomUUID(),
+  ): { promptId: string; ticket: Promise<string | undefined> } | undefined {
+    return { promptId, ticket: reservePromptGesture(promptId) };
+  }
+
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
-    ticket?: string,
+    ticket?: string | Promise<string | undefined>,
     steer = false,
+    /// Safe to close the page: acpmux has acknowledged this prompt, including a queued one.
+    onTaken?: () => void,
   ): Promise<string | undefined> {
+    const reserved = ticket ?? this.bindSendGesture(promptId)?.ticket;
     this.presence.stopTyping();
     this.untakenSends += 1;
     let untaken = true;
@@ -6001,7 +6036,7 @@ export class AcpmuxDirectClient {
       untaken = false;
     };
     try {
-      return await this.sendNow(input, attachments, promptId, accepted, ticket, steer, settle);
+      return await this.sendNow(input, attachments, promptId, accepted, reserved, steer, settle, onTaken);
     } finally {
       settle();
     }
@@ -6019,10 +6054,11 @@ export class AcpmuxDirectClient {
     attachments: ComposerAttachment[],
     promptId: string,
     accepted: (() => void) | undefined,
-    ticket: string | undefined,
+    ticket: string | Promise<string | undefined> | undefined,
     steer: boolean,
     /// acpmux took it: the page no longer holds the only copy.
     tookIt: () => void,
+    onTaken?: () => void,
   ): Promise<string | undefined> {
     const trustCancellation = this.trustCancellation;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
@@ -6197,6 +6233,7 @@ export class AcpmuxDirectClient {
       if (context) this.host = { ...this.host, workspaceContext: undefined };
       if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
       release();
+      onTaken?.();
     };
     this.promptAccepts.set(promptId, accept);
     this.sentPrompts.add(promptId);
@@ -6264,6 +6301,7 @@ export class AcpmuxDirectClient {
       ),
     );
     this.emit();
+    const gesture = await ticket;
     try {
       await this.request("session/prompt", {
         sessionId,
@@ -6278,7 +6316,7 @@ export class AcpmuxDirectClient {
             ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
             ...promptSurfaceMeta(),
           },
-          ...(ticket ? { cmuxGesture: ticket } : {}),
+          ...(gesture ? { cmuxGesture: gesture } : {}),
         },
       });
       accept();
@@ -8615,6 +8653,23 @@ export class AcpmuxDirectClient {
 }
 
 /// The params field that carries a pick's gesture ticket, or nothing without one.
+/// Reserves the person's current gesture for one prompt. A page or script without a trusted
+/// AppKit event gets no ticket; the host's normal gesture check then refuses its send.
+const reservePromptGesture = (promptId: string): Promise<string | undefined> => {
+  try {
+    return postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "session/prompt", params: { promptId } },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+  } catch {
+    // Tests and non-webview callers have no native host. They still send through the normal
+    // relay path; the absent ticket leaves the host's gesture guard in force.
+    return Promise.resolve(undefined);
+  }
+};
+
 const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticket } } : {});
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.

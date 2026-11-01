@@ -6,10 +6,14 @@ import Testing
 struct CloudStartChatLoginTests {
     typealias Step = CloudStartChat.LoginStep
 
-    @Test func onlyDebugBuildsOrTheExplicitOptInPassALogin() {
-        #expect(CloudStartChat.passesHarnessLogin(isDebugBuild: true, optedIn: false))
-        #expect(CloudStartChat.passesHarnessLogin(isDebugBuild: false, optedIn: true))
-        #expect(!CloudStartChat.passesHarnessLogin(isDebugBuild: false, optedIn: false))
+    @Test func theSettingWinsElseOnlyDebugBuildsPassALogin() {
+        #expect(CloudStartChat.passesHarnessLogin(isDebugBuild: true, setting: nil))
+        #expect(!CloudStartChat.passesHarnessLogin(isDebugBuild: false, setting: nil))
+        #expect(CloudStartChat.passesHarnessLogin(isDebugBuild: false, setting: true))
+        #expect(CloudStartChat.passesHarnessLogin(isDebugBuild: true, setting: true))
+        // `defaults write ... cmux.cloud.passHarnessLogin -bool NO`: a DEV build behaves as production.
+        #expect(!CloudStartChat.passesHarnessLogin(isDebugBuild: true, setting: false))
+        #expect(!CloudStartChat.passesHarnessLogin(isDebugBuild: false, setting: false))
     }
 
     @Test func harnessFamiliesMapToTheirProvider() {

@@ -140,6 +140,68 @@ async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
     );
 }
 
+/// Stop never ends a process that runs background work (Leo, 2026-10-31: "WELL THAT STOP BUTTON
+/// STOPPED LITERALLY EVERYTHING"). The agent works on through both cancels beside a background
+/// subagent; acpmux ends only the turn (`stop_escalated` `interrupt`, then `spared`): its process
+/// is neither ended nor started again, and the background subagent still runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-beside-background").await;
+    c.send(
+        method::SESSION_PROMPT,
+        prompt(&id, "works-through-cancel-beside-background", Some("p-work")),
+    )
+    .await;
+    let first =
+        c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
+    let title = first["update"]["title"].as_str().unwrap().to_owned();
+    let pid = format!("pid {}", title.rsplit(' ').next().unwrap());
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    let ended = tokio::time::timeout(
+        Duration::from_secs(40),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+    )
+    .await
+    .expect("the stopped turn never ended");
+    assert_eq!(ended["msg"]["status"], "cancelled", "{ended}");
+    assert_eq!(ended["msg"]["cancelForced"], true, "{ended}");
+    assert_ne!(ended["msg"]["restarted"], true, "{ended}");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    let events = hub.events(&id, 0, 100_000).unwrap();
+    let steps: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "stop_escalated")
+        .filter_map(|e| e.msg["step"].as_str())
+        .collect();
+    assert_eq!(steps, ["interrupt", "spared"], "the process was ended beside background work");
+    assert!(!events.iter().any(|e| e.kind == "stop_restarted"), "the agent was started again");
+    assert!(
+        !events.iter().any(|e| matches!(e.kind.as_str(), "stopped" | "exited")),
+        "the agent's process ended"
+    );
+    let result = events.iter().find(|e| e.kind == "turn_result").unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "resumed" && e.seq > result.seq),
+        "a new process resumed the conversation"
+    );
+    // The same process still runs: it goes on calling tools after the turn ended.
+    let after: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "tool_call" && e.seq > result.seq)
+        .filter_map(|e| e.msg["params"]["update"]["title"].as_str())
+        .collect();
+    assert!(
+        after.iter().any(|t| t.ends_with(&pid)),
+        "the agent's process did not run on: {after:?}"
+    );
+    let row = summary(&hub, &id);
+    assert!(row["turn"].is_null(), "the stopped turn is still open: {row}");
+}
+
 /// The person's Stop keeps their own queued prompt as it was: it runs next. The other agents'
 /// messages wait held until it completed, then go in.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -642,4 +704,16 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
     c.request(method::SESSION_PROMPT, prompt(&id, "second", None)).await.unwrap();
     let summary = hub.session_summary(&hub.resolve(&id).unwrap());
     assert_eq!(summary["lastMessage"], json!({"role": "agent", "text": "echo: second"}));
+}
+
+/// A test's stand-in harness runs at normal CPU class once its start is over, not at the
+/// product's background default (`cpu_class.rs`). The stand-ins time their turns with short
+/// sleeps (a Codex-steer turn polls 300 x 10 ms for a joined prompt), and on a loaded fleet Mac
+/// (load 13 to 21 on 10 performance cores) a background-class stand-in did not end that turn in
+/// 18 to 30 s: this test, the forum's steered rule and the steer race failed only on macOS.
+/// `tests/cpu_class.rs` asks for background itself and checks the product's class.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_stand_in_harness_runs_at_normal_class_in_tests() {
+    assert_eq!(acpmux::cpu_class::CpuClass::for_session([]), acpmux::cpu_class::CpuClass::Normal);
 }

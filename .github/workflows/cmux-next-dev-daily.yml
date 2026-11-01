@@ -27,9 +27,11 @@ jobs:
   # whose queue moves, and the other size for a re-run. The routing App key stays in this Linux job's
   # routing environment and is minted only on the refs the release environment allows (main, rc/**, v* tags), so
   # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
-  # success, and sign then falls back to Blacksmith 6 vCPU.
+  # success, and sign then falls back to Blacksmith 6 vCPU. The pick is a few API reads (nightly.yml's twin: W44 p50
+  # 9 s on GitHub-hosted Ubuntu), so it takes hosted Ubuntu and Blacksmith Linux 4 vCPU on a re-run, never 16 or 32
+  # vCPU (Leo, 2026-11-01: "surely we measured the signign we dont need 32/16 just for signing").
   pick-sign-runner:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     environment: ci-routing-agent
     continue-on-error: true
     # Checkout, then the token mints 1 + 1 and the pick 3.
