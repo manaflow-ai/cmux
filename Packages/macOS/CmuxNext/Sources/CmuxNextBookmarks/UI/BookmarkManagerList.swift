@@ -17,8 +17,15 @@ struct BookmarkManagerList: View {
             if rows.isEmpty {
                 VStack {
                     Spacer()
-                    Text(model.isSearching ? BookmarkStrings.noMatches : BookmarkStrings.emptyFolder)
-                        .foregroundStyle(colors.tertiary)
+                    VStack(spacing: Metrics.space2) {
+                        Text(model.isSearching ? BookmarkStrings.emptySearchTitle : BookmarkStrings.emptyPageTitle)
+                            .font(Font(Typography.bodyEmphasized))
+                            .foregroundStyle(colors.primary)
+                        Text(model.isSearching ? BookmarkStrings.emptySearchHint : BookmarkStrings.emptyPageHint)
+                            .foregroundStyle(colors.secondary)
+                    }
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Metrics.space6)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
