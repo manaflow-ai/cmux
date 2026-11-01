@@ -794,6 +794,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/queue_approve",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/queue_decline",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/queue_text",
       "params": true,
       "result": true
@@ -1948,6 +1960,17 @@
       "additionalProperties": false,
       "description": "The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted\nthem, and accepted only from the unix socket or a peer forwarding for its own.",
       "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorApproval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A link guest's prompts wait for the chat owner's approval."
+        },
         "id": {
           "description": "`tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes.",
           "type": "string"
@@ -1974,6 +1997,12 @@
         "name"
       ],
       "type": "object"
+    },
+    "AuthorApproval": {
+      "enum": [
+        "owner"
+      ],
+      "type": "string"
     },
     "AuthorMeta": {
       "properties": {
@@ -3546,6 +3575,11 @@
           ],
           "description": "The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,\n`author.rs`), null for the owner's and for an agent's message: an app shows it under their\nname and offers none of its own actions on it (only they change it, `queue.not_author`).\nKept across a restart and by their own edit."
         },
+        "awaitingOwner": {
+          "default": false,
+          "description": "A person's prompt that waits for the chat's owner (`author.approval: \"owner\"`): the queue\nruns past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or\ndeclines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.",
+          "type": "boolean"
+        },
         "class": {
           "anyOf": [
             {
@@ -3610,6 +3644,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "revision": {
+          "default": 0,
+          "description": "Its version for the owner's approval: 0 when queued, one more at each edit by its author.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "subagentRetry": {
           "anyOf": [
             {
@@ -3628,6 +3669,7 @@
       },
       "required": [
         "author",
+        "awaitingOwner",
         "class",
         "client",
         "fromAgent",
@@ -3639,6 +3681,7 @@
         "prompt",
         "promptId",
         "queuedAt",
+        "revision",
         "subagentRetry",
         "turnId"
       ],

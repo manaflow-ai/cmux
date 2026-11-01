@@ -277,6 +277,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_START_MODE, Request),
         untyped(method::MUX_QUEUE_REMOVE, Request),
         untyped(method::MUX_QUEUE_EDIT, Request),
+        untyped(method::MUX_QUEUE_APPROVE, Request),
+        untyped(method::MUX_QUEUE_DECLINE, Request),
         untyped(method::MUX_QUEUE_TEXT, Request),
         untyped(method::MUX_DRAFT_GET, Request),
         untyped(method::MUX_DRAFT_SET, Request),

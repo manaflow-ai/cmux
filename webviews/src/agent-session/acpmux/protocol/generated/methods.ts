@@ -118,6 +118,8 @@ export interface AcpmuxRequests {
   "_acpmux/start_mode": { params: unknown; result: unknown };
   "_acpmux/queue_remove": { params: unknown; result: unknown };
   "_acpmux/queue_edit": { params: unknown; result: unknown };
+  "_acpmux/queue_approve": { params: unknown; result: unknown };
+  "_acpmux/queue_decline": { params: unknown; result: unknown };
   "_acpmux/queue_text": { params: unknown; result: unknown };
   "_acpmux/draft_get": { params: unknown; result: unknown };
   "_acpmux/draft_set": { params: unknown; result: unknown };
@@ -415,6 +417,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/start_mode", kind: "request", acp: false, typed: false },
   { name: "_acpmux/queue_remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/queue_edit", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/queue_approve", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/queue_decline", kind: "request", acp: false, typed: false },
   { name: "_acpmux/queue_text", kind: "request", acp: false, typed: false },
   { name: "_acpmux/draft_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/draft_set", kind: "request", acp: false, typed: false },
