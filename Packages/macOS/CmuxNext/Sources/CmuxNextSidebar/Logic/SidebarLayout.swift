@@ -140,6 +140,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // A new workspace's drop gap is a row: as short as minimal mode's rows.
         let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
         if o.hidesWorkspaces { return .empty }
+        // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
+        let once = Self.listingEachWorkspaceOnce(sections)
+        // The Archive section takes the archived rows out of the lists; they draw under its row at the end.
+        let archive = Self.drawsArchiveSection(o) ? Self.splittingArchive(once, keeping: o.activeWorkspaceID) : nil
+        let sections = archive?.live ?? once
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
@@ -473,6 +478,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
+        if let archive { Self.appendArchive(archive, firstRow: rows.isEmpty, options: o, base: base, metrics: m, to: &rows, y: &y) }
         chats.placeEarlier(&y)
         y += m.bottomPadding
         var layout = SidebarLayout(

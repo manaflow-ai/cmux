@@ -99,8 +99,13 @@ import Testing
     func dotsAndSpinnersShareOneSlot(_ look: Look) throws {
         try Self.withDensity(look.density, textSize: look.textSize) {
             let sidebar = Self.sidebar(look)
-            let slots = try Self.indicatorRows.map { try Self.glyph(sidebar, $0).size }
-            #expect(Set(slots.map { "\($0.width)x\($0.height)" }).count == 1, "\(look.testDescription): slot sizes \(slots)")
+            // The shared slot is the badge cell; the larger unread artwork may use a different
+            // glyph box without moving or resizing that cell (Leo 2026-11-01).
+            let slots = try Self.indicatorRows.map { id in
+                let row = try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView)
+                return row.rowBadge.cellSide
+            }
+            #expect(Set(slots).count == 1, "\(look.testDescription): slot sizes \(slots)")
         }
     }
 
@@ -148,7 +153,7 @@ import Testing
     static let home = LayoutItemID("itm_home"), lead = LayoutItemID("itm_lead"), browserLead = LayoutItemID("itm_browser_lead")
     static let selected = WorkspaceID("tc-selected"), unread = WorkspaceID("tc-unread"), busy = WorkspaceID("tc-busy")
     static let waiting = WorkspaceID("tc-waiting")
-    static let member = WorkspaceID("tc-member"), nested = WorkspaceID("tc-nested"), loading = WorkspaceID("tc-loading")
+    static let member = WorkspaceID("tc-member"), idle = WorkspaceID("tc-idle"), nested = WorkspaceID("tc-nested"), loading = WorkspaceID("tc-loading")
     static let open = GroupID("tc-open"), sub = GroupID("tc-sub"), folded = GroupID("tc-folded")
     static let pinned = GroupID("tc-pinned"), deep = GroupID("tc-deep")
     static let pinnedMember = WorkspaceID("tc-pinned-member"), deepMember = WorkspaceID("tc-deep-member")
@@ -186,7 +191,8 @@ import Testing
                 // Lawrence msg 12086: "loading spinners must align too": the selected row works (a spinner).
                 .workspace(SidebarWorkspace(id: T.selected, title: "Selected working", agentWorking: true, activity: .working)),
                 .group(SidebarGroup(id: T.open, name: "cmux-next app", color: .blue,
-                                    workspaces: [SidebarWorkspace(id: T.member, title: "Member unread", unread: .dot)])),
+                                    workspaces: [SidebarWorkspace(id: T.member, title: "Member unread", unread: .dot),
+                                                 SidebarWorkspace(id: T.idle, title: "Idle workspace")])),
                 .group(subgroup),
                 .group(deepGroup),
                 .group(SidebarGroup(id: T.folded, name: "Folded loading", color: .blue, isCollapsed: true,
@@ -203,6 +209,7 @@ import Testing
             var leadInfo = SidebarItemInfo(title: "cmux Performance Lead", symbol: "textformat", isActive: true)
             leadInfo.textOnly = true
             leadInfo.activity = .waiting
+            leadInfo.workspace = WorkspaceID("tc-band-lead")
             // A band item that works: its spinner and nothing else (msg 12086).
             var browserInfo = SidebarItemInfo(title: "Computer & browser use lead", symbol: "textformat")
             browserInfo.textOnly = true

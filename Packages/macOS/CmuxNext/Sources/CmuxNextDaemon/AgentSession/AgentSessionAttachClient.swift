@@ -102,6 +102,8 @@ public actor AgentSessionAttachClient {
         var presence = false
         /// `agent-session-folders-v1`.
         var folders = false
+        /// `agent-session-settings-v1`.
+        var settings = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -357,6 +359,35 @@ public actor AgentSessionAttachClient {
         _ = try await call("agent-session-view", ["visible": visible])
     }
 
+    /// The code the setting verbs throw for a daemon without `agent-session-settings-v1`.
+    public static let settingsUnsupported = "agent_session.settings_unsupported"
+
+    /// `agent-session-set-model` (`agent-session-settings-v1`): the attached chat's model, as
+    /// acpmux's `session/set_model` on the tab's own session; acpmux's answer.
+    public func setModel(_ modelId: String) async throws -> Data {
+        try await setting("agent-session-set-model", ["model_id": modelId])
+    }
+
+    /// `agent-session-set-mode` (`agent-session-settings-v1`): acpmux's `session/set_mode`.
+    public func setMode(_ modeId: String) async throws -> Data {
+        try await setting("agent-session-set-mode", ["mode_id": modeId])
+    }
+
+    /// `agent-session-set-config` (`agent-session-settings-v1`): acpmux's
+    /// `session/set_config_option`, which answers the agent's whole `configOptions`.
+    public func setConfig(id configId: String, value: String) async throws -> Data {
+        try await setting("agent-session-set-config", ["config_id": configId, "value": value])
+    }
+
+    private func setting(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.settings else {
+            throw AgentSessionAttachError(code: Self.settingsUnsupported,
+                                          message: "update cmux on that machine to change this chat's model, mode or options from here")
+        }
+        return try await call(cmd, params)
+    }
+
     /// Reads one image from the attached session's host acpmux (`agent-session-media`).
     public func media(path: String) async throws -> Data {
         _ = try await liveTransport()
@@ -511,7 +542,8 @@ public actor AgentSessionAttachClient {
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
-                            folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue))
+                            folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
+                            settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

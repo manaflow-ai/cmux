@@ -551,8 +551,8 @@ export function QuickModelMenu({
     const choices = effortChoices(model);
     const stars = families?.stars;
     // A row's star, beside its effort column: a plain button, not a menu item, so it is no stop for
-    // Up and Down and a click on it never picks the model. From the keyboard, ⌘D stars the
-    // highlighted row (keyDown).
+    // Up and Down and a click on it never picks the model. It has no key: ⌘D is Split Right, and the
+    // open menu never takes an app shortcut it does not show on a row.
     const starred = stars?.has(model) ?? false;
     const star = stars ? (
       <button
@@ -560,9 +560,8 @@ export function QuickModelMenu({
         className="acpmux-quick-star"
         tabIndex={-1}
         aria-pressed={starred}
-        aria-keyshortcuts="Meta+D"
         aria-label={`${t(starred ? "picker.unstar" : "picker.star")}: ${model.name}`}
-        title={`${t(starred ? "picker.unstar" : "picker.star")}  ⌘D`}
+        title={t(starred ? "picker.unstar" : "picker.star")}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
@@ -765,18 +764,6 @@ export function QuickModelMenu({
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // ⌘1 to ⌘9 pick a row as 1 to 9 do, also while a search shows (where a bare digit is text).
     const commandDigit = event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key);
-    // ⌘D stars or unstars the highlighted model row, as its star button does.
-    if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "d" && families?.stars) {
-      const highlighted = event.currentTarget.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]');
-      const star = highlighted
-        ?.closest(".acpmux-quick-model-effort")
-        ?.querySelector<HTMLButtonElement>(".acpmux-quick-star");
-      if (star) {
-        event.preventDefault();
-        star.click();
-      }
-      return;
-    }
     if (
       (event.metaKey && !commandDigit) ||
       event.ctrlKey ||

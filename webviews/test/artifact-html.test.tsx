@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { artifactKind } from "../src/agent-session/acpmux/conversation/artifactPreview";
-import { outputArtifacts } from "../src/agent-session/acpmux/inspector/OutputsSection";
+import { outputArtifacts } from "../src/agent-session/acpmux/session-info/OutputsSection";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
   artifactCanRender,

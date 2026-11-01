@@ -124,7 +124,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
+        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
@@ -253,7 +253,9 @@ final class AppControl {
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
+            .async("debug.wakeups") { [budgeted = mainWork.frames, work = services.work] call in
+                try await DebugWakeups.report(call.params, budgeted: budgeted, work: work)
+            },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -261,7 +263,7 @@ final class AppControl {
                 if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 // {"drop_spare": true} closes the spare Chromium window (its memory cost, PL-cef-tab).
                 if call.params["drop_spare"]?.boolValue == true { services.cache.cef.dropSpareWindow() }
-                return .value(DebugCEF.report(services))
+                return DebugCEF.report(services)
             },
             // Remote localhost proxy: port, counters, recent outcomes.
             .mainActor("debug.remote-localhost") { [weak services] _ in

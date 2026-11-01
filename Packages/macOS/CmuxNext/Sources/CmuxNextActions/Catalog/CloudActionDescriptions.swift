@@ -258,8 +258,10 @@ nonisolated enum CloudActionDescriptions {
             pending), delivered and missing names. Values are stored with cmux cloud secret set NAME.
             """,
         "cloudResizeMachine": """
-            Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \
-            4 GB, 4 and 8, 8 and 16, or 16 and 24). Answers at once, before the resize is done.
+            Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and \
+            4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB \
+            steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, \
+            and size and disk_gib as given. Answers pending after 30 s; the resize goes on.
             """,
         "cloudSetIdlePause": """
             Sets how long the machine (--target machine:<id>) may sit idle (nothing attached, running or \
