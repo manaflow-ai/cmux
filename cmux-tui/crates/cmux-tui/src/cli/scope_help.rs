@@ -141,6 +141,7 @@ USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
   cmux closed reopen --tab <tab> [--fallback-pane <pane>]
+  cmux closed reopen --workspace <ws>
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>] [--fallback-pane <pane>]
   cmux closed <closed> delete [--members <i,j,...>]
   cmux closed clear [--since-ms <unix-ms>] [--before-ms <unix-ms>] [--keep-newest <n>]

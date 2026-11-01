@@ -367,8 +367,8 @@
      /// min), more than 15 min on macOS 26 (the original
      /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
      static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
-+    /// cmux: the typing row's gap under a bubble: its bubble top 8 pt under the bubble above (a new group's gap).
-+    static var typingGapUnderBubble: CGFloat { 8 - (RowDraw.typingBubble.minY - RowDraw.margin) }
++    /// cmux: the typing row's gap under a bubble: its bubble top 14 pt under the bubble above (user, "maybe even more padding").
++    static var typingGapUnderBubble: CGFloat { 14 - (RowDraw.typingBubble.minY - RowDraw.margin) }
  
      /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
      /// `width`: layout width (captured on main). `exact`: message indices to
@@ -483,16 +483,15 @@
                  }
                  // ThreadMode.tree thread view: "N Replies" under a reply that has replies opens its
                  // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
-@@ -1042,17 +1260,33 @@
-                 }
+@@ -1043,17 +1261,37 @@
              }
              prev = m; prevIndex = idx
-+        }
+         }
 +        // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
 +        // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
 +        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
 +            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 8, height: 35.5))
-         }
++        }
          // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
          let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
              || (tail && s.ui.streams.contains { $0.parts.isEmpty && $0.sender != me })
@@ -504,26 +503,31 @@
 +        // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
 +        // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
 +        // draws it at the bubble's left edge). Same gap and height as upstream's.
++        var statusLine = false
          if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
 -            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
 +            // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
 +            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
-+        }
-+        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
-+            // cmux: right under a bubble the typing bubble keeps a separate message's gap, 8 pt body to body (the
-+            // new-group gap above), so it does not touch the bubble above or its tail; it sat 4.3 pt under it (user,
-+            // 2026-10-30, "more space in between typing bubble and the latest message"). Under the status line,
-+            // a receipt or a label row it stays as it was.
++            statusLine = true
+         }
++        // cmux (user 2026-10-30, "make it just one line with shimmer text"): the status line, shimmering
++        // (HomeNoticeShimmer), is the running indicator; no typing bubble under it.
++        if !threadMode, span.upperBound == messages.count, s.atNewest, typists, !statusLine {
++            // cmux: right under a bubble the typing bubble sits 14 pt under it body to body, so it stays clear of the
++            // bubble above and its tail; it sat 4.3 pt under it (user, 2026-10-30, "more space in between typing bubble
++            // and the latest message"), then 8 pt ("maybe even more padding"). Under a receipt or a label row it stays
++            // as it was (the status line has no typing bubble under it).
 +            var gap: CGFloat = 0
 +            switch rows.last?.kind ?? previousRow {
 +            case .part, .unsent: gap = Self.typingGapUnderBubble
 +            default: break
 +            }
 +            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35))
-         }
++        }
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
-@@ -1076,7 +1310,9 @@
+     }
+@@ -1076,7 +1314,9 @@
              var row = row
              row.width = width
              if case let .threadPreview(pv) = row.kind, pv.isText {
@@ -534,7 +538,7 @@
                  row.kind = .threadPreview(again)
                  row.height = again.height(scale: scale)
              }
-@@ -1118,6 +1354,8 @@
+@@ -1118,6 +1358,8 @@
      }
  
      private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
@@ -543,7 +547,7 @@
  
      /// "Read <time>" under my latest read message; "Delivered" under my
      /// latest delivered message when it is newer.
-@@ -1145,7 +1383,7 @@
+@@ -1145,7 +1387,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -552,7 +556,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1164,7 +1402,7 @@
+@@ -1164,7 +1406,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -561,7 +565,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1214,7 +1452,8 @@
+@@ -1214,7 +1456,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -571,7 +575,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1255,7 +1494,8 @@
+@@ -1255,7 +1498,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

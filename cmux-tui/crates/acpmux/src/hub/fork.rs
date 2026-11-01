@@ -239,6 +239,7 @@ impl Hub {
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
+            launch_digest: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
@@ -246,6 +247,7 @@ impl Hub {
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
+            retired_agent_session_ids: Vec::new(),
             // The id was produced by this fork's actual harness, not by the parent's creation
             // family (which can be stale after a profile switch).
             agent_session_family: new_sid

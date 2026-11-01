@@ -283,6 +283,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Opens the shim at `url`, resolves every symbol and checks that its ABI
     /// identity is `expected` (`CEFShimABI.bundledIdentity()`).
     static func open(_ url: URL, expected: String?) throws(LoadError) -> CEFShimLibrary {
+        // concurrency-allow: the library-load thread (CEFRuntime.loadLibrary, Task.detached; the debug-window startBlocking path has no caller); the shim is a few MB, so the loader lock is held briefly
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }

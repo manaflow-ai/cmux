@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import MessagesLabHome
 
-/// The typing bubble under the newest message keeps a separate message's gap (8 pt body to body), so its
-/// top does not touch the bubble above or that bubble's tail (user, 2026-10-30: "we need more space in
-/// between typing bubble and the latest message"; it sat 4.3 pt under the Chief's own tail).
+/// The typing bubble under the newest message sits 14 pt under it body to body, so its top stays clear of the
+/// bubble above and that bubble's tail (user, 2026-10-30: "we need more space in between typing bubble and the
+/// latest message"; it sat 4.3 pt under the Chief's own tail; at 8 pt, "maybe even more padding").
 @MainActor @Suite struct HomeTypingGapTests {
     static let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -32,9 +32,9 @@ import Testing
     }
 
     @Test(arguments: ["chief", "me"])
-    func theTypingBubbleSitsASeparateMessagesGapUnderTheNewestBubble(sender: String) throws {
+    func theTypingBubbleSits14PointsUnderTheNewestBubble(sender: String) throws {
         let gap = try Self.clearance(Self.state([Self.message("m1", sender, at: 0)]))
-        #expect(abs(gap - 8) < 0.01, "typing bubble is \(gap) pt under the newest bubble, want 8")
+        #expect(abs(gap - 14) < 0.01, "typing bubble is \(gap) pt under the newest bubble, want 14")
     }
 
     /// User 2026-10-30 5:03 PM ("make it just one line with shimmer text"): under the newest bubble the

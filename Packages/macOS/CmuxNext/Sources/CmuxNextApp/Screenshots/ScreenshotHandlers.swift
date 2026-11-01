@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -218,8 +219,8 @@ enum ScreenshotHandlers {
             throw ActionWorkFailure(code: writeFailedCode, reason: BrowserPageStrings.saveFailed(error.localizedDescription))
         }
         if copies {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
+            // Written with cmux as its source, so a paste of it wears cmux's icon.
+            AttachmentSource.write([NSImage(cgImage: image, size: .zero)], to: NSPasteboard.general)
         }
         return result
     }
@@ -234,18 +235,16 @@ enum ScreenshotHandlers {
 
     @concurrent
     nonisolated private static func write(_ png: Data, to url: URL) async throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try png.write(to: url, options: .atomic)
+        try AttachmentSource.writeOwn(png, to: url) // made, written and marked as cmux's
     }
 
     /// Writes to `$TMPDIR/cmux-screenshots/`, pruned as browser screenshots are.
     @concurrent
     nonisolated private static func saveTemporary(_ png: Data) async throws -> String {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-screenshots", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
-        try png.write(to: file, options: .atomic)
+        try AttachmentSource.writeOwn(png, to: file)
         AppBrowserPage.prune(directory, keeping: AppBrowserPage.keptScreenshots,
                              newerThan: Date().addingTimeInterval(-AppBrowserPage.screenshotLifetime))
         return file.path
