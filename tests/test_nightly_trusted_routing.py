@@ -485,6 +485,33 @@ class NightlyTrustedRouting(unittest.TestCase):
             nightly.write_text('runs-on: glaeda-trusted-next-nightly\n')
             self.assertNotEqual(check().returncode, 0)
 
+    def test_runner_guard_accepts_only_the_scoped_nightly_only_route(self):
+        source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
+        function = re.search(r'^check_no_self_hosted_fleet_runners\(\) \{\n.*?^\}',
+                             source, re.M | re.S).group()
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            workflows = fixture / '.github/workflows'
+            workflows.mkdir(parents=True)
+            nightly = workflows / 'nightly.yml'
+            script = 'ROOT_DIR="$1"\n' + function + '\ncheck_no_self_hosted_fleet_runners'
+            def check(route):
+                nightly.write_text('runs-on: ' + route + '\n')
+                result = subprocess.run(['bash', '-c', script, 'guard', str(fixture)],
+                                        capture_output=True, text=True)
+                return result.returncode
+            for name in TAIL_CONTROL_JOBS:
+                with self.subTest(job=name):
+                    self.assertEqual(check(DOC['jobs'][name]['runs-on']), 0)
+            route = DOC['jobs'][TAIL_CONTROL_JOBS[0]]['runs-on']
+            for old, new in (("github.repository == 'manaflow-ai/cmux'", "github.repository == 'manaflow-ai/other'"),
+                             ("track == 'nightly-next'", "track == 'nightly'"),
+                             ("github.run_attempt == 1", "github.run_attempt >= 1"),
+                             ('glaeda-nightly-only-m4pro', 'glaeda-unregistered')):
+                with self.subTest(mutation=new):
+                    self.assertNotEqual(check(route.replace(old, new)), 0)
+            self.assertNotEqual(check('glaeda-nightly-only-m4pro'), 0)
+
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
     def test_unsigned_resume_is_linux_before_every_native_route(self):
