@@ -56,11 +56,9 @@ import CmuxNextWakeupsTestSupport
 
     private static func tearDown(_ list: SidebarListView, _ window: NSWindow, _ coordinator: HoverCardCoordinator) {
         coordinator.dismiss(.action)
-        // The coordinator's one card panel only orders out on dismiss; a test that showed a card
-        // closes it here, or the suite's window-leak check finds it when it outlives the test.
-        coordinator.cardWindow?.close()
+        coordinator.cardWindow?.closeAfterTest()
         window.contentView = nil
-        window.close()
+        window.closeAfterTest()
     }
 
     @Test func restingOnAGroupHeaderShowsItsSummaryCard() async throws {

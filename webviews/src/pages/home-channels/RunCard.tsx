@@ -4,19 +4,22 @@
 // sheet. Tool calls and thoughts draw with the agent pane's own rows (ToolRows), so a run reads the
 // same here as in the agent pane.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { RunTranscript } from "./RunTranscript";
+import { runBlocks } from "./runBlocks";
+export { runBlocks } from "./runBlocks";
+import type { Presentation } from "./presentation";
 import { RunMessage } from "./RunMessage";
-import { RunMessageCache, stepActivity } from "./runMessages";
+import { RunMessageCache } from "./runMessages";
 export { stepActivity } from "./runMessages";
 import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import { ChevronRight } from "../../agent-session/acpmux/conversation/icons";
 import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
-import type { AcpmuxActivity, AcpmuxRow } from "../../agent-session/acpmux/model";
 import type { Strings } from "../shared/i18n";
 import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
 import { isStale, runTokens, useLiveRuns, useRunEntry, type RunBook, type RunEntry } from "./runs";
 import { Avatar } from "./Avatar";
-import type { HomeMessage, HomeParticipant, HomeRun, HomeRunStep } from "./types";
+import type { HomeMessage, HomeParticipant, HomeRun } from "./types";
 
 /** How many of a run's newest steps the card shows. */
 const CARD_STEPS = 3;
@@ -26,48 +29,6 @@ const EMPTY_AGENT_NAMES: ReadonlyMap<string, string> = new Map();
 export function participantNames(people?: ReadonlyMap<string, HomeParticipant>): ReadonlyMap<string, string> {
   if (!people || people.size === 0) return EMPTY_AGENT_NAMES;
   return new Map([...people].map(([id, participant]) => [id, participant.name]));
-}
-
-/** Consecutive tool steps as one agent-pane activity row; text and thought steps between them. */
-export type RunBlock =
-  | { kind: "tools"; key: string; row: AcpmuxRow }
-  | { kind: "talk"; key: string; step: HomeRunStep }
-  | { kind: "thought"; key: string; step: HomeRunStep }
-  | { kind: "note"; key: string; step: HomeRunStep };
-
-export function runBlocks(run: HomeRun, steps: readonly HomeRunStep[]): RunBlock[] {
-  const blocks: RunBlock[] = [];
-  let items: AcpmuxActivity[] = [];
-  let first: HomeRunStep | undefined;
-  const flush = () => {
-    if (!first || items.length === 0) return;
-    blocks.push({
-      kind: "tools",
-      key: `tools-${first.id}`,
-      row: {
-        id: `${run.id}:${first.id}`,
-        version: run.rev,
-        at: first.at,
-        kind: "activity",
-        items,
-        // Every call on its own row: a run is read step by step, never folded into one line.
-        settled: false,
-      },
-    });
-    items = [];
-    first = undefined;
-  };
-  for (const step of steps) {
-    if (step.kind === "tool") {
-      first ??= step;
-      items.push(stepActivity(step));
-    } else {
-      flush();
-      blocks.push({ kind: step.kind, key: step.id, step });
-    }
-  }
-  flush();
-  return blocks;
 }
 
 /** Ticks once a second while `running` (the "Working for" clock); a finished run holds still. */
@@ -215,6 +176,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
 
 /** What a message row needs to show runs: the page's run book and the sheet's actions. */
 export interface RunsContextValue {
+  presentation?: Presentation;
   book: RunBook;
   strings: Strings;
   /** The participants by id: a card shows its author's picture. */
@@ -231,29 +193,46 @@ export const RunsContext = createContext<RunsContextValue | undefined>(undefined
 
 /** The runs of one message row: the run its reply ended (an agent's message), then the runs
  * still working on it (or that ended with no reply). */
-export function MessageRuns({ message }: { message: HomeMessage }) {
+export function MessageRuns({
+  message,
+  placement = "after",
+}: {
+  message: HomeMessage;
+  placement?: "before" | "after";
+}) {
   const context = useContext(RunsContext);
   const reply = useRunEntry(context?.book, (book) => book.forReply(message));
-  const live = useLiveRuns(context?.book, message);
+  const live = useLiveRuns(context?.book, message, context?.presentation === "transcript");
   const names = useMemo(() => participantNames(context?.people), [context?.people]);
   if (!context || (!reply && live.length === 0)) return null;
-  const card = (entry: RunEntry) => (
-    <RunCard
-      key={`${entry.run.author}:${entry.run.id}`}
-      entry={entry}
-      author={context.people?.get(entry.run.author)}
-      strings={context.strings}
-      onOpen={context.onOpen}
-      onLoad={context.onLoad}
-      live={context.live}
-      draftTurn={context.draftTurn}
-      agentNames={names}
-    />
-  );
+  const transcript = context.presentation === "transcript";
+  if (placement === "before" && !transcript) return null;
+  const card = (entry: RunEntry) =>
+    transcript ? (
+      <RunTranscript
+        key={`${entry.run.author}:${entry.run.id}`}
+        entry={entry}
+        strings={context.strings}
+        onLoad={context.onLoad}
+        agentNames={names}
+      />
+    ) : (
+      <RunCard
+        key={`${entry.run.author}:${entry.run.id}`}
+        entry={entry}
+        author={context.people?.get(entry.run.author)}
+        strings={context.strings}
+        onOpen={context.onOpen}
+        onLoad={context.onLoad}
+        live={context.live}
+        draftTurn={context.draftTurn}
+        agentNames={names}
+      />
+    );
   return (
     <>
-      {reply && card(reply)}
-      {live.filter((entry) => entry !== reply).map(card)}
+      {reply && (transcript ? placement === "before" : placement === "after") && card(reply)}
+      {placement === "after" && live.filter((entry) => entry !== reply).map(card)}
     </>
   );
 }
