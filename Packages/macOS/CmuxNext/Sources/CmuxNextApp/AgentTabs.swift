@@ -22,8 +22,8 @@ import Observation
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
-    /// The app's made-ahead open panel for every agent pane's file pickers; nil (tests) shows none.
-    private let openPanel: MadeAheadOpenPanel?
+    /// The app-wide objects every agent pane view shares (``AgentPaneShared``: the made-ahead open panel, the posting-process table).
+    private let paneShared: AgentPaneShared
     /// The page every agent tab loads: the bundled file, or in Debug builds
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
     /// bundled page is missing).
@@ -88,6 +88,10 @@ final class AgentTabStore {
     /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
     /// where its new chats start (cx-9aps). Nil while the tab is not found.
     var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
+    /// Reads the Mac-local repository catalog through the local cmux daemon frame protocol.
+    var cloudRepositoryLocal: @MainActor () async throws -> Data = {
+        throw DaemonError.notConnected
+    }
     /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
     /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
     var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
@@ -262,14 +266,14 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     /// `daemons` and `updates` are the app's (`AppServices`); a test's store has its own and updates no other machine.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard,
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, paneShared: AgentPaneShared = AgentPaneShared(), defaults: UserDefaults = .standard,
          daemons: AcpmuxLocalDaemons = AcpmuxLocalDaemons(), updates: DaemonUpdates? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         (self.defaults, self.peerApprover) = (defaults, peerApprover)
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             adoptions = saved
         }
-        self.openPanel = openPanel
+        self.paneShared = paneShared
         actionRegistry = registry
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, daemons: daemons, peerApprover: peerApprover)
@@ -424,6 +428,12 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
+        model.onCloudRepositoryLocal = cloudRepositoryLocal
+        if let remoteHost = paneHost as? AgentTabRemoteHost {
+            model.onCloudRepositoryRemote = { method, params, timeout in
+                try await remoteHost.cloudRepository(method: method, params: params, timeout: timeout)
+            }
+        }
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
@@ -575,7 +585,7 @@ final class AgentTabStore {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
         (model.readAloud, model.cloudMachines, model.remoteControl, model.transport.peerApprover) = (readAloud, cloudMachines, remoteControl, peerApprover)
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, shared: paneShared) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts

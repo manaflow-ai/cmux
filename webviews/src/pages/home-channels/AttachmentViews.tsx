@@ -241,10 +241,19 @@ function usePoster(conversation: string, part: HomeAttachment): string | undefin
 function FileRow({ conversation, part, strings }: { conversation: string; part: HomeAttachment; strings: Strings }) {
   const service = useContext(AttachmentContext);
   const extension = part.name.includes(".") ? part.name.slice(part.name.lastIndexOf(".") + 1).toUpperCase() : "";
+  // The link could not be had (the daemon does not answer, the record is gone): the row says so,
+  // and the button asks again, instead of a click that does nothing.
+  const [failed, setFailed] = useState(false);
   const download = async () => {
     if (!service) return;
-    const url = await service.url(conversation, part.hash, "original", part.name).catch(() => undefined);
-    if (!url) return;
+    setFailed(false);
+    let url: string;
+    try {
+      url = await service.url(conversation, part.hash, "original", part.name);
+    } catch {
+      setFailed(true);
+      return;
+    }
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = part.name;
@@ -258,7 +267,13 @@ function FileRow({ conversation, part, strings }: { conversation: string; part: 
       </span>
       <span className="hc-att-file-text">
         <span className="hc-att-name">{part.name}</span>
-        <span className="hc-att-meta">{formatBytes(part.byteCount)}</span>
+        {failed ? (
+          <span className="hc-att-meta is-failed" role="alert">
+            {strings.t("attachment.downloadFailed")}
+          </span>
+        ) : (
+          <span className="hc-att-meta">{formatBytes(part.byteCount)}</span>
+        )}
       </span>
       {service && (
         <button

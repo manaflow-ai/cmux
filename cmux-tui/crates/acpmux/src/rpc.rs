@@ -60,11 +60,10 @@ impl RpcError {
     }
 }
 
-/// The most one JSON-RPC message takes on any acpmux transport: under the 16 MiB WebSocket frame
-/// every acpmux build reads with, with room for a daemon that relays it to add its peer's name. A
-/// larger frame resets the whole connection on the side that reads it, with every chat on it: a
-/// 32.8 MB history reply did that to a peer link at 2026-10-21 06:23Z.
-pub const MAX_MESSAGE_BYTES: usize = 15 << 20;
+/// The most one JSON-RPC message takes on any acpmux transport. The app accepts 32 MiB frames and
+/// the daemon accepts 64 MiB WebSocket frames, so 31 MiB leaves room for the envelope and a peer
+/// relay's metadata without falling back to a connection-reset failure.
+pub const MAX_MESSAGE_BYTES: usize = 31 << 20;
 
 impl RpcError {
     /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
@@ -318,6 +317,11 @@ pub mod method {
     pub const SESSION_DELETE: &str = "session/delete";
     pub const SESSION_PROMPT: &str = "session/prompt";
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Dedicated, scoped Cloud trigger chat operations. These never fall
+    /// through to the ordinary session/new, session/prompt or info paths.
+    pub const TRIGGER_CHAT_ENSURE: &str = "trigger/chat.ensure";
+    pub const TRIGGER_CHAT_SEND: &str = "trigger/chat.send";
+    pub const TRIGGER_CHAT_STATUS: &str = "trigger/chat.status";
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
@@ -468,6 +472,8 @@ pub mod method {
     /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
     /// (0 turns it off), null clears it, absent reads it.
     pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
+    pub const AGENT_SESSION_TURN_PREPARE: &str = "agent-session-turn-prepare";
+    pub const AGENT_SESSION_TURN_ABANDON: &str = "agent-session-turn-abandon";
     /// A chat's inbox threads (`hub/inbox.rs`): `{sessionId}`.
     pub const MUX_INBOX_THREADS: &str = "_acpmux/inbox_threads";
     /// One inbox thread's messages: `{sessionId, threadId, markRead?}`.

@@ -35,6 +35,7 @@ chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
 cmux-chat-index.workspace = true
+cmux-palette-ranker.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 cmux-link.workspace = true
@@ -100,6 +101,7 @@ syntect = { version = "5.3", default-features = false, features = ["default-fanc
 # Codex over `codex app-server` as an ACP agent, in process
 # (src/codex_app_server.rs). Pinned to an exact commit.
 cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a", default-features = false }
+cmux-host.workspace = true
 
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),

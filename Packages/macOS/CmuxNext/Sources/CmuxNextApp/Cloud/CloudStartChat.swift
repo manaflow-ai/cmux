@@ -112,8 +112,11 @@ struct CloudStartChat {
         // copy finished opens its chat without copying again, which would overwrite what it changed.
         let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool))
         do {
-            copy = try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
-                                               local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots)
+            // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again (CloudOutdatedMachine).
+            copy = try await CloudOutdatedMachine.copy({
+                try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
+                                            local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots)
+            }, answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) }) { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
             // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
             throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
