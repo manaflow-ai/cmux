@@ -857,6 +857,63 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
     assert!(drained, "connection shutdown did not cancel an active wait-for request");
 }
 
+/// A legacy `wait-for` holds a terminal-wait worker permit (the same budget as v2
+/// `terminal.wait`: 8 per connection), not the connection's request queue. One more wait
+/// is refused at once under its own id, and a later request on the connection is still
+/// answered while the admitted waits are pending. Closing the connection ends every wait
+/// and returns its permit.
+#[test]
+fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let wait = |id: usize| {
+        json!({
+            "id":id,
+            "cmd":"wait-for",
+            "surface":surface.id,
+            "pattern":"cmux-wait-for-never-matches",
+            "timeout_ms":30_000,
+        })
+        .to_string()
+    };
+    for id in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+        assert!(handle_connection_message(&mux, client, &wait(id), &writer, &scheduler));
+    }
+    let over = RESOURCE_WAITS_PER_CLIENT_CAPACITY;
+    assert!(handle_connection_message(&mux, client, &wait(over), &writer, &scheduler));
+    let identify = json!({"id":"identify","cmd":"identify"}).to_string();
+    assert!(handle_connection_message(&mux, client, &identify, &writer, &scheduler));
+
+    let refused = pop_json(&outbound);
+    assert_eq!(refused["id"], json!(over), "the wait over capacity was not answered first");
+    assert_eq!(refused["ok"], false, "a wait over capacity was admitted: {refused}");
+    assert!(
+        refused["error"].as_str().is_some_and(|error| error.contains("wait-for")),
+        "the refusal does not name wait-for: {refused}"
+    );
+    let identified = pop_json(&outbound);
+    assert_eq!(identified["id"], "identify", "identify waited behind pending waits");
+    assert_eq!(identified["ok"], true, "{identified}");
+    assert!(outbound.try_pop().is_none(), "a wait answered before its pattern or timeout");
+    assert_eq!(
+        mux.control_clients.resource_wait_admission.active(),
+        RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+        "each pending wait-for must hold one terminal-wait worker permit"
+    );
+
+    let drained = scheduler.close_and_wait(Duration::from_secs(2));
+    let leaked = mux.control_clients.resource_wait_admission.active();
+    disconnect_client(&mux, client, false);
+    mux.close_surface(surface.id).unwrap();
+
+    assert!(drained, "closing the connection did not end its pending waits");
+    assert_eq!(leaked, 0, "a closed connection's wait-for kept its worker permit");
+}
+
 #[test]
 fn independent_muxes_do_not_share_surface_operation_admission() {
     let first_mux = test_mux();
