@@ -1,7 +1,10 @@
 # cmux next input: specification and verification
 
-Status: implemented 2026-09-29. Code: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/`,
-model and fuzzer in `Tests/CmuxNextAppTests/InputModel/`.
+Status: implemented 2026-09-29. Code: the value checks (`InputObservation`, `InputInvariants`: the model,
+transition and world checks) in `Packages/macOS/CmuxNext/Sources/CmuxNextFocus/`; the key routing checks
+(`InputInvariants+Routing.swift`, they read `KeyRouter`), the journal, the monitor and replay in
+`Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/` (#31265); model and fuzzer in
+`Tests/CmuxNextAppTests/InputModel/`.
 
 The state machines own their parts: `FocusCoordinator` and `KeyRouter` (focus.md), the omnibar
 (focus.md section 7), `TerminalAttachMachine` (state-audit.md T3-T5). This document states what
