@@ -12,7 +12,7 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
+import { hasReplyActions, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -380,10 +380,17 @@ test("a status row between two replies is estimated in the middle of the gap", (
   const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
   const [reply, step] = heightsOf([before, run, after]);
   const [alone] = heightsOf([before]);
-  expect(step).toBe(2 + 22 + 30);
-  // The same reply over a prompt: its own action row, then the message gap.
   const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
-  expect(reply).toBe(overPrompt! - 8);
+  if (hasReplyActions(before as AcpmuxRow, run as AcpmuxRow)) {
+    expect(step).toBe(2 + 22 + 30);
+    // The same reply over a prompt: its own action row, then the message gap.
+    expect(reply).toBe(overPrompt! - 8);
+  } else {
+    // No reply draws its own action row (a turn's copy lives in its footer): the plain 12px each
+    // side, the reply's 8px message gap plus 2 over the run's 2px top margin.
+    expect(step).toBe(2 + 22 + 12);
+    expect(reply).toBe(overPrompt! + 2);
+  }
   expect(alone).toBeGreaterThan(0);
 });
 
@@ -402,9 +409,11 @@ test("a status row under a prompt keeps its own spacing over the reply", () => {
   const [, alone] = heightsOf([prompt, run]);
   expect(step).toBe(alone);
   expect(statusEdge(run as AcpmuxRow, after as AcpmuxRow, prompt as AcpmuxRow)).toBeUndefined();
-  // A settled folded reply draws its action row, so the run over it takes the full room.
-  const folded = { ...after, settled: true, foldedReply: true } as AcpmuxRow;
+  // Between two replies the room under the run is read from the reply above, as the room over it
+  // is, so the two match whatever the reply below is (a folded copy, a settled one).
   const reply = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." } as AcpmuxRow;
-  expect(statusEdge(run as AcpmuxRow, folded, reply)).toBe("before-reply");
-  expect(statusEdge(run as AcpmuxRow, { ...folded, foldedReply: false }, reply)).toBe("before-reply-plain");
+  const over = statusEdge(reply, run as AcpmuxRow, undefined);
+  const under = over === "before-status" ? "before-reply" : "before-reply-plain";
+  for (const below of [after, { ...after, settled: true }, { ...after, settled: true, foldedReply: true }])
+    expect(statusEdge(run as AcpmuxRow, below as AcpmuxRow, reply)).toBe(under);
 });

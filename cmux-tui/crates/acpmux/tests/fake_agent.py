@@ -377,6 +377,12 @@ def handle_prompt(rid, params):
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
+    # Recovery fixtures: preserve the session, fail the first turn with the supplied
+    # provider error, then answer the continuation normally.
+    if text.startswith("recover-once: ") and sid not in failed_once:
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": text.removeprefix("recover-once: ")}})
+        return
     # "cap-fail-once: X" fails that prompt once per session with the SR2 gateway's capacity
     # error (every pooled account exhausted for a moment); the session's next prompt runs.
     if text.startswith("cap-fail-once:") and sid not in failed_once:
@@ -1180,12 +1186,14 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
         time.sleep(3600)
         return
-    # "slow-limit": a usage limit after a second, then on the fallback profile (FAKE_FALLBACK=1)
-    # an answer (`hub/full_access_bound.rs`, a family message that fails over).
+    # "slow-limit": a usage limit after a second (a sign-in failure with FAKE_AUTH_FAIL=1, which
+    # fails over where a usage limit now waits for its reset), then on the fallback profile
+    # (FAKE_FALLBACK=1) an answer (`hub/full_access_bound.rs`, a family message that fails over).
     if text == "slow-limit":
         if os.environ.get("FAKE_FALLBACK") != "1":
             time.sleep(1)
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -1193,7 +1201,8 @@ def handle_prompt(rid, params):
     # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
     if text == "limit-then-hang":
         if os.environ.get("FAKE_FALLBACK") != "1":
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
