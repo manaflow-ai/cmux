@@ -199,7 +199,8 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       await context.close();
       expect(painted.every((text) => !text.includes("Choose folder"))).toBe(true);
       expect(new Set(painted.map((text) => text.includes("billing")))).toEqual(new Set([true]));
-      expect(painted.every((text) => text.includes("cosmic-gray") && !text.includes("This Mac"))).toBe(true);
+      // The environment picker names this Mac "This Mac" (#28999), never its hostname.
+      expect(painted.every((text) => text.includes("This Mac") && !text.includes("cosmic-gray"))).toBe(true);
       expect(new Set(painted).size).toBe(1);
     },
   );

@@ -592,6 +592,11 @@ button.acpmux-session-info-port:hover,
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* The machine row's kind word and a Save after it: one auto margin, so they sit together at the
+   end, the row's gap apart. */
+.acpmux-session-info-row__end + .acpmux-session-info-row__end {
+  margin-left: 0;
+}
 .acpmux-session-info-row__end[data-state="failed"] {
   color: var(--agent-status-failure);
 }

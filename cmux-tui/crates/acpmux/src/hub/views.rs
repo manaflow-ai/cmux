@@ -5,6 +5,37 @@ use cmux_json::JsonSet as _;
 
 mod host_load;
 
+/// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
+/// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
+pub const SUBAGENTS_RUNNING: &str = "subagents_running";
+
+/// The most running subagents a summary names (`subagentNames`); `subagentsRunning` counts all.
+pub const SUBAGENT_NAMES: usize = 5;
+
+/// What a session runs below its turn now, as its summary says it.
+#[derive(Debug, PartialEq)]
+pub(crate) struct RunningWork {
+    /// Its subagents that run now, at any depth (`SubagentTree::running_now`).
+    pub subagents: usize,
+    /// The first [`SUBAGENT_NAMES`] of their labels, oldest first; an unnamed one has none.
+    pub names: Vec<String>,
+    /// Its background commands that run now (`processes.rs`).
+    pub commands: usize,
+}
+
+/// `session`'s running work: without a running turn (`turn_runs` false) only its background
+/// subagents still run. `commands` is the session's running background commands.
+pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) -> RunningWork {
+    let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+    let running = tree.running_now(turn_runs);
+    let names = running
+        .iter()
+        .filter_map(|(_, label)| label.map(str::to_owned))
+        .take(SUBAGENT_NAMES)
+        .collect();
+    RunningWork { subagents: running.len(), names, commands }
+}
+
 /// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
 /// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
@@ -39,6 +70,21 @@ fn summary_title(title: &str) -> String {
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 const COORDINATOR_PARENT_TAG: &str = "mux.parent";
+
+/// The direct parent has the same precedence as lineage_of(), without walking
+/// ancestors to calculate a root that chat decoration never uses.
+fn activity_parent(m: &SessionMeta) -> Option<&str> {
+    m.lineage
+        .as_ref()
+        .map(|l| l.parent.as_str())
+        .or_else(|| m.subsession.as_ref().map(|s| s.started_by.as_str()))
+        .or_else(|| live_activity_tag(m, SPAWNED_BY_TAG, crate::store::now_ms()))
+}
+
+fn live_activity_tag<'a>(m: &'a SessionMeta, key: &str, at: u64) -> Option<&'a str> {
+    let tag = m.tags.get(key)?;
+    tag.expires_at.is_none_or(|expires| expires > at).then_some(tag.value.as_str())
+}
 
 /// Whether a session is agent-started and therefore must be explicitly opened before a client
 /// projects it into an automatic sidebar row. The durable `parent` and validated `spawnedBy`
@@ -330,18 +376,30 @@ impl Hub {
     /// while that session is here, listed (not archived) and a root itself: one level, so a loop
     /// of tags or a parent nobody sees never hides a chat. `parent` gives the whole tree.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = match self.lineage_of(m) {
-            Some(lineage) => lineage.parent,
-            None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
-        };
+        self.listed_parent(&m.id, activity_parent(m)?.to_owned())
+    }
+
+    /// Chat decoration needs only the direct parent, never the full metadata or
+    /// the lineage root walk. Release the child's lock before looking up its parent.
+    pub(crate) fn spawned_by_session(&self, session: &Session) -> Option<String> {
+        let parent = session.read_meta(|m| activity_parent(m).map(str::to_owned))?;
+        self.listed_parent(&session.id, parent)
+    }
+
+    fn listed_parent(&self, id: &str, parent: String) -> Option<String> {
+        if parent == id {
+            return None;
+        }
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
-        let pm = session.meta();
-        let tags = live_tags(&pm);
-        let listed = tags.get(SPAWNED_BY_TAG).is_none()
-            && self.lineage_of(&pm).is_none()
-            && tags.get("archived").is_none();
-        (parent != m.id && listed).then_some(parent)
+        let listed = session.read_meta(|m| {
+            let at = crate::store::now_ms();
+            m.lineage.is_none()
+                && m.subsession.is_none()
+                && live_activity_tag(m, SPAWNED_BY_TAG, at).is_none()
+                && live_activity_tag(m, "archived", at).is_none()
+        });
+        listed.then_some(parent)
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
@@ -361,6 +419,8 @@ impl Hub {
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
+        let notice = turn.as_ref().is_some_and(|t| t.notice);
         let lineage = self.lineage_of(&m);
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
@@ -543,6 +603,21 @@ impl Hub {
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
+        // being able to see the # of associated subagents and whatnot"): its running subagents,
+        // their first names, and its running background commands (`running_work`).
+        let work = running_work(
+            session,
+            summary.get("turn").is_some_and(Value::is_object),
+            self.running_processes_read(session),
+        );
+        summary.set("subagentsRunning", json!(work.subagents));
+        summary.set("subagentNames", json!(work.names));
+        summary.set("commandsRunning", json!(work.commands));
+        if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
+            // A History of the person's prompts leaves it out (`turn.notice`).
+            turn.insert("notice".into(), Value::Bool(true));
+        }
         // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
         summary.set(
             "respawnPending",
@@ -633,7 +708,7 @@ impl Hub {
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
-            "build": BUILD,
+            "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),

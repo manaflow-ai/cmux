@@ -5,6 +5,7 @@ import {
   harnessIcon,
   harnessIconImageURL,
   harnessIconsSnapshot,
+  harnessSymbolHostSnapshot,
   harnessSymbolsSnapshot,
   loadHarnessSymbol,
   monogramColors,
@@ -106,10 +107,15 @@ function HarnessIcon({
 }: MarkProps & { spec: Exclude<HarnessIconSpec, { kind: "brand" | "glyph" }> }) {
   const [scheme] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
   const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
+  const symbolHostRevision = useSyncExternalStore(
+    subscribeHarnessIcons,
+    harnessSymbolHostSnapshot,
+    harnessSymbolHostSnapshot,
+  );
   const symbolName = spec.kind === "symbol" ? spec.name : undefined;
   useEffect(() => {
     if (symbolName) loadHarnessSymbol(symbolName);
-  }, [symbolName]);
+  }, [symbolName, symbolHostRevision]);
   const dark = onDark ?? scheme === "dark";
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
   const symbolSrc = symbolName ? symbols.get(symbolName) : undefined;

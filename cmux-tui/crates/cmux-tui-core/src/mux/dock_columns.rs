@@ -106,7 +106,7 @@ impl fmt::Display for ColumnDockError {
             ),
             Self::PinnedColumn => formatter.write_str(PINNED_COLUMN_MESSAGE),
             Self::AgentChatColumn => formatter.write_str(
-                "the agent chat dock holds one pane: a column with more panes cannot become it",
+                "only a column with one pane can become the agent chat dock",
             ),
             Self::CommitFailed => formatter.write_str("could not persist the dock column"),
         }

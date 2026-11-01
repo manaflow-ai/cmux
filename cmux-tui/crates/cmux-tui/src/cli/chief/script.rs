@@ -521,6 +521,9 @@ fn send(session: &mut Session, request: &Request, json: bool) -> Outcome {
         // The stream opens first, so no reply can come before it.
         session.reopen(WAIT_TAIL).map_err(|e| session.failed(e))?;
     }
+    // An agent's `cmux chief send` is that agent's message, not the owner's.
+    session.sender =
+        super::acpmux_session().and_then(|name| super::AgentSender::new(&name, None, None));
     let (seq, id) = session
         .send_parts(parts, reply_to, thread_root.as_deref())
         .map_err(|e| session.failed(e))?;

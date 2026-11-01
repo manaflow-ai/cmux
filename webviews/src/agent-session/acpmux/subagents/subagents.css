@@ -771,7 +771,9 @@ button.cv-subagent > :last-child {
   border-radius: 0;
   background: none;
 }
+/* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }

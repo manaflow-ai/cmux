@@ -47,6 +47,8 @@ mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
+mod cloud_repo;
+#[cfg(unix)]
 mod cloud_secret;
 mod code_mode;
 #[cfg(unix)]
@@ -91,7 +93,8 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
+    CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
+    platform_origin, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -146,6 +149,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "attention",
     "agent",
     "room",
+    "space",
     "closed",
     "git",
     "conversation",
@@ -497,6 +501,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
@@ -878,6 +883,20 @@ fn scan_globals(
             index += 1;
             continue;
         }
+        // Cloud repo actions name a chat, not a daemon, with --session.
+        if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
+            && (value == "--session" || value.starts_with("--session="))
+        {
+            command.push(value.clone());
+            if value == "--session"
+                && let Some(next) = args.get(index + 1)
+            {
+                command.push(next.clone());
+                index += 1;
+            }
+            index += 1;
+            continue;
+        }
         // After `action run <id>`, `--session` and `--machine` are the
         // action's arguments (`agent.openSessionWorkspace --session`): they
         // name a daemon, which an app action never reaches.
@@ -1199,6 +1218,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   attention     Mark the tab where the person must act (no focus change)
   agent         List and report agent state
   room          Organize workspaces into rooms
+  space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
   status        Show loading indicators for scripts and agents
@@ -1284,7 +1304,7 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]
+  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
