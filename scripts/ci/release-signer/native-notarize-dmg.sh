@@ -8,6 +8,7 @@ DMG_PATH="$1"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
 XCRUN_TOOL="${CMUX_XCRUN_TOOL:-xcrun}"
+SECURITY_TOOL="${CMUX_SECURITY_TOOL:-security}"
 KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/ci/signing-keychain.sh}"
 KEYCHAIN="${CMUX_NATIVE_SIGNING_KEYCHAIN:-build.keychain}"
 : "${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY is required}"
@@ -22,8 +23,18 @@ KEYCHAIN="${CMUX_NATIVE_SIGNING_KEYCHAIN:-build.keychain}"
 "$CODESIGN_TOOL" --force --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_SIGNING_IDENTITY" "$DMG_PATH"
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_PATH"
 signature_info="$("$CODESIGN_TOOL" --display --verbose=4 "$DMG_PATH" 2>&1 || true)"
-grep -Fq "Authority=$APPLE_SIGNING_IDENTITY" <<<"$signature_info" || { echo "error: DMG signature identity mismatch" >&2; exit 1; }
+if [[ "$APPLE_SIGNING_IDENTITY" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+  "$SECURITY_TOOL" find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null \
+    | grep -iF "$APPLE_SIGNING_IDENTITY" \
+    | grep -q 'Developer ID Application:' || { echo "error: DMG signature identity fingerprint mismatch" >&2; exit 1; }
+else
+  grep -Fq "Authority=$APPLE_SIGNING_IDENTITY" <<<"$signature_info" || { echo "error: DMG signature identity mismatch" >&2; exit 1; }
+fi
 grep -Fq "TeamIdentifier=7WLXT3NR37" <<<"$signature_info" || { echo "error: DMG signature team mismatch" >&2; exit 1; }
+grep -Fq 'Identifier=' <<<"$signature_info" || { echo "error: DMG signature has no identifier" >&2; exit 1; }
+requirement_info="$("$CODESIGN_TOOL" --display --requirements :- "$DMG_PATH" 2>&1 || true)"
+grep -Fq 'designated' <<<"$requirement_info" || { echo "error: DMG signature has no designated requirement" >&2; exit 1; }
+grep -Fq 'anchor apple generic' <<<"$requirement_info" || { echo "error: DMG designated requirement is not Developer ID" >&2; exit 1; }
 TMP_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-native-dmg-notary.XXXXXX")"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
