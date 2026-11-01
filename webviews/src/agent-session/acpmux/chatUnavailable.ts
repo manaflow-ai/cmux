@@ -15,7 +15,8 @@
 /// One peer as `_acpmux/status` last said.
 export type PeerStatus = {
   connected?: boolean;
-  /// acpmux's link state: `connecting`, `connected`, `degraded`, `reconnecting` or `offline`.
+  /// acpmux's link state: `connecting`, `connected`, `degraded`, `reconnecting`, `restarting` or
+  /// `offline`.
   state?: string;
   /// When the peer last answered, in milliseconds since the epoch.
   lastSeen?: number;
@@ -31,12 +32,14 @@ export type ChatUnavailable =
   | { reason: "deleted"; machine?: string }
   /// Not listed here and never seen here, with every machine connected.
   | { reason: "notFound" }
-  /// The chat's machine is still connecting: the chat may be there once it does (loading).
+  /// The chat's machine is still connecting: the chat may be there once it does (loading). The pane
+  /// shows nothing for it.
   | { reason: "connecting"; machine?: string }
   /// The chat's machine is not connected; `machine` when the pane knows which one.
   | { reason: "offline"; machine?: string; lastSeen?: number };
 
-/// How long a machine still in its first attempts counts as loading; after that it is offline.
+/// How long a machine still in its first attempts counts as loading; after that it is offline. While
+/// it loads the pane shows nothing (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD").
 export const CONNECTING_GRACE_MS = 30_000;
 
 /// Each peer's status from `_acpmux/status`; fields that are not the right JSON type are left out.
@@ -66,10 +69,12 @@ function settled(status: PeerStatus): boolean {
 }
 
 /// A peer still on its way up: acpmux's first attempt (`connecting`), a socket whose handshake has
-/// not finished (`degraded`), or a saved peer a restarted daemon has not tried yet.
+/// not finished (`degraded`), a peer whose daemon announced its restart (`restarting`, peer_link.rs
+/// `PeerState::Restarting`: acpmux reconnects at once), or a saved peer a restarted daemon has not
+/// tried yet.
 function stillConnecting(status: PeerStatus): boolean {
   if (settled(status)) return false;
-  if (status.state === "connecting" || status.state === "degraded") return true;
+  if (status.state === "connecting" || status.state === "degraded" || status.state === "restarting") return true;
   return status.state === "reconnecting" && (status.attempts ?? 0) === 0;
 }
 

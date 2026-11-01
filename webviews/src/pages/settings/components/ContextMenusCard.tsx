@@ -201,7 +201,11 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     if (!host) return setPicker({ path });
     const rect = button.getBoundingClientRect();
     void host({
-      items: choices.map((choice) => ({ id: choice.id, label: choice.label, ...(choice.current ? { disabled: true } : {}) })),
+      items: choices.map((choice) => ({
+        id: choice.id,
+        label: choice.label,
+        ...(choice.current ? { disabled: true } : {}),
+      })),
       point: { x: rect.left, y: rect.bottom },
     })
       .then((reply) => choices.find((choice) => choice.id === pickedId(reply))?.run())
@@ -292,7 +296,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     renameDone.current = true;
     const title = renaming.title.trim();
     setRenaming(null);
-    const at = visibleRows(layout, new Set(folderKeys(layout.items))).find((row) => keyOf(row.node) === renaming.key)?.path;
+    const at = visibleRows(layout, new Set(folderKeys(layout.items))).find(
+      (row) => keyOf(row.node) === renaming.key,
+    )?.path;
     if (title && at) save(renameGroup(layout, at, title));
   };
   const startRename = (key: string, title: string) => {
@@ -304,7 +310,12 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     const at = path[path.length - 1]!;
     const items: ContextMenuItem[] = [
       { id: "up", label: t("settingsPage.moveUp"), disabled: at === 0, onSelect: () => save(step(layout, path, -1)) },
-      { id: "down", label: t("settingsPage.moveDown"), disabled: at === siblingsOf(path).length - 1, onSelect: () => save(step(layout, path, 1)) },
+      {
+        id: "down",
+        label: t("settingsPage.moveDown"),
+        disabled: at === siblingsOf(path).length - 1,
+        onSelect: () => save(step(layout, path, 1)),
+      },
     ];
     moveChoices(path).forEach((choice, index) =>
       items.push({
@@ -316,11 +327,26 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
       }),
     );
     if (node === SEPARATOR) {
-      items.push({ id: "remove", label: t("settingsWindow.menus.removeSeparator"), separatorBefore: true, onSelect: () => save(removeSeparator(layout, path)) });
+      items.push({
+        id: "remove",
+        label: t("settingsWindow.menus.removeSeparator"),
+        separatorBefore: true,
+        onSelect: () => save(removeSeparator(layout, path)),
+      });
     } else if (isFolder(node) && isGroup(node.key)) {
       items.push(
-        { id: "rename", label: t("settingsWindow.menus.rename"), separatorBefore: true, onSelect: () => startRename(node.key, node.title ?? "") },
-        { id: "delete", label: t("settingsWindow.menus.deleteSubmenu"), destructive: true, onSelect: () => save(deleteGroup(layout, path)) },
+        {
+          id: "rename",
+          label: t("settingsWindow.menus.rename"),
+          separatorBefore: true,
+          onSelect: () => startRename(node.key, node.title ?? ""),
+        },
+        {
+          id: "delete",
+          label: t("settingsWindow.menus.deleteSubmenu"),
+          destructive: true,
+          onSelect: () => save(deleteGroup(layout, path)),
+        },
       );
     } else {
       items.push({
@@ -349,15 +375,51 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     const style = { paddingInlineStart: `${2 + depth * INDENT}px`, ...lifted(row, flat) };
     const buttons = (
       <span className="menu-row-actions">
-        <ActionButton icon="chevron" iconClass="icon-up" action={t("settingsPage.moveUp")} row={title} disabled={at === 0} onClick={() => save(step(layout, path, -1))} />
-        <ActionButton icon="chevron" action={t("settingsPage.moveDown")} row={title} disabled={at === last} onClick={() => save(step(layout, path, 1))} />
-        <ActionButton icon="arrow.turn.down.right" action={t("settingsWindow.menus.moveTo")} row={title} data="move-to" onClick={(event) => openMoveTo(path, event.currentTarget)} />
+        <ActionButton
+          icon="chevron"
+          iconClass="icon-up"
+          action={t("settingsPage.moveUp")}
+          row={title}
+          disabled={at === 0}
+          onClick={() => save(step(layout, path, -1))}
+        />
+        <ActionButton
+          icon="chevron"
+          action={t("settingsPage.moveDown")}
+          row={title}
+          disabled={at === last}
+          onClick={() => save(step(layout, path, 1))}
+        />
+        <ActionButton
+          icon="arrow.turn.down.right"
+          action={t("settingsWindow.menus.moveTo")}
+          row={title}
+          data="move-to"
+          onClick={(event) => openMoveTo(path, event.currentTarget)}
+        />
         {node === SEPARATOR ? (
-          <ActionButton icon="xmark" action={t("settingsWindow.menus.removeSeparator")} data="remove" onClick={() => save(removeSeparator(layout, path))} />
+          <ActionButton
+            icon="xmark"
+            action={t("settingsWindow.menus.removeSeparator")}
+            data="remove"
+            onClick={() => save(removeSeparator(layout, path))}
+          />
         ) : group ? (
           <>
-            <ActionButton icon="square.and.pencil" action={t("settingsWindow.menus.rename")} row={title} data="rename" onClick={() => startRename(key, node.title ?? "")} />
-            <ActionButton icon="xmark" action={t("settingsWindow.menus.deleteSubmenu")} row={title} data="delete" onClick={() => save(deleteGroup(layout, path))} />
+            <ActionButton
+              icon="square.and.pencil"
+              action={t("settingsWindow.menus.rename")}
+              row={title}
+              data="rename"
+              onClick={() => startRename(key, node.title ?? "")}
+            />
+            <ActionButton
+              icon="xmark"
+              action={t("settingsWindow.menus.deleteSubmenu")}
+              row={title}
+              data="delete"
+              onClick={() => save(deleteGroup(layout, path))}
+            />
           </>
         ) : (
           <ActionButton
@@ -376,7 +438,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           className="field menu-rename"
           aria-label={t("settingsWindow.menus.submenuName")}
           value={renaming.title}
-          // biome-ignore lint/a11y/noAutofocus: the person asked to rename this submenu
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the field opens on the person's Rename, so focus goes to it.
           autoFocus
           onChange={(event) => setRenaming({ key, title: event.currentTarget.value })}
           onBlur={commitRename}
@@ -389,7 +451,12 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           }}
         />
       ) : folder ? (
-        <button type="button" className="menu-row-title menu-disclosure" aria-expanded={expanded} onClick={() => toggleOpen(key)}>
+        <button
+          type="button"
+          className="menu-row-title menu-disclosure"
+          aria-expanded={expanded}
+          onClick={() => toggleOpen(key)}
+        >
           <Icon name="chevron" className={expanded ? "menu-twisty" : "menu-twisty menu-twisty-closed"} />
           {title}
         </button>
@@ -417,17 +484,24 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             <Icon name="grip" />
           </span>
           {node === SEPARATOR ? (
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the divider is drawn inside the draggable row's flex body beside its grip; an <hr> brings its own box.
             <span className="menu-separator-line" aria-label={title} role="separator" />
           ) : (
             <>
-              {group ? <span className="menu-row-icon" aria-hidden="true" /> : <RowIcon symbol={info?.symbol ?? null} />}
+              {group ? (
+                <span className="menu-row-icon" aria-hidden="true" />
+              ) : (
+                <RowIcon symbol={info?.symbol ?? null} />
+              )}
               {titleView}
               {info?.kind === "submenu" ? (
                 <span className="menu-row-chevron" aria-hidden="true">
                   ›
                 </span>
               ) : null}
-              {folder && node.items.length === 0 ? <span className="menu-row-badge">{t("settingsWindow.menus.emptyFolder")}</span> : null}
+              {folder && node.items.length === 0 ? (
+                <span className="menu-row-badge">{t("settingsWindow.menus.emptyFolder")}</span>
+              ) : null}
               {row.hidden ? <span className="menu-row-badge">{t("settingsWindow.menus.hidden")}</span> : null}
             </>
           )}
@@ -458,7 +532,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
                   labelId={toggleId}
                   onToggle={(next) => {
                     setFailure(null);
-                    store.setShowCustomizeMenuItem(next).catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
+                    store
+                      .setShowCustomizeMenuItem(next)
+                      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
                   }}
                 />
                 <ResetSpacer />
@@ -485,7 +561,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
                     onClick={() => router.history.replace(sectionHref("menus", item.id))}
                   >
                     <span>{item.title}</span>
-                    {item.customized ? <span className="menus-edited" title={t("settingsWindow.menus.edited")} /> : null}
+                    {item.customized ? (
+                      <span className="menus-edited" title={t("settingsWindow.menus.edited")} />
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -496,7 +574,12 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           <header className="menus-detail-header">
             <h3 className="menus-detail-title">{menu.title}</h3>
             <span className="menus-detail-spacer" />
-            <button type="button" className="button" data-action="expand" onClick={() => setOpen(allOpen ? new Set() : new Set(folderKeys(layout.items)))}>
+            <button
+              type="button"
+              className="button"
+              data-action="expand"
+              onClick={() => setOpen(allOpen ? new Set() : new Set(folderKeys(layout.items)))}
+            >
               {allOpen ? t("settingsWindow.menus.collapseAll") : t("settingsWindow.menus.expandAll")}
             </button>
             <button
@@ -511,10 +594,21 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             >
               {t("settingsWindow.menus.newSubmenu")}
             </button>
-            <button type="button" className="button" data-action="add-separator" onClick={() => save(addSeparator(layout))}>
+            <button
+              type="button"
+              className="button"
+              data-action="add-separator"
+              onClick={() => save(addSeparator(layout))}
+            >
               {t("settingsWindow.menus.addSeparator")}
             </button>
-            <button type="button" className="button" data-action="reset" disabled={generated} onClick={() => save(menu.generated)}>
+            <button
+              type="button"
+              className="button"
+              data-action="reset"
+              disabled={generated}
+              onClick={() => save(menu.generated)}
+            >
               {t("settingsWindow.menus.reset")}
             </button>
           </header>
@@ -524,7 +618,12 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
               {failure}
             </p>
           ) : null}
-          <ol className="menu-preview" data-menu-preview="" data-reordering={dragging?.active ? "" : undefined} ref={list}>
+          <ol
+            className="menu-preview"
+            data-menu-preview=""
+            data-reordering={dragging?.active ? "" : undefined}
+            ref={list}
+          >
             {shown.map((row, flat) => drawRow(row, flat))}
           </ol>
           {picker ? (

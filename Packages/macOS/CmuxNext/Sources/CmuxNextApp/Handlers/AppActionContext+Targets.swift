@@ -88,7 +88,7 @@ extension AppActionContext {
             registry.track(task)
         } else {
             // task-owner: a run nobody awaits; the refusal shows when the work ends.
-            Task { @MainActor [weak registry] in if let failure = await task.value { registry?.refuse(failure.message) } }
+            Task { @MainActor [weak registry] in if let failure = await task.value, !failure.shown { registry?.refuse(failure.message) } }
         }
     }
 

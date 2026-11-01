@@ -9,6 +9,7 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
+use std::time::{Duration, Instant};
 
 use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
 use cmux_holder::{Listed, SpawnRequest};
@@ -67,7 +68,18 @@ pub(crate) struct HolderService {
     /// The standalone holder failed to start once: this daemon starts the
     /// holder built into its host executable from then on.
     standalone_failed: AtomicBool,
+    /// Spacing of relinks after links that ended before they were healthy
+    /// ([`RELINK_HEALTHY`]): a holder that takes every link and drops it
+    /// at once is not reconnected in a tight loop.
+    relink: Mutex<crate::backoff::Backoff>,
 }
+
+/// A link that stayed up this long was healthy: when it ends, the next link
+/// is made at once (a holder crash), and the relink spacing starts over.
+const RELINK_HEALTHY: Duration = Duration::from_secs(10);
+/// First and longest wait before a relink after a link that ended sooner.
+const RELINK_INITIAL: Duration = Duration::from_millis(10);
+const RELINK_MAX: Duration = Duration::from_secs(5);
 
 impl HolderService {
     /// The service of `host_root`, made on first use. One per root in the
@@ -79,9 +91,17 @@ impl HolderService {
         if let Some(service) = services.get(host_root) {
             return Ok(service.clone());
         }
-        let service = Arc::new(Self {
-            socket: socket_path(host_root)?,
-            token: load_or_create_token(host_root)?,
+        let service =
+            Arc::new(Self::new(socket_path(host_root)?, load_or_create_token(host_root)?));
+        services.insert(host_root.to_path_buf(), service.clone());
+        Ok(service)
+    }
+
+    /// The service of the holder at `socket`, which takes `token`.
+    fn new(socket: PathBuf, token: [u8; 32]) -> Self {
+        Self {
+            socket,
+            token,
             link: Mutex::default(),
             connecting: Mutex::new(()),
             next_chan: AtomicU32::new(1),
@@ -91,9 +111,20 @@ impl HolderService {
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
-        });
-        services.insert(host_root.to_path_buf(), service.clone());
-        Ok(service)
+            relink: Mutex::new(crate::backoff::Backoff::new(RELINK_INITIAL, RELINK_MAX)),
+        }
+    }
+
+    /// The wait before relinking after a link that was made at `linked_at`
+    /// ended: none after a healthy link, else growing with each such end
+    /// in a row.
+    fn relink_delay(&self, linked_at: Instant) -> Duration {
+        let mut relink = self.relink.lock().recover_poison();
+        if linked_at.elapsed() >= RELINK_HEALTHY {
+            relink.reset();
+            return Duration::ZERO;
+        }
+        relink.next_delay()
     }
 
     /// Whether a holder of `host_root` may run: its socket exists. Asking
@@ -445,6 +476,7 @@ impl HolderService {
 
     fn connect(self: &Arc<Self>) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
         let weak = Arc::downgrade(self);
+        let linked_at = Instant::now();
         HolderLink::connect(
             &self.socket,
             &self.token,
@@ -467,8 +499,22 @@ impl HolderService {
                     );
                 }
                 // The holder died: start a new one and hand it every master.
+                // A link that ended before it was healthy waits first, longer
+                // each time in a row: a holder that drops every link (or a
+                // daemon link it faults at once) would otherwise be linked
+                // again in a tight loop of connects, LISTs and threads.
+                let delay = service.relink_delay(linked_at);
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
+                        if !delay.is_zero() {
+                            std::thread::sleep(delay);
+                            // Another daemon took the holder meanwhile: this
+                            // one is on its way out and keeps its terminals,
+                            // as on its own Superseded end.
+                            if service.superseded.load(Ordering::Acquire) {
+                                return;
+                            }
+                        }
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).
@@ -769,19 +815,7 @@ mod tests {
             (closed, second)
         });
 
-        let service = Arc::new(HolderService {
-            socket,
-            token: [0x44; 32],
-            link: Mutex::default(),
-            connecting: Mutex::new(()),
-            next_chan: AtomicU32::new(1),
-            live: Mutex::default(),
-            claiming: RwLock::new(()),
-            abandoned: Mutex::default(),
-            listed: Mutex::default(),
-            superseded: AtomicBool::new(false),
-            standalone_failed: AtomicBool::new(false),
-        });
+        let service = Arc::new(HolderService::new(socket, [0x44; 32]));
         let request = SpawnRequest { id: a, argv: vec![b"/bin/sh".to_vec()], ..Default::default() };
         assert!(service.spawn(&request, b"").is_err(), "the link broke before the SPAWNED");
         // The holder-restart thread or this call reconnects; either way the
@@ -802,5 +836,59 @@ mod tests {
         drop(service);
         drop(second);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A holder that takes every link and drops it at once (it answers the
+    /// HELLO, then closes) must not be relinked in a tight loop. Before,
+    /// each lost link started a new `holder-restart` thread that connected
+    /// again at once: thousands of connects, HELLOs and threads a second
+    /// for as long as the holder did that. Now link ends that come without
+    /// a healthy link between them wait longer each time.
+    #[test]
+    fn a_holder_that_drops_every_link_is_relinked_with_growing_waits() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let dir = std::env::temp_dir().join(format!("chf-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("h.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let accepted = Arc::new(AtomicU32::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let stand_in = {
+            let (accepted, stop) = (accepted.clone(), stop.clone());
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    if stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let Ok(stream) = stream else { continue };
+                    accepted.fetch_add(1, Ordering::AcqRel);
+                    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+                    welcome(&stream, &mut wire::Reader::default(), &[]);
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                }
+            })
+        };
+
+        let service = Arc::new(HolderService::new(socket.clone(), [0x45; 32]));
+        drop(service.link().expect("the first link"));
+        std::thread::sleep(Duration::from_secs(1));
+        let relinks = accepted.load(Ordering::Acquire);
+
+        // Stop relinking before the stand-in stops answering: a connect that
+        // fails would launch a real holder. A relink checks `superseded`
+        // under `connecting` and holds it through its connect, so once this
+        // takes the lock no relink can connect again.
+        service.superseded.store(true, Ordering::Release);
+        drop(service.connecting.lock().recover_poison());
+        stop.store(true, Ordering::Release);
+        drop(UnixStream::connect(&socket));
+        stand_in.join().unwrap();
+        drop(service);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(relinks >= 3, "the daemon still relinks a dropped holder: {relinks}");
+        assert!(relinks <= 20, "{relinks} links in 1 s to a holder that drops each one");
     }
 }

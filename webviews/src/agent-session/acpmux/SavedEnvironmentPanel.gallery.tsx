@@ -11,6 +11,19 @@ const folders = [
   { id: "/Users/you/src/cmux", label: "cmux" },
 ];
 
+const browseError: ComponentProps<typeof SavedEnvironmentPanel> = {
+  initial: { kind: "local", folder: folders[0]!.id },
+  folders,
+  onBrowse: async () => {
+    throw new Error("The folder chooser is unavailable.");
+  },
+  machines: [],
+  machineFolders: () => [],
+  onSave: async () => undefined,
+  onRemove: () => undefined,
+  onClose: () => undefined,
+};
+
 const baseProps: ComponentProps<typeof SavedEnvironmentPanel> = {
   initial: { kind: "local", folder: folders[0]!.id },
   folders,
@@ -65,6 +78,16 @@ export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
           folder: "/home/dev/model",
           updatedAt: 3,
         },
+      },
+    },
+    "browse-error": {
+      note: "A rejected native folder chooser stays in the environment panel with its reason and a Retry action.",
+      props: browseError,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-location-button" });
+        await ctx.waitFor(() => ctx.document.querySelector("[data-choose]"));
+        await ctx.click({ selector: "[data-choose]" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-error"));
       },
     },
   },

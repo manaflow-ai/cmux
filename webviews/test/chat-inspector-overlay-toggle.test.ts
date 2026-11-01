@@ -284,7 +284,9 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     panel.evaluate((node) => {
       const box = node.getBoundingClientRect();
       const body = node.querySelector(".acpmux-chat-inspector__body")!;
-      const sections = [...body.querySelectorAll(":scope > .acpmux-chat-inspector-group")];
+      const sections = [
+        ...body.querySelectorAll(":scope > .acpmux-chat-inspector-sections > .acpmux-chat-inspector-slot"),
+      ];
       const last = sections[sections.length - 1]!.getBoundingClientRect();
       return {
         top: box.top,

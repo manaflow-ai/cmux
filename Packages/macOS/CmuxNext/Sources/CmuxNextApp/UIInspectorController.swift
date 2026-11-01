@@ -316,7 +316,6 @@ final class UIInspectorController {
         "SidebarContainerView": "CmuxNextSidebar/Views/SidebarContainerView.swift:22",
         "SidebarRowView": "CmuxNextSidebar/Views/SidebarRowView.swift:8",
         "SidebarItemListRowView": "CmuxNextSidebar/Views/SidebarItemListRowView.swift:9",
-        "SidebarTabRowView": "CmuxNextSidebar/Views/SidebarTabRowView.swift:11",
         "TabStripView": "CmuxNextTabs/TabStripView.swift:15",
         "PaneToolbarView": "CmuxNextTabs/PaneToolbarView.swift:32",
     ]

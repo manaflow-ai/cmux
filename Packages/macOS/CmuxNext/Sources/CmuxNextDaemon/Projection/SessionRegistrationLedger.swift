@@ -113,7 +113,9 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     }
 
     /// Forgets every session not in `sessions` (gone from the machine list): a session that comes back
-    /// is sent once again. The refusals already shown are kept, so the same one is not shown twice.
+    /// is sent once again. The refusals already shown are kept here; the owner calls
+    /// ``forgetShownRefusal(session:)`` for a gone session whose notice it took back, so that refusal
+    /// shows again if the session comes back and is refused again.
     public mutating func retain(sessions: Set<String>) {
         entries = entries.filter { sessions.contains($0.key) }
     }

@@ -21,9 +21,12 @@ extension PageWebView {
     /// explicitly when they make the host transparent. The page's own alpha does not count: a pane
     /// clears its page while it waits for the page's first frame (loading state, move cover), and
     /// a hidden Chromium page draws no frame, so the wait would last until its give-up.
+    /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
+    /// a prewarmed page waits there to paint before it is adopted.
     public func setChromiumVisibility(_ requested: Bool) {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && sequence(first: self as NSView, next: \.superview).dropFirst().allSatisfy { $0.alphaValue > 0.001 }
+            && sequence(first: self as NSView, next: \.superview).dropFirst()
+                .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking }
         chromiumSession?.page.setVisible(visible)
     }
 
@@ -78,7 +81,10 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
-        if let chromiumSession { chromiumSession.page.load(url) } else {
+        if let chromiumSession {
+            chromiumSession.questionKeys?.invalidate()
+            chromiumSession.page.load(url)
+        } else {
             // The host loaded a document itself: the crash notice's pending WebKit load is moot.
             webKitLoadsOnReload = false
             webView.load(URLRequest(url: url))
@@ -87,6 +93,7 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        chromiumSession?.questionKeys?.invalidate()
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
 
@@ -100,6 +107,7 @@ extension PageWebView {
         traceMark(.chromiumStart)
         #endif
         webView.isHidden = true
+        chromiumFocusHost = hosting
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -137,6 +145,13 @@ extension PageWebView {
             for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
                                                                        documentScripts: scripts.sources) {
                 _ = try await page.devTools(method, params: params)
+            }
+            if descriptor.isAgentPage {
+                let descriptor = descriptor
+                let questionKeys = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
+                questionKeys.onInvalidated = { [weak self] in self?.onQuestionKeyChannelInvalidated?() }
+                try await questionKeys.prepareDocumentGuard()
+                session.questionKeys = questionKeys
             }
         } catch {
             session.end()
@@ -179,7 +194,10 @@ extension PageWebView {
             guard let self, let session, self.chromiumSession === session else { return }
             self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
-        if shouldFocusOnAttach == false, window?.firstResponder === webView { focusPage() }
+        // The keys belong to the Chromium page now. A pane with a focus model re-applies it, so its
+        // record of the focused page and the window's first responder follow (a grant here alone left
+        // the hidden WebKit view first responder and the model's page unrecorded: W1, W4).
+        if chromiumFocusHost?.focusViewChanged(self) != true, shouldFocusOnAttach == false, window?.firstResponder === webView { focusPage() }
     }
 
     /// Chromium failed for this page: it reopens in WebKit, at the route it showed. A host that
@@ -203,6 +221,7 @@ extension PageWebView {
         router.reset()
         loaded = false
         if ended, !reloadsAfterCrash {
+            lastTermination = .unknown
             logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
             webKitLoadsOnReload = true
             onCrash?(self, false)
@@ -226,10 +245,12 @@ extension PageWebView {
         guard let chromiumSession else { return }
         switch event {
         case .devTools(let json):
+            if chromiumSession.questionKeys?.receive(json) == true { return }
             guard !chromiumSession.bridge.receive(devToolsMessage: json),
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
         case .committed(let url):
+            chromiumSession.questionKeys?.invalidate()
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
                 // A navigation the click script did not catch (a script set `location`): the page
@@ -243,8 +264,11 @@ extension PageWebView {
         case .finished:
             documentFinished()
         case .crashed:
+            chromiumSession.questionKeys?.invalidate()
+            lastTermination = PageTermination(reason: .crash)
             contentProcessTerminated()
         case .ended:
+            chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
         case .openRequested(let url):
             openOutside(url, modifiers: [])

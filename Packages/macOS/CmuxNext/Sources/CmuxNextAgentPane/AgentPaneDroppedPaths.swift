@@ -14,8 +14,10 @@ import CmuxNextWakeups
 public final class AgentPaneDroppedPaths {
     /// Which gesture brought the files in. A drop's record and a paste's are kept apart, so one never
     /// answers for the other. `choose`: the person's pick in the page's file input (+ > Attach files,
-    /// ``PageOpenPanel``), which only fills a source record (``stashSource(_:items:claimed:kind:)``):
-    /// the page already has those files' bytes, so `chat.attach.dropped` never asks for it.
+    /// ``PageOpenPanel``): a chat on this Mac links the picked files where they are, as it does a
+    /// Finder drop, instead of streaming a copy of each (a several-GB video took minutes and failed
+    /// once the pick outlived the gesture's lifetime; Leo, 2026-10-31: "video attachments (big
+    /// attachments?) still sucks").
     public nonisolated enum Kind: String, Sendable {
         case drop, paste, choose
     }
@@ -48,9 +50,11 @@ public final class AgentPaneDroppedPaths {
     /// The Mac's own clock (seconds since 1970): what the page's `Date.now()` reads too, so a source
     /// record and the page's gesture can be put in order (``source(_:names:gestureAt:)``).
     private let wall: @MainActor () -> TimeInterval
-    /// How far the page's gesture time may read before its record's: the page's clock is read in
-    /// whole milliseconds, after the record was made. Two gestures of one person are never this close.
-    nonisolated static let gestureSlack: TimeInterval = 0.05
+    /// How far the page's gesture time may read before its record's: the page reads the same clock
+    /// (`Date.now()`) after the record was made, cut to whole milliseconds, so it is at most that much
+    /// earlier. No more: an older gesture's late ask a few milliseconds before a newer record of its
+    /// kind must not take it.
+    nonisolated static let gestureSlack: TimeInterval = 0.001
     /// Exact copies of the person's recording drops, never their parent folders. These remain
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
     private(set) var retainedPaths: [String] = []
@@ -70,14 +74,10 @@ public final class AgentPaneDroppedPaths {
         held.removeValue(forKey: kind)?.expiry.cancel()
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
         guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
-        var budget = AgentPaneUpload.maximumTotalBytes
+        // A preview's file of any size is pinned: its copy is a clone, never read into memory.
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
-            var snapshot = needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil
-            if let pinned = snapshot {
-                if pinned.size > budget { snapshot = nil } else { budget -= pinned.size }
-            }
-            return Item(url: url, needsSnapshot: needsSnapshot, snapshot: snapshot)
+            return Item(url: url, needsSnapshot: needsSnapshot, snapshot: needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil)
         }
         let id = UUID(), expiry = DemandTimer(owner: "agent-pane.droppedPaths.expiry")
         held[kind] = Record(items: items, at: now(), id: id, expiry: expiry)
