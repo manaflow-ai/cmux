@@ -419,6 +419,20 @@ class AppCreateProbe(unittest.TestCase):
         silent = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0, "texts": []}
         self.assertTrue(any("no visible refusal" in p for p in rf.judge_app_create(before, silent, silent)))
 
+    def test_app_view_reads_window_toasts_and_refusals(self):
+        saved_rpc, saved_cli = rf.rpc, rf.cli
+        answers = {"snapshot.get": {"topology": {"workspaces": [{"id": "ws_1"}]}},
+                   "debug.toast": {"refusals": [{"text": "disk is full"}], "windows": [{"toasts": [{"text": "a"}]}]},
+                   "debug.dialog": {"dialogs": []}}
+        rf.rpc = lambda m, p=None, timeout=20: answers.get(m)
+        rf.cli = lambda *a, timeout=10: ([{"id": "ws_1"}], 0.0)
+        try:
+            view = rf.app_view()
+        finally:
+            rf.rpc, rf.cli = saved_rpc, saved_cli
+        self.assertEqual(view["notices"], 2)
+        self.assertTrue(any("disk is full" in t for t in view["texts"]))
+
     def test_created_for_real_is_not_a_ghost(self):
         before = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0}
         made = {"app": {"ws_1", "ws_2"}, "daemon": {"ws_1", "ws_2"}, "notices": 0, "texts": []}

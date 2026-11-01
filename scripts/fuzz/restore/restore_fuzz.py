@@ -1443,13 +1443,14 @@ def app_view():
     daemon_ids = {first(w, "id", "workspace_id") for w in listed(wsl, "workspaces")} - {None}
     toast = rpc("debug.toast", {})
     dialog = rpc("debug.dialog", {})
-    texts, count = [], 0
-    for answer in (toast, dialog):
-        items = answer if isinstance(answer, list) else next(
-            (v for v in (answer or {}).values() if isinstance(v, list)), []) if isinstance(answer, dict) else []
-        for item in items:
-            count += 1
-            texts.append(json.dumps(item)[:300])
+    items = []
+    if isinstance(toast, dict):
+        items += list(toast.get("refusals") or [])
+        for window in toast.get("windows") or []:
+            items += list(window.get("toasts") or [])
+    if isinstance(dialog, dict):
+        items += list(dialog.get("dialogs") or [])
+    texts, count = [json.dumps(item)[:300] for item in items], len(items)
     return {"app": app_ids, "daemon": daemon_ids, "notices": count, "texts": texts,
             "raw": {"toast": json.dumps(toast)[:600], "dialog": json.dumps(dialog)[:600]}}
 
@@ -1472,7 +1473,12 @@ def app_create_probe():
     """The person's create (action.run newWorkspace) on the full disk, judged by judge_app_create. Runs once per
     diskfull run, before the iterations. Returns a record for iterations.jsonl-style evidence."""
     before = app_view()
-    answer = rpc("action.run", {"action": "newWorkspace"}, timeout=20)
+    # The person's New Workspace (the toolbar button's action, BuiltInButtonActions "cmux.newWorkspace").
+    answer = rpc("action.run", {"action": "cmux.newWorkspace"}, timeout=20)
+    if isinstance(answer, dict) and (answer.get("error") or {}).get("code") == "not_found":
+        rec = {"probe": "app_create", "verdict": "not run", "problems": [f"the action is unknown: {json.dumps(answer)[:200]}"]}
+        say(f"  app create probe: not run (unknown action) {json.dumps(answer)[:200]}")
+        return rec
     time.sleep(3)
     after = app_view()
     stop_build_processes(exclude=set(APP.daemon_pids()) | set(APP.acpmux_pids()))
