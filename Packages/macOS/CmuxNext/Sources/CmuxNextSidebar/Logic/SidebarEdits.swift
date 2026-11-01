@@ -46,14 +46,14 @@ public nonisolated enum SidebarEdits {
         case let .toggleCollapse(target):
             return toggleCollapse(target, in: &sections)
         case let .close(ids):
-            let held = groupsWithMembers(sections)
+            // Closing a member never closes its group; keep the header's identity and position.
             let removed = removeWorkspaces(Set(ids), from: &sections)
-            pruneEmptyGroups(in: &sections, keeping: nil, emptiedFrom: held)
             return !removed.isEmpty
         case let .rename(id, title):
             return mutateWorkspaces([id], in: &sections) { $0.title = title }
         case let .setColor(ids, color):
             return mutateWorkspaces(ids, in: &sections) { ws in
+                ws.color = color // a rail or fill row shows it at once, a favicon or emoji row too
                 switch (ws.icon, color) {
                 case let (.symbol(name, _)?, color): ws.icon = .symbol(name, tint: color)
                 case (.emoji?, _): break // an emoji keeps its own colors

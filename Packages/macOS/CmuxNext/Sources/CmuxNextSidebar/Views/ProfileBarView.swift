@@ -43,6 +43,12 @@ final class ProfileBarView: NSView {
     /// A mouse wheel notch over the bar, either axis: -1 or +1.
     var onWheelPage: ((Int) -> Void)?
 
+    /// Gallery toggles for comparing Leo's two open choices. The shipped
+    /// choice is the first pair: dot at rest, + on hover. Tests use the
+    /// toggles to render the alternatives without changing persisted state.
+    var showsDotsWhenIdle = true
+    var showsPlusWhenIdle = false
+
     init(model: SidebarModel) {
         self.model = model
         super.init(frame: .zero)
@@ -97,27 +103,11 @@ final class ProfileBarView: NSView {
         ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
                               center: Double(centerX ?? bounds.width / 2),
                               minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
-                              slot: Double(slot), plus: Double(slot),
+                              slot: Double(slot), plus: Double(model.profiles.count == 1 ? 0 : slot),
                               fullMinimum: Double(Metrics.roomDotSlot * 0.75), compactMinimum: Double(Metrics.roomDotDiameter + Metrics.space1))
     }
 
     private var activeIndex: Int? { model.profiles.firstIndex { $0.id == model.activeProfileID } }
-
-    /// One rect per space (in order), then the "+" rect. History is not in the
-    /// strip (Lawrence 2026-10-11: "history should not show up down here");
-    /// cmux://history opens from the palette and the Window menu (Show
-    /// History) and with Cmd-Y in a browser.
-    func slotRects() -> [NSRect] {
-        let strip = strip
-        return (strip.slots + [strip.plus]).map { NSRect(x: $0.x, y: 0, width: $0.width, height: bounds.height) }
-    }
-
-    private func index(at point: NSPoint) -> Int? {
-        let rects = slotRects()
-        guard let hit = rects.firstIndex(where: { $0.contains(point) }) else { return nil }
-        guard hit == model.profiles.count else { return hit }
-        return isPointerInside ? Self.plusIndex : nil
-    }
 
     private func relayout() {
         needsDisplay = true
@@ -135,12 +125,6 @@ final class ProfileBarView: NSView {
 
     // MARK: Drawing
 
-    /// The dots drawn now: none for a lone space at rest (it switches nothing; the bar stays
-    /// mounted so the chrome never shifts), every space otherwise.
-    var drawnDotCount: Int {
-        ProfileBarLogic.isVisible(profileCount: model.profiles.count) || isPointerInside ? model.profiles.count : 0
-    }
-
     override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
             if let chip = hoverChip {
@@ -154,7 +138,7 @@ final class ProfileBarView: NSView {
     /// The current space's chip in this bar: its slot inset like the hover
     /// chip. Nil when no current space is drawn.
     var indicatorRect: NSRect? {
-        guard drawnDotCount > 0, let active = activeIndex else { return nil }
+        guard let active = activeIndex, dotIsDrawn(at: active) else { return nil }
         let rects = slotRects()
         guard rects.indices.contains(active) else { return nil }
         return ProfileBarLogic.chipRect(slot: rects[active], inset: Metrics.space1)
@@ -206,12 +190,13 @@ final class ProfileBarView: NSView {
         performWithTheme {
             let rects = slotRects()
             let strip = strip
-            for (offset, profile) in model.profiles.enumerated().prefix(drawnDotCount) {
+            for offset in drawnDotIndices {
+                let profile = model.profiles[offset]
                 let active = profile.id == model.activeProfileID
                 draw(profile: profile, in: rects[offset], active: active, hovered: hovered == offset,
                      compact: strip.compact && !active)
             }
-            if isPointerInside { drawPlus(in: rects[model.profiles.count]) }
+            if plusIsDrawn { drawPlus(in: rects[model.profiles.count]) }
         }
     }
 
@@ -239,11 +224,11 @@ final class ProfileBarView: NSView {
 
     private func rebuildToolTips() {
         let rects = slotRects()
-        var regions: [(rect: NSRect, text: String)] = model.profiles.enumerated().map { offset, profile in
-            // The emoji is shown here, not on the dot.
-            (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
+        var regions: [(rect: NSRect, text: String)] = drawnDotIndices.map { offset in
+            let profile = model.profiles[offset]
+            return (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
         }
-        if isPointerInside { regions.append((rects[model.profiles.count], Strings.newProfile)) }
+        if plusIsDrawn { regions.append((rects[model.profiles.count], Strings.newProfile)) }
         setThemedToolTipRegions(regions)
     }
 
@@ -255,7 +240,7 @@ final class ProfileBarView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func mouseMoved(with event: NSEvent) { setHovered(index(at: convert(event.locationInWindow, from: nil))) }
+    override func mouseMoved(with event: NSEvent) { setHovered(interactionIndex(at: convert(event.locationInWindow, from: nil))) }
     override func mouseEntered(with event: NSEvent) { isPointerInside = true }
 
     override func mouseExited(with event: NSEvent) {
@@ -293,7 +278,7 @@ final class ProfileBarView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         pressPoint = point
-        setPressed(index(at: point))
+        setPressed(interactionIndex(at: point))
     }
 
     /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
@@ -309,7 +294,7 @@ final class ProfileBarView: NSView {
         }
         // A dragged dot drops (over the footer band it moves its space); the release is no click.
         if dropDot() { return }
-        guard let pressed, pressed == index(at: convert(event.locationInWindow, from: nil)) else { return }
+        guard let pressed, pressed == interactionIndex(at: convert(event.locationInWindow, from: nil)) else { return }
         activate(pressed)
     }
 
@@ -358,7 +343,9 @@ final class ProfileBarView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let index = index(at: convert(event.locationInWindow, from: nil)), index >= 0 else { return nil }
+        // Right-click still edits the space underneath a shared + slot.
+        let point = convert(event.locationInWindow, from: nil)
+        guard let index = slotRects().dropLast().firstIndex(where: { $0.contains(point) }) else { return nil }
         return contextMenuProvider?(.profile(model.profiles[index].id))
     }
 

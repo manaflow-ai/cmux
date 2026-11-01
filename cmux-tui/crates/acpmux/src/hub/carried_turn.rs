@@ -416,6 +416,10 @@ impl Hub {
                         turn_id,
                         control: turn.control,
                         trust_gate: c.trust_gate,
+                        not_before: super::auto_resume::reset_hint::error_reset_at(
+                            e.data.as_ref(),
+                            super::now_ms(),
+                        ),
                         error: super::turn_errors::continuation_error(
                             agent_error.as_deref(),
                             &e.message,

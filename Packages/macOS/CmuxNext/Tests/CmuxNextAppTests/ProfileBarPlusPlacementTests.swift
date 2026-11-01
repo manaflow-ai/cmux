@@ -21,6 +21,11 @@ import Testing
         [120, 160, 240, 400].map { Case(count: count, width: CGFloat($0)) }
     } + [240, 400].map { Case(count: 12, width: CGFloat($0)) }
 
+    @Test func oneProfileStillMountsTheProfileBar() {
+        #expect(ProfileBarLogic.isVisible(profileCount: 1))
+        #expect(!ProfileBarLogic.isVisible(profileCount: 0))
+    }
+
     /// A bar with `count` spaces (the first current), the pointer over it, in a window.
     private func makeBar(count: Int, width: CGFloat) -> (ProfileBarView, NSWindow) {
         _ = NSApplication.shared
@@ -79,5 +84,59 @@ import Testing
         let hovered = view.slotRects().dropLast()
         view.setPointerInside(false)
         #expect(Array(view.slotRects().dropLast()) == Array(hovered), "the dots moved when the + hid")
+    }
+
+    @Test(arguments: [CGFloat(20), 120, 300])
+    func oneSpaceKeepsItsDotAndHoverMakesTheOverlaidPlusReachable(_ width: CGFloat) {
+        let (view, window) = makeBar(count: 1, width: width)
+        defer { window.close() }
+        view.setPointerInside(false)
+        #expect(view.drawnDotCount == 1, "the only space's dot disappeared at rest")
+        let dot = view.slotRects()[0]
+        #expect(view.bounds.contains(dot))
+        #expect(view.interactionIndex(at: NSPoint(x: dot.midX, y: dot.midY)) == 0, "the resting dot is not interactive")
+
+        view.setPointerInside(true)
+        let plus = view.slotRects().last!
+        #expect(view.drawnDotCount == 0, "the dot must give way to +, never paint under it")
+        #expect(plus == dot, "hover must not move the shared slot")
+        #expect(plus.intersects(dot), "the narrow fixture did not exercise the overlaid plus slot")
+        #expect(view.interactionIndex(at: NSPoint(x: plus.midX, y: plus.midY)) == ProfileBarView.plusIndex,
+                "hovering the dot's slot did not resolve to +")
+    }
+
+    @Test(arguments: [true, false], [true, false])
+    func visibilityChoicesNeverDrawDotUnderPlus(_ dotsIdle: Bool, _ plusIdle: Bool) {
+        let (view, window) = makeBar(count: 1, width: 120)
+        defer { window.close() }
+        view.showsDotsWhenIdle = dotsIdle
+        view.showsPlusWhenIdle = plusIdle
+        view.setPointerInside(false)
+        #expect(view.drawnDotCount == (dotsIdle && !plusIdle ? 1 : 0))
+        #expect(view.plusIsDrawn == plusIdle)
+        view.setPointerInside(true)
+        #expect(view.plusIsDrawn)
+        #expect(view.drawnDotCount == 0)
+        #expect(view.indicatorRect == nil)
+    }
+
+    @Test func clickingTheOverlaidPlusSendsNewProfile() {
+        let (view, window) = makeBar(count: 1, width: 20)
+        defer { window.close() }
+        var intents: [SidebarIntent] = []
+        view.model.onIntent = { intents.append($0) }
+        view.setPointerInside(true)
+        let plus = view.slotRects().last!
+        #expect(view.bounds.contains(plus), "the + target must be fully inside the bar")
+        let point = NSPoint(x: plus.midX, y: plus.midY)
+        func event(_ type: NSEvent.EventType) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [],
+                               timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                               context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        view.mouseDown(with: event(.leftMouseDown))
+        view.mouseUp(with: event(.leftMouseUp))
+        #expect(intents.contains { if case .newProfile = $0 { true } else { false } },
+                "clicking the narrow hover slot did not create a new profile: \(intents)")
     }
 }

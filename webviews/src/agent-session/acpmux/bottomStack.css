@@ -1,6 +1,6 @@
 /* The chat's bottom stack (hq#1957, Leo 2026-10-14), .acpmux-dock: everything under the transcript,
    in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the tray while subagents or background commands run
-   (subagents/SubagentTray.tsx; the agents pill, subagents/AgentsPill.tsx, with it off),
+   (subagents/SubagentTray.tsx),
    then the composer form, which holds the queued prompts (ComposerQueue.tsx), the location strip and
    the card. Every part takes its own height in the stack's own flow, so none draws over another or
    under the pane's edge; a new part joins that flow here.
@@ -11,7 +11,7 @@
    pass under it (conversation.css). The stack never takes the transcript's last
    --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
    their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
-   review, the diff, the inspector) the stack is in the pane's flow under the stage. */
+   review, the diff, Session Info) the stack is in the pane's flow under the stage. */
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));
@@ -37,9 +37,9 @@
 .acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
-/* A part of the floating stack is a band the pane's width wide whose card, bar or pill sits inset in
-   it by the column's gutters (--cv-inset): the question card, the pull request dock, an error card,
-   the agents pill. The band takes the pointer, since the transcript's rows under the stack are only
+/* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
+   the column's gutters (--cv-inset): the question card, the pull request dock, or an error card. The
+   band takes the pointer, since the transcript's rows under the stack are only
    masked: a hover, click or drag in its gutters or empty room must not reach a row no one sees. The
    wheel there scrolls the transcript all the same (wheelPassThrough.ts forwards it), and a band that
    scrolls itself (the pull request dock, the question card in a short pane) keeps its wheel and its
@@ -48,12 +48,6 @@
 .acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
   pointer-events: auto;
-}
-.acpmux-dock > .acpmux-agents-pill-anchor {
-  position: relative;
-  flex: none;
-  display: flex;
-  padding: 0 var(--cv-inset-end, var(--cv-inset)) 8px var(--cv-inset);
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
@@ -104,7 +98,10 @@
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
-  min-height: calc(var(--text-title--line-height) + (var(--ds-control-row) + var(--ds-space-5) + var(--ds-space-4)) * var(--cmux-interface-scale, 1));
+  /* One line of the prompt with its padding (markdownField.css) over the control row. */
+  min-height: calc(
+    var(--text-content--line-height) + var(--acpmux-md-pad-top) + var(--acpmux-md-pad-bottom) + var(--acpmux-codex-row)
+  );
 }
 .acpmux-main[data-dock="float"]
   > .acpmux-dock
@@ -191,10 +188,9 @@
   }
 }
 
-/* What joins the bottom stack rises out of the composer as it appears (Leo 2026-10-20, directional
-   motion): a question, a notice, the pull request dock, the agents pill and a queued prompt fade in
-   from a few points below where they land (ui-enter, ui/popupSurface.css). Their space opens in one
-   frame, as the stack's flow takes it; only the drawing travels. */
+/* What joins the bottom stack enters from the composer as it appears (Leo 2026-10-20): a question,
+   a notice, the pull request dock, the running tray and a queued prompt use the shared entry tokens.
+   Their space opens in one frame, as the stack's flow takes it; only the drawing travels. */
 .acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack),
 .acpmux-asks-stack > *,
 .acpmux-composer-queue > li {

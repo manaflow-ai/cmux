@@ -161,6 +161,18 @@ pub(super) fn pull_back(
     }
 }
 
+/// A pull of `remote_root` into `local`, as `cmux link sync pull` does: for `cmux link agent move
+/// --sync pull`, which pulls the last changes of a chat it froze.
+pub(super) fn pull_into(socket: &Path, local: &Path, remote_root: &str) -> Back {
+    match pull::pull(socket, local, remote_root) {
+        Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
+        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Err(error) => {
+            Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
+        }
+    }
+}
+
 /// The error code of a failed push.
 pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
     remote::refusal_code(error).unwrap_or("sync_failed").to_string()
@@ -184,6 +196,18 @@ pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<St
 /// Copies the one regular file at `local` (never through a symlink) to
 /// `target` on the machine, making its folder.
 pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Result<()> {
+    let mut ignored = || {};
+    copy_file_with_progress(socket, local, target, &mut ignored)
+}
+
+/// Copies one file and invokes `progress` after each remote fs write. Upload
+/// uses this to keep the CLI's bounded idle deadline alive for slow links.
+pub(super) fn copy_file_with_progress(
+    socket: &Path,
+    local: &Path,
+    target: &str,
+    progress: &mut dyn FnMut(),
+) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
     let meta = std::fs::symlink_metadata(local)
         .with_context(|| format!("cannot read {}", local.display()))?;
@@ -197,7 +221,7 @@ pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Re
     let mut remote = Remote::connect(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
-    write(&mut remote, target, &file).map(|_| ())
+    write_with_progress(&mut remote, target, &file, progress).map(|_| ())
 }
 
 /// Deletes the folder at `path` on the machine whose daemon `socket`
@@ -261,7 +285,7 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
     Some((action, socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string()))
 }
 
-fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
+pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
     push_inner(socket, local, remote_root, &|_, _| true, false)
 }
 
@@ -398,13 +422,23 @@ fn push_inner(
 /// that became a file) is removed first; a folder with anything in it stays
 /// and the write fails.
 fn write(remote: &mut Remote, target: &str, file: &LocalFile) -> anyhow::Result<String> {
+    let mut ignored = || {};
+    write_with_progress(remote, target, file, &mut ignored)
+}
+
+fn write_with_progress(
+    remote: &mut Remote,
+    target: &str,
+    file: &LocalFile,
+    progress: &mut dyn FnMut(),
+) -> anyhow::Result<String> {
     if remote.kind(target)?.as_deref() == Some("dir")
         && remote.list(target)?.is_some_and(|entries| entries.is_empty())
     {
         remote.delete(&[target.to_string()])?;
     }
     let mut reader = open(file)?;
-    remote.write(target, &mut reader, file.permissions)
+    remote.write_with_progress(target, &mut reader, file.permissions, progress)
 }
 
 /// A relative path of plain names: no empty, `.` or `..` part.

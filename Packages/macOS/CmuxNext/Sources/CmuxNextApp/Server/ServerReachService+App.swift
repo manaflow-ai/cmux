@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextRemote
 import Foundation
@@ -44,7 +45,7 @@ extension ServerMenuBarController {
     static func app(services: AppServices) -> ServerMenuBarController {
         ServerMenuBarController(makeSource: { [weak services] in
             guard let services else { return nil }
-            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth,
+            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
         })
     }

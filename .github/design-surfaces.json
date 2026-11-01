@@ -4,6 +4,7 @@
   "surfaces": {
     "model-picker": {
       "spec": "leo-workspace design/model-picker.md",
+      "checklist": "design/model-picker.md#checklist",
       "aliases": ["model menu", "model picker", "harness rail", "harness tabs", "effort picker", "effort"],
       "paths": [
         "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
@@ -31,11 +32,16 @@
         "webviews/src/agent-session/acpmux/ComposerBox.tsx",
         "webviews/src/agent-session/acpmux/ComposerFoot.tsx",
         "webviews/src/agent-session/acpmux/ComposerPickers.tsx",
+        "webviews/src/agent-session/acpmux/ComposerPlusMenu.tsx",
+        "webviews/src/agent-session/acpmux/composerPlusRegistry.ts",
         "webviews/src/agent-session/acpmux/composerChrome.tsx",
         "webviews/src/agent-session/acpmux/composerControls.css",
         "webviews/src/agent-session/acpmux/composerFooterShared.css",
         "webviews/src/agent-session/acpmux/composerLook.css",
-        "webviews/src/agent-session/acpmux/composerStates.css"
+        "webviews/src/agent-session/acpmux/composerStates.css",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/agent-session/acpmux/hostLine.ts",
+        "webviews/src/agent-session/acpmux/hostRetry.ts"
       ]
     },
     "session-rail": {
@@ -82,7 +88,15 @@
         "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
         "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
         "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
-        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx"
+        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
+        "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/SentMessageLine.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css",
+        "webviews/src/agent-session/acpmux/conversation/TranscriptActivityRow.css",
+        "webviews/src/agent-session/acpmux/started/StartedSessionCard.tsx"
       ]
     },
     "settings": {
@@ -98,6 +112,15 @@
         "webviews/src/ui/Select.tsx"
       ]
     },
+    "chat-header": {
+      "spec": "leo-workspace design/chat-header.md",
+      "aliases": ["chat header", "chat title", "title menu", "header tools"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/header/ThreadTitle.tsx",
+        "webviews/src/agent-session/acpmux/header/header.css",
+        "webviews/src/agent-session/acpmux/header/chatRows.ts"
+      ]
+    },
     "session-info": {
       "spec": "leo-workspace design/session-info.md",
       "aliases": [
@@ -106,7 +129,7 @@
         "session panel"
       ],
       "paths": [
-        "webviews/src/agent-session/acpmux/inspector"
+        "webviews/src/agent-session/acpmux/session-info"
       ]
     }
   }

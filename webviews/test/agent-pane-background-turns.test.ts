@@ -1,0 +1,216 @@
+// l10n-allow-file: test fixture prompts and replies, not shipped UI.
+// A turn the agent ran on its own (acpmux `background_turn` records: a background task finished, a
+// scheduled wakeup, a hook) that had nothing new to tell draws as one muted line, not a message
+// (Leo, on a chat message that said only "Nothing new for you yet.": "why do you guys keep sending
+// me this/get pinged to send this"). The person's own turns, and a log from before acpmux wrote
+// these records, draw exactly as before.
+import { expect, test } from "bun:test";
+import { BACKGROUND_TURN, backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { OrderedRows } from "../src/agent-session/acpmux/direct";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
+
+const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
+const say = (text: string): Step => [
+  "in",
+  "agent_message_chunk",
+  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
+];
+const ran = (id: string): Step => [
+  "in",
+  "tool_call",
+  update({ sessionUpdate: "tool_call", toolCallId: id, title: `ls ${id}`, kind: "execute", status: "completed" }),
+];
+const personTurn = (text: string, reply: string, turnId: string): Step[] => [
+  ["mux", "user_message", { text, turnId }],
+  ["mux", "turn_started", { turnId }],
+  say(reply),
+  ["mux", "turn_result", { turnId, status: "completed" }],
+];
+const started = (id: string, trigger = "task_notification"): Step => [
+  "mux",
+  "background_turn",
+  { state: "started", id, trigger },
+];
+const ended = (id: string, quiet: boolean, reason = "result", trigger = "task_notification"): Step => [
+  "mux",
+  "background_turn",
+  { state: "ended", id, trigger, quiet, reason },
+];
+
+const drawn = (rows: AcpmuxRow[], open: string[] = []) =>
+  turnView(rows, new Set(open)).filter((row) => row.kind !== "date");
+const texts = (rows: AcpmuxRow[]) =>
+  rows.map((row) =>
+    row.kind === BACKGROUND_TURN ? `line:${row.background?.trigger}` : `${row.kind}:${row.text ?? ""}`,
+  );
+
+test("a quiet background turn is one line that opens to its rows", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Run the tests in the background", "Started them.", "t1"),
+      started("bg1"),
+      ran("check"),
+      say("Nothing new for you yet."),
+      ended("bg1", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const line = rows().find((row) => row.kind === BACKGROUND_TURN)!;
+    expect(line.background).toEqual({
+      id: "bg1",
+      trigger: "task_notification",
+      running: false,
+      quiet: true,
+      reason: "result",
+    });
+    // Its rows belong to it; the person's turn's rows do not.
+    const members = rows().filter((row) => row.inBackground === "bg1");
+    expect(members.map((row) => row.kind)).toEqual(["activity", "assistant"]);
+    const closed = drawn(rows());
+    expect(closed.some((row) => row.text === "Nothing new for you yet.")).toBe(false);
+    expect(closed.filter((row) => row.kind === BACKGROUND_TURN)).toHaveLength(1);
+    expect(closed.at(-1)?.kind).toBe(BACKGROUND_TURN);
+    // The person's turn draws as it always has: its reply and its footer.
+    expect(texts(closed).slice(0, 3)).toEqual([
+      "user:Run the tests in the background",
+      "assistant:Started them.",
+      expect.stringMatching(/^turnSummary:/),
+    ]);
+    // Opened, its rows follow its line, in order.
+    const open = drawn(rows(), [backgroundTurnRowId("bg1")]);
+    const at = open.findIndex((row) => row.kind === BACKGROUND_TURN);
+    expect(open.slice(at + 1).map((row) => row.kind)).toEqual(["activity", "assistant"]);
+    expect(open.at(-1)?.text).toBe("Nothing new for you yet.");
+  } finally {
+    client.close();
+  }
+});
+
+test("a background turn with something to say draws its rows as today, with no line", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Watch the deploy", "Watching it.", "t1"),
+      started("bg2"),
+      say("The deploy failed: see https://example.com/run/1. Should I roll back?"),
+      ended("bg2", false),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    expect(view.at(-1)?.text).toBe("The deploy failed: see https://example.com/run/1. Should I roll back?");
+    // No "Worked for" and no footer of its own: the turn before it keeps its one footer.
+    expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
+    expect(view.some((row) => row.kind === "worked")).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("a running background turn is the compact line, marked running", async () => {
+  const daemon = fakeDaemon(
+    record([...personTurn("Loop on the queue", "On it.", "t1"), started("bg3", "scheduled"), ran("queue")]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    const line = view.at(-1)!;
+    expect(line.kind).toBe(BACKGROUND_TURN);
+    expect(line.background).toEqual({ id: "bg3", trigger: "scheduled", running: true });
+    expect(view.some((row) => row.kind === "activity")).toBe(false);
+    // It ends quiet: the same line, no longer running.
+    daemon.push(record([say("Queue empty."), ended("bg3", true, "result", "scheduled")], 7));
+    const after = drawn(rows());
+    expect(after.at(-1)?.background).toMatchObject({ running: false, quiet: true });
+    expect(after.some((row) => row.text === "Queue empty.")).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("a prompt that interrupts a background turn starts a normal turn after it", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Start the build", "Building.", "t1"),
+      started("bg4"),
+      say("Still building."),
+      ended("bg4", true, "prompt"),
+      ...personTurn("What's the status?", "The build passed.", "t2"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    // The prompt and everything after it are the real turn's, never the background turn's.
+    expect(rows().filter((row) => row.inBackground).map((row) => row.text)).toEqual(["Still building."]);
+    const view = drawn(rows());
+    const line = view.findIndex((row) => row.kind === BACKGROUND_TURN);
+    expect(texts(view.slice(line))).toEqual([
+      "line:task_notification",
+      "user:What's the status?",
+      "assistant:The build passed.",
+      expect.stringMatching(/^turnSummary:/),
+    ]);
+  } finally {
+    client.close();
+  }
+});
+
+test("a log from before background_turn records draws exactly as before", async () => {
+  const steps: Step[] = [...personTurn("Run the tests", "Started them.", "t1"), ran("check"), say("Nothing new yet.")];
+  const daemon = fakeDaemon(record(steps));
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(rows().some((row) => row.kind === BACKGROUND_TURN || row.inBackground !== undefined)).toBe(false);
+    const view = drawn(rows());
+    expect(view.at(-1)?.text).toBe("Nothing new yet.");
+    expect(view.some((row) => row.kind === "activity")).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+test("work after a background turn ends never joins its rows", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Watch the queue", "Watching.", "t1"),
+      started("bg5"),
+      ran("a"),
+      ended("bg5", true),
+      ran("b"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const after = rows().find((row) => row.items?.some((item) => item.tool?.id === "b"))!;
+    expect(after.inBackground).toBeUndefined();
+    expect(after.items?.some((item) => item.tool?.id === "a")).toBe(false);
+    // It draws below the closed line, never inside it.
+    expect(drawn(rows()).at(-1)?.id).toBe(after.id);
+  } finally {
+    client.close();
+  }
+});
+
+test("an older page's started record takes the rows its turn already made", () => {
+  const rows = new OrderedRows();
+  const make = (seq: number, id: string) => {
+    rows.current = seq;
+    rows.set(id, { id, version: 1, at: seq, kind: "assistant", text: id });
+    rows.current = undefined;
+  };
+  // The newer page was read first: the turn's rows and its ended record, then a later row.
+  make(5, "inside");
+  rows.closeBackground(7, { id: "bg6", trigger: "scheduled", running: false, quiet: true });
+  make(8, "after");
+  // The older page brings the started record.
+  rows.current = 3;
+  expect(rows.openBackground("bg6", 3)).toEqual({ id: "bg6", trigger: "scheduled", running: false, quiet: true });
+  rows.current = undefined;
+  expect(rows.get("inside")?.inBackground).toBe("bg6");
+  expect(rows.get("after")?.inBackground).toBeUndefined();
+  expect(rows.sorted().find((row) => row.id === "inside")?.inBackground).toBe("bg6");
+});

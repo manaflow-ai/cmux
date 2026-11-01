@@ -78,6 +78,15 @@ test("no pane sheet hides the transcript or the chat header while changes are op
   }
 });
 
+test("the changes view's file tree gives way by the panel's own width, not only the window's", () => {
+  // Beside the transcript the panel can be ~320px of a 640px pane; a 250px tree there leaves no room for the diff.
+  const styles = sheet("styles.css");
+  const panel = rulesFor(styles, ".acpmux-diff-panel").find((rule) => /position:absolute/.test(rule.body));
+  expect(panel?.body.replace(/\s+/g, "")).toMatch(/container:acpmux-diff-panel\/inline-size/);
+  const tree = rulesFor(styles, ".acpmux-diff-tree").filter((rule) => /display:none/.test(rule.body));
+  expect(tree.some((rule) => rule.atRules.includes("@container acpmux-diff-panel (max-width:620px)"))).toBe(true);
+});
+
 const notARepository = () =>
   new NativeError({
     code: "operation.failed",
@@ -156,4 +165,32 @@ test("a status read that fails for another reason still says so", async () => {
   const git = await readGit(() => Promise.reject(new NativeError({ code: "native.timed_out", origin: "native" })));
   expect(git.statusFailed).toBe(true);
   expect(git.available).toBe(true);
+});
+
+test("a repository made while the view is open brings Commit and Push back on the next check", async () => {
+  let initialized = false;
+  const source = {
+    diff: async () => ({ files: [] }),
+    status: () =>
+      initialized
+        ? Promise.resolve({ detached: false, head: "abc123", branch: "main", ahead: 0, behind: 0 })
+        : Promise.reject(notARepository()),
+    commit: async () => ({}),
+    push: async () => ({}),
+  } as unknown as ChangesSource;
+  let latest: GitWrite | undefined;
+  function Probe() {
+    latest = useGitWrite(source, () => undefined);
+    return null;
+  }
+  root = createRoot(installDom());
+  await act(async () => root!.render(<Probe />));
+  await act(async () => await Promise.resolve());
+  expect(latest!.available).toBe(false);
+  expect(latest!.statusFailed).toBe(false);
+  initialized = true;
+  await act(async () => latest!.recheck());
+  await act(async () => await Promise.resolve());
+  expect(latest!.available).toBe(true);
+  expect(latest!.status?.branch).toBe("main");
 });

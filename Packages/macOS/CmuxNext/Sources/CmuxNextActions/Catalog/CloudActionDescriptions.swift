@@ -50,8 +50,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "palette.cloud.ports": """
             Lists the TCP ports listening on the machine (--target machine:<id>) and returns machine_id and \
-            ports (comma-separated). Needs the machine connected: resume a paused one first with \
-            `cmux cloud resume-machine --target machine:<id>`.
+            ports (comma-separated). New Cloud also returns private previews, listening and unavailable \
+            ports; its menu opens a detected port in the app browser. On the classic link, connect first \
+            with `cmux cloud resume-machine --target machine:<id>`.
             """,
         "palette.cloud.tools": """
             Shows the machine's login shell, where zsh, git, gh, htop, btop, node, bun and python3 are \
@@ -214,6 +215,13 @@ nonisolated enum CloudActionDescriptions {
             once, before the rename is done. Without --name it asks the person for the name in the app, so a \
             script or agent passes --name.
             """,
+        "cloudShareMachine": """
+            Shares app-started chats on a team machine (--target machine:<id>) with a teammate \
+            (--teammate <user id>), or takes the share back (--revoke). Only the machine's creator or a \
+            team admin may change shares. Without --teammate it answers the machine's teammates as \
+            `teammates` [{user_id, name, shared}]; in the app it opens a page of them, where Return \
+            shares or stops sharing.
+            """,
         "cloudKillMachine": """
             Deletes the machine (--target machine:<id>) and everything on it. Destructive: a CLI or agent \
             run needs --confirm. Answers at once, before the delete is done.
@@ -251,8 +259,10 @@ nonisolated enum CloudActionDescriptions {
             pending), delivered and missing names. Values are stored with cmux cloud secret set NAME.
             """,
         "cloudResizeMachine": """
-            Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \
-            4 GB, 4 and 8, 8 and 16, or 16 and 24). Answers at once, before the resize is done.
+            Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and \
+            4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB \
+            steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, \
+            and size and disk_gib as given. Answers pending after 30 s; the resize goes on.
             """,
         "cloudSetIdlePause": """
             Sets how long the machine (--target machine:<id>) may sit idle (nothing attached, running or \

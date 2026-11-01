@@ -206,6 +206,206 @@ class EnvLog(unittest.TestCase):
         self.assertIn("CMUX_API_TOKEN", row["other_cmux_keys"])
 
 
+class Hosts(unittest.TestCase):
+    def test_host_rows_reads_only_this_builds_hosts(self):
+        app = rf.App.__new__(rf.App)
+        app.bundle_id = "com.cmuxterm.app.debug.t.capslot1"
+        rf.APP = app
+        saved = rf.subprocess.run
+
+        class Done:
+            stdout = ("  101     1 Sat Oct 31 04:38:10 2026 cmux-tui __terminal-host --bootstrap-stdio "
+                      "--owner com.cmuxterm.app.debug.t.capslot1:sess term_abc\n"
+                      "  102     1 Sat Oct 31 04:38:11 2026 cmux-tui __terminal-host --bootstrap-stdio "
+                      "--owner com.cmuxterm.app.debug.other:sess term_x\n"
+                      "  103    50 Sat Oct 31 04:38:12 2026 /bin/zsh -l\n")
+        rf.subprocess.run = lambda *a, **k: Done()
+        try:
+            rows = rf.host_rows()
+        finally:
+            rf.subprocess.run = saved
+        self.assertEqual([r["pid"] for r in rows], [101])
+        self.assertEqual(rows[0]["lstart"], "Sat Oct 31 04:38:10 2026")
+        self.assertIn("term_abc", rows[0]["argv"])
+
+
+class Closes(unittest.TestCase):
+    def test_only_ok_closes_with_terminals_are_noted(self):
+        rf.CLOSES.clear()
+        rf.note_close({"value": {}}, 3)
+        rf.note_close({"error": "x"}, 2)
+        rf.note_close([], 0)
+        self.assertEqual([n for _, n in rf.CLOSES], [3])
+        p = rf.pick_action(rf.Run(5), {"w1": ws("fz-1", ["a", "b"]), "w2": ws("fz-2", ["c"])})
+        if p[0] == "ws_close":
+            self.assertIn("tabs", p[1])
+
+
+class DiskFull(unittest.TestCase):
+    """Row h nearly-full disk: a bounded image at the daemon's state dir, filled to a margin."""
+
+    def test_procargs2_gives_exact_env_values(self):
+        # KERN_PROCARGS2: argc, exec path, NUL padding, argv, env; values keep their spaces.
+        import struct
+        blob = (struct.pack("i", 2) + b"/x/cmux-tui\0\0\0" + b"/x/cmux-tui\0--headless\0"
+                + b"HOME=/s/home\0CMUX_TUI_STATE_DIR=/s/home/Library/Application Support/cmux/x\0\0")
+        argv, env = rf.parse_procargs2(blob)
+        self.assertEqual(argv, ["/x/cmux-tui", "--headless"])
+        self.assertEqual(env["CMUX_TUI_STATE_DIR"], "/s/home/Library/Application Support/cmux/x")
+        self.assertEqual(env["HOME"], "/s/home")
+
+    def test_filler_leaves_the_margin(self):
+        mb = 1 << 20
+        self.assertEqual(rf.filler_bytes(100 * mb, 2), 98 * mb)
+        self.assertEqual(rf.filler_bytes(1 * mb, 2), 0)
+
+    def test_disk_plan_keeps_the_host_reserve(self):
+        gb = 1 << 30
+        self.assertIsNone(rf.disk_plan(host_free=40 * gb, image_mb=512, state_bytes=10 << 20))
+        self.assertIn("reserve", rf.disk_plan(host_free=20 * gb, image_mb=512, state_bytes=10 << 20))
+        self.assertIn("state dir", rf.disk_plan(host_free=40 * gb, image_mb=512, state_bytes=300 << 20))
+
+    def test_volume_commands(self):
+        vol = rf.DiskVolume("/out/fz.dmg", "/s/home/Library/Application Support/cmux/x", 512)
+        self.assertEqual(vol.create_cmd(), ["/usr/bin/hdiutil", "create", "-size", "512m", "-fs", "HFS+",
+                                            "-volname", "fzdisk", "-type", "UDIF", "/out/fz.dmg"])
+        self.assertEqual(vol.attach_cmd(), ["/usr/bin/hdiutil", "attach", "-nobrowse", "-noautoopen",
+                                            "-mountpoint", "/s/home/Library/Application Support/cmux/x", "/out/fz.dmg"])
+        self.assertEqual(vol.detach_cmd(force=True), ["/usr/bin/hdiutil", "detach", "-force",
+                                                     "/s/home/Library/Application Support/cmux/x"])
+
+    def test_state_dir_must_be_in_the_slot_home(self):
+        self.assertIsNone(rf.check_state_dir("/s/home/Library/Application Support/cmux/x", "/s/home"))
+        self.assertIsNotNone(rf.check_state_dir("/Users/cmux/Library/Application Support/cmux/x", "/s/home"))
+        self.assertIsNotNone(rf.check_state_dir("", "/s/home"))
+        self.assertIsNotNone(rf.check_state_dir("/s/home/x", ""))
+
+
+class TypedErrors(unittest.TestCase):
+    def test_typed_error(self):
+        self.assertTrue(rf.typed_error({"error": '{"code":"operation.failed","details":{}}'}))
+        self.assertTrue(rf.typed_error({"error": {"code": "store.save_failed"}}))
+        self.assertFalse(rf.typed_error({"error": "no daemon socket"}))
+        self.assertFalse(rf.typed_error({"error": "no answer within 10 s", "stall": True}))
+
+
+class VisibleState(unittest.TestCase):
+    """Row h: during a slow restore the app must show a designed state (restore-journey's RecoverySampler rule)."""
+
+    def sample(self, shows="content", link="connected", blank=0):
+        return ({"connection": "connected", "windows": [{"id": "w1", "shows": shows}]},
+                {"blank_panes": blank, "windows": [{"panes": [{"pane": "p1", "kind": "terminal", "presence": "visible",
+                                                                "link": link}]}]})
+
+    def test_designed_states_pass(self):
+        for shows, link in (("content", "connected"), ("connecting", "restoring"),
+                            ("content", "disconnected:eof:reconnecting")):
+            st, su = self.sample(shows, link)
+            self.assertEqual(rf.visible_problems(st, su), ([], []))
+
+    def test_blank_and_dead_are_reported(self):
+        st, su = self.sample(blank=1)
+        self.assertTrue(rf.visible_problems(st, su)[0])
+        st, su = self.sample(shows="nothing")
+        self.assertTrue(rf.visible_problems(st, su)[0])
+        st, su = self.sample(link="disconnected:eof")
+        self.assertTrue(rf.visible_problems(st, su)[1])
+
+    def test_judge_needs_one_second_dead_and_answers(self):
+        good = [(0.25 * i,) + self.sample() for i in range(8)]
+        self.assertEqual(rf.judge_visible(good, killed=0.0, end=2.0), [])
+        dead = [(0.25 * i,) + self.sample(link="disconnected:eof") for i in range(8)]
+        self.assertTrue(any("since" in v for v in rf.judge_visible(dead, killed=0.0, end=2.0)))
+        silent = [(0.0,) + self.sample(), (1.9,) + self.sample()]
+        silent[1] = (1.9, None, None)
+        self.assertTrue(any("did not answer" in v for v in rf.judge_visible(silent, killed=0.0, end=2.0)))
+
+
+class DiskFullReview(unittest.TestCase):
+    """Review FIX at ecfe39ee320 (#30208): each case red before its fix."""
+
+    def test_degraded_only_for_a_pure_refusal(self):
+        refusal = {"verdict": "not run", "problems": ["no fz workspace in the daemon topology at the start (None)"]}
+        answered = [{"typed": True, "stall": False}]
+        self.assertTrue(rf.may_degrade(refusal, answered))
+        lossy = {"verdict": "not run", "problems": ["silent loss: x", "the daemon topology could not be read after split"]}
+        self.assertFalse(rf.may_degrade(lossy, answered))
+        self.assertFalse(rf.may_degrade(refusal, [{"typed": True, "stall": True}]))
+        self.assertFalse(rf.may_degrade(refusal, []))
+
+    def test_visible_needs_answers_after_the_kill(self):
+        silent = [(0.25 * i, None, None) for i in range(40)]
+        self.assertTrue(rf.judge_visible(silent, killed=10.0, end=10.0, need_answers=True))
+
+    def test_summary_counts_kills_without_target(self):
+        recs = [{"verdict": "degraded", "problems": []}, {"verdict": "pass", "target": "app", "problems": []}]
+        self.assertEqual(rf.kill_counts(recs), {"app": 1})
+
+    def test_only_refusals_is_no_verdict(self):
+        self.assertTrue(vd.verdict("RESTORE-FUZZ SUMMARY seed=1 judged=3 kills={} violations=0 degraded=3\n")
+                        .startswith("NOVERDICT"))
+        self.assertEqual(vd.verdict('RESTORE-FUZZ SUMMARY seed=1 judged=3 kills={"app": 1} violations=0 degraded=2\n'), "PASS")
+
+    def test_fill_refuses_without_the_mount(self):
+        import tempfile
+        vol = rf.DiskVolume("/nonexistent.dmg", tempfile.mkdtemp(), 512)  # a plain dir, not a mount
+        with self.assertRaises(rf.HarnessInvalid):
+            vol.fill(2)
+
+    def test_say_survives_a_closed_stdout(self):
+        import io
+        saved = sys.stdout
+        broken = io.StringIO()
+        broken.close()
+        sys.stdout = broken
+        try:
+            rf.say("x")  # must not raise
+        finally:
+            sys.stdout = saved
+
+
+class MovedState(unittest.TestCase):
+    def test_restore_moved_state(self):
+        import tempfile
+        root = tempfile.mkdtemp()
+        state, orig = os.path.join(root, "tui"), os.path.join(root, "tui.fz-orig")
+        os.makedirs(orig)
+        open(os.path.join(orig, "state.db"), "w").close()
+        os.makedirs(state)  # the bare mount point after a detach
+        self.assertTrue(rf.restore_moved_state(state, orig))
+        self.assertTrue(os.path.isfile(os.path.join(state, "state.db")))
+        self.assertFalse(os.path.exists(orig))
+
+    def test_restore_keeps_stray_writes_aside(self):
+        import tempfile
+        root = tempfile.mkdtemp()
+        state, orig = os.path.join(root, "tui"), os.path.join(root, "tui.fz-orig")
+        os.makedirs(orig)
+        os.makedirs(state)
+        open(os.path.join(state, "written-after-detach"), "w").close()
+        self.assertTrue(rf.restore_moved_state(state, orig))
+        self.assertTrue(any(n.startswith("tui.fz-stray-") for n in os.listdir(root)))
+
+    def test_no_orig_does_nothing(self):
+        import tempfile
+        root = tempfile.mkdtemp()
+        self.assertFalse(rf.restore_moved_state(os.path.join(root, "tui"), os.path.join(root, "tui.fz-orig")))
+
+
+class NotRunFails(unittest.TestCase):
+    """Review FIX at 1d2a5e2b741 R1: a hang or an earlier loss in a not-run iteration is a failure."""
+
+    def test_stall_or_loss_in_not_run_fails(self):
+        reason = "no fz workspace in the daemon topology at the start (None)"
+        self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": [reason]},
+                                            [{"typed": True, "stall": True}]), "fail")
+        self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": ["silent loss: x",
+                                             "the daemon topology could not be read after split"]}, []), "fail")
+        self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": [reason]},
+                                            [{"typed": True, "stall": False}]), "degraded")
+        self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": [reason]}, []), "not run")
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).

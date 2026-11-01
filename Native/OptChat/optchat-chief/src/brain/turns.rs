@@ -448,6 +448,11 @@ impl Brain {
         // and every local effect it asks for is refused at once
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
+        self.turn_agents = items
+            .iter()
+            .filter_map(Queued::agent)
+            .map(str::to_owned)
+            .collect();
         self.last_turn_ask = self.turn_ask;
         self.turn_denied.clear();
         self.repeat_denials = 0;
@@ -1749,6 +1754,7 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::Agent { .. } => "agent",
         Source::Resume { .. } => "resume",
     }
 }
@@ -1764,6 +1770,7 @@ fn item(queued: &Queued) -> Item {
             id,
             remote,
             requires_approval,
+            ..
         } => Item {
             seq: Some(*seq),
             images,
@@ -1801,6 +1808,12 @@ fn item(queued: &Queued) -> Item {
         },
         Source::Note => Item {
             images,
+            note: true,
+            ..Item::default()
+        },
+        Source::Agent { .. } => Item {
+            images,
+            requires_approval: true,
             ..Item::default()
         },
     }

@@ -153,6 +153,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showsTimestamps = false
     /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
     public var showsColors = true
+    /// `workspaceColors.indicatorStyle`: a colored row's dot, leading rail or full-row fill (#25653).
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -178,6 +180,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
+    /// Archived workspaces and wholly archived groups leave their lists for one closed "Archive (N)" row at the bottom
+    /// of the sidebar (`SidebarLayout+ArchiveSection`, Lawrence 19197); on by default. Off, ``foldsArchived`` applies.
+    public var archiveSection = true
     /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
     /// below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
@@ -218,13 +223,21 @@ nonisolated extension SidebarLayoutOptions {
             content.badge = nil
         }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
-        if !showsColors { content.icon = content.icon?.uncolored }
+        if !showsColors {
+            content.icon = content.icon?.uncolored
+        } else if colorIndicator != .dot, let color = ws.color ?? ws.icon?.color {
+            // The rail or the fill says the color, so a bare swatch would say it twice; a symbol or emoji stays.
+            (content.rowColor, content.colorStyle) = (color, colorIndicator)
+            if case .swatch? = content.icon { content.icon = nil }
+        }
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
         if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
+        if !minimal, content.detail != nil, let step = ws.agentStep {
+            (content.now, content.detail) = (step, step)
+        }
         return content
     }
 

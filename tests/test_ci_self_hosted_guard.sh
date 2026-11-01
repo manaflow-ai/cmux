@@ -1053,7 +1053,7 @@ check_no_github_hosted_runners() {
   # 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS"). Until
   # 2026-10-28 macos-15/26 were stripped here, so nightly-next-train.yml's
   # `vars.NIGHTLY_NEXT_TRAIN_RUNNER || 'macos-26'` passed this guard. Hosted
-  # Ubuntu is not exempt either (Leo, 2026-10-27: "just put it on blacksmith").
+  # Ubuntu is allowed only for centrally declared light jobs (Leo, 2026-11-01).
   local nightly_hosted="(^|[^A-Za-z0-9_-])'?(windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
@@ -1075,6 +1075,18 @@ check_no_github_hosted_runners() {
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  # The signer route's exact runs-on line (its exception below).
+  local signer_route
+  signer_route=$(cat <<'SIGNER_ROUTE'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+SIGNER_ROUTE
+)
+  # signer-build takes the nightly's early fleet placement (#29864) first, then the same route.
+  local signer_build_route
+  signer_build_route=$(cat <<'SIGNER_BUILD_ROUTE'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && needs.decide.outputs.early_linux_runner || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+SIGNER_BUILD_ROUTE
+)
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
@@ -1099,6 +1111,15 @@ check_no_github_hosted_runners() {
     # pull_request_target write token on fork pull requests (trust policy).
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
+    # The signer jobs and their picks, a measured exception: notarization-bound, not CPU-bound (HQ
+    # build-fleet summary, W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s, signer-build
+    # 7 s, the pick 11 s; 74 picks already ran hosted, p50 9 s). Hosted Ubuntu is trusted like Blacksmith and
+    # free on this public repository; a re-run takes Blacksmith Linux 4 vCPU, and a pool signer GitHub drops
+    # unstarted hands the nightly to the macOS signer. Leo, 2026-11-01: "surely we measured the signign we
+    # dont need 32/16 just for signing", then "surely github has linux hosted we can just use".
+    "nightly.yml:$signer_route"
+    "nightly.yml:$signer_build_route"
+    "cmux-next-dev-daily.yml:$signer_route"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
@@ -1124,11 +1145,20 @@ check_no_github_hosted_runners() {
     fi
   done
 
+  # Leo permits declared lightweight jobs to use hosted Ubuntu after live fleet.
+  # Resolve exact YAML job locations from the central table; an identical route
+  # copied into an undeclared or signing job gets no exception.
+  local light_locations
+  if ! light_locations="$(python3 "$ROOT_DIR/scripts/ci/runner_routing_table.py" hosted-light-lines)"; then
+    echo "FAIL: central hosted-light runner policy is invalid"
+    return 1
+  fi
+
   # The scan over one workflow directory: prints a FAIL line per hosted label
   # in a runner-selection position that is not an exact exception. It is run
   # on fixtures first, so a narrowed key pattern cannot pass vacuously.
   hosted_scan() {
-    local dir="$1" line file content stripped exception allowed
+    local dir="$1" line file content stripped exception allowed line_number
     # A runner selection spread over several lines (a block scalar, or a
     # plain or quoted scalar that wraps) is invisible to the line scan below.
     # YAML parses each workflow, and a multi-line value under runs-on, os or a
@@ -1169,6 +1199,8 @@ for f in sorted(root.rglob("*.y*ml")):
 PY
     while IFS= read -r line; do
       file="${line%%:*}"
+      line_number="${line#*:}"
+      line_number="${line_number%%:*}"
       content="${line#*:*:}"
       [[ "$content" =~ ^[[:space:]]*# ]] && continue
       # Nightly workflows may name the hosted Windows image (above); their
@@ -1178,6 +1210,7 @@ PY
       fi
       stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
       printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
+      if grep -Fxq "$file:$line_number" <<<"$light_locations"; then continue; fi
       allowed=0
       for exception in "${exceptions[@]}"; do
         if [[ "$(basename "$file"):$content" == "$exception" ]]; then allowed=1; break; fi
@@ -1363,6 +1396,10 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # Explicit all-nightly reservation, enabled only after managed enrollment.
+  # Never exempt a bare label, another track, or an unguarded variable.
+  local nightly_only_selector="github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER"
+  local nightly_only_bootstrap="github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER"
   # Nightly native build selectors are pooled: main cache-writing builds use
   # the trusted pool, and NEXT build/prepare jobs use the controller-managed
   # side pool on attempt 1. Both are guarded by repository, event, ref, and
@@ -1400,6 +1437,8 @@ check_no_self_hosted_fleet_runners() {
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
+      content="${content/"$nightly_only_selector"/}"
+      content="${content/"$nightly_only_bootstrap"/}"
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"

@@ -162,6 +162,38 @@ const ALT_TEXT_ROW = `
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
 
+/// The send control's designs (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS", then "THIS IS THE
+/// BUTTON FOR CLAUDE BUT / WE CAN THINK ABOUT WHAT'S BEST"). The pick, one control in both looks: a
+/// slot that is Stop while a turn runs and the prompt is empty, and Send (steer or queue, as Return
+/// does) from the first letter. Claude's look draws it before the mic with Claude desktop's ↵ (the
+/// mic keeps the right edge through a turn); Codex's draws Send's ↑ after the mic, as Codex does.
+/// The alternates are gallery-only CSS over it. Stop beside a second send control (the two-button
+/// state this replaced) is never drawn.
+const runningChat = () => {
+  const snapshot = startedChat();
+  return { ...snapshot, isWorking: true, summary: { ...snapshot.summary!, steering: true } };
+};
+const DRAFT = { draft: "Also cover the 503 path" };
+const ALT_AFTER_MIC = `
+.acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel) { order: 1; }`;
+const ALT_FILLED_DISC = `
+.acpmux-composer-actions > .acpmux-send.acpmux-send-ready:not(.acpmux-cancel) {
+  border-radius: 999px; background: var(--agent-text); color: var(--agent-bg, Canvas);
+}`;
+
+/// The room under Codex's box (Leo 2026-11-01: "our thing has not enough space at the bottom compared
+/// to chatgpt... i feel like we could easily remove a bit of vertical space within and just get that
+/// little bit of bottom padding so there's not so much uncomfortable tangent line at the bottom").
+/// The pick (codex-chat): a 12 px floor, paid for by the prompt's top (15 to 11) and the row (52 to
+/// 44), so the stack keeps its height. The alternates are gallery-only CSS over it.
+const ALT_FLOOR = (floor: number, padTop: number, row: number) => `
+.acpmux-composer[data-composer-look="codex"] {
+  --acpmux-codex-floor: ${floor}px; --acpmux-md-pad-top: ${padTop}px; --acpmux-codex-row: ${row}px;
+}`;
+const ALT_FLOOR_FLUSH = ALT_FLOOR(0, 15, 52);
+const ALT_FLOOR_8 = ALT_FLOOR(8, 13, 46);
+const ALT_FLOOR_16 = ALT_FLOOR(16, 9, 40);
+
 const chatHeight = 360;
 
 export default agentPaneEntry({
@@ -229,6 +261,26 @@ export default agentPaneEntry({
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
     },
+    "codex-floor-before-flush": {
+      note: "Before (not shipped): Codex's box on the pane's bottom edge, the prompt 15 px under the top and a 52 px row.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex", ALT_FLOOR_FLUSH),
+    },
+    "codex-floor-12": {
+      note: "The pick: a 12 px floor under the box, as ChatGPT's and Codex's; the prompt 11 px under the top and a 44 px row pay for it, so the stack is as tall as before.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-floor-8": {
+      note: "Alternate (not shipped): an 8 px floor, Claude's quiet row's; still reads close to the edge beside ChatGPT's.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex", ALT_FLOOR_8),
+    },
+    "codex-floor-16": {
+      note: "Alternate (not shipped): a 16 px floor; the 40 px row it needs crowds the controls against the box's bottom.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex", ALT_FLOOR_16),
+    },
     "codex-chat-dots": {
       note: "Codex's look with the pointer in the box's internal dead-space row: the two dots show there, Codex marked.",
       snapshot: startedChat(),
@@ -274,6 +326,40 @@ export default agentPaneEntry({
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat(),
       play: (ctx) => look(ctx, "codex", ALT_TEXT_ROW),
+    },
+    "send-one-slot-claude-running": {
+      note: "The pick, Claude's look: a turn running with an empty prompt, the one send slot before the mic is Stop; the mic keeps the right edge.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "send-one-slot-claude-typed": {
+      note: "The pick, Claude's look: the first letter turns Stop's slot into Send, Claude desktop's ↵, which steers the turn as Return does (⌘Return queues). One send control, never two.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "send-one-slot-codex-running": {
+      note: "The pick, Codex's look: the same one slot after the mic, Stop while the prompt is empty.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "send-one-slot-codex-typed": {
+      note: "The pick, Codex's look: Send in the same slot once a prompt is typed.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "send-alt-after-mic-claude": {
+      note: "Alternate (not shipped): Claude's look with the slot after the mic, as Codex's. Not picked: the mic would step left each time a turn starts or a prompt is typed.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "claude", ALT_AFTER_MIC),
+    },
+    "send-alt-filled-disc": {
+      note: "Alternate (not shipped): Codex's filled disc after the mic. Not picked: the composer draws plain glyphs, no discs (Leo 2026-10-21).",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_FILLED_DISC),
     },
     "newtab-claude": {
       note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",

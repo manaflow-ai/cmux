@@ -6,8 +6,10 @@ import { roleHas } from "./domains/team-roles.ts"
 import { cloudDriver, cloudConfig } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
+import { isMachineInstallKind } from "./machine-installs.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
-import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmGate, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import type { TrajectoryScope } from "./cloud-trajectory.ts"
 import { PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type CloudState, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { platformCall, platformShape, type PlatformCall, type PlatformReply, type PlatformHost } from "./cloud-platform.ts"
@@ -197,6 +199,31 @@ export class CloudDO extends CloudIdle {
   }
   private readonly vmEvents = new VmEventBuckets()
 
+  /**
+   * #25584, RPC from POST /v1/cloud/machines/{machine}/trajectories/* (cloud-trajectory.ts): the machine whose
+   * kept ACP chats this principal may use. Writes: the machine's own VM install only (the cloud.vm.* gate), into
+   * that machine's store. Reads: that install, or the machine's creator (a session, or the creator's own install
+   * with the read class). `parent`: the VM install reads its restore source's store (MachineRow.trajectory_parent),
+   * or none. Not an op: nothing is committed.
+   */
+  async trajectoryScope(entity: string, principal: Principal, machine: string, write: boolean, parent: boolean): Promise<TrajectoryScope> {
+    const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
+    if (principal.kind === "install" && principal.install_kind === "vm") {
+      const g = vmGate(entity, principal, machine, rows)
+      if (!g.ok) return { ok: false, status: g.code === "cloud.machine.not_found" ? 404 : 403, code: g.code, message: g.message }
+      if (!parent) return { ok: true, store: g.row.id }
+      return write ? { ok: false, status: 403, code: "auth.forbidden", message: "a restore source's chats are read only" } : { ok: true, store: g.row.trajectory_parent ?? null }
+    }
+    // Review 2 blocker: any other machine install (a team VM's) has no access to chats (machine-installs.ts).
+    if (isMachineInstallKind(principal.install_kind)) return { ok: false, status: 403, code: "auth.forbidden", message: "a machine install has no access to chats" }
+    if (write || parent) return { ok: false, status: 403, code: "auth.forbidden", message: "only the machine itself writes its chats" }
+    if (principal.team !== entity || !principal.user) return { ok: false, status: 403, code: "auth.forbidden", message: "not this team's machines" }
+    if (principal.kind === "install" && !principal.grant_classes?.includes("read")) return { ok: false, status: 403, code: "auth.forbidden", message: "this install cannot read" }
+    const row = rows?.get<MachineRow>(TABLE_MACHINE, machine)?.row
+    if (!row || row.creator !== principal.user) return { ok: false, status: 404, code: "cloud.machine.not_found", message: "no such machine of yours in this team" }
+    return { ok: true, store: row.id }
+  }
+
   async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
@@ -365,7 +392,7 @@ export class CloudDO extends CloudIdle {
       team: entity,
       operations: this.platformOperations,
       get now() { return now() },
-      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: (this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test") && this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
+      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
       arm: async (at) => {
         this.bind(entity)
         const realAt = Math.max(Date.now(), at - this.skewMs)
@@ -379,6 +406,7 @@ export class CloudDO extends CloudIdle {
       },
       submit: (p, f) => this.submit(entity, p, f),
       machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      changing: (id) => this.isBound(entity) && Object.values(this.bind(entity).currentState.pending).some((e) => e.machine === id),
       resources: async (row) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
         const r = driver ? await driver.resourcesOf(row.provider_name, { team: entity, machine: row.id }).catch(() => null) : null

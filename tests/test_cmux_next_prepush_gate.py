@@ -496,6 +496,96 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("a merge", output)
 
+    def test_a_branch_that_merged_an_extra_upstream_is_judged_on_what_it_adds_over_it(self):
+        # A long-lived shared branch on the remote (perf/x) carries a try! pushed past the hook; a task branch
+        # merges it in. Unset, cmux.prepushExtraUpstream changes nothing: perf/x's commit is the push's own. Set
+        # to origin/perf/x, it is a shared base like origin/feat-cmux-next, and only the task's own work counts.
+        self.git("checkout", "--quiet", "-b", "perf/x")
+        self.kit("PerfDebt", self.with_try("PerfDebt"))
+        self.commit("the shared perf branch's debt")
+        self.assertEqual(self.push_ref("perf/x", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "-b", "task", "origin/feat-cmux-next")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean task work")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "origin/perf/x")
+
+        unset = self.push_ref("task")
+
+        output = unset.stdout + unset.stderr
+        self.assertNotEqual(unset.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "unset: the merged shared branch's commits count as the push's")
+        self.assertNotEqual(self.git("ls-remote", "--exit-code", "origin", "refs/heads/task", check=False).returncode, 0)
+
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "origin/perf/x")
+
+        extra = self.push_ref("task")
+
+        output = extra.stdout + extra.stderr
+        self.assertEqual(extra.returncode, 0, output)
+        self.assertNotIn("PerfDebt.swift", output)
+        self.assertNotIn("installed hook copy", output, "the tracked push_range.py reads the setting: no patch")
+        self.assertEqual(self.remote_head_of("refs/heads/task"), self.git("rev-parse", "task").stdout.strip())
+
+    def pre_push_extra(self, name, status):
+        """An executable outside the checkout that records its arguments and stdin, then exits with STATUS."""
+        record = self.root / f"{name}.record"
+        script = self.root / name
+        script.write_text(f'#!/bin/sh\nprintf "%s|%s|%s\\n" "$1" "$2" "$PWD" > {record}\ncat >> {record}\nexit {status}\n')
+        script.chmod(0o755)
+        return script, record
+
+    def test_clone_local_pre_push_extras_run_with_the_pushed_refs_and_a_failure_refuses_the_push(self):
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        before = self.remote_head()
+        passes, passed = self.pre_push_extra("passes", 0)
+        refuses, refused_record = self.pre_push_extra("refuses", 3)
+        self.git("config", "--add", "cmux.prePushExtra", str(passes))
+        self.git("config", "--add", "cmux.prePushExtra", str(refuses))
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"cmux.prePushExtra {refuses} refused the push (exit 3)", output)
+        for record in (passed, refused_record):  # each extra, in order, got the remote, its URL, the top and refs
+            lines = record.read_text().splitlines()
+            self.assertEqual(lines[0], f"origin|{self.origin}|{self.repo.resolve()}")
+            self.assertEqual(lines[1], f"refs/heads/feat-cmux-next {head} refs/heads/feat-cmux-next {before}")
+
+        self.git("config", "--unset-all", "cmux.prePushExtra")
+        self.git("config", "--add", "cmux.prePushExtra", str(passes))
+
+        allowed = self.push()
+
+        output = allowed.stdout + allowed.stderr
+        self.assertEqual(allowed.returncode, 0, output)
+        self.assertEqual(self.remote_head(), head)
+        self.assertNotIn("installed hook copy", output, "the tracked hook runs the extras: no patched copy")
+
+    def test_a_pre_push_extra_that_is_relative_or_not_executable_refuses_the_push(self):
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        before = self.remote_head()
+        script, record = self.pre_push_extra("check", 0)
+        script.chmod(0o644)
+        (self.repo / "check").write_text(script.read_text())  # a checkout path never runs
+        (self.repo / "check").chmod(0o755)
+        for value, why in (("check", "is not an absolute path"), (str(script), "is not an executable file")):
+            self.git("config", "--unset-all", "cmux.prePushExtra", check=False)
+            self.git("config", "--add", "cmux.prePushExtra", value)
+
+            pushed = self.push()
+
+            output = pushed.stdout + pushed.stderr
+            self.assertNotEqual(pushed.returncode, 0, output)
+            self.assertIn(why, output)
+            self.assertEqual(self.remote_head(), before)
+            self.assertFalse(record.exists(), "the extra never ran")
+
     def long_lived_branch(self, name, debt):
         """A long-lived integration branch NAME on the remote, three commits ahead of feat-cmux-next (its own merge
         train), the first carrying a try! in DEBT.swift (pushed past the hook); this clone fetches it."""
@@ -608,6 +698,36 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0, output)
         self.assertIn("ForkDebt.swift", output, "another remote's commits are the push's own")
         self.assertIn(" 2 own commit(s)", output)
+
+    def test_an_extra_upstream_bounds_nothing_on_a_push_onto_an_integration_branch(self):
+        # cmux.prepushExtraUpstream is a cut-from ref like the configured upstream: landing perf onto
+        # feat-cmux-next is judged over feat-cmux-next whatever the setting names (review of the #28493 merge).
+        self.long_lived_branch("perf/x", "PerfDebt")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/perf/x")
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "origin/perf/x")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "what perf lands on feat-cmux-next is judged")
+
+    def test_an_extra_upstream_that_is_not_a_ref_of_the_pushed_remote_bounds_nothing(self):
+        # A local branch nobody pushed (or another remote's ref, a URL push, a raw sha) never hides its commits.
+        self.git("checkout", "--quiet", "-b", "local-x")
+        self.kit("LocalDebt", self.with_try("LocalDebt"))
+        self.commit("never pushed")
+        self.git("checkout", "--quiet", "-b", "task", "origin/feat-cmux-next")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean task work")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "local-x")
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "local-x")
+
+        refused = self.push_ref("task")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("LocalDebt.swift", output, "a local branch's commits are the push's own")
 
     def test_landing_perf_onto_feat_cmux_next_is_judged_over_feat_cmux_next(self):
         # A push onto the integration branch itself (the perf train landing on feat-cmux-next) is judged over

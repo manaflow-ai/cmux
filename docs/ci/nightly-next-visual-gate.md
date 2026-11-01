@@ -1,9 +1,9 @@
 # cmux NEXT nightly: visual gate
 
-Before a cmux NEXT nightly is published, the visual gate opens a DEV build of
+Alongside a cmux NEXT nightly publication, the visual gate opens a DEV build of
 the same commit, drives it to a few busy states, takes light and dark stills of
 its window, and checks the pictures. A build whose window shows a visible
-layout miss fails the gate. Once the gate enforces, that build isn't published.
+layout miss fails the gate. Visual coverage is advisory and never holds the feed.
 
 The canary ([nightly-next-canary.md](nightly-next-canary.md)) proves the signed
 app launches and works. It doesn't look at the window. The gate does.
@@ -23,7 +23,7 @@ state's `light.png`, `dark.png` and `result.json`:
 
 Each finding has a level:
 
-- `fail` blocks publication in enforce mode.
+- `fail` fails the visual verdict in enforce mode and is recorded for follow-up.
 - `host` is a problem with the capture Mac's own configuration. The finding names the Mac, and it never blocks.
 - `warn` and `info` are notes.
 - `error` means the gate couldn't judge that state, for example because a
@@ -84,12 +84,8 @@ spell checker's word list differs from Mac to Mac.
 ## How it runs
 
 Four jobs in `.github/workflows/nightly.yml` run beside the signed build.
-They run only for the `nightly-next` track. In enforce mode, `publish-nightly`
-waits for the gate's verdict, but never more than 10 minutes past the signed
-build being ready. Usually the signed build and notarization take longer, so the
-gate adds no time. When the gate takes longer (a cold DEV build took 35 min), it
-delays publication by the difference, up to that bound. Outside enforce mode,
-publication doesn't wait for the gate at all.
+They run only for the `nightly-next` track. Publication does not depend on any
+of them, so a display queue, capture, or verdict can never delay the feed.
 
 1. `route-visual-gate-nightly` (Linux) resolves the mode and picks the runner.
    - The mode comes from the canary's resolver,
@@ -105,8 +101,8 @@ publication doesn't wait for the gate at all.
      skipped with the verdict `unavailable`, and the job summary says why. A
      self-hosted job that queues can wait up to a day, so the gate never
      queues for a busy runner. A runner taken (or gone) between the pick and
-     the job's start still leaves the gate queued; step 3 stops publication
-     from waiting for it.
+     the job's start still leaves the gate queued; publication is independent
+     of that queue.
    - The owned-pool rescue (`scripts/ci/owned_pool_rescue.py`) watches only
      `build-nightly-app` in a nightly run. The gate waiting for a runner never
      gets the run cancelled, which would kill its notarization.
@@ -128,32 +124,22 @@ publication doesn't wait for the gate at all.
    5. Uploads the stills and the report as `nightly-next-visual-gate-<sha>`
       (3 days).
 
-   The findings go in the job summary. When the verdict holds the build
-   (enforce mode, `fail`), its `Hold publication` step runs.
-3. `visual-gate-nightly-verdict` (Linux, `actions: read` only) is what
-   `publish-nightly` waits on. GitHub can neither cancel one job nor bound
-   its queue time, so this job reads the gate's job in the run attempt
-   (`nightly_next_canary_mode.py await-gate`) once a minute. On a run's
-   first attempt it starts only once the signed build is ready (it needs
-   `verify-final-dmg-nightly`), so the gate has had the whole build to get a
-   runner and finish. Its budgets run from when that check finished, by
-   GitHub's timestamps, so time this job spends waiting for its own Linux
-   runner counts against them, and a hold counts only when the gate itself
-   finished within them:
-   - Outside enforce mode it waits for nothing: no verdict can hold the
-     build, so the job ends at once with the verdict `report`.
+   The findings go in the job summary. A failing enforce-mode verdict still
+   fails this advisory job so it is visible to follow-up work.
+3. `visual-gate-nightly-verdict` (Linux, `actions: read` only) records the
+   gate's result independently of publication. GitHub can neither cancel one
+   job nor bound its queue time, so this job reads the gate's job in the run
+   attempt (`nightly_next_canary_mode.py await-gate`) once a minute. Its
+   result is advisory:
+   - Outside enforce mode it waits for nothing and records the verdict `report`.
    - Still waiting for a runner 5 minutes after the signed build was ready
-     (the queue budget): the verdict is `unavailable`, a warning and the job
-     summary say this nightly publishes unchecked, and publication goes
-     ahead. Nothing is cancelled; the gate still runs if a runner frees up,
-     and its verdict is still recorded.
+     (the queue budget): the verdict is `unavailable`; a warning and the job
+     summary say this nightly was published unchecked. Nothing is cancelled;
+     the gate still runs if a runner frees up, and its verdict is still recorded.
    - Started: it waits for the gate to finish, at most 10 minutes past the
-     signed build (the hold). `blocks` is `true` only when the gate's `Hold
-     publication` step succeeded. A held build fails this job too, so "Re-run
-     failed jobs" retries the gate and this job together and the retried
-     verdict decides. A re-run starts the gate beside this job, so there the
-     gate gets the full 15-minute queue budget and its 75-minute timeout:
-     a re-run never publishes a held build unchecked for want of time.
+     signed build. `blocks` is `true` only when the gate's `Hold publication`
+     step succeeded; that value is recorded for follow-up and has no
+     publication effect.
    - Missing, never finishing, or the API unreadable after 5 tries:
      `unavailable`, and publication goes ahead.
 
@@ -165,40 +151,28 @@ publication doesn't wait for the gate at all.
    `cmux NEXT visual gate passed|failed <build sha>: <run>`. This issue is the
    gate's record: the recovery path and the auto flip read it.
 
-`publish-nightly` needs `visual-gate-nightly-verdict`, never the Mac job
-itself. It doesn't publish this run's own build when that job's `blocks`
-output is `true`, which means enforce mode
-and a failing verdict. Publication goes ahead as before in every other case:
-report mode, a skipped gate (no owned session runner idle, mode `off`), a
-gate that couldn't capture or judge, or one that queued past its budget
-(`unavailable`, reported as a warning).
-
-The gate fails closed on its own configuration. When the mode can't be
-resolved (an invalid `NIGHTLY_NEXT_VISUAL_GATE`, or the resolver crashing),
-`route-visual-gate-nightly` gives the mode `invalid` with an error: no gate
-runs and `publish-nightly` doesn't publish this run's own build. Set the
-variable to `report`, `enforce`, `off` or `auto` to publish again. A failure
-outside the gate never holds a build this way.
+`publish-nightly` does not need the visual jobs. A mode that cannot be resolved
+is still reported as an error, but it cannot hold publication; set the variable
+to `report`, `enforce`, `off` or `auto` to restore visual coverage.
 
 A build whose notarization was still pending can be published later by
 another run, through `find-nightly-next-recovery` →
 `recover-nightly-next-notarization` → `publish-nightly`, or by a
 `nightly_next_continue_only` dispatch. Such a build is judged by its own
-recorded verdict, not by the gate of the run that recovers it.
+recorded signed/provenance checks, not by the visual gate of the run that
+recovers it. Visual findings remain advisory and are recorded for follow-up.
 `find-nightly-next-recovery` reads the verdicts from the issue (the last 14
 days; `nightly_next_canary_mode.py verdicts`). For each candidate, the
-continuation runs `nightly_next_canary_mode.py admit`:
+continuation keeps the notarization and lineage checks; it does not run a
+visual publication gate:
 
 | Mode | Verdict of that build | Result |
 | --- | --- | --- |
-| `enforce` | `fail` | Refused, and the next candidate is tried. |
-| `enforce` | `pass` | Published. |
-| `enforce` | none (skipped, `unavailable`, or the issue can't be read) | Published, with a warning. |
-| `report`, `off` | any | Published. |
+| any mode | any verdict | Published when signing, notarization, lineage and feed checks pass. |
 
-The run's own `blocks` holds only its own build, never a recovered one.
-When the mode can't be resolved, recovery reads it as `enforce`: a build
-the gate recorded as failed is refused and any other is admitted.
+The run's own `blocks` value is recorded for its own build, never used to hold
+publication or recovery. Recovery still reads the recorded verdicts so a
+follow-up can address a failed build.
 
 HQ's `cmux-ci capture` (`build-fleet/pr-capture`) takes the same stills on a
 fleet capture mini. It needs an HQ checkout, SSH to the `cmux-mac-mini-cua*`
@@ -216,13 +190,13 @@ python3 scripts/cmux-next/visual-gate/visual_gate.py ~/.cache/pr-capture/<sha8>/
 | Value | Effect |
 | --- | --- |
 | `report` | Captures and reports; never blocks. |
-| `enforce` | A failing verdict stops publication. |
+| `enforce` | A failing verdict fails the advisory visual job and is recorded; publication is unaffected. |
 | `off` | Skips the gate. |
-| unset or `auto` | Reports until `NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER` (default 2026-10-28T16:00Z), then enforces. It enforces only if, in the week before that date, the gate failed no build and passed at least 3. Otherwise it stays in report until someone triages it and sets `enforce` or moves the date. |
+| unset or `auto` | Reports indefinitely. Use `report`, `enforce` or `off` explicitly to choose the advisory coverage mode. |
 
-This is the canary's one-week flip, read from this gate's own issue, plus a
-minimum of passes (`--min-passes 3`). A week in which the gate was mostly
-skipped proves nothing about the gate. The canary itself needs no passes.
+The visual gate's verdict issue remains a record for follow-up. A week in which
+the gate was mostly skipped proves nothing about the gate; publication still
+uses the signed, notarized, provenance-checked build path.
 
 ## Add a state
 

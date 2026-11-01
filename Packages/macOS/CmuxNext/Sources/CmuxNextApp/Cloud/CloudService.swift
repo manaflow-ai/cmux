@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -26,6 +27,10 @@ final class CloudService {
     /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
     /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
     @ObservationIgnored let machineAPI: CloudAPIClient
+    /// Same person and team as the machine API, at the configured platform preview origin.
+    var previewAPI: CloudAPIClient? {
+        configuration.platformPreviewAPIBaseURL().map { machineAPI.previewClient(baseURL: $0) }
+    }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
@@ -63,6 +68,10 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
+    /// The plan's machine sizes a person's create offers, from the last machine list: its limits'
+    /// sizes and the rates the server gave listed machines of the same size. Read from the list
+    /// itself, so a machine this Mac could not connect to still gives its size a rate.
+    private(set) var planSizes: [CloudWorkspaceSetupWizard.SizeOption] = []
     /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
     @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
@@ -114,8 +123,6 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
-    /// The machine each recent `cloud.startChat` send ran on, so its retry stays there.
-    @ObservationIgnored let startChatDestinations = CloudStartChat.Destinations()
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -135,6 +142,8 @@ final class CloudService {
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
     @ObservationIgnored let uploads = CloudUploads()
+    /// Staged uploads into ssh-peer chats, beside the Cloud ones (``AgentPeerUploads``).
+    @ObservationIgnored let peerUploads = AgentPaneStagedUploads<AgentPeerUploads.Target>(owner: "AgentPeerUploads.stageExpiry")
 
     /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
     /// batches run on it (one main thread, one budget).
@@ -143,7 +152,7 @@ final class CloudService {
     /// - Parameters:
     ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, authCaptureFixture: Bool = false) {
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, loginKeychain: LoginKeychain, authCaptureFixture: Bool = false) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
@@ -155,12 +164,11 @@ final class CloudService {
         api = CloudAPIClient(
             configuration: configuration,
             tokens: { try await auth.tokens() },
-            teamID: { await auth.teamID }
-        )
+            teamID: { await auth.teamID })
         let identity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
             transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -168,7 +176,8 @@ final class CloudService {
         installIdentity = identity
         machineAPI = configuration.linkSource == .appServer
             ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
-                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
+                                            machineIO: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
@@ -209,24 +218,14 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
+        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
+            signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() })
+        credentialProvider = CloudCredentialProvider(relay: relay)
+        let launcher = configuration.linkSource == .appServer
+            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
-        let clientHeaders = identity.requestHeaders
-        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
-            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
-            token: { try await identity.installToken() },
-            invalidate: { await identity.invalidate() },
-            // The team is the backend team the relay bills: the install
-            // token's team claim (never the Stack team id) (cx-i6g4).
-            session: { [auth] in
-                guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
-                let token = try? await identity.installToken()
-                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
-            },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
-        ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
@@ -234,7 +233,6 @@ final class CloudService {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
-        startChatDestinations.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
@@ -250,6 +248,18 @@ final class CloudService {
     func localDeviceID() throws -> String { try deviceID.loadNow() }
     /// This Mac's install id, read off the main thread (``CloudDeviceID/load()``).
     func installID() async throws -> String { try await deviceID.load() }
+
+    /// Whether the signed-in caller owns `machineID`, as the platform answers it and as the Codex
+    /// broker's target reads it: the classic attach answer's `vmKind == "owner"` (#28788 gives a team
+    /// machine's creator that), or a Worker machine's owner link on the app server link. A personal
+    /// harness login goes only to such a machine (``CloudCredentialTransfer``).
+    func callerOwnsVM(_ machineID: String) async throws -> Bool {
+        guard configuration.linkSource == .appServer else {
+            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).vmKind == "owner"
+        }
+        guard let link = machines.session(machineID)?.appLink else { return false }
+        return await link.ownerLink != nil
+    }
     @ObservationIgnored private let deviceID: CloudDeviceID
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -480,6 +490,7 @@ final class CloudService {
             }
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
             machines.cloudLimits = limits
+            planSizes = CloudWorkspaceSetupWizard.SizeOption.options(limits: limits, machines: list)
             if let limits { planObserved(limits.planId) }
             lastError = nil
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
@@ -661,6 +672,7 @@ final class CloudService {
         recordReadsOutstanding = [:]
         deferredRecordRemovals = [:]
         machines.cloudLimits = nil
+        planSizes = []
         hasLoadedMachines = false
         listLoadedAt = nil
     }

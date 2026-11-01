@@ -272,7 +272,9 @@ jobs:
 
       - name: Validate fleet compiler-cache wiring
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: bash tests/test_ci_fleet_compilation_cache.sh
+        run: |
+          bash tests/test_ci_fleet_compilation_cache.sh
+          python3 tests/test_ci_fleet_compilation_cache.py
 
       - name: Validate feature flag linter scope
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -917,7 +919,11 @@ jobs:
 
       - name: Validate portable placement (fleet Linux, then a free mini, then Blacksmith)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_portable_job_placement.py
+        run: |
+          python3 tests/test_ci_portable_job_placement.py
+          python3 tests/test_nightly_linux_admission.py
+          python3 tests/test_nightly_admission_receipt.py
+          python3 tests/test_nightly_dedicated_mini.py
 
       - name: Validate the rescue's re-runs route alike for both bot identities
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -977,6 +983,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_linux_single_size.py
 
+      - name: Validate stalled CI paths use the runner set
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_set.py
+
+      - name: Validate fast checks fail over from stalled labels
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_failover.py
+
       - name: Validate the INTERNAL iOS builder decisions
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
@@ -1012,6 +1026,10 @@ jobs:
       - name: Validate superseded pull request runs are cancelled
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runs_cancel_superseded.py
+
+      - name: Validate label events skip CI for labels it does not read
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_label_events_skip_full_ci.py
 
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1638,6 +1656,10 @@ jobs:
       - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_legacy_publish_linux.py
+
+      - name: Validate every build-src worktree add prunes a stale registration first
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_build_src_worktree_prune.py
 
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

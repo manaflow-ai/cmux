@@ -43,6 +43,9 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// The app's `browser` with `caller`: the browser nearest it; unset
+    /// answers as an app from before #26648 (no `browser`).
+    browser: Option<Value>,
     /// Every `.list` read answers no items (with `resource_result` set).
     empty_lists: bool,
     /// `Backend::identity` fails, as with no app on the socket.
@@ -345,6 +348,37 @@ impl Backend for Fake {
         }
     }
 
+    // The fake's chat rows stand in for scoped acpmux info, separate from the
+    // daemon's terminal/agent records and the app's visible tab topology.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::super::agents::chat::ChatCommand,
+        _idempotency_key: Option<&str>,
+        _origin: &str,
+    ) -> Result<Value, CallFailure> {
+        let super::super::agents::chat::ChatCommand::State { target } = command else {
+            return Err(CallFailure::local(FailureKind::NotRun, "usage.invalid", "read only"));
+        };
+        self.sent.borrow_mut().push(json!({"kind": "chat", "session": session, "target": target}));
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        let chat = live
+            .daemon
+            .as_ref()
+            .or(self.daemon_snapshot.as_ref())
+            .and_then(|daemon| daemon["chats"].as_array())
+            .and_then(|chats| chats.iter().find(|chat| chat["chat"] == target.as_str()));
+        match chat {
+            Some(chat) => Ok(json!({"schema_version": 1, "action": "chat.state", "result": chat})),
+            None => Err(CallFailure::local(
+                FailureKind::NotRun,
+                "selector.not_found",
+                "no scoped acpmux chat",
+            )),
+        }
+    }
+
     fn browser(
         &self,
         request: browser_tools::Request,
@@ -365,7 +399,13 @@ impl Backend for Fake {
         if self.identity_fails {
             return Err(CallFailure::local(FailureKind::NotRun, "socket.no_app", "no cmux app"));
         }
-        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
+        Ok(self.caller.clone().map(|caller| {
+            let mut identity = json!({"caller": caller, "beside": self.beside});
+            if let Some(browser) = &self.browser {
+                identity["browser"] = browser.clone();
+            }
+            identity
+        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -836,6 +876,17 @@ fn json_rpc_lifecycle_and_errors() {
                         "params": {"name": "no_such_tool"}}))
         .unwrap();
     assert_eq!(missing["error"]["code"], -32602);
+    assert_eq!(missing["error"]["message"], "unknown tool: no_such_tool", "{missing}");
+    // A typo of a real tool names the tool it was likely meant to be.
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "t", "method": "tools/call",
+                        "params": {"name": "workspace_lst"}}))
+        .unwrap();
+    assert_eq!(typo["error"]["code"], -32602);
+    assert_eq!(
+        typo["error"]["message"], "unknown tool: workspace_lst; did you mean workspace_list?",
+        "{typo}"
+    );
 
     let listed = server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"}));
     let tools = listed.unwrap()["result"]["tools"].as_array().cloned().unwrap();
@@ -1466,6 +1517,7 @@ mod agent_wait;
 mod caller_scope;
 mod catalog;
 mod machine_catalog;
+mod retained;
 mod settings;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
@@ -1491,6 +1543,20 @@ fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
     assert!(all.len() > 100, "the full list stays the API");
+    // An unknown name's hint names only what tools/list offers here.
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "t", "method": "tools/call",
+                        "params": {"name": "workspace_lst"}}))
+        .unwrap();
+    assert_eq!(typo["error"]["message"], "unknown tool: workspace_lst", "{typo}");
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "x", "method": "tools/call",
+                        "params": {"name": "cmux_exce"}}))
+        .unwrap();
+    assert_eq!(
+        typo["error"]["message"], "unknown tool: cmux_exce; did you mean cmux_exec?",
+        "{typo}"
+    );
     assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
 
     // Docs returns a matching tool's schema, best match first: the daemon's

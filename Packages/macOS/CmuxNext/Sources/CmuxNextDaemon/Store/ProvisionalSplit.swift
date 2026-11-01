@@ -69,23 +69,60 @@ import Foundation
     }
 
     /// The pane a pending create's command addresses: `handle`, or, for a stand-in pane, the daemon's
-    /// pane that took it over under the same public id (nil until the daemon reports it).
+    /// pane that took it over (nil until the daemon reports it): under the same public id for a split's
+    /// stand-in, the pane holding the first tab of the workspace with the same key for Cmd-N's.
     static func daemonHandle(showing handle: PaneID, in store: DaemonStore) -> PaneID? {
-        if let paneID = store.standInTargets[handle] ?? store.intentLog.entries.lazy.compactMap({ entry -> String? in
-            if case .splitPane(_, _, _, let provisional) = entry.kind, provisional.handle == handle { return provisional.paneID }
-            return nil
-        }).first {
-            return store.index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != handle ? $0.handle : nil }
+        if let origin = store.standInTargets[handle] ?? standInOrigin(of: handle, in: store) {
+            return daemonPane(of: origin, showing: handle, in: store)
         }
         return store.panesByHandle[handle] != nil ? handle : nil
     }
 
-    /// A create pressed on a pending create's stand-in (a split's, a New Terminal Tab's): remember the stand-in's public
-    /// id, so the target stays found once the daemon's pane takes the stand-in over under a new handle.
+    /// The daemon's pane that took over the stand-in `handle` made by `origin`; nil before.
+    static func daemonPane(of origin: StandInOrigin, showing handle: PaneID, in store: DaemonStore) -> PaneID? {
+        switch origin {
+        case .pane(let paneID):
+            return store.index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != handle ? $0.handle : nil }
+        case .workspace(let key):
+            return ProvisionalWorkspaceOverlay.adoptedPane(of: key, in: store)
+        }
+    }
+
+    /// What made stand-in `handle`: a pending split's (or column's, row's) provisional pane, the first pane of a
+    /// pending Cmd-N workspace, or of one whose create succeeded (``DaemonStore/adoptedStandIn(_:)``).
+    static func standInOrigin(of handle: PaneID, in store: DaemonStore) -> StandInOrigin? {
+        guard handle.rawValue >= ProvisionalPane.firstHandle else { return nil }
+        for entry in store.intentLog.entries {
+            switch entry.kind {
+            case .splitPane(_, _, _, let provisional) where provisional.handle == handle: return .pane(provisional.paneID)
+            case .createWorkspace(let provisional, _) where provisional.pane == handle: return .workspace(provisional.key)
+            default: continue
+            }
+        }
+        return store.adoptedStandIn(handle).map(StandInOrigin.workspace)
+    }
+
+    /// Whether the create that makes a stand-in of `origin` is still in flight (in the log, not closed by the person).
+    static func createInFlight(_ origin: StandInOrigin, in store: DaemonStore) -> Bool {
+        store.intentLog.entries.contains { entry in
+            guard !entry.closeWhenCreated else { return false }
+            switch (entry.kind, origin) {
+            case (.splitPane(_, _, _, let provisional), .pane(let paneID)): return provisional.paneID == paneID
+            case (.createWorkspace(let provisional, _), .workspace(let key)): return provisional.key == key
+            default: return false
+            }
+        }
+    }
+
+    /// A create pressed on a pending create's stand-in (a split's, a New Terminal Tab's, Cmd-N's first pane): remember
+    /// what made the stand-in, so the target stays found once the daemon's pane takes it over under a new handle.
     static func rememberStandInTarget(_ target: PaneID, in store: DaemonStore) {
-        guard target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
-              let paneID = store.panesByHandle[target]?.resourceID?.rawValue else { return }
-        store.standInTargets[target] = paneID
+        guard target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil else { return }
+        if let paneID = store.panesByHandle[target]?.resourceID?.rawValue {
+            store.standInTargets[target] = .pane(paneID)
+        } else if let origin = standInOrigin(of: target, in: store) {
+            store.standInTargets[target] = origin
+        }
     }
 
     /// The pane that shows `target` now: `target` itself, or the daemon's pane that took a stand-in target over.

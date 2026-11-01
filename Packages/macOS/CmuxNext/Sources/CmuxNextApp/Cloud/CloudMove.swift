@@ -161,7 +161,9 @@ struct CloudMove {
         let ownerPID = await machine.link?.ownerPID
         let moved: CloudMoveCLI.Answer
         do {
-            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat,
+            // A running turn goes on on the machine, with what it wrote since the sync above.
+            let sync = CloudMoveCLI.FrozenSync(pull: false, socket: machineSocket, local: folder.root, remote: remote.folder)
+            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat, sync: sync,
                                             vmKind: ownerPID == nil ? "none" : "owner", toPID: ownerPID)
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
@@ -218,12 +220,11 @@ struct CloudMove {
     }
 
     /// Syncs `folder` under the first of the machine's work roots it can write.
-    /// `place`: a folder under the work root the copy goes in (a Cloud start's own, ``AgentPaneCloudStart/remotePlace``).
-    func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI,
-                      retry: CloudMoveRetries.Retry, place: String? = nil) async throws -> (folder: String, chat: String) {
+    private func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI,
+                      retry: CloudMoveRetries.Retry) async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            let remote = folder.remote(under: place.map { (root.hasSuffix("/") ? root : root + "/") + $0 } ?? root)
+            let remote = folder.remote(under: root)
             do {
                 last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
@@ -234,8 +235,13 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
-        if last.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
-        throw Failure(message: CloudMoveStrings.syncFailed(machine, last.error ?? last.errorCode ?? ""), retry: retry)
+        throw Self.failure(syncing: last, machine: machine, retry: retry)
+    }
+
+    /// A failed copy's failure: an outdated machine's Retry updates it first.
+    static func failure(syncing answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
+        if answer.errorCode == CloudMoveStrings.outdatedCode { return Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
+        return Failure(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a

@@ -39,6 +39,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "turn_silent",
     "turn_heard",
     "turn_result",
+    // A turn the person did not start, around its rows (`background_turn.rs`).
+    "background_turn",
     "permission_request",
     "permission_auto",
     "permission_decision",
@@ -503,6 +505,48 @@ impl Hub {
         })?;
         page.events = found.into_iter().rev().flatten().map(|(rec, _)| rec).collect();
         Ok(page)
+    }
+}
+
+/// How much of a prompt's text an entry of the prompt index keeps: the rail's hover card title
+/// clamps to three lines, so a pasted log never travels whole.
+pub const PROMPT_INDEX_TEXT_CHARS: usize = 240;
+
+/// A prompt's record as the prompt index carries it: its id, whether it was a steer or went on
+/// with a turn, and the start of its text. Nothing else (images, pastes, `_meta`).
+pub fn prompt_index_msg(msg: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for key in ["promptId", "steer", "turnId", "continues"] {
+        if let Some(value) = msg.get(key) {
+            out.insert(key.to_owned(), value.clone());
+        }
+    }
+    if let Some(text) = msg.get("text").and_then(Value::as_str) {
+        let cut: String = text.chars().take(PROMPT_INDEX_TEXT_CHARS).collect();
+        out.insert("text".to_owned(), Value::String(cut));
+    }
+    Value::Object(out)
+}
+
+impl Hub {
+    /// Every prompt (`user_message`) of a session's log before `before`, oldest first, each cut to
+    /// [`prompt_index_msg`]: the thread rail lays out a long chat's every turn from its first frame
+    /// instead of growing as history pages in (Leo, 2026-10-31). One pass that parses only prompt
+    /// lines (the store skips the rest by kind), so it stays fast however much tool output the
+    /// chat has.
+    pub fn prompt_index(&self, id: &str, before: Option<u64>) -> Result<Vec<EventRecord>> {
+        let before = before.unwrap_or(u64::MAX);
+        let mut out = Vec::new();
+        let skip = |dir: &[u8], kind: &[u8]| !(dir == b"mux" && kind == b"user_message");
+        self.store.scan_back(id, 0, before, &skip, &mut |mut rec| {
+            if rec.dir == "mux" && rec.kind == "user_message" {
+                rec.msg = prompt_index_msg(&rec.msg);
+                out.push(rec);
+            }
+            true
+        })?;
+        out.reverse();
+        Ok(out)
     }
 }
 
