@@ -1147,6 +1147,49 @@ export const SETTINGS_PAGE: LatencyPageSpec = {
   actions: settingsActions,
 };
 
+const LIVE_WHEEL_STEPS = 12;
+const LIVE_WHEEL_DELTA = 120;
+
+/** The 3,000-turn chat scrolled over a live background (flows.harness.ts `live=`; `none` draws
+ *  none): what the background's loop costs the transcript's frames. */
+function liveScroll(style: string): LatencyPageSpec {
+  return {
+    name: `chat live background ${style}`,
+    path: `/test/latency/flows.html?mock&turns=3000&resident${style === "none" ? "" : `&live=${style}`}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.live-background.${style}.scroll`,
+        name: `scroll over live background (${style})`,
+        metricType: "scroll_frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.waitForSelector(".acpmux-scroll");
+          await page.evaluate(() => {
+            const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            scroll.scrollTop = scroll.scrollHeight;
+          });
+          await quiet(page);
+          const from = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+          const travel = LIVE_WHEEL_STEPS * LIVE_WHEEL_DELTA;
+          if (from < travel + 100) throw new Error("long transcript does not have a scrollable history");
+          await page.locator(".acpmux-scroll").hover();
+          return `document.querySelector(".acpmux-scroll").scrollTop <= ${from - travel + LIVE_WHEEL_DELTA / 2}`;
+        },
+        async input(page) {
+          for (let step = 0; step < LIVE_WHEEL_STEPS; step += 1) {
+            await page.mouse.wheel(0, -LIVE_WHEEL_DELTA);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+        },
+        settle: quiet,
+      },
+    ],
+  };
+}
+
+export const LIVE_BACKGROUND_PAGES: LatencyPageSpec[] = ["none", "aurora", "grain"].map(liveScroll);
+
 export const PAGES: LatencyPageSpec[] = [
   DIFF_PAGE,
   MARKDOWN_PAGE,
@@ -1159,4 +1202,5 @@ export const PAGES: LatencyPageSpec[] = [
   RAIL_DRAG_PAGE,
   RAIL_POINTER_PAGE,
   ...RAIL_SWEEP_PAGES,
+  ...LIVE_BACKGROUND_PAGES,
 ];

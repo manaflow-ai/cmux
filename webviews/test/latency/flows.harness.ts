@@ -58,4 +58,12 @@ if (resident) {
   await window.cmuxAcpmuxDebug!.seedRows(turns * 3);
   await until(() => document.querySelector(".acpmux-minimap__entry")?.getAttribute("aria-setsize") === String(turns));
 }
+// LIVE BACKGROUND: `live=<style>` draws the live background behind the pane (liveBackground.ts),
+// to measure what its loop costs the transcript's scroll.
+const live = new URLSearchParams(location.search).get("live");
+if (live) {
+  if (live !== "aurora" && live !== "drift" && live !== "grain") throw new Error(`unsupported live background ${live}`);
+  const { installLiveBackground } = await import("../../src/ui/liveBackground/liveBackground");
+  if (!installLiveBackground(document, live)) throw new Error("the live background needs WebGL");
+}
 document.documentElement.dataset.latencyFlowsReady = "true";
