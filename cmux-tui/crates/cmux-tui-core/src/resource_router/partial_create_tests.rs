@@ -166,11 +166,67 @@ fn set_fill_hook(mux: &Arc<Mux>, point: DiskFillsAfter, hook: Option<Arc<dyn Fn(
     }
 }
 
+/// What the refused request creates.
+#[derive(Clone, Copy, Debug)]
+enum RefusedCreate {
+    /// `workspace.create` with its first terminal.
+    Workspace,
+    /// `tab.create_terminal` in the existing workspace's pane.
+    Tab,
+    /// `pane.split` of the existing workspace's pane.
+    Split,
+}
+
+/// The counts a refused create must leave as they were.
+#[derive(Debug, PartialEq, Eq)]
+struct TopologyCounts {
+    workspaces: usize,
+    panes: usize,
+    tabs: usize,
+    terminals: usize,
+}
+
+/// The store's public projection: what `workspace.list`, `pane.list` and
+/// `tab.list` read.
+fn public_counts(mux: &Mux) -> TopologyCounts {
+    let snapshot = public_session_snapshot(mux).unwrap();
+    let count = |collection: &str| snapshot[collection].as_array().map_or(0, Vec::len);
+    TopologyCounts {
+        workspaces: count("workspaces"),
+        panes: count("panes"),
+        tabs: count("tabs"),
+        terminals: count("terminals"),
+    }
+}
+
+/// The mux state: what the `list-workspaces` tree (the app's source) reads.
+fn memory_counts(mux: &Mux) -> TopologyCounts {
+    mux.with_state(|state| TopologyCounts {
+        workspaces: state.workspaces.len(),
+        panes: state.panes.len(),
+        tabs: state.surfaces.len(),
+        terminals: state.terminal_catalog.len(),
+    })
+}
+
+/// Whether `removal` takes away what `add` showed.
+fn undoes(removal: &crate::TreeDelta, add: &crate::TreeDelta) -> bool {
+    use crate::TreeDeltaKind as Kind;
+    match removal.kind {
+        Kind::WorkspaceClosed => removal.workspace == add.workspace,
+        Kind::ScreenClosed => removal.screen.is_some() && removal.screen == add.screen,
+        Kind::PaneClosed => removal.pane.is_some() && removal.pane == add.pane,
+        Kind::TabClosed => removal.surface.is_some() && removal.surface == add.surface,
+        _ => false,
+    }
+}
+
 /// One refused create; returns what is wrong, empty when nothing is.
-fn refused_create_problems(point: DiskFillsAfter) -> Vec<String> {
+fn refused_create_problems(create: RefusedCreate, point: DiskFillsAfter) -> Vec<String> {
+    let case = format!("{create:?} at {point:?}");
     let mux = Mux::new_for_test("diskfull-create", SurfaceOptions::default());
     // The fuzz run made one workspace before the disk filled.
-    topology::dispatch(
+    let before = topology::dispatch(
         &mux,
         parsed_request(
             "workspace.create",
@@ -179,7 +235,9 @@ fn refused_create_problems(point: DiskFillsAfter) -> Vec<String> {
         ),
     )
     .unwrap();
-    let workspaces_before = mux.with_state(|state| state.workspaces.len());
+    let pane = before["value"]["pane_id"].as_str().unwrap().to_string();
+    let (public_before, memory_before) = (public_counts(&mux), memory_counts(&mux));
+    let listed_before = listed_workspace_names(&mux);
     let events = mux.subscribe();
     let filled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     set_fill_hook(
@@ -196,64 +254,89 @@ fn refused_create_problems(point: DiskFillsAfter) -> Vec<String> {
         })),
     );
 
-    let created = topology::dispatch(
-        &mux,
-        parsed_request(
-            "workspace.create",
-            json!({"initial_content":"terminal","name":"ghost"}),
-            "diskfull-ghost",
-        ),
-    );
+    let (operation, fields) = match create {
+        RefusedCreate::Workspace => {
+            ("workspace.create", json!({"initial_content":"terminal","name":"ghost"}))
+        }
+        RefusedCreate::Tab => ("tab.create_terminal", json!({"pane":pane})),
+        RefusedCreate::Split => ("pane.split", json!({"pane":pane,"direction":"right"})),
+    };
+    let created = topology::dispatch(&mux, parsed_request(operation, fields, "diskfull-ghost"));
     set_fill_hook(&mux, point, None);
-    assert!(filled.load(std::sync::atomic::Ordering::Acquire), "{point:?}: the disk never filled");
-    let error = created.expect_err("a create on a full disk reported success");
-    eprintln!("{point:?}: refused create: {error:?}");
+    if !filled.load(std::sync::atomic::Ordering::Acquire) {
+        mux.shutdown();
+        return vec![format!("{case}: the disk never filled")];
+    }
+    let mut problems = Vec::new();
+    // (e) The caller learns why: the store's own reason, not an internal one.
+    match &created {
+        Ok(value) => {
+            problems.push(format!("{case} (e): a create on a full disk succeeded: {value}"))
+        }
+        Err(error) => {
+            eprintln!("{case}: refused create: {error:?}");
+            if error.code != "operation.failed" || !error.message.contains("disk is full") {
+                problems.push(format!(
+                    "{case} (e): the caller's error does not say the disk is full: {error:?}"
+                ));
+            }
+        }
+    }
 
-    // (a) The daemon's `workspace.list`.
+    // (a) The store's public projection (`workspace.list`, `tab.list`).
     let listed = listed_workspace_names(&mux);
-    // (b) The tree the app reads (`list-workspaces`), and the mux state under it.
+    let public_after = public_counts(&mux);
+    // (b) The tree the app reads (`list-workspaces`): the mux state.
     let tree = app_tree_workspace_names(&mux);
-    let workspaces_after = mux.with_state(|state| state.workspaces.len());
-    // (c) The event stream the app subscribes to. A tree resync alone does
-    // not pass: the stream must announce the removal of what it announced.
-    let mut announced = None;
-    let mut removed = false;
+    let memory_after = memory_counts(&mux);
+    // (c) The event stream the app subscribes to: each add has its removal,
+    // and a tree resync follows (the app drops a delta that does not advance
+    // its revision and recovers on the resync).
+    let mut adds = Vec::new();
+    let mut removals = Vec::new();
+    let mut resynced_after_add = false;
     while let Ok(event) = events.try_recv() {
         match event {
-            crate::MuxEvent::TreeDelta(delta)
-                if delta.kind == crate::TreeDeltaKind::WorkspaceAdded
-                    && delta.entity["name"] == "ghost" =>
-            {
-                announced = Some(delta.workspace);
-            }
-            crate::MuxEvent::TreeDelta(delta)
-                if delta.kind == crate::TreeDeltaKind::WorkspaceClosed
-                    && Some(delta.workspace) == announced =>
-            {
-                removed = true;
-            }
+            crate::MuxEvent::TreeDelta(delta) => match delta.kind {
+                crate::TreeDeltaKind::WorkspaceAdded
+                | crate::TreeDeltaKind::ScreenAdded
+                | crate::TreeDeltaKind::PaneAdded
+                | crate::TreeDeltaKind::TabAdded => adds.push(delta),
+                crate::TreeDeltaKind::WorkspaceClosed
+                | crate::TreeDeltaKind::ScreenClosed
+                | crate::TreeDeltaKind::PaneClosed
+                | crate::TreeDeltaKind::TabClosed => removals.push(delta),
+                _ => {}
+            },
+            crate::MuxEvent::TreeChanged if !adds.is_empty() => resynced_after_add = true,
             _ => {}
         }
     }
     free_the_disk(&mux);
 
-    let mut problems = Vec::new();
-    if listed.iter().any(|name| name == "ghost") {
-        problems
-            .push(format!("{point:?} (a): workspace.list has the refused workspace: {listed:?}"));
-    }
-    if tree.iter().any(|name| name == "ghost") || workspaces_after != workspaces_before {
+    if listed != listed_before || public_after != public_before {
         problems.push(format!(
-            "{point:?} (b): the app's list-workspaces tree has the refused workspace: {tree:?} \
-             ({workspaces_before} workspaces before, {workspaces_after} after; \
-             workspace.list: {listed:?})"
+            "{case} (a): the store's projection changed: {listed_before:?} {public_before:?} -> \
+             {listed:?} {public_after:?}"
         ));
     }
-    if announced.is_some() && !removed {
+    if tree.iter().any(|name| name == "ghost") || memory_after != memory_before {
         problems.push(format!(
-            "{point:?} (c): the event stream announced the refused workspace \
-             (WorkspaceAdded {announced:?}) and never its removal"
+            "{case} (b): the app's list-workspaces tree has what the store refused: {tree:?} \
+             {memory_before:?} -> {memory_after:?} (workspace.list: {listed:?})"
         ));
+    }
+    for add in &adds {
+        if !removals.iter().any(|removal| undoes(removal, add)) {
+            problems.push(format!(
+                "{case} (c): the event stream announced {:?} (workspace {}, pane {:?}, tab {:?}) \
+                 and never its removal",
+                add.kind, add.workspace, add.pane, add.surface
+            ));
+        }
+    }
+    if !adds.is_empty() && !resynced_after_add {
+        problems.push(format!("{case} (c): no tree resync followed the refused create's adds"));
     }
     mux.shutdown();
     problems
@@ -263,23 +346,23 @@ fn refused_create_problems(point: DiskFillsAfter) -> Vec<String> {
 /// daemon's state directory on a full disk, `cmux workspace create --name X`
 /// answers `operation.failed` "database or disk is full" and `workspace list`
 /// has no X, but the app shows X (no tabs), also after a relaunch against the
-/// same daemon. A refused create must leave X nowhere: not in
-/// `workspace.list`, not in the tree the app reads, and the event stream must
-/// not announce X without announcing its removal. The disk fills at each
-/// step of the creation in turn.
+/// same daemon. A refused create must leave nothing behind: not in the
+/// store's projection, not in the tree the app reads, and the event stream
+/// must not announce it without its removal. The caller's error says the
+/// disk is full. The disk fills at each step of a workspace create, and
+/// after a tab's or a split's terminal is running (review of #30268, R1).
 #[test]
 fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
-    let problems = [
-        DiskFillsAfter::WorkspaceRow,
-        DiskFillsAfter::TerminalReservation,
-        DiskFillsAfter::TerminalReady,
-    ]
-    .into_iter()
-    .flat_map(refused_create_problems)
-    .collect::<Vec<_>>();
-    assert!(
-        problems.is_empty(),
-        "a refused create left a ghost workspace:\n{}",
-        problems.join("\n")
-    );
+    let cases = [
+        (RefusedCreate::Workspace, DiskFillsAfter::WorkspaceRow),
+        (RefusedCreate::Workspace, DiskFillsAfter::TerminalReservation),
+        (RefusedCreate::Workspace, DiskFillsAfter::TerminalReady),
+        (RefusedCreate::Tab, DiskFillsAfter::TerminalReady),
+        (RefusedCreate::Split, DiskFillsAfter::TerminalReady),
+    ];
+    let problems = cases
+        .into_iter()
+        .flat_map(|(create, point)| refused_create_problems(create, point))
+        .collect::<Vec<_>>();
+    assert!(problems.is_empty(), "a refused create left a ghost:\n{}", problems.join("\n"));
 }
