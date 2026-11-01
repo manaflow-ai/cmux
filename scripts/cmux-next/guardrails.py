@@ -2761,11 +2761,12 @@ class Ratchet:
     FactsCache keeps every analyzed content, so a warm push analyzes only new contents); the ratchet report
     prints how many. A caller that starts it before other work pays what is left of it at finish(), but the
     analysis shares the interpreter with that work, so it is not free beside CPU-bound scanners. It fails
-    open: a missing or broken script, an error or a run past WAIT_LIMIT is a warning and lets the push
-    through.
+    open on a missing or broken script or an error: a warning, and the push goes through. A slow run is not
+    an error: finish() waits for its answer. The 20 s wait that passed the push (2026-10-28, for the git
+    deadlock arch_counts._ObjectReader fixed) let 7c99189e2ce's app_lines +2 through on a busy Mac (TIP RED
+    1014, 2026-10-31); a hang is bounded by prepush-gate's watchdog (CMUX_NEXT_GATE_LIMIT_SECONDS), which
+    refuses the push and prints every thread's stack.
     """
-
-    WAIT_LIMIT = 20.0
 
     def __init__(self, repo: Path, ranges: list, scripts_dir: Path | None = None) -> None:
         self.out: list[str] = []
@@ -2799,11 +2800,8 @@ class Ratchet:
         """(the ratchet's report, whether it refuses the push)."""
         if self.thread is not None:
             started = time.monotonic()
-            self.thread.join(self.WAIT_LIMIT)
+            self.thread.join()
             self.waited = time.monotonic() - started
-            if self.thread.is_alive():
-                return (f"guardrails: WARNING: the arch ratchet ran past {self.WAIT_LIMIT:.0f}s; not applied to this "
-                        "push. Tell the Performance Lead with this line."), False
         lines = list(self.out)
         if self.error:
             lines.append(f"guardrails: WARNING: {self.error}; the arch ratchet was not applied to this push. Tell the "

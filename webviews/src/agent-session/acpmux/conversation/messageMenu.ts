@@ -38,6 +38,8 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   /// The message's More button (MessageActions.tsx MessageMore), in CSS px: the host opens the
   /// menu a right-click on the message opens under it, now (the report is the right-click's).
   popUp?: { left: number; top: number; right: number; bottom: number };
+  /// Identifies the native popup until the host reports its dismissal.
+  popupId?: string;
 };
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
@@ -239,6 +241,12 @@ const webkitHandler = () =>
     ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
 /// Where reports go: the handler `installMessageMenuReporter` was given.
 let menuHandler: () => Handler | undefined = () => undefined;
+let openPopup: { id: string; anchor: Element } | undefined;
+
+function clearMessagePopup() {
+  openPopup?.anchor.removeAttribute("data-popup-open");
+  openPopup = undefined;
+}
 
 /// Whether a host shows this page's message menu (its More button would do nothing without one).
 export const hasMessageMenuHost = () => menuHandler() !== undefined;
@@ -250,7 +258,23 @@ export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
   const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
-  handler.postMessage({ forkDestinations: throughSeq, popUp: { left, top, right, bottom } });
+  // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
+  clearMessagePopup();
+  const popupId = anchor ? crypto.randomUUID() : undefined;
+  if (anchor && popupId) {
+    openPopup = { id: popupId, anchor };
+    anchor.setAttribute("data-popup-open", "");
+  }
+  try {
+    handler.postMessage({
+      forkDestinations: throughSeq,
+      popUp: { left, top, right, bottom },
+      ...(popupId ? { popupId } : {}),
+    });
+  } catch {
+    clearMessagePopup();
+    return false;
+  }
   return true;
 }
 
@@ -261,7 +285,16 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   reportedImage = undefined;
   reportedPicture = undefined;
   const { left, top, right, bottom } = anchor.getBoundingClientRect();
-  handler.postMessage({ ...message, popUp: { left, top, right, bottom } } satisfies MessageMenuReport);
+  clearMessagePopup();
+  const popupId = crypto.randomUUID();
+  openPopup = { id: popupId, anchor };
+  anchor.setAttribute("data-popup-open", "");
+  try {
+    handler.postMessage({ ...message, popUp: { left, top, right, bottom }, popupId } satisfies MessageMenuReport);
+  } catch {
+    clearMessagePopup();
+    return false;
+  }
   return true;
 }
 
@@ -315,10 +348,18 @@ export function installMessageMenuReporter(
         : null;
     handler()?.postMessage(body);
   };
+  const closed = (event: Event) => {
+    if ((event as CustomEvent<unknown>).detail === openPopup?.id) clearMessagePopup();
+  };
+  doc.defaultView?.addEventListener("cmux-message-menu-closed", closed);
   doc.addEventListener("contextmenu", report, true);
   return () => {
     doc.removeEventListener("contextmenu", report, true);
-    if (menuHandler === handler) menuHandler = () => undefined;
+    doc.defaultView?.removeEventListener("cmux-message-menu-closed", closed);
+    if (menuHandler === handler) {
+      menuHandler = () => undefined;
+      clearMessagePopup();
+    }
   };
 }
 

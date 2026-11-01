@@ -5,8 +5,8 @@ import type { ChatMenuItem } from "./ChatHeaderTools";
 import { ThreadTitle } from "./ThreadTitle";
 
 const menuRows = (move: "local" | "cloud", targets: readonly string[]): ChatMenuItem[] => [
-  { key: "rename", label: "Rename", icon: "action.edit", shortcutLabel: "R", onSelect: () => undefined },
-  { key: "fork", label: "Fork", icon: "agent.fork", shortcutLabel: "F", onSelect: () => undefined },
+  { key: "rename", label: "Rename", icon: "action.edit", accelerator: "R", onSelect: () => undefined },
+  { key: "fork", label: "Fork", icon: "agent.fork", accelerator: "F", onSelect: () => undefined },
   {
     key: "move",
     label: move === "local" ? "Move to machine" : "Bring Back Local",
@@ -26,8 +26,8 @@ const menuRows = (move: "local" | "cloud", targets: readonly string[]): ChatMenu
       { key: "window", label: "New window", onSelect: () => undefined },
     ],
   },
-  { key: "archive", label: "Archive", icon: "inbox", shortcutLabel: "A", onSelect: () => undefined },
-  { key: "delete", label: "Delete", icon: "action.delete", shortcutLabel: "D", onSelect: () => undefined },
+  { key: "archive", label: "Archive", icon: "inbox", accelerator: "A", onSelect: () => undefined },
+  { key: "delete", label: "Delete", icon: "action.delete", accelerator: "D", onSelect: () => undefined },
 ];
 
 function TitleMenuGallery({

@@ -169,6 +169,17 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "port", title: String(localized: "argument.port", defaultValue: "Port", bundle: .module), kind: .int(1...65535))
     }
 
+    /// `cloud provision-api --name <name>`: what the new API key is called; "API key" without one.
+    static var apiKeyNameString: ActionArgument {
+        ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// `cloud api-key-revoke --key <id>`: the API key id `cloud api-key-list` answers.
+    static var apiKeyString: ActionArgument {
+        ActionArgument(name: "key", title: String(localized: "argument.apiKey", defaultValue: "API Key", bundle: .module), kind: .string)
+    }
+
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
     }
@@ -266,6 +277,18 @@ nonisolated enum CatalogArgument {
     static var pinnedBool: ActionArgument {
         ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module), kind: .bool,
                        isRequired: false)
+    }
+
+    /// `cloud share-machine --teammate USER_ID`: the teammate whose chats on the machine change.
+    static var teammateString: ActionArgument {
+        ActionArgument(name: "teammate", title: String(localized: "argument.teammate", defaultValue: "Teammate", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud share-machine --teammate USER_ID --revoke`: take the teammate's share back.
+    static var revokeBool: ActionArgument {
+        ActionArgument(name: "revoke", title: String(localized: "argument.revoke", defaultValue: "Revoke", bundle: .module),
+                       kind: .bool, isRequired: false)
     }
 
     static var onBool: ActionArgument {

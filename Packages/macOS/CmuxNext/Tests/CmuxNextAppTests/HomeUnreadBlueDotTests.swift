@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
@@ -10,7 +11,7 @@ import Testing
 /// dot of a workspace row: the same glyph (the shared indicator's done dot, `Palette.notificationBlue`),
 /// the same size, on the same trailing column (the group header chevron's x), at every sidebar
 /// density, in light and dark. Each case prints a `HOMEDOT|` line so a fleet log shows the numbers.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct HomeUnreadBlueDotTests {
     static let home = LayoutItemID("itm_home")
     static let unreadWorkspace = WorkspaceID("ws-unread")

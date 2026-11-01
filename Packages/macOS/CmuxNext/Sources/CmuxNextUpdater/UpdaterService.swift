@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import CmuxNextWakeups
+import CmuxNextSettings
 import Network
 public import Foundation
 import Observation
@@ -113,10 +114,11 @@ public final class UpdaterService {
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
-    /// The click that installs, before Sparkle takes over (set by the App:
-    /// the windows go at once). ``installAbandoned`` undoes it when the
-    /// install ends without a relaunch.
-    @ObservationIgnored public var willInstallStaged: (() -> Void)?
+    /// Takes the windows off the screen as Sparkle commits to a relaunch the
+    /// person asked for (set by the App: ``UpdateWindowHandoff/hide()``), not
+    /// at the click. ``installAbandoned`` undoes it when the install ends
+    /// without a relaunch.
+    @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
@@ -176,6 +178,17 @@ public final class UpdaterService {
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
+    /// Stops Sparkle's running download (its cancellation deletes the partial file); returns
+    /// whether a download was running. Replaced by tests.
+    @ObservationIgnored var cancelDownloadNow: () -> Bool = { false }
+    /// The download the person cancelled: the card shows its found update again until another
+    /// check or download starts (``cancelDownloadClicked()``).
+    var cancelledDownload: CancelledDownload?
+    /// The Update click on a cancelled download's card started a check: the update it finds
+    /// downloads (``followCancelledDownload(_:)``).
+    @ObservationIgnored var downloadAfterCheck = false
+    /// The phase ``followCancelledDownload(_:)`` saw last.
+    @ObservationIgnored var lastCancelFollowed: UpdateIndicatorPhase = .hidden
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
@@ -311,6 +324,11 @@ public final class UpdaterService {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
+            cancelDownloadNow = { [weak controller] in
+                guard case .downloading(let download)? = controller?.model.state else { return false }
+                download.cancel()
+                return true
+            }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
             availableBuild = { [weak controller] in
                 guard case .updateAvailable(let available)? = controller?.model.state else { return nil }
@@ -325,6 +343,9 @@ public final class UpdaterService {
         restoreRollbackSkip()
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
+        // The app settled the install before making the updater (AppServices): an install that ran
+        // before tips counts as having used the catalog's basics.
+        storeTipState(TipChooser.settleInstall(tipState, catalog: TipCatalog.all, install: tipBudget.install))
         updateSnooze = UpdateSnooze(defaults: defaults)
     }
 
@@ -374,6 +395,7 @@ public final class UpdaterService {
         Task { @MainActor [weak self, weak controller] in
             await pulledListReady.value
             guard let self, let controller, self.started else { return }
+            await self.prepareCrossChannelFeed()
             controller.startUpdaterIfNeeded()
             #if DEBUG || CMUX_BENCH_HOOKS
             if UpdateHarness.current?.backgroundCheck == true {
@@ -422,9 +444,19 @@ public final class UpdaterService {
                 log.append("check while the person's check runs: joined")
                 return nil
             }
-            controller.model.setOverrideState(nil)
-            controller.checkForUpdates()
             userCheckRunning = true
+            if identity.track == .nightlyNext, testFeedURL == nil {
+                Task { @MainActor [weak self, weak controller] in
+                    guard let self, let controller else { return }
+                    await self.prepareCrossChannelFeed()
+                    guard self.disabledReason == nil else { return }
+                    controller.model.setOverrideState(nil)
+                    controller.checkForUpdates()
+                }
+            } else {
+                controller.model.setOverrideState(nil)
+                controller.checkForUpdates()
+            }
             return nil
         case .developmentBuild, .missingPublicKey:
             showsProbeResult = true
@@ -446,9 +478,14 @@ public final class UpdaterService {
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
-                let result = try await prober.probe(identity, allowedChannels: allowed)
+                let result = try await (identity.track == .nightlyNext
+                    ? prober.probeCrossChannel(identity, allowedChannels: allowed)
+                    : prober.probe(identity, allowedChannels: allowed))
                 self?.lastProbe = result
                 self?.lastProbeError = nil
+                if let self, self.testFeedURL == nil, self.identity.track == .nightlyNext {
+                    self.controller?.feedOverride = result.feedURL == self.identity.feed().url ? nil : result.feedURL
+                }
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
@@ -463,6 +500,17 @@ public final class UpdaterService {
         }
         probeTask = task
         return task
+    }
+
+    /// Selects the newer source commit's feed before Sparkle starts a check. This is
+    /// deliberately best-effort: the prober keeps the running feed when ancestry is
+    /// unavailable, and a test feed always remains authoritative.
+    private func prepareCrossChannelFeed() async {
+        guard identity.track == .nightlyNext, testFeedURL == nil, let controller else { return }
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
+        guard let result = try? await prober.probeCrossChannel(identity, allowedChannels: allowed) else { return }
+        controller.feedOverride = result.feedURL == identity.feed().url ? nil : result.feedURL
+        log.append("cross-channel feed \(result.feedURL)")
     }
 
     /// Installs and relaunches the downloaded update at once, or the one

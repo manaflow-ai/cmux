@@ -1379,9 +1379,7 @@ export function ContextRing({
   size,
   setup,
   breakdown: reported,
-  onCompact,
   onOpenDetails,
-  working = false,
 }: {
   used?: number;
   size?: number;
@@ -1389,10 +1387,8 @@ export function ContextRing({
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
-  onCompact?(): void;
   /// Opens the Inspector at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
-  working?: boolean;
 }) {
   const t = useT();
   const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
@@ -1455,7 +1451,7 @@ export function ContextRing({
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [closeCard, pinned]);
-  /// The card's buttons the keyboard reaches (Compact, Details ›).
+  /// The card's buttons the keyboard reaches (Details ›).
   const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
   /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
   const tabPastCard = () => {
@@ -1565,14 +1561,6 @@ export function ContextRing({
               size={size}
               setup={setup}
               breakdown={reported}
-              working={working}
-              onCompact={
-                onCompact &&
-                (() => {
-                  closeCard();
-                  onCompact();
-                })
-              }
               onOpenDetails={
                 onOpenDetails &&
                 (() => {
