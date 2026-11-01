@@ -252,6 +252,9 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         if last_at > seen_at:
             log(f"a newer base tier run ({last_sha[:12]}) started during the wait; "
                 "leaving its full window to the next kick")
+            # It still supersedes the older runs no Mac has started; with no
+            # later push, no other kick would cancel them.
+            cancel_superseded(api, repo, last_sha, log)
             return None
     tip = (api.get(f"repos/{repo}/git/ref/heads/{BRANCH}").get("object") or {}).get("sha") or ""
     if not SHA.match(tip):

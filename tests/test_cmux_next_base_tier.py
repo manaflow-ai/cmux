@@ -223,18 +223,21 @@ class Kick(unittest.TestCase):
     def test_a_new_base_tier_run_while_waiting_owns_its_full_window(self):
         # A hand dispatch can start while this kick sleeps. The first run's
         # deadline must never let a second Mac tier start inside the new window.
-        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 5 * 60)
+        # The older run still waits for a Mac: the new run supersedes it, so it is
+        # cancelled even though this kick dispatches nothing.
+        api, clock = FakeApi([], TIP), Clock(T0 + 5 * 60)
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
 
         def sleep(seconds: float) -> None:
             Clock.sleep(clock, seconds)
-            api.runs.insert(0, {"display_title": f"{tier.TITLE}{MID}",
-                                "created_at": stamp(T0 + 12 * 60)})
+            api.open_run(12, MID, T0 + 12 * 60, "queued", QUEUED_MAC)
 
         self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now,
                                     sleep=sleep, log=lambda _: None))
         self.assertEqual(clock.slept, [10 * 60])
         self.assertEqual(api.dispatched, [])
-        self.assertEqual(sum("/actions/workflows/cmux-next.yml/runs?" in p for p in api.gets), 2)
+        self.assertEqual(api.cancelled, [11])
+        self.assertEqual(sum("/actions/workflows/cmux-next.yml/runs?" in p for p in api.gets), 3)
 
     def test_a_kick_never_waits_longer_than_the_window(self):
         # A clock behind the run's created_at (skew) still waits at most one window.
