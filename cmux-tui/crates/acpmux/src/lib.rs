@@ -135,6 +135,8 @@ pub mod subsession_worktree;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
+#[cfg(test)]
+mod test_stack;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
