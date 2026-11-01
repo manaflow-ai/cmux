@@ -322,7 +322,7 @@ impl Backend for Runtime<'_> {
                     return Err(self.seed_failure(&status, repo)?);
                 }
                 Some("running") if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(250))
+                    std::thread::sleep(Duration::from_millis(250));
                 }
                 Some("running") => {
                     return Err(Failure::new(
