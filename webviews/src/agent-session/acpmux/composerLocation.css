@@ -1502,7 +1502,7 @@
 .acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
 .acpmux-location-picker[data-face="chip"] .acpmux-location-button {
   box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
-  border-radius: 999px;
+  border-radius: var(--ui-row-radius);
   padding-inline: 8px;
 }
 /* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */
