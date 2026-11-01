@@ -30,8 +30,10 @@ on:
       - "schemas/link-token/vectors.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux/SKILL.md"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -56,8 +58,10 @@ on:
       - "schemas/link-token/vectors.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux/SKILL.md"
   workflow_dispatch:
     inputs:
       commit:
