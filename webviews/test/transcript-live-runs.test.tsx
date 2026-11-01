@@ -125,7 +125,7 @@ test("a pending harness prompt keeps one thinking line in place", () => {
   // one version), with no start status: nothing reads "Starting Claude Code… Cancel" (Leo, 2026-11-01).
   expect(starting.map((entry) => entry.kind)).toEqual(["user", "thinking"]);
   expect(startThinking).toHaveLength(1);
-  expect(startThinking[0]).toMatchObject({ id: "thinking-live", version: 1, queued: "pending-prompt" });
+  expect(startThinking[0]).toMatchObject({ id: "thinking-live", version: 1, queued: "pending-prompt", untimed: true });
   expect(starting.filter((entry) => entry.status !== undefined)).toHaveLength(0);
 
   const ready = turnView([{ ...pending, queued: undefined }], new Set(), { now: pending.at });

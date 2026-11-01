@@ -34,8 +34,11 @@ const toReply: Play = async (ctx) => {
       value: number;
       sources?: { node?: Node; previousRect?: DOMRectReadOnly; currentRect?: DOMRectReadOnly }[];
     })[]) {
+      // The chat header is out of scope: its Needs you badge widens whenever its count changes,
+      // whatever the start does (cmux#30663).
       const moved = (entry.sources ?? []).filter(
         (source) =>
+          !(source.node instanceof view.Element && source.node.closest(".acpmux-header")) &&
           source.previousRect &&
           source.currentRect &&
           Math.max(
@@ -54,12 +57,6 @@ const toReply: Play = async (ctx) => {
     observer.observe({ type: "layout-shift", buffered: false });
   const line = () => doc.querySelector(".acpmux-thinking .cv-worked")?.getBoundingClientRect().top;
   const bubble = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
-  // The header's controls, by class or label, so a shift there names what came or went.
-  const headerControls = () =>
-    [...doc.querySelectorAll(".acpmux-handoff-header-tools button, .acpmux-handoff-header-tools [role=button]")]
-      .map((element) => element.getAttribute("aria-label") || element.className.toString())
-      .join(" | ");
-  const headerAtSend = headerControls();
   // The line's top on every frame and mutation from the send until the first output.
   const tops: number[] = [];
   const track = () => {
@@ -87,9 +84,6 @@ const toReply: Play = async (ctx) => {
     problems.push(
       `${shifts.length} layout shift(s) while the agent started, CLS ${shifts.reduce((sum, shift) => sum + shift.value, 0).toFixed(4)} (${shifts.map((shift) => shift.from).join(", ")})`,
     );
-  const headerAtReply = headerControls();
-  if (problems.length && headerAtSend !== headerAtReply)
-    problems.push(`header controls at send: ${headerAtSend}; at the reply: ${headerAtReply}`);
   if (problems.length) throw new Error(problems.join("; "));
 };
 
@@ -115,19 +109,19 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/agentStart.experiment.ts"],
   keywords: ["start", "starting", "loading", "new chat", "layout shift", "cancel"],
   variants: {
-    starting: {
-      note: "The agent is still starting: the prompt reads as sent, Thinking runs under it, and the composer offers Stop.",
-      ready: seeded,
-      mockStart: { delayMs: 600_000 },
-      snapshot: noChat([]),
-      play: sent,
-    },
     "slow-start": {
       note: "Play: the agent takes 2.5 s to start, then answers. The prompt, the line and the composer keep their places.",
       ready: seeded,
       mockStart: { delayMs: 2_500 },
       snapshot: noChat([]),
       play: toReply,
+    },
+    starting: {
+      note: "The agent is still starting: the prompt reads as sent, Thinking runs under it, and the composer offers Stop.",
+      ready: seeded,
+      mockStart: { delayMs: 600_000 },
+      snapshot: noChat([]),
+      play: sent,
     },
     "failed-start": {
       note: "The agent could not start: the reason with Retry above the composer, and the prompt back in it to send again.",

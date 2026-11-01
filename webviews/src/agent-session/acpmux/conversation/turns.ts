@@ -461,8 +461,10 @@ function shapedTurn(
   let shaped: AcpmuxRow[];
   if (waiting) {
     const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING };
-    // Held behind the agent's start: the line draws the start look (agentStart.experiment.ts).
-    if (user.queued) line.queued = user.queued;
+    // Held behind the agent's start: the line draws the start look (agentStart.experiment.ts), with
+    // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
+    // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
+    if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
     shaped = [...date, ...drawnUser, line];
   } else {
     const body = shapeTurn(
