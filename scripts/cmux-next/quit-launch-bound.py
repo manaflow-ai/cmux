@@ -361,6 +361,17 @@ class Session:
                 if not ((armed.get("result") or {}).get("wedges_engine_stop")):
                     raise SystemExit(f"debug.quit did not arm the engine-stop wedge: {armed}")
             reply = self.call("debug.quit", {"open": True})
+            # QUIT P0: a quit with local terminals asks how to quit; answer its default (Keep Sessions), as Return.
+            ask_end = time.time() + 10
+            while time.time() < ask_end:
+                try:
+                    asking = self.call("debug.quit", {}).get("result") or {}
+                except (OSError, ValueError, SystemExit):
+                    break  # the app is gone or going (app_client exits after its own timeout): nothing asks
+                if asking.get("asking"):
+                    self.call("debug.quit", {"press": "keep"})
+                    break
+                time.sleep(0.1)
         elif mode == "scripted":
             reply = self.call("action.run", {"action": "quit", "args": {}, "origin": "script"})
         else:

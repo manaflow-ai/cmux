@@ -2,11 +2,12 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextMobile
 @testable import CmuxNextMobileHost
+import CmuxNextTestSupport
 import Testing
 
 /// Fleet capture of the real dialog with synthetic device/account data. Run this test by name;
 /// the before images have no prompt, matching the base behavior. No admission is granted.
-@MainActor struct PhoneAdmissionCaptureTests {
+@MainActor @Suite(.closesItsWindows) struct PhoneAdmissionCaptureTests {
     @Test
     func capturesAllowPrompt() throws {
         _ = NSApplication.shared
@@ -23,7 +24,7 @@ import Testing
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.appearance = appearance
-            defer { window.close() }
+            defer { window.closeAfterTest() }
             let root = try #require(window.contentView)
             root.wantsLayer = true
             appearance.performAsCurrentDrawingAppearance {
