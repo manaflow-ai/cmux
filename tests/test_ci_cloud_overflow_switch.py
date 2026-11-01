@@ -416,8 +416,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f"'{switch.DEFAULT_PROBE_LABEL}'", runs_on)
         self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
 
-    def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        self.assertIn("runs-on: ubuntu-24.04 # github-hosted-required:", self.text)
+    def test_watch_has_bounded_retry_routes_and_passes_every_switched_variable(self) -> None:
+        route = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
+        self.assertNotIn("vars.", route)
+        self.assertNotIn("ubuntu-24.04", route)
+        self.assertIn("github.run_attempt == 1", route)
+        self.assertIn("github.run_attempt == 2", route)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:

@@ -1,5 +1,6 @@
 import datetime as dt
 import base64
+from pathlib import Path
 import unittest
 from unittest import mock
 
@@ -70,6 +71,20 @@ class RescueTests(unittest.TestCase):
              "head_repository": {"full_name": r.TRUSTED_REPOSITORY}},
         ]}
         self.assertEqual([run["id"] for run in r.candidate_runs(api)], [1])
+
+    def test_committed_workflow_has_the_required_attempt_route(self):
+        api = mock.Mock()
+        source = (Path(__file__).resolve().parents[1] / r.WORKFLOW_PATH).read_text()
+        api.request.return_value = {"content": base64.b64encode(source.encode()).decode()}
+        self.assertTrue(r.workflow_supports_reroute(api, run()))
+
+    def test_unconditional_prefix_cannot_hide_the_route(self):
+        api = mock.Mock()
+        self.mark(api)
+        source = base64.b64decode(api.request.return_value["content"]).decode()
+        source = source.replace("${{", "${{ true ||")
+        api.request.return_value = {"content": base64.b64encode(source.encode()).decode()}
+        self.assertFalse(r.workflow_supports_reroute(api, run()))
 
     def test_legacy_marker_in_comment_does_not_enable_reroute(self):
         api = mock.Mock()
@@ -149,12 +164,17 @@ class RescueTests(unittest.TestCase):
 
     def test_cli_waits_once_and_scans_once(self):
         api = mock.Mock()
-        api.request.return_value = {"workflow_runs": [{**run(), "status": "queued"}]}
+        api.request.return_value = {"workflow_runs": [{**run(), "status": "queued"},
+                                                      {**run(), "id": 10, "status": "queued"}]}
         with mock.patch.object(r, "_client", return_value=api) as client, \
                 mock.patch.object(r, "run_once", return_value=r.Decision("noop", "idle")), \
                 mock.patch.object(r.time, "sleep") as sleep, \
                 mock.patch.dict("os.environ", {"GH_TOKEN": "test-token", "GITHUB_REPOSITORY": r.TRUSTED_REPOSITORY}, clear=False):
+            calls = []
+            sleep.side_effect = lambda _: calls.append("wait")
+            api.request.side_effect = lambda *_: (calls.append("scan") or api.request.return_value)
             self.assertEqual(r.main(["--source-root", "/trusted", "--wait-seconds", "300"]), 0)
+            self.assertEqual(calls, ["wait", "scan"])
         client.assert_called_once()
         sleep.assert_called_once_with(300)
         api.request.assert_called_once()

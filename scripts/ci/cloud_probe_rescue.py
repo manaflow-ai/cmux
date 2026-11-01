@@ -85,14 +85,15 @@ def workflow_supports_reroute(api: object, run: Mapping[str, object]) -> bool:
         document = yaml.safe_load(content)
     except Exception:
         return False
-    watch = (document or {}).get("jobs", {}).get("watch", {}) if isinstance(document, Mapping) else {}
+    jobs = document.get("jobs") if isinstance(document, Mapping) else None
+    watch = jobs.get("watch") if isinstance(jobs, Mapping) else None
     runs_on = watch.get("runs-on") if isinstance(watch, Mapping) else None
     if not isinstance(runs_on, str):
         return False
     normalized = re.sub(r"[\s'\"]", "", runs_on)
     expected = (f"github.run_attempt==1&&{WATCH_LABELS[0]}||"
                 f"github.run_attempt==2&&{WATCH_LABELS[1]}||{WATCH_LABELS[2]}")
-    return expected in normalized
+    return normalized == "${{" + expected + "}}"
 
 
 def decide(run: Mapping[str, object], jobs: list[Mapping[str, object]],
@@ -261,10 +262,11 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         raise SystemExit("GH_TOKEN is required")
     api = _client(args.source_root, token, repo, os.environ.get("READ_TOKEN", ""))
+    if args.wait_seconds:
+        time.sleep(max(0, min(args.wait_seconds, 300)))
     runs = [api.run(args.run_id)] if args.run_id else candidate_runs(api, repo)
     for run in runs:
-        for decision in rescue_sequence(api, run, wait_seconds=args.wait_seconds,
-                                        follow_retries=args.run_id is not None, sleep=time.sleep):
+        for decision in rescue_sequence(api, run, follow_retries=args.run_id is not None, sleep=time.sleep):
             print(json.dumps({"run_id": run.get("id"), "action": decision.action,
                               "reason": decision.reason, "next_label": decision.next_label}, sort_keys=True), flush=True)
     return 0
