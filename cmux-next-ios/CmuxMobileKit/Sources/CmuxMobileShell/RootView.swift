@@ -307,7 +307,7 @@ public struct RootView: View {
         PushReplies.shared.signedOut()
         let ending = live
         live = nil
-        shellModel.discard()
+        shellModel.discard { $0.cloudChats = nil }
         setupPlan = nil
         asksNotifications = nil
         if auth.isMock {
@@ -445,7 +445,10 @@ final class KeptModel<Model: AnyObject> {
         return made
     }
 
-    func discard() { kept = nil }
+    func discard(cleanup: (Model) -> Void = { _ in }) {
+        if let kept { cleanup(kept) }
+        kept = nil
+    }
 }
 
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
@@ -500,6 +503,9 @@ struct ShellView: View {
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
+        }
+        .sheet(item: $shell.cloudChats) { item in
+            CloudChatsScreen(shell: shell, attention: item.attention)
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }

@@ -139,6 +139,7 @@ extension LiveCoordinator {
     // MARK: Link
 
     func linkChanged(_ session: MacSession, _ link: (any MacLink)?) {
+        for relay in session.cloudChats.values { relay.disconnect() }
         #if DEBUG
         if let link { runNetworkProbeIfAsked(link) }
         #endif
@@ -233,6 +234,8 @@ extension LiveCoordinator {
             }
             return
         }
+        guard session.currentLink === link, sessions[macID] === session else { return }
+        for relay in session.cloudChats.values { relay.bind(link) }
         #if DEBUG
         UploadProbe.start(on: link, macName: session.name)  // the pair-e2e rig's upload leg; inert without its launch argument
         #endif
