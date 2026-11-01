@@ -60,6 +60,24 @@ import Testing
         #expect(ClaudeAccountRegistry.declarations(sanitizedConfigJSON: Data("{".utf8)).isEmpty)
     }
 
+    /// One malformed entry (a missing field, a wrong type, not an object) is skipped on its own;
+    /// it does not hide the valid entries around it.
+    @Test func skipsMalformedEntriesAndKeepsTheRest() {
+        let json = #"""
+        {"agents":{"claudeAccounts":[
+          {"name":"broken"},
+          {"name":"work","configDir":"~/.claude-work"},
+          "junk",
+          {"name":7,"configDir":"~/.seven"},
+          {"name":"home","configDir":"~/.claude-home"}
+        ]}}
+        """#
+        #expect(ClaudeAccountRegistry.declarations(sanitizedConfigJSON: Data(json.utf8)) == [
+            .init(name: "work", configDir: "~/.claude-work"),
+            .init(name: "home", configDir: "~/.claude-home"),
+        ])
+    }
+
     @Test func exhaustionKeyUsesHomeForDefault() {
         #expect(registry([]).accounts[0].exhaustionKey(homeDirectory: home) == "/Users/u/.claude")
         let w = registry([.init(name: "w", configDir: "~/.w")]).accounts[1]
