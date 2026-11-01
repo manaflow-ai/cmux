@@ -510,10 +510,18 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             if "ubuntu-24.04'" not in text:
                 # A declaration may precede the separate workflow routing change.
                 continue
-            if alternatives.count(hosted) != 1 or alternatives[-1] not in paid:
+            track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
+            hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
+            if len(hosted_terms) != 1 or alternatives[-1] not in paid:
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
-            position = alternatives.index(hosted)
+            hosted_term = hosted_terms[0]
+            # Track-gating is required when a declared resolver also runs on
+            # non-NEXT tracks; a bare hosted branch would widen the exception.
+            if hosted_term == hosted and "needs.decide.outputs.track == 'nightly-next'" in text:
+                problems.append(f"hosted_light_jobs[{key!r}] must gate hosted Ubuntu to nightly-next")
+                continue
+            position = alternatives.index(hosted_term)
             tail = alternatives[position + 1:]
             measured16 = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404'"
             if not (len(tail) == 1 and tail[0] in paid or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):

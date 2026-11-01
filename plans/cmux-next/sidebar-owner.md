@@ -1,20 +1,10 @@
 # cmux-next sidebar: owner note
 
-- 2026-11-01: unread dots and the row's end hover action share the footer Search center, including the
-  legacy count-and-status badge style and idle rows with counts. Leo: "imo it's just a bit nicer if we could
-  figure out how to make this more aligned with teh search... even tho claude isn't even aligned.. idk what we
-  should do". A lone space keeps its dot visible; when the footer has only one slot, hovering replaces the dot
-  with the reachable + without moving the slot. Leo: "but more than that, we need for when there's only the
-  existing space for the white dot at the bottom to be visible and for the plus sign to be acceessible (tho im
-  not entirel ysure if we want the dot to be shown. at least when you're in that area,  the plus should show.
-  idk if the p lus should show by default too? maybe? maybe not)". Four gallery variants compare dot always /
-  hover-only with + hover-only / always; the default keeps the dot at rest and + on hover. Multiple-space
-  navigation, explicit showSpaces/noFade settings and the simultaneous controls' slots to the left remain.
-  The lone-space visibility change applies to the bottom bar; the top placement still requires multiple spaces.
-  Counts and PR text covered by hover actions fade while those actions show. Tree folds and chips stay
-  visible and clickable left of the end action, with overflow on the next free shared slot.
-  Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
-  and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
+- 2026-11-01: the workspace hover preview shows a cloud icon and "Cloud" for Cloud, a globe and
+  host name for remote, and no location label for local. It stays visible without opening details;
+  expanding details does not duplicate it. Row marks and Session Info are unchanged. Leo: "oh this
+  kind of delineation between cloud/remote (local has no distinguishing) seem alright for cloud
+  related stuff"; "it's just on the hover preview". Regression: WorkspaceHoverHostIdentityTests.
 
 - 2026-11-01: Leo: "did we get the “bigger blue dot” thing in? i also think we ought to have a bigger red warn symbol".
   #29633 made legacy unread badges, tiles and priority dots 8 pt, but the default workspace badge still
@@ -915,3 +905,21 @@ Leo, 2026-10-30: "this alignment is annoying too"; "that alignment is bc you guy
 [#27954](https://github.com/manaflow-ai/cmux/pull/27954) landed as `bb5fb9695d26` from reviewed head `c03c7f3cd146c2f7944e122df8b46c473b6ed520`.
 The branch commits missing Sidebar-Look trailers are recorded here without rewriting landed history:
 `b593cf8d6e2`, `010a3052b0c`, `dbee745fd30`, `cc09b9610af`, `0502ac86c95`, `fc6791fe09d`, `654a748dea8`, `2a94742cb73`, `dc37e25861b`, `ed4ca4ebaee`, `5b171cd48c1`, `37f674a288d`, `9d1c633674f`.
+
+## Search-aligned trailing controls and the single-space slot (2026-11-01)
+
+- 2026-11-01: unread dots and the row's end hover action share the footer Search center, including the
+  legacy count-and-status badge style and idle rows with counts. Leo: "imo it's just a bit nicer if we could
+  figure out how to make this more aligned with teh search... even tho claude isn't even aligned.. idk what we
+  should do". A lone space keeps its dot visible; when the footer has only one slot, hovering replaces the dot
+  with the reachable + without moving the slot. Leo: "but more than that, we need for when there's only the
+  existing space for the white dot at the bottom to be visible and for the plus sign to be acceessible (tho im
+  not entirel ysure if we want the dot to be shown. at least when you're in that area,  the plus should show.
+  idk if the p lus should show by default too? maybe? maybe not)". Four gallery variants compare dot always /
+  hover-only with + hover-only / always; the default keeps the dot at rest and + on hover. Multiple-space
+  navigation, explicit showSpaces/noFade settings and the simultaneous controls' slots to the left remain.
+  The lone-space visibility change applies to the bottom bar; the top placement still requires multiple spaces.
+  Counts and PR text covered by hover actions fade while those actions show. Tree folds and chips stay
+  visible and clickable left of the end action, with overflow on the next free shared slot.
+  Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
+  and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
