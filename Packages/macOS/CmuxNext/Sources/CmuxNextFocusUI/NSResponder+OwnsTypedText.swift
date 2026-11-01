@@ -14,3 +14,16 @@ extension NSResponder {
         return false
     }
 }
+
+extension NSWindow {
+    /// The window's first responder is a text input the person types in: an editable AppKit text view or field (empty
+    /// or not: the person may have just put the caret there, ``NSResponder/ownsTypedText``), or a responder an input
+    /// method composes text in, unless `excluded` says it is no text input (a terminal: a person's `cmux open --focus`
+    /// run from a terminal moves on). Automation does not take a window from such a responder (CLAUDE.md, "Go past
+    /// Chrome where cmux is scripted"); a focused page's editable element is the caller's to add.
+    @MainActor public func firstResponderTypesText(excluding excluded: (NSResponder) -> Bool) -> Bool {
+        guard let responder = firstResponder else { return false }
+        if responder.ownsTypedText { return true }
+        return !excluded(responder) && (responder as? any NSTextInputClient)?.hasMarkedText() == true
+    }
+}

@@ -80,6 +80,16 @@ extension FocusEvent {
     /// AppKit or the daemon did (responder, topology, key, overlays) are not.
     /// The rule is `cmux-focus-core`'s `FocusEvent::changes_view`.
     public var changesView: Bool { FocusMachine.changesView(self) }
+
+    /// A focus or selection change the person made by mouse, keyboard or palette: not the CLI, a script, the app or
+    /// the daemon. The person's new terminal's claim on the window's keyboard ends there (`KeyboardClaims`).
+    public var isPersonsOwn: Bool {
+        switch self {
+        case .focusPane(_, _, let source), .selectTab(_, _, _, let source), .focusTarget(_, let source), .responder(_, let source):
+            source == .mouse || source == .keyboard || source == .palette
+        default: false
+        }
+    }
 }
 
 /// Outputs of the reducer, applied by `FocusEffectApplier` after the

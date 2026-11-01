@@ -14,10 +14,18 @@ import os
 ///
 /// The same hold covers Ctrl-1…9 onto a terminal tab with no surface yet (hq#1925 item 3; bound
 /// in `CreationInputBuffer.holds`). Any hold ends as soon as focus leaves the content (cx-wb5.78: `earlyTab`).
+///
+/// The person's new workspace with a terminal (`newTab` shown in this window, ``beginWorkspace(in:)``) holds the keys
+/// until the window shows that workspace and its terminal has the keyboard; keys typed for it never go anywhere else (a
+/// failed or never shown workspace drops them). It also claims the window's keyboard (`KeyboardClaims`) until the
+/// person's next intent there; after the hold, every key that runs no binding is still kept from the window, and no
+/// primary input takes the window's keyboard by itself (``claimsKeyboard(in:generation:)``).
 @MainActor
 final class CreationInputCoordinator {
     weak var router: KeyRouter?
     private var buffers: [Int: CreationInputBuffer] = [:]
+    /// The person's new terminal's claim on each window's keyboard (``beginWorkspace(in:)``).
+    let claims = KeyboardClaims()
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
@@ -50,6 +58,55 @@ final class CreationInputCoordinator {
     }
 
     init(router: KeyRouter) { self.router = router }
+
+    /// The person acted in `window` (a click, a focus move of theirs, one of their actions), answering input `event`:
+    /// a claim there ends, and the keys go where they put them. The input that asked for the claim does not end it.
+    func personActed(in window: NSWindow?, event: NSEvent?) {
+        guard let window, !claims.isEmpty else { return }
+        claims.personActed(in: router?.focus(for: window).0?.window ?? window, inputTimestamp: event?.timestamp)
+    }
+
+    /// Whether `window`'s claim holds: the window does not show the claimed workspace yet. A claim that ended goes.
+    private func claimHolds(in window: NSWindow) -> Bool {
+        let controller = router?.focus(for: window).0
+        return claims.holds(in: window, isOpen: controller != nil, shown: controller?.focus.currentState().topology.workspace)
+    }
+
+    /// A key of `window` while its claim holds and no creation hold does (the terminal never showed). Escape ends the
+    /// claim and goes on. A key that runs a binding (Ctrl-Tab, a leader, Cmd-T) or the next key of a pending chord goes
+    /// on: the action it runs is the person's next intent. Every other key (text, Return, Cmd-V) is kept from the window:
+    /// the terminal it was typed for is not there, and no other input (Home's message box) takes it.
+    private func keepsFromWindow(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard !claims.isEmpty, claimHolds(in: window), let router, let controller = router.focus(for: window).0 else { return false }
+        if event.keyCode == ChordTracker.escapeKeyCode {
+            claims.end(in: window)
+            // The window's focus applies again, now that no claim refuses its primary input.
+            if let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
+            return false
+        }
+        if router.chords.isPending { return false }
+        let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
+        return router.resolve(event, context: context) == nil
+    }
+
+    /// Opens the window's buffer for a new workspace with a terminal that `controller`'s window will show (`newTab`
+    /// with focus), under a new user intent of its focus, and claims the window's keyboard; nil when the run may not
+    /// move focus. Resolve it with ``resolve(_:workspace:in:)``.
+    func beginWorkspace(in controller: WindowController?) -> CreationInputBuffer.Ticket? {
+        guard let controller, let window = controller.window, ActionRunScope.viewChangeAllowed() else { return nil }
+        let ticket = buffer(in: window).open(generation: controller.focus.beginIntent(), newWorkspace: true)
+        claims.begin(in: window, inputTimestamp: router?.registry.dispatchingInputEvent()?.timestamp, ticket: ticket)
+        return ticket
+    }
+
+    /// Whether a creation in `window` that the person has not moved on from (no user intent since it was asked for)
+    /// holds its keys: the keyboard is that creation's, so a primary input (Home's message box) does not take it by
+    /// itself (`NSWindow.pendingCreationOwnsKeyboard`).
+    func claimsKeyboard(in window: NSWindow, generation: UInt64) -> Bool {
+        if !claims.isEmpty, claimHolds(in: window) { return true }
+        guard let buffer = buffers[window.windowNumber], buffer.holdsCreation else { return false }
+        return buffer.newestGeneration == generation
+    }
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
@@ -101,9 +158,21 @@ final class CreationInputCoordinator {
     /// The keys go on in a new main-actor turn: outside the creation's task (its action scope)
     /// and after the focus events the reply queued.
     func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, in window: NSWindow?) {
+        resolve(ticket, landed: landed, workspace: nil, in: window)
+    }
+
+    /// The new workspace behind `ticket` (``beginWorkspace(in:)``) was made (`workspace`, its id) or not (nil: it
+    /// failed or a close took it, and the keys typed for it go with it).
+    func resolve(_ ticket: CreationInputBuffer.Ticket?, workspace: String?, in window: NSWindow?) {
+        resolve(ticket, landed: workspace != nil, workspace: workspace, in: window)
+    }
+
+    private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, in window: NSWindow?) {
+        // The window may show the claimed workspace already (its delta came before the reply): the claim ends here.
+        if let ticket, let window, let workspace, claims.noteMade(workspace, by: ticket, in: window) { _ = claimHolds(in: window) }
         guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
         if !landed { failedCreation.insert(window.windowNumber) }
-        buffer.resolve(ticket, awaitsFocus: landed)
+        buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace)
         scheduleFlush(in: window)
         // The focus it asked for may never land (a split from a page tab shows a New Tab page):
         // the keys go on `holdLimit` after the reply at the latest.
@@ -128,7 +197,7 @@ final class CreationInputCoordinator {
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
-        guard let buffer = buffers[shell.windowNumber] else { return false }
+        guard let buffer = buffers[shell.windowNumber] else { return kind == .content && keepsFromWindow(event, in: shell) }
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
@@ -194,6 +263,9 @@ final class CreationInputCoordinator {
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
         giveBack()
+        // A claim whose workspace the window shows now ends here, not at a later key (it must not hold again if the
+        // window goes back to Home without the person).
+        if let window, !claims.isEmpty { _ = claimHolds(in: window) }
         guard let window, buffers[window.windowNumber] != nil else { return }
         scheduleFlush(in: window)
     }
@@ -217,16 +289,25 @@ final class CreationInputCoordinator {
             lastHoldEnd[window.windowNumber] = .windowClosed
             return
         }
+        // Reduced: a topology the window marked changed counts (the new workspace may show in this turn).
+        let shown = controller.focus.currentState().topology.workspace
         if !force {
             let focus = controller.focus.state
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
+            // A new workspace's keys wait for the window to show it (its terminal then has the keyboard, below).
+            if let workspace = buffer.awaitedWorkspace, workspace != shown { return }
             guard Self.responderTakesKeys(controller, window: window) else { return }
         }
         buffers[window.windowNumber] = nil
         let failed = failedCreation.remove(window.windowNumber) != nil
         let end = force ? forcedEnd : failed ? .creationFailed : .focusLanded
         lastHoldEnd[window.windowNumber] = end
-        let pending = buffer.take()
+        // A forced end (its limit, focus left the content) drops the keys of a new workspace the window does not show,
+        // and the window's focus applies again so the responder matches the focus model; the claim stays until the
+        // person's next intent, so a primary input (Home's message box) still does not take the keyboard.
+        let unshown = buffer.waitsForWorkspace(other: shown)
+        let pending = buffer.take(shown: shown)
+        if unshown, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
@@ -258,5 +339,35 @@ extension CreationInputCoordinator {
         guard let responder = window.firstResponder as? NSView else { return false }
         if responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) { return true }
         return !(responder is TerminalSurfaceView)
+    }
+}
+
+extension CreationInputCoordinator {
+    /// Each of the person's actions (a key binding, the menu, the palette, a click's action) is their next intent in the
+    /// active window: a claim there ends (``personActed(in:event:)``). Runs before the action's handler, so a new
+    /// terminal the action asks for claims the keyboard again.
+    static func installPersonIntent(_ services: AppServices) {
+        services.registry.willRunObservers.append { [weak services] _, origin in
+            // Only a top-level run is a new intent: a run inside another (its handler's, or a later turn of an earlier
+            // run, whose task keeps that run's scope) answers no new press.
+            guard origin == .user, ActionRunScope.current == nil, let services else { return }
+            services.keyRouter.creationInputCoordinator.personActed(in: services.windows.active?.window,
+                                                                    event: services.registry.dispatchingInputEvent())
+        }
+    }
+}
+
+extension WindowController {
+    /// A text input has this window's keyboard: an editable text view or field (empty or not), text an input method
+    /// composes, or an editable element of the focused page (a web form field, an editor). Only while the app is active
+    /// and the key window is this window or one it owns (a Chromium page window, a sheet: the shell resigns key then);
+    /// a CLI run from another app finds the keyboard elsewhere. A terminal is not a text input here. A script's new
+    /// workspace does not take the window from such an input (CLAUDE.md, "Go past Chrome where cmux is scripted").
+    var hasTextInputKeyboard: Bool {
+        let facts = focus.currentState()
+        guard let window, facts.appActive,
+              facts.windowKey || NSApp.keyWindow.flatMap(services.windows.owner(of:)) === self else { return false }
+        return window.firstResponderTypesText(excluding: { $0 is TerminalSurfaceView })
+            || services.keyRouter.facts(in: window, controller: self).pageEditableFocused
     }
 }
