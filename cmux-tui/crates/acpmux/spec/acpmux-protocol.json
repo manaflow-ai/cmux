@@ -183,6 +183,18 @@
     },
     {
       "kind": "request",
+      "name": "agent-session-turn-prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "agent-session-turn-abandon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"
@@ -1287,6 +1299,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_login/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/finish",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/api_key",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/inventory/watch",
       "params": {
         "$ref": "#/types/InventoryWatchParams"
@@ -1472,6 +1508,12 @@
     {
       "kind": "request",
       "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_notice",
       "params": true,
       "result": true
     },

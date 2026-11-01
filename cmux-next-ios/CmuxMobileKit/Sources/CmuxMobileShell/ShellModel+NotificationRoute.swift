@@ -8,8 +8,8 @@ import SwiftUI
 /// Where a tapped notification opens (verify/rich-push.md, "Tap routing"),
 /// decided from what the phone knows now.
 enum NotificationTarget: Equatable {
-    /// That Mac's Chief conversation, on Home.
-    case chief
+    /// The named Home conversation, if the route supplies one; nil opens the Mac Chief.
+    case chief(conversationID: String?)
     /// The agent's chat.
     case chat(AgentChatDestination)
     /// A workspace at one of its tabs: a terminal, a browser tab, an agent tab.
@@ -32,7 +32,7 @@ enum NotificationTarget: Equatable {
                        phase: (String) -> MacDataMachine.Phase,
                        canLink: (String) -> Bool,
                        expired: Bool) -> NotificationTarget {
-        if route.kind == "chief" { return .chief }
+        if route.kind == "chief" { return .chief(conversationID: route.conversationID) }
         // A terminal notification opens its terminal, never a chat bound elsewhere.
         // A terminal agent's event (no acpmux session, its terminal's tab) opens its terminal too.
         let terminalTab = route.sessionID == nil && route.workspaceID.flatMap(workspace).map { ws in
@@ -70,6 +70,12 @@ extension ShellModel {
     /// tab. Returns false while the Mac's tree has not arrived, so the shell
     /// tries again when it does.
     func openRoute(_ route: NotificationRoute) -> Bool {
+        if let cloud = route.cloud {
+            cancelRestore()
+            tab = .home
+            cloudChats = CloudChatsPresentation(attention: cloud)
+            return true
+        }
         // Signed in, but the live link is not attached yet (a cold launch while
         // the account settles): no Mac's tree can be read, so `decide` would
         // settle for the Feed. Wait instead; ShellView tries again once the link is
@@ -107,16 +113,15 @@ extension ShellModel {
             tab = .feed
             toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
         default:
-            open(target: target, conversationID: route.conversationID)
+            open(target: target)
         }
         return true
     }
 
-    /// Shows a decided target: Chief on Home, a chat on the Feed, a workspace at a tab.
-    /// `conversationID`: for Chief, the conversation the notification is about.
-    func open(target: NotificationTarget, conversationID: String? = nil) {
+    /// Shows a decided target: a named conversation on Home, a chat on the Feed, or a workspace.
+    func open(target: NotificationTarget) {
         switch target {
-        case .chief:
+        case .chief(let conversationID):
             tab = .home
             // The notification's own conversation: the Mac Chief, the Cloud
             // Chief, or another conversation of the Mac's Home list.
