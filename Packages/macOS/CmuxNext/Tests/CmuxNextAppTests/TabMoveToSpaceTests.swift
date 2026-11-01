@@ -35,6 +35,12 @@ struct TabMoveToSpaceTests {
                 let failure = await task.value
                 #expect(failure == nil, "\(String(describing: failure))")
             }
+            // The direct registry harness has no control-socket scope to drain daemon echoes.
+            try await PinnedPageTests.until({
+                guard let destination = services.workspaceID(ofTab: moved.id), destination != source,
+                      let qualified = WindowProfiles.qualified(destination, machines: services.machines) else { return false }
+                return WindowProfiles.membership(services.machines)?.pins[qualified] == target.id
+            }, report: { "the promoted tab and its space assignment were not mirrored" })
             let destination = try #require(services.workspaceID(ofTab: moved.id))
             #expect(destination != source, "moving a tab reassigned its whole source workspace")
             #expect(services.workspaceID(ofTab: sibling.id) == source, "the sibling moved with the selected tab")
