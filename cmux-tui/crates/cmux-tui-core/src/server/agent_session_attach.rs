@@ -469,9 +469,10 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
             }
             (body, LOGIN_FINISH_TIMEOUT)
         }
+        // acpmux waits up to 60 s for a Codex key to save.
         "api_key" => (
             json!({"agent": agent()?, "key": text(&params.key)?, "sessionId": session}),
-            CALL_TIMEOUT * 6,
+            CALL_TIMEOUT * 15,
         ),
         "cancel" => {
             (json!({"loginId": text(&params.login_id)?, "sessionId": session}), CALL_TIMEOUT)

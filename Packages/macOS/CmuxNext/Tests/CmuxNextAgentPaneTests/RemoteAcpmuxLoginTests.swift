@@ -66,7 +66,7 @@ import Testing
             wire.send(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"#) { _ in }
             try await Self.waitUntil { frames.reply(1) != nil }
             let acpmux = ((frames.reply(1)?["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-            #expect((acpmux?["features"] as? [String])?.contains("agent_login") == served)
+            #expect(((acpmux?["features"] as? [String])?.contains("agent_login") ?? false) == served)
             #expect(acpmux?["capabilities"] == nil)
         }
     }

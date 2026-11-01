@@ -381,12 +381,32 @@ test("a refused step names its reason, with Retry", async () => {
     expect(host.querySelector(".cv-turn-signin__error")!.textContent).toBe(copy);
     expect(button("Retry") !== undefined).toBe(retry);
     if (reason === "bad_code") {
-      // A wrong code keeps the login: Retry asks for the code again, no new start.
+      // acpmux ended the login with the refusal: Retry starts a new one, never reusing it.
       await act(async () => button("Retry")!.click());
-      expect(host.querySelector(".cv-turn-signin__input")).not.toBeNull();
-      expect(calls.filter((call) => call[0] === "start")).toHaveLength(1);
+      await flush();
+      expect(calls.filter((call) => call[0] === "start")).toHaveLength(2);
     }
   }
+});
+
+test("a resend whose card went away while its attachments loaded never sends", async () => {
+  const { client, sent } = mockClient({});
+  let release!: () => void;
+  const loaded = new Promise<void>((resolve) => (release = resolve));
+  const slow = {
+    ...client,
+    resendPrompt: async (rowId: string, text: string) => {
+      await loaded;
+      return client.resendPrompt(rowId, text);
+    },
+  } as typeof client;
+  const { signIn } = signInFor(slow);
+  let wanted = true;
+  const pending = signIn!.resend("user-1", PROMPT, { promptId: "p-1", ticket: "t-1" }, () => wanted);
+  wanted = false;
+  release();
+  await pending;
+  expect(sent).toEqual([]);
 });
 
 test("Cancel stops the login on the machine", async () => {

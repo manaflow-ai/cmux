@@ -130,8 +130,9 @@ export type CloudSignIn = {
   /// Reserves the current click's gesture for one resend of the failed prompt. Call it inside the
   /// click handler; the promise holds the ticket (undefined when the host gave none).
   reserve(): Promise<ResendTicket | undefined>;
-  /// Sends the failed prompt again under `ticket`; does nothing without one.
-  resend(rowId: string, prompt: string, ticket: ResendTicket | undefined): Promise<void>;
+  /// Sends the failed prompt again under `ticket`; does nothing without one, or once `wanted`
+  /// says the card that asked has gone (checked again after the prompt's attachments load).
+  resend(rowId: string, prompt: string, ticket: ResendTicket | undefined, wanted?: () => boolean): Promise<void>;
 };
 
 export type ResendTicket = { promptId: string; ticket: string };
@@ -218,13 +219,13 @@ export function cloudAgentLogin(options: {
         () => undefined,
       );
     },
-    resend: async (rowId, prompt, ticket) => {
+    resend: async (rowId, prompt, ticket, wanted = () => true) => {
       // Never a send without the person's click (the host would refuse it anyway).
       if (!ticket) return;
       const sender = currentClient();
-      if (!sender || !isCurrent(sessionId)) return;
+      if (!sender || !isCurrent(sessionId) || !wanted()) return;
       const draft = await sender.resendPrompt(rowId, prompt);
-      if (!isCurrent(sessionId) || currentClient() !== sender) return;
+      if (!wanted() || !isCurrent(sessionId) || currentClient() !== sender) return;
       await sender.send(draft.input, draft.attachments, ticket.promptId, undefined, ticket.ticket);
     },
   };

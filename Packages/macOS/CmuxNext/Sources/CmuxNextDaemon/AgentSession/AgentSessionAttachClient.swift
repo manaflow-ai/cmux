@@ -406,8 +406,18 @@ public actor AgentSessionAttachClient {
         (try? await liveConnection())?.1.login ?? false
     }
 
-    /// How long a login's finish may wait: Codex's waits for the person's approval in the browser.
+    /// How long each login step may wait, past the daemon's own wait for it: start waits for the
+    /// CLI's sign-in page (30 s), saving a key for its CLI (75 s), and finish for the person's
+    /// approval in the browser (Codex, 15 min).
     static let loginFinishTimeout: Duration = .seconds(15 * 60)
+    static func loginTimeout(_ op: String) -> Duration? {
+        switch op {
+        case "finish": loginFinishTimeout
+        case "start": Duration.seconds(35)
+        case "api_key": Duration.seconds(80)
+        default: nil
+        }
+    }
 
     /// `agent-session-login` (`agent-session-login-v1`): one step of the attached chat's agent's own
     /// sign-in on that machine, as acpmux's `_acpmux/agent_login/<op>` on the tab's own session.
@@ -419,7 +429,7 @@ public actor AgentSessionAttachClient {
         var params: [String: any Sendable] = ["op": op]
         for (key, value) in fields { params[key] = value }
         return try await call("agent-session-login", params,
-                              timeout: op == "finish" ? Self.loginFinishTimeout : requestTimeout)
+                              timeout: Self.loginTimeout(op) ?? requestTimeout)
     }
 
     /// Reads one image from the attached session's host acpmux (`agent-session-media`).

@@ -94,7 +94,7 @@ export function CloudSignIn({
     void ticket
       .then((held) => {
         if (!held || mine !== generation.current) throw new LoginStepError("failed");
-        return signIn.resend(rowId, prompt, held);
+        return signIn.resend(rowId, prompt, held, () => mine === generation.current);
       })
       .then(
         () => mine === generation.current && setStage({ at: "sent" }),
@@ -157,10 +157,10 @@ export function CloudSignIn({
       (error) => {
         if (mine !== generation.current) return;
         const failure = failureOf(error);
-        // A wrong code keeps the login: paste again. Anything else starts over.
-        if (failure !== "bad_code") open.current = undefined;
+        // acpmux ends the login on any refused step, a wrong code too: Retry starts a new one.
+        open.current = undefined;
         setCode("");
-        setStage({ at: "failed", failure, ...(failure === "bad_code" ? { login } : {}) });
+        setStage({ at: "failed", failure });
       },
     );
   };
@@ -197,10 +197,6 @@ export function CloudSignIn({
     // A key that was not saved asks for the key again, not for a sign-in.
     if (stage.at === "failed" && stage.key) {
       setStage({ at: "key" });
-      return;
-    }
-    if (stage.at === "failed" && stage.failure === "bad_code" && stage.login) {
-      setStage({ at: "code", login: stage.login });
       return;
     }
     start();
