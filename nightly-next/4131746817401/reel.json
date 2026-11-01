@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "build": "4131746817401",
+  "notes": "notes/4131746817401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30921,
+      "title": "cmux mcp: video_frames and video_info, so an agent looks into a video without ffmpeg",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30964,
+      "title": "optchat-chief: no auto pause of cloud subagent VMs by default (cloud.autoPause)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28024,
+      "title": "fix(sidebar): remove redundant local session subtitle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30954,
+      "title": "bench(acpmux): chat-switch benchmark (cold and prefetched)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31018,
+      "title": "cmux-vm staging: approve the cloud-native image for cloud-platform-dev",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27652,
+      "title": "fix(next): show file picker rows during initial searches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27957,
+      "title": "web: Stripe webhook inbox: answer 2xx, process with retries, one event per subscription at a time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28299,
+      "title": "fix(next): error card and Session status card on the card grid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31000,
+      "title": "base red: web-lint, #30178's useless spread and the edge-strip helper's Disposable return (#30945)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28629,
+      "title": "fix(chat): use transcript token for message expansion indent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28676,
+      "title": "Session Info: a Sources row lights once, and only when it opens something",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29672,
+      "title": "cmux NEXT: a chat's file changes open on the right at every width; no branch error outside a repository",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29844,
+      "title": "ci: gallery health, web validation, PR checks and the cloud backend check read the live Linux pool",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29918,
+      "title": "test(transcript-view): the Wrap lines hover check waits for both fades to settle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30003,
+      "title": "Home Channels: switch Chief replies between Messages and Transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30023,
+      "title": "test(composer-plus-geometry): format the lines #29887 added (base red: webviews vp fmt --check)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30026,
+      "title": "cmux NEXT toasts: a toast's button never opens Settings as a stand-in (check:toast-targets)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30104,
+      "title": "fix(next): Needs input menu opens waiting agent, not latest unread (#5329) (carry of #28692)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30264,
+      "title": "webviews: hover cards stay open across the whole gap to their card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30300,
+      "title": "test(sidebar): close hover-card panels in fixture teardown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30301,
+      "title": "test(sidebar): recognize created numbered defaults on modern daemons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30304,
+      "title": "test(sidebar): yield while the notice card exit completes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30305,
+      "title": "test(sidebar): retain connected status for optional remote updates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30306,
+      "title": "test(sidebar): include the opt-in Automations catalog item",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30307,
+      "title": "test(next): stage document placement burst after fixture setup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30969,
+      "title": "ci(cmux-next): base autofix: only the run that carries the exports waits for them",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30331,
+      "title": "test(sidebar): follow group rail gap contract",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30335,
+      "title": "test(sidebar): respect resize band content inset",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30923,
+      "title": "link: cmux link seed pull brings a seeded Cloud folder's changes back as a diff",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
