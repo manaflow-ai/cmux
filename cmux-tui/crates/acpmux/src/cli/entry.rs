@@ -96,7 +96,7 @@ const STDIO_MCP_SERVERS: [&str; 7] =
 
 /// Worker threads of a stdio MCP server: it answers one client's requests
 /// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
-const MCP_WORKERS: usize = 2;
+const MCP_WORKERS: usize = 32;
 
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
