@@ -3,6 +3,8 @@
   "workflows": {
     "nightly.yml": {
       "decide": {
+        "Mint the routing token for early nightly controls": {"plumbing": true},
+        "Place early controls on fleet Linux or free owned minis": {"pr": "ci-guards.yml:workflow-guard-tests:Validate portable placement (fleet Linux, then a free mini, then Blacksmith)"},
         "Decide whether a nightly build is needed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"}},
       "promote-nightly-next": {
         "Decide the promotion": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"},
