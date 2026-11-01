@@ -19,9 +19,9 @@ struct NotificationRingClickCaptureTests {
         view.layoutSubtreeIfNeeded()
         CATransaction.flush()
         let scale = 2, width = Int(view.bounds.width) * scale, height = Int(view.bounds.height) * scale
+        let srgb = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         let ctx = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                         space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
-                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                                         space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(NSColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1).cgColor)
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
         ctx.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
@@ -32,7 +32,7 @@ struct NotificationRingClickCaptureTests {
 
     @Test func aClickInARemoteTerminalBeforeAndAfter() async throws {
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { false })
+        let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { false }, heldKeyReplay: { event, _, _ in NSApp?.sendEvent(event) })
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.notifications.leftButtonIsDown = { true }
@@ -73,8 +73,9 @@ struct NotificationRingClickCaptureTests {
         let after = try Self.snapshot(view)
         let note = "unread after the click: \(tab.hasUnread)"
         let gap = 24
+        let srgb = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         let ctx = try #require(CGContext(data: nil, width: before.width + after.width + gap, height: max(before.height, after.height),
-                                         bitsPerComponent: 8, bytesPerRow: 0, space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
+                                         bitsPerComponent: 8, bytesPerRow: 0, space: srgb,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
@@ -84,7 +85,8 @@ struct NotificationRingClickCaptureTests {
         let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let out = package.appendingPathComponent(".build/notification-ring-click.png")
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let dest = try #require(CGImageDestinationCreateWithURL(out as CFURL, UTType.png.identifier as CFString, 1, nil))
+        let made: CGImageDestination? = CGImageDestinationCreateWithURL(out as CFURL, UTType.png.identifier as CFString, 1, nil)
+        let dest = try #require(made)
         CGImageDestinationAddImage(dest, image, nil)
         #expect(CGImageDestinationFinalize(dest), "\(note)")
         try Data(note.utf8).write(to: package.appendingPathComponent(".build/notification-ring-click.txt"))
