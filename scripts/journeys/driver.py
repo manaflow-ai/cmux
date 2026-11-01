@@ -284,7 +284,7 @@ class App:
         sock = self.daemon_socket()
         if sock:
             answer = unix_request(sock, {"id": "journeys-skew", "cmd": "identify"})
-            body = answer.get("result", answer) if isinstance(answer, dict) else {}
+            body = (answer.get("data") or answer.get("result") or answer) if isinstance(answer, dict) else {}
             if isinstance(body, dict) and body.get("pid"):
                 facts["cmux_tui"] = {"pid": body.get("pid"), "build_id": body.get("build_id"),
                                      "exe": body.get("cli_path") or process_exe(body.get("pid")),
@@ -297,6 +297,17 @@ class App:
             acp = {}
             facts["errors"].append(f"agent.acpmux: {error}"[:200])
         path = acp.get("socket_path") if isinstance(acp, dict) else None
+        if not path:
+            # A build without agent.acpmux: the `acpmux daemon run` process of THIS bundle (each lease has its own
+            # bundle path, so the path is the build); another bundle's acpmux daemon is not this app's.
+            own_bin = os.path.join(self.bundle, "Contents", "Resources", "bin")
+            rows = subprocess.run(["ps", "axo", "pid=,args="], capture_output=True, text=True, timeout=20).stdout
+            for line in rows.splitlines():
+                pid, _, args = line.strip().partition(" ")
+                if args.startswith(own_bin + "/acpmux daemon run") or args.startswith(own_bin + "/cmux acpmux daemon run"):
+                    exe = os.path.join(own_bin, "acpmux")
+                    facts["acpmux"] = {"pid": int(pid), "exe": exe, "build": None, "found_by": "process of this bundle"}
+                    break
         if path and os.path.exists(path):
             pids = [int(p) for p in subprocess.run(["/usr/sbin/lsof", "-t", path], capture_output=True, text=True,
                                                    timeout=20).stdout.split() if p.isdigit()]

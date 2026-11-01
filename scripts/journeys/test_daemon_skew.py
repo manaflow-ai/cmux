@@ -73,6 +73,32 @@ class DaemonSkew(unittest.TestCase):
         facts = self.facts(expected=None)
         self.assertIn("not verified", self.d.daemon_skew(facts, str(self.bundle)))
 
+    def test_an_acpmux_found_by_its_process_in_this_bundle_with_no_build_string_is_valid(self):
+        self.assertIsNone(self.d.daemon_skew(self.facts(acp_build=None), str(self.bundle)))
+
+    def test_the_owners_identify_answer_is_read_from_its_data_envelope(self):
+        calls = {}
+
+        class FakeApp(self.d.App):
+            def __init__(self_):
+                self_.bundle, self_.cli, self_.home = str(self.bundle), "/bin/true", "/tmp"
+
+            def daemon_socket(self_):
+                return "/tmp/sock"
+
+            def rpc(self_, method, params=None, timeout=None):
+                raise self.d.StepError("agent.acpmux: method_not_found")
+        own = str(self.bundle / "Contents" / "Resources" / "bin" / "cmux")
+        saved = self.d.unix_request
+        self.d.unix_request = lambda path, message, timeout=5.0: calls.setdefault("asked", message) and {
+            "id": "journeys-skew", "data": {"pid": 11, "build_id": "abc123", "cli_path": own}}
+        try:
+            facts = FakeApp().daemon_facts()
+        finally:
+            self.d.unix_request = saved
+        self.assertEqual(calls["asked"]["cmd"], "identify")
+        self.assertEqual(facts["cmux_tui"], {"pid": 11, "build_id": "abc123", "exe": own, "socket": "/tmp/sock"})
+
     def test_the_verdict_turns_a_pass_or_a_fail_into_not_run_and_keeps_not_run(self):
         skew = "cmux-tui owner pid 11 runs build 0ld999"
         for status in ("pass", "fail"):
