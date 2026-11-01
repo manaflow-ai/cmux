@@ -4790,6 +4790,8 @@ export class AcpmuxDirectClient {
     this.endAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
+    // Nor does a subagent group: the next subagent starts a group of its own, in its own turn.
+    this.subagents.closeBatch();
     if (state === "started") {
       // An older page's started record after its ended one: the line keeps how it ended.
       const ended = this.rows.openBackground(turn.id, event.seq);
@@ -5046,6 +5048,7 @@ export class AcpmuxDirectClient {
     if (update) {
       this.subagents.cause = this.turnStopCause(event);
       this.subagents.chat = this.chatThread();
+      this.subagents.session = this.selectedSessionId;
       this.subagents.harness = this.summary?.harness;
       if (this.subagents.reduce(event, update)) {
         // A later command update can associate a shell call with its recorded child session.
@@ -7314,6 +7317,23 @@ export class AcpmuxDirectClient {
       throw new Error(translate("permission.error.selectionChanged"));
     await this.permissions.respond(groupId, revision, decision);
   }
+  /// Detaches a switch has sent and acpmux has not answered, by chat. A chat left twice in a row
+  /// (A, B, A, B before the first detach answers) has its detaches chained: the entry settles only
+  /// when every detach of that chat sent so far has answered, so an attach that waits on it is
+  /// never answered before one of them. An entry lives only until that (a reply, a refusal, or the
+  /// socket closing rejects it), so the map holds at most the chats left within one round trip.
+  private detaching = new Map<string, Promise<void>>();
+  private detachInBackground(sessionId: string): void {
+    const earlier = this.detaching.get(sessionId);
+    const reply = this.typed("_acpmux/detach", { sessionId }).then(
+      () => undefined,
+      () => undefined,
+    );
+    const sent: Promise<void> = Promise.all([earlier, reply]).then(() => {
+      if (this.detaching.get(sessionId) === sent) this.detaching.delete(sessionId);
+    });
+    this.detaching.set(sessionId, sent);
+  }
   async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
     // The chat being left is kept for its own next open, while it is still the selected one.
@@ -7356,10 +7376,17 @@ export class AcpmuxDirectClient {
     }
     let mine = this.copyAttaches;
     try {
-      // A refused detach of the chat being left (acpmux no longer resolves it) never stops the
-      // chat being opened.
-      if (previousSessionId)
-        await this.typed("_acpmux/detach", { sessionId: previousSessionId }).catch(() => undefined);
+      // The chat being left is detached alongside the attach, not before it: acpmux keeps one
+      // subscription per chat (server/view.rs), so a detach of another chat never touches this
+      // attach, and awaiting it cost every switch a daemon round trip. Only a detach of this same
+      // chat (a switch away and straight back) is waited on, since acpmux runs each request on its
+      // own task and a detach answered after the attach would drop the new subscription. A refused
+      // detach (acpmux no longer resolves the chat) never stops the chat being opened.
+      if (previousSessionId && previousSessionId !== sessionId) this.detachInBackground(previousSessionId);
+      const detaching = this.detaching.get(sessionId);
+      if (detaching) await detaching;
+      else if (previousSessionId === sessionId)
+        await this.typed("_acpmux/detach", { sessionId }).catch(() => undefined);
       mine = this.copyAttaches;
       await this.attach(sessionId, generation, keptThrough);
       // A reconnect's attach took the chat over meanwhile: its outcome decides.

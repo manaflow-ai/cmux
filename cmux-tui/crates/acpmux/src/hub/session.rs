@@ -385,6 +385,11 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Read only the needed fields without copying large metadata payloads. The
+    /// callback must not acquire other session/hub locks or call back into this session.
+    pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
+        read(&self.meta.lock().unwrap_or_else(|e| e.into_inner()))
+    }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
     }
@@ -413,6 +418,9 @@ impl Session {
             .iter()
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
+    }
+    pub(crate) fn has_pending_permissions(&self) -> bool {
+        !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
     }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status

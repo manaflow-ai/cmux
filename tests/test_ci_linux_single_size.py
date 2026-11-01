@@ -44,7 +44,7 @@ SINGLE_SIZE: dict[str, int] = {
     "app-ffi-release.yml": 3,
     "auto-resume-nightly-notarization.yml": 6,
     "automation-bench.yml": 1,
-    "backend.yml": 12,
+    "backend.yml": 0,
     "ci-artifact-canary.yml": 1,
     "ci-artifact-transport.yml": 1,
     "ci-cache-receipts.yml": 1,
@@ -52,11 +52,12 @@ SINGLE_SIZE: dict[str, int] = {
     "ci-fast-guards.yml": 1,
     "ci-guard-attribution.yml": 1,
     "ci-guards.yml": 5,
+    "platform-dev-secrets.yml": 1,
     "ci-health-report.yml": 1,
     "ci-hosted-queue-rescue.yml": 1,
     "ci-queue-janitor.yml": 1,
     "ci-repo-variables.yml": 1,
-    "ci-web.yml": 5,
+    "ci-web.yml": 0,
     "ci.yml": 0,
     "cloud-capture-provision.yml": 1,
     "cloud-devbox-image-rebake.yml": 1,
@@ -79,7 +80,7 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-next-crash-class.yml": 1,
     "cmux-next-dev-daily-dispatch.yml": 1,
     "cmux-next-docs-shortcuts.yml": 1,
-    "cmux-next-fast-gates.yml": 2,
+    "cmux-next-fast-gates.yml": 0,
     "cmux-next-frame-pacing.yml": 2,
     "cmux-next-guards.yml": 9,
     "cmux-next-media.yml": 3,
@@ -224,6 +225,15 @@ class WorkflowTests(unittest.TestCase):
         runs_on = document["jobs"]["ghosttykit-release-check"]["runs-on"]
         self.assertFalse(single_size(runs_on))
         self.assertTrue(runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+
+    def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
+        # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
+        # stalled 32 vCPU size while every webview shard waited behind it.
+        document = yaml.safe_load((WORKFLOWS / "ci-web.yml").read_text(encoding="utf-8"))
+        runs_on = document["jobs"]["web-subarea-scope"]["runs-on"]
+        self.assertFalse(single_size(runs_on))
+        self.assertNotIn("LINUX_RUNNER", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()

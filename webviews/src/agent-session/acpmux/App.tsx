@@ -81,6 +81,7 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { postNative } from "./native";
+import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -603,6 +604,8 @@ import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import {
   CMUX_PASS_THROUGH,
+  CmuxCommandRefused,
+  cdFolder,
   continueTargets,
   cmuxCommandRefusal,
   mergedCommands,
@@ -1429,6 +1432,7 @@ const ThinkingRow = memo(
         sendTo={row.doingSendTo}
         sendSession={row.doingSendSession}
         draft={row.doingDraft}
+        done={row.doingDone}
         untimed={row.untimed}
         quietKey={row.quietKey}
         below={row.below}
@@ -1454,6 +1458,7 @@ const ThinkingRow = memo(
     a.row.doingSendTo === b.row.doingSendTo &&
     a.row.doingSendSession === b.row.doingSendSession &&
     a.row.doingDraft === b.row.doingDraft &&
+    a.row.doingDone === b.row.doingDone &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
     a.row.below === b.row.below &&
@@ -5693,6 +5698,7 @@ function AcpmuxPane() {
   // This Mac's own name (`localMachineName`): `machineName` names a seeded chat's machine instead.
   const [localMachineName, setLocalMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
@@ -6640,7 +6646,7 @@ function AcpmuxPane() {
           liveRuns: codexRuns,
           sessionStatus,
           lineBelow,
-          // Turn folding follows acpmux's session family; Claude keeps every assistant message visible.
+          // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
           agentFamily: snapshot.summary?.family,
           // Other sessions' messages among them, two or more in a run, draw as one card.
           waitingSteers: snapshot.waitingSteers,
@@ -8135,6 +8141,7 @@ function AcpmuxPane() {
     snapshot: cardSnapshot,
     machineName,
     repository: githubRepository,
+    cloudRepositoryAvailable,
     shell,
     onOpenOutput: quick ? undefined : sessionInfoSubagent ? openSubagentOutput : openOutput,
     onOpenSourceFile: quick || !sessionInfoLocal ? undefined : (path) => openSourceFile(path, callNative),
@@ -8822,6 +8829,7 @@ function AcpmuxPane() {
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import", "model", "fast", "context", "plan"]);
     if (snapshot.summary) enabledCmuxActions.add("status");
+    if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) {
       enabledCmuxActions.add("fork");
       if (localCwd !== undefined && !quick) enabledCmuxActions.add("side");
@@ -8944,7 +8952,7 @@ function AcpmuxPane() {
   shownSession.current = snapshot.sessionId;
 
   const requestFolder = useCallback(
-    (cwd: string, use: (folder: string) => void, cancel?: () => void) => {
+    (cwd: string, use: (folder: string) => void, cancel?: () => void): Promise<void> => {
       const pick = ++folderPick.current;
       folderConfirmGeneration.current += 1;
       folderConfirmInFlight.current = false;
@@ -8956,7 +8964,7 @@ function AcpmuxPane() {
       // The pick lands only in the chat it was made in: a chat switched to meanwhile gets nothing.
       const asked = { sessionId, ...visitOf(visit) };
       const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
-      void pickFolder(
+      return pickFolder(
         callNative,
         cwd,
         (folder) => {
@@ -8976,22 +8984,27 @@ function AcpmuxPane() {
   /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
   /// is no pick.
   const pickedProject = useRef<string | undefined>(undefined);
+  /// Settles once the host answered the pick; `refused` hears a path the host says is no folder.
   const chooseProject = useCallback(
-    (cwd: string, peer?: string) => {
+    (cwd: string, peer?: string, refused?: () => void): Promise<void> => {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
       // Another computer's folder is that computer's to check.
       if (peer) {
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);
-        return;
+        return Promise.resolve();
       }
       // Fresh or started is read when the folder is used (an answer can come later).
-      requestFolder(cwd, (folder) => {
-        pickedProject.current = folder;
-        if (freshRef.current) setProjectDraft(folder);
-        else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
-      });
+      return requestFolder(
+        cwd,
+        (folder) => {
+          pickedProject.current = folder;
+          if (freshRef.current) setProjectDraft(folder);
+          else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+        },
+        refused,
+      );
     },
     [folderContinuation, requestFolder],
   );
@@ -9428,6 +9441,7 @@ function AcpmuxPane() {
           cloudCredentialRecoveryAvailable?: unknown;
           /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
           cloudHandoffs?: unknown;
+          cloudRepositoryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
           model?: unknown;
@@ -9436,6 +9450,7 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
+        setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
         );
@@ -10668,6 +10683,8 @@ function AcpmuxPane() {
       session: !fresh && !!snapshot.sessionId,
       isSideSession,
       targets: fresh ? [] : handoffTargets,
+      cwd: snapshot.summary?.cwd,
+      newTab: fresh,
     });
     if (refusal) return t(refusal);
     if (command.action === "status") {
@@ -10675,6 +10692,24 @@ function AcpmuxPane() {
       return true;
     }
     const argument = args?.trim();
+    // `/cd` is the folder chip's pick, typed: a chat with no turn yet starts in the folder, a
+    // started one opens a new chat there (chooseProject). Bare, it opens the folder browser.
+    if (command.action === "cd") {
+      if (!argument)
+        return callNative<{ cwd?: string }>("project.browse").then((result) => {
+          if (result?.cwd) return chooseProject(result.cwd);
+        });
+      const folder = cdFolder(argument, snapshot.summary?.cwd);
+      if (!folder) return t("composer.cmuxCdPath");
+      const summary = snapshot.summary;
+      const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
+      let refused = false;
+      return chooseProject(folder, peer, () => {
+        refused = true;
+      }).then(() => {
+        if (refused) throw new CmuxCommandRefused(t("composer.cmuxCdNotFolder", { folder }));
+      });
+    }
     // The composer sends the prompt as typed through onSend, attachments and steer included, the
     // way any other prompt goes.
     if (command.action === "passThrough") return CMUX_PASS_THROUGH;
@@ -13472,6 +13507,7 @@ function AcpmuxPane() {
             onClose={() => setImageView(undefined)}
           />
         )}
+        <CloudEnvironmentEditor />
         <DeleteChatDialog
           open={deleteConfirmOpen}
           onOpenChange={(next) => {

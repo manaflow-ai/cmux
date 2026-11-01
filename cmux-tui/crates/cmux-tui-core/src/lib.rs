@@ -39,9 +39,9 @@ pub mod diagnostics;
 mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
+mod git_ops;
 #[cfg(unix)]
 pub mod git_seed;
-mod git_ops;
 mod history_ops;
 pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.

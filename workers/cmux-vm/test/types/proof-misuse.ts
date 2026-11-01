@@ -1,6 +1,10 @@
 import { UpstreamSnapshots } from "../../src/upstream/snapshots.ts";
 import { authorizedSnapshotCapture, forkSnapshotAccess } from "../../src/proofs/snapshot-capture.ts";
 import { pendingVmCreation, cancellingVmCreation } from "../../src/proofs/vm-creation.ts";
+import { pendingMeshCreation } from "../../src/proofs/mesh-creation.ts";
+import { tenantMayCreateMesh } from "../../src/proofs/mesh-may-create.ts";
+import { UpstreamMesh } from "../../src/upstream/mesh.ts";
+import type { MeshId } from "../../src/lib/ids.ts";
 /**
  * Compile-time checks, enforced by `tsc` (this file is in tsconfig's include).
  * Each `@ts-expect-error` line is a call the type checker must refuse; if one
@@ -24,6 +28,24 @@ const journalFixture: CreateVmSpec["journal"] = {
   context: null, beforeSend: () => Effect.void, beginSend: () => Effect.succeed("send"),
   rejected: () => Effect.void, active: Effect.void,
 };
+
+export const meshCreateMisuse = (principal: Principal, meshA: MeshId, meshB: MeshId) => Effect.gen(function* () {
+  const upstream = yield* UpstreamMesh;
+  yield* name(principal, meshA, meshB, (caller, a, b) => Effect.gen(function* () {
+    const scope = keyHasScope(caller, "mesh:write"), pending = yield* pendingMeshCreation(caller, a, "digest", "holder");
+    const decision = yield* tenantMayCreateMesh(caller);
+    if (scope === null || pending === null || decision._tag !== "granted") return;
+    const mayCreate = decision.proof;
+    yield* upstream.recoverNetwork(a, { scope, pending });
+    yield* upstream.createJournalledNetwork(a, { scope, pending, mayCreate });
+    // @ts-expect-error recovery authority for A cannot inspect B's provider network
+    yield* upstream.recoverNetwork(b, { scope, pending });
+    // @ts-expect-error a scope and quota alone cannot resume an uncommitted network
+    yield* upstream.createJournalledNetwork(a, { scope, mayCreate });
+    // @ts-expect-error recovery authority alone does not permit a new allocation
+    yield* upstream.createJournalledNetwork(a, { scope, pending });
+  }));
+});
 
 export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
   Effect.gen(function* () {

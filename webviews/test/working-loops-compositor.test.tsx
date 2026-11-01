@@ -32,6 +32,7 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
     <div>
       <div id="thinking">
         <Thinking
+          since={START}
           doing="Read the Freestyle lanes note; check dispatcher"
           doingAt={START}
           now={() => START + 50_000}
