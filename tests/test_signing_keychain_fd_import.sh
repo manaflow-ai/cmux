@@ -6,10 +6,11 @@
 set -euo pipefail
 
 if [ "$(uname -s)" != Darwin ]; then
+  [ "${CMUX_NATIVE_CREDENTIAL_REQUIRED:-0}" = 1 ] && { echo "FAIL: required native credential proof needs macOS" >&2; exit 1; }
   echo "SKIP: fd credential import needs macOS security/codesign"
   exit 0
 fi
-if [ "${GITHUB_ACTIONS:-}" != true ] && [ "${CMUX_SIGNING_KEYCHAIN_FD_TEST:-}" != 1 ]; then
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "${CMUX_SIGNING_KEYCHAIN_FD_TEST:-}" != 1 ] && [ "${CMUX_NATIVE_CREDENTIAL_REQUIRED:-0}" != 1 ]; then
   echo "SKIP: set CMUX_SIGNING_KEYCHAIN_FD_TEST=1 to run outside GitHub Actions"
   exit 0
 fi
@@ -74,6 +75,9 @@ codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN_FILE" "$TMP_DIR/signed
 codesign -dvv "$TMP_DIR/signed-binary" 2>&1 | grep -F "Authority=$SUBJECT" >/dev/null \
   || fail "signed binary does not contain fd-imported identity"
 
+if ! command -v xcrun >/dev/null 2>&1 && [ "${CMUX_NATIVE_CREDENTIAL_REQUIRED:-0}" = 1 ]; then
+  fail "required native credential proof needs xcrun/notarytool"
+fi
 if command -v xcrun >/dev/null 2>&1; then
   PROFILE="cmux-fd-profile-$$"
   ISSUER="00000000-0000-0000-0000-000000000000"
@@ -94,5 +98,8 @@ fi
 [ ! -e "$KEYCHAIN_FILE" ] || fail "fd-test keychain survived cleanup"
 [ "$("$SECURITY" default-keychain -d user 2>/dev/null || true)" = "$DEFAULT_BEFORE" ] \
   || fail "production keychain helper changed the user's default keychain"
-[ -z "$(find "$TMP_DIR" -type f -maxdepth 1 -print)" ] || fail "credential artifact remained in test temp dir"
+if find "$TMP_DIR" -type f \( -name '*.p12' -o -name '*.pem' -o -name '*.p8' \) -print -quit | grep -q .; then
+  fail "raw credential file remained in test temp dir"
+fi
+[ -z "$(find "$TMP_DIR/runner-temp" -mindepth 1 -print -quit 2>/dev/null)" ] || fail "runner temp retained credential state"
 echo "PASS: owned-Mac security import from fd 3, codesign, and cleanup"
