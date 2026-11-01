@@ -13,6 +13,7 @@
 
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::transport::CallFailure;
@@ -343,27 +344,32 @@ fn summary(
 }
 
 fn describe(path: &str, info: &Value) -> String {
-    let ms = info["durationMs"].as_u64().unwrap_or(0);
-    let fps = info["fps"].as_f64().filter(|fps| *fps > 0.0);
+    let ms = info.get("durationMs").and_then(Value::as_u64).unwrap_or(0);
+    let fps = info.get("fps").and_then(Value::as_f64).filter(|fps| *fps > 0.0);
     format!(
         "{path}: {}, {}x{}{}, {}.",
         seconds(ms),
-        info["width"].as_u64().unwrap_or(0),
-        info["height"].as_u64().unwrap_or(0),
+        info.get("width").and_then(Value::as_u64).unwrap_or(0),
+        info.get("height").and_then(Value::as_u64).unwrap_or(0),
         fps.map(|fps| format!(", {} fps", (fps * 100.0).round() / 100.0)).unwrap_or_default(),
-        if info["hasAudio"] == true { "with audio" } else { "no audio" }
+        if info.get("hasAudio").and_then(Value::as_bool) == Some(true) {
+            "with audio"
+        } else {
+            "no audio"
+        }
     )
 }
 
-/// The public part of the app's answer (no frames).
+/// The public part of the app's answer (no frames); a field the app left out is null.
 fn info_value(path: &str, info: &Value) -> Value {
+    let field = |key: &str| info.get(key).cloned().unwrap_or_default();
     json!({
         "path": path,
-        "durationMs": info["durationMs"],
-        "width": info["width"],
-        "height": info["height"],
-        "fps": info["fps"],
-        "hasAudio": info["hasAudio"],
+        "durationMs": field("durationMs"),
+        "width": field("width"),
+        "height": field("height"),
+        "fps": field("fps"),
+        "hasAudio": field("hasAudio"),
     })
 }
 
@@ -395,22 +401,24 @@ fn identity(path: &str) -> Result<(String, Value), String> {
     Err(format!("{path}: video tools need the cmux app on this machine"))
 }
 
+/// The `code` of the app's error, when it names one.
+fn error_code(failure: &CallFailure) -> Option<&str> {
+    failure.error.get("code").and_then(Value::as_str)
+}
+
 /// The app's answer to one `video.frames` request, or the tool result that says why not.
 fn decode(
     app: &mut dyn FnMut(Value) -> Result<Value, CallFailure>,
     params: Value,
 ) -> Result<Value, Value> {
     match app(params) {
-        Ok(value) if value["durationMs"].is_u64() => Ok(value),
+        Ok(value) if value.get("durationMs").is_some_and(Value::is_u64) => Ok(value),
         Ok(_) => Err(invalid("the cmux app answered video.frames without a duration")),
-        Err(failure)
-            if matches!(failure.error["code"].as_str(), Some("not_found" | "unsupported")) =>
-        {
+        Err(failure) if matches!(error_code(&failure), Some("not_found" | "unsupported")) => {
             Err(failure_result(failure))
         }
         Err(failure)
-            if failure.error["code"] == "method_not_found"
-                || failure.error["code"] == "unknown_method" =>
+            if matches!(error_code(&failure), Some("method_not_found" | "unknown_method")) =>
         {
             Err(invalid("this cmux app is too old for video frames; update it, or use ffmpeg"))
         }
@@ -432,7 +440,7 @@ fn run_info(
         Ok(found) => found,
         Err(message) => return invalid(message),
     };
-    params["times"] = json!([]);
+    params.set("times", json!([]));
     match decode(app, params) {
         Ok(info) => success(info_value(&real, &info), false),
         Err(answer) => answer,
@@ -456,7 +464,7 @@ fn run_frames(
     let with = |extra: Value| {
         let mut params = base.clone();
         for (key, value) in extra.as_object().into_iter().flatten() {
-            params[key] = value.clone();
+            params.set(key.clone(), value.clone());
         }
         params
     };
@@ -464,8 +472,8 @@ fn run_frames(
         Ok(info) => info,
         Err(answer) => return answer,
     };
-    let duration = info["durationMs"].as_u64().unwrap_or(0) as f64 / 1000.0;
-    let fps = info["fps"].as_f64().unwrap_or(0.0);
+    let duration = info.get("durationMs").and_then(Value::as_u64).unwrap_or(0) as f64 / 1000.0;
+    let fps = info.get("fps").and_then(Value::as_f64).unwrap_or(0.0);
     let (mut wanted, tolerance) = times(&request.pick, duration, fps);
     let mut changes = Vec::new();
     if let Pick::Scenes(count) = &request.pick {
@@ -478,16 +486,17 @@ fn run_frames(
             Ok(sampled) => sampled,
             Err(answer) => return answer,
         };
-        let samples = sampled["frames"]
-            .as_array()
+        let samples = sampled
+            .get("frames")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|frame| {
                 use base64::Engine as _;
                 let pixels = base64::engine::general_purpose::STANDARD
-                    .decode(frame["data"].as_str()?)
+                    .decode(frame.get("data")?.as_str()?)
                     .ok()?;
-                Some(Sample { at_ms: frame["atMs"].as_u64()?, pixels })
+                Some(Sample { at_ms: frame.get("atMs")?.as_u64()?, pixels })
             })
             .collect::<Vec<_>>();
         let picked = scene_times(&samples, *count);
@@ -514,11 +523,11 @@ fn run_frames(
         Ok(decoded) => decoded,
         Err(answer) => return answer,
     };
-    let frames = decoded["frames"].as_array().cloned().unwrap_or_default();
+    let frames = decoded.get("frames").and_then(Value::as_array).cloned().unwrap_or_default();
     let listed = frames
         .iter()
         .map(|frame| {
-            let at = frame["atMs"].as_u64().unwrap_or(0);
+            let at = frame.get("atMs").and_then(Value::as_u64).unwrap_or(0);
             // The change the scene pick saw nearest this frame's time.
             let change = changes
                 .iter()
@@ -527,7 +536,7 @@ fn run_frames(
             (at, change)
         })
         .collect::<Vec<_>>();
-    let dropped = decoded["dropped"].as_u64().unwrap_or(0);
+    let dropped = decoded.get("dropped").and_then(Value::as_u64).unwrap_or(0);
     let text = summary(
         &real,
         &info,
@@ -540,7 +549,8 @@ fn run_frames(
     // result without it (code_mode `script_answer`).
     let mut content = vec![json!({"type": "text", "text": text})];
     content.extend(frames.iter().filter_map(|frame| {
-        Some(json!({"type": "image", "data": frame["data"].as_str()?, "mimeType": "image/jpeg"}))
+        let data = frame.get("data")?.as_str()?;
+        Some(json!({"type": "image", "data": data, "mimeType": "image/jpeg"}))
     }));
     json!({"content": content, "isError": false})
 }

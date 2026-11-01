@@ -1,5 +1,4 @@
-import CmuxNextAgentPane
-import CmuxNextControl
+public import CmuxNextControl
 import CmuxNextSettings
 import Darwin
 import Foundation
@@ -14,14 +13,17 @@ import Foundation
 /// 1280), `format` (`jpeg` or `luma`), `tolerance` (seconds), `maxBytes` (the frames' base64
 /// budget). A path whose file is not the caller's (a chat whose server runs on another machine
 /// names its own files) is `not_found`: this Mac's file of that name is never read for it.
-nonisolated enum VideoControl {
+public nonisolated struct VideoControl: Sendable {
     /// Up to 64 small frames or 16 large ones from a long file.
     static let deadline: Duration = .seconds(60)
     /// The largest answer: under the CLI's 16 MiB response cap.
     static let maximumBytes = 12 << 20
 
-    static func methods() -> [ControlMethod] {
-        [.async("video.frames") { call in try await Self.run(call.params) }.withDeadline(.fixed(deadline))]
+    public init() {}
+
+    /// The App's control service registers these (`AppControl`).
+    public func methods() -> [ControlMethod] {
+        [.async("video.frames") { call in try await Self.run(call.params) }.withDeadline(.fixed(Self.deadline))]
     }
 
     static func run(_ params: [String: JSONValue]) async throws -> JSONValue {

@@ -236,6 +236,22 @@ export default componentEntry<Props>({
         );
       },
     },
+    "machine-tags": {
+      note: "Projects on three machines (Leo, \"we can have them be delineated rather than just this is a computer symbol\"): each other machine's projects carry its computer in that machine's own color and its name, and this Mac's carry none.",
+      props: {
+        projects: [
+          { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
+          { cwd: "/home/you/src/relay", label: "relay", host: "big-red", peer: "big-red" },
+          { cwd: "/home/you/src/ml-train", label: "ml-train", host: "gpu-box", peer: "gpu-box" },
+          { cwd: "/workspace/api-server", label: "api-server", host: "build-box", peer: "build-box" },
+        ],
+        current: "/Users/you/src/atlas-web",
+        currentLabel: "atlas-web",
+        icon,
+        onPick: () => undefined,
+      },
+      play: open,
+    },
     "no-matches": {
       note: "A query with no results shows the quiet empty state without changing the anchor.",
       props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },

@@ -627,6 +627,17 @@ button.acpmux-session-info-port:hover,
   color: var(--agent-text);
   text-decoration: underline;
 }
+/* A grant's Revoke shows only while its own row is hovered or holds focus, at once, with no fade
+   (as the pull request chips' × does, #28533): a list of grants does not repeat a lit Revoke on
+   every row. At rest it is transparent, not hidden, so Tab still reaches it; the row itself takes
+   no highlight, only the button lights on its own hover. */
+.acpmux-session-info-row--grant > .acpmux-session-info-link {
+  opacity: 0;
+  transition: none;
+}
+.acpmux-session-info-row--grant:is(:hover, :focus-within) > .acpmux-session-info-link {
+  opacity: 1;
+}
 .acpmux-session-info-switch {
   flex: 1 1 auto;
   min-width: 0;
