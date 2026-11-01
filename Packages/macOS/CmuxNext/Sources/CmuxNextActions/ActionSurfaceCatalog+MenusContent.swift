@@ -195,6 +195,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudMove": [p(.agentChat, .move, 0)],
         "cloudBringBack": [p(.agentChat, .move, 1)],
         "cloudRenameMachine": [p(.cloudMachine, .identity, 2)],
+        "cloudShareMachine": [p(.cloudMachine, .identity, 3)],
         "cloudKillMachine": [p(.cloudMachine, .close, 300)],
         "cloudPauseMachine": [p(.cloudMachine, .connection, 208, folder: .connection)],
         "cloudResumeMachine": [p(.cloudMachine, .connection, 209, folder: .connection)],

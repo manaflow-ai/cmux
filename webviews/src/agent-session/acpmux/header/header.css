@@ -120,7 +120,9 @@
 .acpmux-pr-check[data-state=failed][data-on-base]::before{background:var(--agent-status-warning)}
 .acpmux-pr-check__onBase{flex:none;margin-inline-start:auto;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-check>a,.acpmux-pr-check>span{min-width:0;overflow:hidden;color:inherit;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-check:has(>a):hover{background:var(--acpmux-menu-hover)}
+/* A check's link fills the row's free width, and the row lights only while the pointer is on it: anywhere the row is lit, a click opens the check (the highlight covers only its control). */
+.acpmux-pr-check>a{flex:1 1 auto;align-self:stretch;line-height:26px}
+.acpmux-pr-check:has(>a:hover){background:var(--acpmux-menu-hover)}
 .acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}
 /* Merge on the PR chip's status (cx-ncc.77.4): asks once more in place, then says it merged or why not. */
 /* Sticky, so Merge stays in reach under a long check list. */
