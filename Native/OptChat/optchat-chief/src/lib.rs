@@ -68,6 +68,7 @@ pub mod settle_status;
 pub mod show;
 pub mod single_flight;
 pub mod skills;
+pub mod spawn_route;
 pub mod state;
 pub mod sub_watch;
 pub mod subagents;

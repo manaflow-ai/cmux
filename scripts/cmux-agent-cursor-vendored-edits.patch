@@ -1,0 +1,72 @@
+diff --git a/Sources/CmuxAgentCursor/AgentCursorPalette.swift b/Sources/CmuxAgentCursor/AgentCursorPalette.swift
+index 1f1ddb81..96538e27 100644
+--- a/Sources/CmuxAgentCursor/AgentCursorPalette.swift
++++ b/Sources/CmuxAgentCursor/AgentCursorPalette.swift
+@@ -59,7 +59,8 @@ public struct AgentCursorPalette: Sendable, Equatable {
+         }
+         if suffix.unicodeScalars.count == 1, let scalar = suffix.unicodeScalars.first,
+            scalar.isASCII, CharacterSet.letters.contains(scalar) {
+-            let lower = Character(scalar).lowercased().unicodeScalars.first!.value
++            // An ASCII letter lowercases to one ASCII scalar; `scalar` itself stands in otherwise.
++            let lower = Character(scalar).lowercased().unicodeScalars.first?.value ?? scalar.value
+             return Int(lower - 97) % count
+         }
+         var hash: UInt32 = 2_166_136_261
+diff --git a/Sources/CmuxAgentCursor/GlideMotion.swift b/Sources/CmuxAgentCursor/GlideMotion.swift
+index c76234c0..9069a448 100644
+--- a/Sources/CmuxAgentCursor/GlideMotion.swift
++++ b/Sources/CmuxAgentCursor/GlideMotion.swift
+@@ -92,3 +92,23 @@ extension GlideMotion {
+         return GlidePlan(samples: samples, arrivedTick: arrivedTick, dt: dt, origin: CGPoint(x: x0, y: y0))
+     }
+ }
++
++extension GlideMotion {
++    /// A straight segment at constant speed over `duration` seconds, with no
++    /// spring: the cursor tracing a streamed human path (the browser runtime
++    /// plays it at display rate, plans/cmux-next/human-mouse-DESIGN.md), one
++    /// sample at a time, so the overlay shows the path the page got. The
++    /// arrow keeps `heading` (a real pointer does not turn as it moves, and
++    /// the path's tremor would make it twitch).
++    public func follow(fromX x0: Double, fromY y0: Double, toX x1: Double, toY y1: Double,
++                       duration: Double, heading: Double) -> GlidePlan {
++        let ticks = max(1, Int((duration / dt).rounded()))
++        var samples: [GlideSample] = []
++        samples.reserveCapacity(ticks)
++        for tick in 1...ticks {
++            let u = Double(tick) / Double(ticks)
++            samples.append(GlideSample(x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u, heading: heading))
++        }
++        return GlidePlan(samples: samples, arrivedTick: ticks, dt: dt, origin: CGPoint(x: x0, y: y0))
++    }
++}
+diff --git a/Tests/CmuxAgentCursorTests/GlideMotionTests.swift b/Tests/CmuxAgentCursorTests/GlideMotionTests.swift
+index 6f0024fd..439fc515 100644
+--- a/Tests/CmuxAgentCursorTests/GlideMotionTests.swift
++++ b/Tests/CmuxAgentCursorTests/GlideMotionTests.swift
+@@ -33,4 +33,25 @@ private func glideVectors() throws -> [String: Any] {
+             }
+         }
+     }
++
++    @Test func followIsAStraightConstantSpeedSegmentThatKeepsItsHeading() {
++        let motion = GlideMotion()
++        let plan = motion.follow(fromX: 10, fromY: 20, toX: 40, toY: 80, duration: 0.05, heading: 0.3)
++        #expect(plan.samples.count == 6)
++        #expect(plan.arrivedTick == 6)
++        #expect(plan.origin == CGPoint(x: 10, y: 20))
++        for (i, sample) in plan.samples.enumerated() {
++            let u = Double(i + 1) / 6
++            #expect(abs(sample.x - (10 + 30 * u)) < 1e-9)
++            #expect(abs(sample.y - (20 + 60 * u)) < 1e-9)
++            #expect(sample.heading == 0.3)
++        }
++        #expect(plan.samples.last == GlideSample(x: 40, y: 80, heading: 0.3))
++    }
++
++    @Test func followShorterThanOneTickStillLands() {
++        let plan = GlideMotion().follow(fromX: 0, fromY: 0, toX: 5, toY: 5, duration: 0, heading: 0)
++        #expect(plan.samples == [GlideSample(x: 5, y: 5, heading: 0)])
++        #expect(plan.arrivedTick == 1)
++    }
+ }
