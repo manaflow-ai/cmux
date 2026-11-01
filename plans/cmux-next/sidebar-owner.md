@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: the workspace hover preview shows a cloud icon and "Cloud" for Cloud, a globe and
+  host name for remote, and no location label for local. It stays visible without opening details;
+  expanding details does not duplicate it. Row marks and Session Info are unchanged. Leo: "oh this
+  kind of delineation between cloud/remote (local has no distinguishing) seem alright for cloud
+  related stuff"; "it's just on the hover preview". Regression: WorkspaceHoverHostIdentityTests.
+
 - 2026-11-01: Leo: "did we get the “bigger blue dot” thing in? i also think we ought to have a bigger red warn symbol".
   #29633 made legacy unread badges, tiles and priority dots 8 pt, but the default workspace badge still
   painted the status artwork's 6 pt dot inside its 10 pt box. Its blue unread artwork now uses the same
