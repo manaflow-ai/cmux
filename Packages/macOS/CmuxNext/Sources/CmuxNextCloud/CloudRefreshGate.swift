@@ -5,6 +5,8 @@ import Foundation
 @MainActor
 public final class CloudRefreshGate {
     private var active: Task<Bool, Never>?
+    private var activeID: UInt64?
+    private var nextID: UInt64 = 0
     private var followUpRequested = false
 
     public init() {}
@@ -17,17 +19,23 @@ public final class CloudRefreshGate {
         }
 
         followUpRequested = false
+        nextID &+= 1
+        let id = nextID
         let task = Task { @MainActor () -> Bool in
             await operation()
         }
         active = task
+        activeID = id
         var result = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
         // concurrency-allow: one bounded follow-up follows the awaited refresh when a caller arrived during it.
         if followUpRequested, !Task.isCancelled {
             followUpRequested = false
             result = await operation()
         }
-        active = nil
+        if activeID == id {
+            active = nil
+            activeID = nil
+        }
         return result
     }
 }
