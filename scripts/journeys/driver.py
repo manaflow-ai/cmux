@@ -274,16 +274,17 @@ class App:
     def daemon_facts(self):
         """The build under test (the bundle's `cmux --version --json` build_identity) and, for the cmux-tui owner the
         app is connected to and the acpmux daemon it runs, each one's pid, executable and build id. Reads only."""
-        facts = {"expected_build": None, "cmux_tui": None, "acpmux": None, "errors": []}
-        try:
-            done = subprocess.run([self.cli, "--version", "--json"], capture_output=True, text=True, timeout=30,
-                                  env={"HOME": self.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
-            facts["expected_build"] = (json.loads(done.stdout) or {}).get("build_identity")
-        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-            facts["errors"].append(f"cmux --version: {error}"[:200])
+        facts = {"expected_build": getattr(self, "_expected_build", None), "cmux_tui": None, "acpmux": None, "errors": []}
+        if not facts["expected_build"]:  # the bundle's build does not change: read it once per journey
+            try:
+                done = subprocess.run([self.cli, "--version", "--json"], capture_output=True, text=True, timeout=10,
+                                      env={"HOME": self.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
+                facts["expected_build"] = self._expected_build = (json.loads(done.stdout) or {}).get("build_identity")
+            except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                facts["errors"].append(f"cmux --version: {error}"[:200])
         sock = self.daemon_socket()
         if sock:
-            answer = unix_request(sock, {"id": "journeys-skew", "cmd": "identify"})
+            answer = unix_request(sock, {"id": "journeys-skew", "cmd": "identify"}, timeout=3.0)
             body = (answer.get("data") or answer.get("result") or answer) if isinstance(answer, dict) else {}
             if isinstance(body, dict) and body.get("pid"):
                 facts["cmux_tui"] = {"pid": body.get("pid"), "build_id": body.get("build_id"),
@@ -301,7 +302,7 @@ class App:
             # A build without agent.acpmux: the `acpmux daemon run` process of THIS bundle (each lease has its own
             # bundle path, so the path is the build); another bundle's acpmux daemon is not this app's.
             own_bin = os.path.join(self.bundle, "Contents", "Resources", "bin")
-            rows = subprocess.run(["ps", "axo", "pid=,args="], capture_output=True, text=True, timeout=20).stdout
+            rows = subprocess.run(["ps", "axo", "pid=,args="], capture_output=True, text=True, timeout=8).stdout
             for line in rows.splitlines():
                 pid, _, args = line.strip().partition(" ")
                 if args.startswith(own_bin + "/acpmux daemon run") or args.startswith(own_bin + "/cmux acpmux daemon run"):
@@ -310,12 +311,12 @@ class App:
                     break
         if path and os.path.exists(path):
             pids = [int(p) for p in subprocess.run(["/usr/sbin/lsof", "-t", path], capture_output=True, text=True,
-                                                   timeout=20).stdout.split() if p.isdigit()]
+                                                   timeout=8).stdout.split() if p.isdigit()]
             server = next((p for p in pids if p != os.getpid() and "acpmux" in process_exe(p) + process_args(p)), None)
             if server:
                 hello = unix_request(path, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
                     "protocolVersion": 1, "clientCapabilities": {},
-                    "clientInfo": {"name": "journeys-skew", "version": "0"}}})
+                    "clientInfo": {"name": "journeys-skew", "version": "0"}}}, timeout=3.0)
                 meta = (((hello or {}).get("result") or {}).get("_meta") or {}).get("acpmux") or {}
                 facts["acpmux"] = {"pid": server, "exe": process_exe(server), "build": meta.get("build"),
                                    "socket": path}
@@ -465,13 +466,44 @@ def daemon_skew(facts, bundle):
     if acp:
         commit = str(expected).split("-dirty")[0]
         token = str(acp.get("build") or "").split()[0] if acp.get("build") else ""
-        if os.path.realpath(str(acp.get("exe") or "")) != own:
+        # bin/acpmux of this bundle is the build too: a symlink to bin/cmux, or a hard link or copy of it (review S2).
+        own_acp = os.path.realpath(os.path.join(bundle, "Contents", "Resources", "bin", "acpmux"))
+        if os.path.realpath(str(acp.get("exe") or "")) not in (own, own_acp):
             problems.append(f"acpmux pid {acp.get('pid')} runs {acp.get('exe')}")
         elif token and not (commit.startswith(token.split("-")[0].rstrip("+")) or token.startswith(commit[:7])):
             problems.append(f"acpmux pid {acp.get('pid')} reports build {acp.get('build')}")
     if problems:
         return "; ".join(problems) + f" (the app's build is {expected} at {own})"
     return None
+
+
+def daemon_verdict(samples, bundle):
+    """("skew", reason) when any sample proves another binary or build; ("unverified", reason) when the last sample
+    has no verified cmux-tui owner; None when the daemons are the build under test. Samples are taken after the
+    journey's first step, after each relaunch and at the end (review S1): an early sample with no owner yet (the
+    daemon still starting) is no finding."""
+    for index, facts in enumerate(samples or []):
+        reason = daemon_skew(facts, bundle)
+        if reason and not reason.startswith("cmux-tui owner not verified"):
+            return "skew", f"sample {index + 1} of {len(samples)} ({(facts or {}).get('at', '?')}): {reason}"
+    last = daemon_skew((samples or [None])[-1], bundle) if samples else "cmux-tui owner not verified (no sample)"
+    if last:
+        return "unverified", last
+    return None
+
+
+def apply_daemon_verdict(status, reason, verdict):
+    """(status, reason) after the daemon check (review B1 at 1493aa24d96): proven skew makes a pass or a fail not
+    run; an owner that could not be verified makes a pass not run, but a FAIL stays a FAIL (a daemon that died,
+    hung or quit during the round is the finding), with the facts in the reason."""
+    if not verdict or status not in ("pass", "fail"):
+        return status, reason
+    kind, why = verdict
+    if kind == "skew":
+        return apply_daemon_skew(status, reason, why)
+    if status == "pass":
+        return "not run", f"daemon not verified: {why}; was pass"[:600]
+    return "fail", f"{reason} (daemon not verified at the end: {why})"[:600]
 
 
 def apply_daemon_skew(status, reason, skew):
@@ -1665,6 +1697,9 @@ class Journey:
                 finally:
                     record["seconds"] = round(now() - t, 3)
                     self.steps.append(record)
+                if record.get("ok") and (index == 0 or step["do"] == "relaunch"):
+                    # Between steps, never inside one: no step's own timing includes the sample (review S1).
+                    self.sample_daemons(f"after step {index + 1} ({step['do']})")
             if not_judged:
                 raise NotRun(f"{len(not_judged)} checks not judged: " + " | ".join(not_judged))
         except (Deadline, NotRun) as error:
@@ -1699,24 +1734,34 @@ class Journey:
                 status, reason = "fail", "not enough evidence: no passing " + ", ".join(missing) + " check"
             elif not all(e["pass"] for e in self.evidence):
                 status, reason = "fail", "a check failed"
-        # The daemons this journey ran against (lead 01:2xZ): another build, or an unverified owner, is not run.
-        try:
-            facts_of = getattr(self.app, "daemon_facts", None)
-            daemons = facts_of() if facts_of else {"errors": ["the app object reads no daemons"]}
-        except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
-            daemons = {"errors": [str(error)[:200]]}
-        skew = daemon_skew(daemons, self.app.bundle)
-        status, reason = apply_daemon_skew(status, reason, skew)
+        # The daemons this journey ran against (lead 01:2xZ): proven skew in any sample is not run; an owner that
+        # cannot be verified at the end makes a pass not run and keeps a fail (apply_daemon_verdict).
+        self.sample_daemons("end")
+        daemons = self.daemon_samples[-1]
+        verdict = daemon_verdict(self.daemon_samples, self.app.bundle)
+        status, reason = apply_daemon_verdict(status, reason, verdict)
+        skew = verdict[1] if verdict else None
         clip = self.clip_frames()
         result = {"id": self.id, "priority": self.spec.get("priority"), "title": self.spec.get("title"),
                   "status": status, "reason": reason, "started_at": wall, "seconds": round(now() - started, 2),
                   "nonce": self.nonce, "terminal": self.term, "pane": self.pane, "host_pid": self.host_pid,
                   # run.py's run (--run-id, --run-started-at): run.py takes no result.json without its own (STATUS 1362).
                   "run_id": RUN["run_id"], "run_started_at": RUN["run_started_at"],
-                  "daemons": dict(daemons, app_build=daemons.get("expected_build"), skew=skew),
+                  "daemons": dict(daemons, app_build=daemons.get("expected_build"), skew=skew,
+                                  verdict=verdict[0] if verdict else "build under test", samples=self.daemon_samples),
                   "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result
+
+    def sample_daemons(self, at):
+        """One sample of the daemons (App.daemon_facts), kept in self.daemon_samples with where it was taken."""
+        try:
+            facts_of = getattr(self.app, "daemon_facts", None)
+            facts = facts_of() if facts_of else {"errors": ["the app object reads no daemons"]}
+        except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            facts = {"errors": [str(error)[:200]]}
+        facts["at"] = at
+        self.daemon_samples = getattr(self, "daemon_samples", []) + [facts]
 
     def clip_frames(self):
         """The frames scaled to CLIP_WIDTH (sips, stock macOS) in clip/: what run.py fetches for the clip."""

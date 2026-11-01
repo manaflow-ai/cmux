@@ -427,9 +427,12 @@ The cmux-tui owner and the acpmux daemon outlive the app, so a round can run a n
 (#27829). At the end of each journey the driver records, in result.json's `daemons`, the build under test (the
 bundle's `cmux --version --json` build_identity) and, for the cmux-tui owner the app is connected to (`identify`:
 pid, build_id, cli_path) and the acpmux daemon it runs (`agent.acpmux` socket, the server's `initialize` `_meta.acpmux.build`
-and its executable), each one's pid, executable and build. A pass or a fail whose daemons run another binary or
-another build, or whose cmux-tui owner cannot be verified, is "not run" with the reason (no acpmux running is
-fine). Tests: `test_daemon_skew.py`.
+and its executable), each one's pid, executable and build. The daemons are sampled after the journey's first step, after each
+relaunch and at the end. A pass or a fail is "not run" when any sample shows a daemon of another binary or another
+build. When the cmux-tui owner cannot be verified at the end (no answer), a pass is "not run" but a FAIL stays a
+FAIL, with the facts in its reason: a daemon that died, hung or quit during the round is the finding. bin/acpmux
+of the same bundle (a symlink, hard link or copy of bin/cmux) is the build; no acpmux running is fine. Tests:
+`test_daemon_skew.py`.
 
 ### Real HID keys in the gate (`key_path=real`)
 
