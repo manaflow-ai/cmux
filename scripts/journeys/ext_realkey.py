@@ -318,11 +318,43 @@ def _pane_center(j, pane):
 
 
 def _layers_window(j):
-    """{frame, screen} of the app's first main window (debug.layers; bottom-left screen points), or None."""
+    """{frame, screen, visible, primary_max_y} of the app's first main window (debug.layers; bottom-left global
+    points). primary_max_y: the height of the screen whose origin is (0, 0) when debug.layers names it, else the
+    window's own screen top (the minis have one display)."""
     report = j.app.rpc("debug.layers") or {}
     for w in report.get("windows") or []:
         if isinstance(w, dict) and w.get("frame") and w.get("screen_frame"):
-            return {"frame": w["frame"], "screen": w["screen_frame"]}
+            screen = w["screen_frame"]
+            primary = report.get("primary_screen_frame") or (screen if screen[0] == 0 and screen[1] == 0 else None)
+            return {"frame": w["frame"], "screen": screen, "visible": w.get("screen_visible_frame"),
+                    "primary_max_y": (primary[1] + primary[3]) if primary else None}
+    return None
+
+
+def _journal_entries(j, last=40):
+    reply = j.app.rpc("debug.journal", {"last": last}) or {}
+    return [e for e in (reply.get("entries") or []) if isinstance(e, dict)]
+
+
+def _journal_last_seq(j):
+    return max([int(e.get("seq") or 0) for e in _journal_entries(j, 5)] or [0])
+
+
+def _journal_mouse_down(j, after_seq):
+    """The newest left mouse-down in the app's input journal with seq above AFTER_SEQ: {x, y, clickCount, modifiers
+    (names)}, or None."""
+    for e in reversed(_journal_entries(j)):
+        if int(e.get("seq") or 0) <= after_seq:
+            continue
+        kind = e.get("kind") or {}
+        mouse = (kind.get("mouse") or {}).get("_0") if isinstance(kind.get("mouse"), dict) else None
+        mouse = mouse or kind.get("mouse")
+        if isinstance(mouse, dict) and mouse.get("phase") == "down" and int(mouse.get("button") or 0) == 0:
+            mods = mouse.get("modifiers")
+            names = mods if isinstance(mods, list) else [n for bit, n in ((1, "cmd"), (2, "shift"), (4, "option"),
+                                                                         (8, "ctrl")) if int(mods or 0) & bit]
+            return {"x": mouse.get("x"), "y": mouse.get("y"), "clickCount": mouse.get("clickCount"),
+                    "modifiers": names, "seq": e.get("seq")}
     return None
 
 
@@ -348,24 +380,42 @@ def step_real_click(j, step):
     if not win:
         raise D.NotRun("real_click: debug.layers has no main window frame")
     wx, wy, ww, wh = win["frame"]
-    sx, sy, sw, sh = win["screen"]
-    top = (sy + sh) - (wy + wh)
-    screen_point = (wx + point[0], top + point[1])
+    # Desktop clicks are global from the PRIMARY display's top-left (review S1 at 60a6d675a01), whatever display the
+    # window is on: flip by the primary screen's height (the screen whose origin is 0,0), not the window's screen.
+    primary_top = win.get("primary_max_y") or (win["screen"][1] + win["screen"][3])
+    screen_point = (wx + point[0], primary_top - (wy + wh) + point[1])
+    vx, vy, vw, vh = win.get("visible") or win["screen"]
+    if not (vx <= wx + point[0] <= vx + vw and vy <= (wy + wh) - point[1] <= vy + vh):
+        raise D.NotRun(f"real_click: window point {list(point)} is outside the screen's visible frame")
     mods = [MODIFIERS.get(m, m) for m in step.get("modifiers", [])]
     wid = None
     args = {"scope": "desktop", "x": round(screen_point[0] * scale), "y": round(screen_point[1] * scale),
             **({"modifier": mods} if mods else {})}
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
+    seq_before = _journal_last_seq(j)
     before = D.now()
     bad, data, raw = _session(j).call("click", args)
     after = D.now()
     if bad or data.get("effect") in ("refused", "failed", "error"):
         raise D.NotRun(f"real_click: CuaDriver did not click: {json.dumps(raw)[:400]}")
     time.sleep(float(step.get("settle", 0.5)))
+    # Proof the click landed in cmux at the point and carried its modifiers (review S1): the app's own input journal,
+    # its newest left mouse-down after the click (window-local points from the top-left, its modifier classes).
+    landed = _journal_mouse_down(j, seq_before)
+    if landed is None:
+        raise D.NotRun("real_click: the app's input journal has no mouse-down after the click (it did not reach cmux, "
+                       "or another window took it)")
+    off = max(abs(float(landed.get("x", 1e9)) - point[0]), abs(float(landed.get("y", 1e9)) - point[1]))
+    want_mods = {m.replace("control", "ctrl") for m in mods} - {"fn"}
+    got_mods = set(landed.get("modifiers") or [])
+    if off > float(step.get("tolerance", 4)) or not want_mods <= got_mods:
+        raise D.NotRun(f"real_click: the click reached cmux at ({landed.get('x')}, {landed.get('y')}) with modifiers "
+                       f"{sorted(got_mods)}, not {list(point)} with {sorted(want_mods)} (CuaDriver coordinates or "
+                       "modifiers)")
     focused_after = next((p.get("pane") for w in (j.app.rpc("debug.surfaces") or {}).get("windows", [])
                           for p in w.get("panes", []) if isinstance(p, dict) and p.get("focused")), None)
-    return {"focused_pane_after": focused_after, "key_path": "real_hid", "point": list(point), "screen_point": list(screen_point), "pane": pane,
+    return {"journal_mouse_down": landed, "focused_pane_after": focused_after, "key_path": "real_hid", "point": list(point), "screen_point": list(screen_point), "pane": pane,
             "pixels": [args["x"], args["y"]], "scale": scale, "modifiers": mods, "scope": "desktop", "clicked_at": round(before, 4),
             "returned_at": round(after, 4), "click_s": round(after - before, 4), "cua_effect": data.get("effect"),
             "front_pid_after": front_pid()}

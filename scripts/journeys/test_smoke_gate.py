@@ -451,10 +451,19 @@ class RealKeySteps(unittest.TestCase):
 
     def test_real_click_is_a_foreground_modified_click_at_the_panes_center_with_host_times(self):
         j = self.journey("real")
-        layers = {"windows": [{"frame": [100, 50, 940, 720], "screen_frame": [0, 0, 1920, 1080]}]}
-        j.app.rpc = lambda method, params=None: layers if method == "debug.layers" else {"windows": [{"panes": [
+        layers = {"windows": [{"frame": [100, 50, 940, 720], "screen_frame": [0, 0, 1920, 1080],
+                               "screen_visible_frame": [0, 0, 1920, 1055]}]}
+        journal = {"entries": [{"seq": 5, "kind": {"key": {}}}]}
+
+        def rpc(method, params=None):
+            if method == "debug.layers":
+                return layers
+            if method == "debug.journal":
+                return journal
+            return {"windows": [{"panes": [
             {"pane": "P1", "focused": False, "grid": {"frame_x": 0, "frame_y": 0, "frame_width": 100, "frame_height": 100}},
             {"pane": "P2", "focused": True, "grid": {"frame_x": 200, "frame_y": 40, "frame_width": 300, "frame_height": 200}}]}]}
+        j.app.rpc = rpc
         calls = []
         orig = self.session.call
 
@@ -462,7 +471,11 @@ class RealKeySteps(unittest.TestCase):
             calls.append((tool, args))
             if tool == "get_screen_size":
                 return False, {"scale_factor": 2.0}, {}
+            if tool == "click":  # the app journals the mouse-down it got
+                journal["entries"].append({"seq": 6, "kind": {"mouse": {"_0": {
+                    "phase": "down", "button": 0, "x": landed[0], "y": landed[1], "clickCount": 1, "modifiers": landed[2]}}}})
             return orig(tool, args)
+        landed = [350.5, 139.0, 1]
         self.session.call = call
         done = self.rk.step_real_click(j, {"pane": "focused", "modifiers": ["cmd"], "mark": "click"})
         clicks = [a for t, a in calls if t == "click"]
@@ -471,6 +484,13 @@ class RealKeySteps(unittest.TestCase):
         self.assertEqual((done["pane"], done["point"]), ("P2", [350.0, 140.0]))
         self.assertLessEqual(done["clicked_at"], done["returned_at"])
         self.assertIn("click", j.marks)
+        self.assertEqual(done["journal_mouse_down"]["modifiers"], ["cmd"])
+        # The click reached cmux without Cmd, or somewhere else: not run (CuaDriver modifiers or coordinates).
+        for bad in ([350.5, 139.0, 0], [700.0, 280.0, 1]):
+            landed[:] = bad
+            journal["entries"][:] = [{"seq": 5, "kind": {"key": {}}}]
+            with self.assertRaises(self.NotRun):
+                self.rk.step_real_click(j, {"pane": "focused", "modifiers": ["cmd"]})
 
     def test_the_debug_key_mode_says_so(self):
         self.assertEqual(self.ext.step_smoke_key(self.journey("debug"), {"key": "n", "modifiers": ["cmd"]})["key_path"], "debug.key")
