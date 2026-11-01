@@ -1114,8 +1114,9 @@ class Journey:
             # SIGKILL: none of the app's quit path runs (and with kill-both, none of its daemon's either).
             if how == "kill-both":
                 record["daemon_pid"] = app.daemon_pid()
-                if record["daemon_pid"]:
-                    os.kill(record["daemon_pid"], signal.SIGKILL)
+                if not record["daemon_pid"]:
+                    raise StepError("relaunch (kill-both): debug.daemon names no daemon pid")
+                os.kill(record["daemon_pid"], signal.SIGKILL)
             os.kill(old, signal.SIGKILL)
             end = now() + QUIT_SECONDS
         else:
@@ -1127,7 +1128,10 @@ class Journey:
         record["ended_after_s"] = round(now() - started, 2)
         if callable(step.get("after_end")):
             # A caller's read between the end and the reopen (the action fuzzer: what the daemon kept).
-            record["after_end"] = step["after_end"]()
+            try:
+                record["after_end"] = step["after_end"]()
+            except (StepError, OSError, ValueError) as error:
+                record["after_end"] = {"error": str(error)[-200:]}  # still reopen: the caller judges the error
         if step.get("leftovers_after") is not None:
             # What a person's Mac still runs after the quit: every process run from this bundle (its
             # path) or owned by it (`--owner BUNDLE_ID`, the terminal hosts), `leftovers_after` seconds on.

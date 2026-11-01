@@ -1116,6 +1116,8 @@ class Fuzz:
     def run_burst(self, burst):
         j = self.j
         names = [i["a"] for i in burst]
+        # The quit oracle (ext_quitfuzz.merged): a close in this burst may be in flight at its end.
+        self.burst_closes = any(ACTIONS[a].get("closes") for a in names)
         before = state(j)
         # R3b: a burst whose only layout changes are its creates (no resize, drag, close or switch in it) and that
         # makes a column or splits inside one.

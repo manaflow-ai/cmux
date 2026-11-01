@@ -46,6 +46,7 @@ END_ACTIONS = {
 HISTORY_SAMPLE = 6
 HISTORY_ROWS = 2000
 RECONNECT_SECONDS = 45.0
+PROCESS_SETTLE = 10.0
 DEAD = ("exited", "dead", "closed", "ended")
 
 
@@ -100,8 +101,13 @@ def acknowledged(j, topo_state, nonce):
     """What the oracle compares against: the daemon's lists, the app's panes, and sampled probe lines."""
     workspaces, terminals = daemon_lists(j)
     live = sorted(t for t, life in terminals.items() if life.lower() not in DEAD)
+    # The probe lines go to the focused terminal: sample its pane's terminals first, then the first ones by id.
+    focus = ((topo_state or {}).get("focus") or {}).get("pane")
+    focused = [str(v.get("term")) for v in ((topo_state or {}).get("terminals") or {}).values()
+               if isinstance(v, dict) and focus and v.get("pane") == focus]
+    sample = [t for t in focused if t in live] + [t for t in live if t not in focused]
     history = {}
-    for term in live[:HISTORY_SAMPLE]:
+    for term in sample[:HISTORY_SAMPLE]:
         try:
             history[term] = sorted(probe_lines(j, term, nonce))
         except D.StepError:
@@ -111,11 +117,39 @@ def acknowledged(j, topo_state, nonce):
             "daemon_pid": j.app.daemon_pid()}
 
 
+def state_now(j):
+    """The app's topology just before an end (ext_fuzz.state): the panes a create or close earlier in the burst made."""
+    import ext_fuzz  # same folder; only its pure topology reader is used
+    return ext_fuzz.state(j)
+
+
+def merged(before, after, closes):
+    """The acknowledged state of a keep or a kill of the app: read just before the end (BEFORE) and again after the
+    app ended while the daemon still runs (AFTER, which also holds a create in flight at the end). A daemon that dropped
+    data at the quit is caught by BEFORE; a close in flight at the end is in BEFORE only, so a burst that CLOSES
+    takes the workspaces and terminals from AFTER alone. Probe lines: both reads together."""
+    out = dict(after)
+    if not closes:
+        out["workspaces"] = {**before.get("workspaces", {}), **after.get("workspaces", {})}
+        out["terminals"] = sorted(set(before.get("terminals", [])) | set(after.get("terminals", [])))
+    history = {t: set(lines) for t, lines in before.get("history", {}).items()}
+    for term, lines in after.get("history", {}).items():
+        history.setdefault(term, set()).update(lines)
+    out["history"] = {t: sorted(lines) for t, lines in history.items()}
+    out["panes"], out["daemon_pid"] = before.get("panes", {}), before.get("daemon_pid") or after.get("daemon_pid")
+    return out
+
+
 def play(fuzz, name, before_state):
-    """Plays end action NAME; returns its record (with `ack`, the acknowledged state, and `after`)."""
+    """Plays end action NAME; returns its record (with `ack`, the acknowledged state, and `after`). The acknowledged
+    state is read just before the end (`state_now`), not at the burst's start: a create earlier in the burst counts."""
     j = fuzz.j
     how, expect = END_ACTIONS[name]
     rec = {"a": name, "expect": expect, "at": D.now()}
+    try:
+        before_state = state_now(j)
+    except D.StepError:
+        pass  # the burst's start state
     if how == "daemon":
         ack = acknowledged(j, before_state, j.nonce)
         rec["ack"] = ack
@@ -135,13 +169,10 @@ def play(fuzz, name, before_state):
         j.app._daemon_sock = None
         rec["reconnected_after_s"] = round(D.now() - rec["at"], 2)
         return rec
-    # The acknowledged state: for a kill of the app alone and for keep, the daemon still runs after the app ends, so
-    # its lists then hold every create it acknowledged (also one in flight at the end). For the other kinds the
-    # daemon ends with the app: read just before.
-    rec["ack"] = None if expect == "kept" else acknowledged(j, before_state, j.nonce)
-    if expect == "kept":
-        rec["ack"] = {"panes": {ws: list(p) for ws, p in (before_state or {}).get("panes", {}).items()},
-                      "daemon_pid": j.app.daemon_pid()}
+    # The acknowledged state, read just before the end. For a kill of the app alone and for keep the daemon still runs
+    # after the app ends: the hook reads it again then and merges both (`merged`).
+    rec["ack"] = acknowledged(j, before_state, j.nonce)
+    rec["closes"] = bool(getattr(fuzz, "burst_closes", True))
     rec["relaunch"] = j.step_relaunch({"how": how, "after_end": after_end_hook(fuzz, rec)})
     return rec
 
@@ -151,11 +182,8 @@ def after_end_hook(fuzz, rec):
     def hook():
         if rec["expect"] != "kept":
             return None
-        ack = acknowledged(fuzz.j, None, fuzz.j.nonce)
-        ack["panes"] = rec["ack"]["panes"]
-        ack["daemon_pid"] = rec["ack"]["daemon_pid"] or ack["daemon_pid"]
-        rec["ack"] = ack
-        return {"workspaces": len(ack["workspaces"]), "terminals": len(ack["terminals"])}
+        rec["ack"] = merged(rec["ack"], acknowledged(fuzz.j, None, fuzz.j.nonce), rec.get("closes", True))
+        return {"workspaces": len(rec["ack"]["workspaces"]), "terminals": len(rec["ack"]["terminals"])}
     return hook
 
 
@@ -168,14 +196,21 @@ def oracle(fuzz, rec, after_state):
     except D.StepError as error:
         return [("quit", f"{rec['a']}: the daemon's lists cannot be read after it: {str(error)[-200:]}")]
     pid = j.app.daemon_pid()
-    procs = owned(j)
+    old = ack.get("daemon_pid")
+    # A daemon or holder of before may still be ending: settle for up to PROCESS_SETTLE s before judging them.
+    end = time.monotonic() + PROCESS_SETTLE
+    while True:
+        procs = owned(j)
+        clean = len(procs["daemons"]) == 1 and len(procs["holders"]) <= 1 and not (expect != "kept" and old and j.app.alive(old))
+        if clean or time.monotonic() >= end:
+            break
+        time.sleep(0.5)
     if (after_state or {}).get("daemon_state") != "connected":
         problems.append(("quit", f"{rec['a']}: the app is {(after_state or {}).get('daemon_state')}, not connected"))
     if len(procs["daemons"]) != 1:
         problems.append(("quit", f"{rec['a']}: {len(procs['daemons'])} daemons of this bundle run: {procs['daemons'][:4]}"))
     if len(procs["holders"]) > 1:
         problems.append(("quit", f"{rec['a']}: {len(procs['holders'])} holders run: {procs['holders'][:4]}"))
-    old = ack.get("daemon_pid")
     if expect == "kept" and old and pid != old:
         problems.append(("quit", f"{rec['a']}: the daemon changed ({old} -> {pid}): it ended with the app"))
     if expect != "kept" and old and j.app.alive(old):
@@ -215,8 +250,10 @@ def oracle(fuzz, rec, after_state):
         for ws, panes in ack.get("panes", {}).items():
             if ws not in panes_now and ws not in workspaces:
                 continue  # the workspace itself is judged above
-            if expect == "kept" and sorted(panes_now.get(ws, [])) != sorted(panes):
-                problems.append(("quit", f"{rec['a']}: workspace {ws} had panes {len(panes)}, now {len(panes_now.get(ws, []))}"))
-            elif expect == "ended_keep_layout" and len(panes_now.get(ws, [])) != len(panes):
+            # Every acknowledged pane is back; a create still in flight at the end may add one.
+            missing = sorted(set(panes) - set(panes_now.get(ws, [])))
+            if expect == "kept" and missing:
+                problems.append(("quit", f"{rec['a']}: workspace {ws} lost {len(missing)} of {len(panes)} panes: {missing[:4]}"))
+            elif expect == "ended_keep_layout" and len(panes_now.get(ws, [])) < len(panes):
                 problems.append(("quit", f"{rec['a']}: workspace {ws} kept {len(panes_now.get(ws, []))} of {len(panes)} panes"))
     return problems

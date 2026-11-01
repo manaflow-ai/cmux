@@ -13,6 +13,7 @@ class StepError(Exception):
 
 
 ext_quitfuzz.install(types.SimpleNamespace(StepError=StepError, now=lambda: 0.0))
+ext_quitfuzz.PROCESS_SETTLE = 0.0  # judge the fake processes at once
 
 
 class FakeApp:
@@ -100,6 +101,36 @@ class QuitOracle(unittest.TestCase):
         self.assertEqual(oracle("ended_keep_layout", app), [])
         lost = oracle("ended_keep_layout", app, after={"daemon_state": "connected", "panes": {"ws2": ["p1"]}})
         self.assertTrue(any("kept 1 of 2 panes" in d for _, d in lost))
+
+    def test_a_pane_created_at_the_end_is_not_a_loss(self):
+        # split_right then quit_keep: the acknowledged panes are read just before the end; one more is fine.
+        after = {"daemon_state": "connected", "panes": {"ws2": ["p1", "p2", "p3"]}}
+        self.assertEqual(oracle("kept", self.kept_app(), after=after), [])
+        lost = oracle("kept", self.kept_app(), after={"daemon_state": "connected", "panes": {"ws2": ["p1"]}})
+        self.assertTrue(any("lost 1 of 2 panes" in d for _, d in lost))
+
+
+class Acknowledged(unittest.TestCase):
+    BEFORE = {"workspaces": {"ws1": "Home", "ws2": "work"}, "terminals": ["t1", "t2"], "history": {"t1": ["fz7-1"]},
+              "panes": {"ws2": ["p1", "p2"]}, "daemon_pid": 50}
+    # The daemon dropped ws2 and t2 at the quit and still runs: its own lists after the end no longer have them.
+    AFTER_END = {"workspaces": {"ws1": "Home"}, "terminals": ["t1"], "history": {"t1": ["fz7-1", "fz7-2"]},
+                 "panes": {}, "daemon_pid": 50}
+
+    def test_what_the_daemon_dropped_at_the_quit_is_still_acknowledged(self):
+        ack = ext_quitfuzz.merged(self.BEFORE, self.AFTER_END, closes=False)
+        self.assertEqual((sorted(ack["workspaces"]), ack["terminals"]), (["ws1", "ws2"], ["t1", "t2"]))
+        self.assertEqual((ack["history"], ack["panes"], ack["daemon_pid"]), ({"t1": ["fz7-1", "fz7-2"]}, {"ws2": ["p1", "p2"]}, 50))
+        app = FakeApp(workspaces={"ws1": "Home"}, terminals={"t1": "running"}, daemon_pid=50,
+                      history={"t1": ["fz7-1", "fz7-2"]}, processes=[DAEMON, HOLDER])
+        text = " ".join(d for _, d in oracle("kept", app, ack=ack))
+        self.assertIn("1 acknowledged workspaces are gone", text)
+        self.assertIn("1 acknowledged terminals are gone", text)
+
+    def test_a_burst_that_closes_takes_the_lists_after_the_end(self):
+        # A close in flight at the end is only in the read before: it must not count as a loss.
+        ack = ext_quitfuzz.merged(self.BEFORE, self.AFTER_END, closes=True)
+        self.assertEqual((sorted(ack["workspaces"]), ack["terminals"]), (["ws1"], ["t1"]))
 
 
 if __name__ == "__main__":
