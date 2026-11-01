@@ -232,7 +232,10 @@ export async function restoreInline(
   // A video's frames, note and labels go back on its chip, not in the draft (composer/videoPrompt.ts):
   // each video's note and its frames as read back, on the chip they follow (the nearest one before
   // them of that video's name: two videos of one name keep their own).
-  const saved = new Map<ComposerAttachment, { note?: string; frames: { name: string; data: string; scene: boolean }[] }>();
+  const saved = new Map<
+    ComposerAttachment,
+    { note?: string; frames: { name: string; data: string; scene: boolean }[] }
+  >();
   const of = (video: string) => {
     let chip: ComposerAttachment | undefined;
     for (let at = attachments.length - 1; at >= 0 && !chip; at--)

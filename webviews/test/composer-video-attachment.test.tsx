@@ -473,7 +473,9 @@ try {
     await render([video()]);
     await act(async () => calls[0]!.answer({ ...INFO, probes }));
     expect(state?.reading).toBe(1);
-    await act(async () => calls.find((call) => call.method === "video.frames")!.fail(new Error("unknown method video.frames")));
+    await act(async () =>
+      calls.find((call) => call.method === "video.frames")!.fail(new Error("unknown method video.frames")),
+    );
     await act(async () => calls.find((call) => call.method === "video.transcript")!.answer(SPEECH));
     expect(state?.reading).toBe(0);
     expect(state?.attachments[0]?.video?.frames).toEqual(INFO.frames);

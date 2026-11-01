@@ -282,8 +282,7 @@ test("the person's own words that only read like a frame's label or note stay, i
 });
 
 test("after a reload, two videos of one name each get back their own frames, and an unreadable frame fails the restore", async () => {
-  const noteOf = (seconds: number) =>
-    `Frames from the video demo.mp4 (0:0${seconds}, 640×360), in order, at: 0:01.0.`;
+  const noteOf = (seconds: number) => `Frames from the video demo.mp4 (0:0${seconds}, 640×360), in order, at: 0:01.0.`;
   const frame = (id: string) =>
     ({ kind: "image", id: id.repeat(64), mimeType: "image/jpeg", name: "demo.mp4 frame at 0:01.0" }) as const;
   const row = {
@@ -305,9 +304,17 @@ test("after a reload, two videos of one name each get back their own frames, and
       frame("2"),
     ],
   } as AcpmuxRow;
-  const bytes = new Map([["1".repeat(64), "b25l"], ["2".repeat(64), "dHdv"]]);
-  const restored = await restoreInline(row, "compare", async (id) => ({ mimeType: "image/jpeg", data: bytes.get(id)! }));
-  expect(restored.attachments.map((chip) => [chip.path, chip.video?.durationMs, chip.video?.frames.map((f) => f.data)])).toEqual([
+  const bytes = new Map([
+    ["1".repeat(64), "b25l"],
+    ["2".repeat(64), "dHdv"],
+  ]);
+  const restored = await restoreInline(row, "compare", async (id) => ({
+    mimeType: "image/jpeg",
+    data: bytes.get(id)!,
+  }));
+  expect(
+    restored.attachments.map((chip) => [chip.path, chip.video?.durationMs, chip.video?.frames.map((f) => f.data)]),
+  ).toEqual([
     ["/before/demo.mp4", 4000, ["b25l"]],
     ["/after/demo.mp4", 8000, ["dHdv"]],
   ]);

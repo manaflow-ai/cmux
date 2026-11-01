@@ -48,14 +48,16 @@ test("each scene change gets a frame at its cut, marked, and the rest fill the g
   // In order, all distinct, and none closer than a sixteenth of the video.
   const times = picked.map((pick) => pick.atMs);
   expect(times).toEqual([...times].sort((a, b) => a - b));
-  for (let index = 1; index < times.length; index++)
-    expect(times[index]! - times[index - 1]!).toBeGreaterThan(900);
+  for (let index = 1; index < times.length; index++) expect(times[index]! - times[index - 1]!).toBeGreaterThan(900);
   // The opening frame is there.
   expect(times[0]).toBe(0);
 });
 
 test("a still video (no cuts) is spread evenly", () => {
-  const picked = pickFrameTimes(16_000, probes(16, () => 40));
+  const picked = pickFrameTimes(
+    16_000,
+    probes(16, () => 40),
+  );
   expect(picked.every((pick) => !pick.scene)).toBe(true);
   const times = picked.map((pick) => pick.atMs);
   const gaps = times.slice(1).map((at, index) => at - times[index]!);
@@ -63,7 +65,10 @@ test("a still video (no cuts) is spread evenly", () => {
 });
 
 test("a flicker every probe never takes every frame: cuts keep their distance", () => {
-  const picked = pickFrameTimes(16_000, probes(16, (t) => (Math.round(t * 2) % 2 ? 0 : 255)));
+  const picked = pickFrameTimes(
+    16_000,
+    probes(16, (t) => (Math.round(t * 2) % 2 ? 0 : 255)),
+  );
   const times = picked.map((pick) => pick.atMs);
   expect(times).toHaveLength(8);
   for (let index = 1; index < times.length; index++)
@@ -109,7 +114,13 @@ test("a scene's frame keeps its mark when the host decodes it a little off the t
   const video = { durationMs: 16_000, width: 1280, height: 720, poster: "", frames: [] };
   const picked = withPickedFrames(
     video,
-    { frames: [{ atMs: 0, data: "a" }, { atMs: 7233, data: "b" }, { atMs: 12_000, data: "c" }] },
+    {
+      frames: [
+        { atMs: 0, data: "a" },
+        { atMs: 7233, data: "b" },
+        { atMs: 12_000, data: "c" },
+      ],
+    },
     new Set([7200]),
   );
   expect(picked.frames.map((frame) => [frame.atMs, frame.scene === true])).toEqual([

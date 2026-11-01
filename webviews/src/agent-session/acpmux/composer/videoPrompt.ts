@@ -188,7 +188,12 @@ export function withoutFramesNotes(text: string, isFrame: FrameText, anywhere = 
   const lines = text.split("\n");
   if (anywhere) {
     const kept = lines.filter((line) => !isFrame(line));
-    return kept.length === lines.length ? text : kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "");
+    return kept.length === lines.length
+      ? text
+      : kept
+          .join("\n")
+          .replace(/\n{3,}/g, "\n\n")
+          .replace(/\n+$/, "");
   }
   let end = lines.length;
   while (end > 0 && isFrame(lines[end - 1]!)) end -= 1;
