@@ -283,9 +283,14 @@ async fn forward_inner(
         }
         // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
         if waits_for_link(m) && !peer.ready() {
-            tokio::select! {
-                _ = await_upload_link(&peer, UPLOAD_LINK_WAIT) => {}
+            let ready = tokio::select! {
+                ready = await_upload_link(&peer, UPLOAD_LINK_WAIT) => ready,
                 () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
+            };
+            // The old peer instance may have been removed or replaced while
+            // waiting. Refuse on that instance; the caller can resolve again.
+            if !ready {
+                return Err(peer.unreachable_error());
             }
         }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
