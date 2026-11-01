@@ -34,7 +34,9 @@ export function resolveLanguage(tags: readonly string[], available: readonly str
 export interface Strings {
   readonly language: string;
   t(key: string): string;
-  /** `t(key)` with printf-style object placeholders (`%@`, `%1$@`) replaced by `args`. */
+  /** `t(key)` with printf-style object placeholders (`%@`, `%1$@`) replaced by `args`. A plural
+   * string (`key#<category>` in the table, gen-strings.mjs) takes the form the language's plural
+   * rules pick for the first argument, its count. */
   format(key: string, ...args: string[]): string;
 }
 
@@ -55,10 +57,18 @@ export function createStrings(table: StringTable, tags: readonly string[] = navi
   const local = table[language] ?? {};
   const english = table.en ?? {};
   const t = (key: string) => local[key] ?? english[key] ?? key;
+  const rules = new Intl.PluralRules(language);
+  // A plural string's text for the count, else the locale's plain text for the key (a catalog that
+  // gave this language no plural forms), else English.
+  const form = (key: string, args: readonly string[]) => {
+    if (!(`${key}#other` in english)) return t(key);
+    const plural = `${key}#${rules.select(Number(args[0] ?? 0))}`;
+    return local[plural] ?? local[key] ?? english[plural] ?? english[`${key}#other`] ?? key;
+  };
   return {
     language,
     t,
-    format: (key, ...args) => formatString(t(key), args),
+    format: (key, ...args) => formatString(form(key, args), args),
   };
 }
 
