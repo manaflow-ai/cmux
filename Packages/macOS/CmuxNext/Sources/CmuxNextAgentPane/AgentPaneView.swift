@@ -457,8 +457,7 @@ public final class AgentPaneView: NSView {
         removeContextMenu()
         if let page {
             webView.stopLoading()
-            // A Chromium chat's WebKit view never loaded: a blank load would start a process to close.
-            if webView.url != nil { webView.loadHTMLString("", baseURL: nil) }
+            webView.loadHTMLString("", baseURL: nil)
             // The page host retires its web view (WebViewRetirement).
             page.close()
         } else {
