@@ -39,6 +39,40 @@ export type CloudStartProgress = {
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
   home?: boolean;
+  /// A repository was selected for this chat. `false` is explicit: the clone step is skipped.
+  hasRepository?: boolean;
+  repository?: string;
+  /// The environment whose setup status is being reported by cmux-platform.
+  environmentId?: string;
+  /// Client-side timing for the machine and harness phases. Milliseconds since epoch.
+  machineStartedAt?: number;
+  machineFinishedAt?: number;
+  harnessStartedAt?: number;
+  harnessFinishedAt?: number;
+  /// The git-seed status, forwarded from `git.seed.status`.
+  clone?: CloudStartupOperation;
+  /// The derived environment setup status, forwarded from GET /v1/environments/{id}.
+  setup?: CloudStartupSetup;
+  /// True after the harness has started. The checklist stays available but folds to one quiet line.
+  initialized?: boolean;
+};
+
+export type CloudStartupOperation = {
+  state: "pending" | "running" | "done" | "failed";
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+};
+
+export type CloudStartupSetup = {
+  state: "pending" | "running" | "done" | "failed" | "skipped";
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+  /// `ready` means the setup snapshot is cached; `building` is still running.
+  status?: "ready" | "building" | "failed";
+  logTail?: string;
+  hasScript?: boolean;
 };
 
 /// The start the page just sent: the message, and the folder by its name.
@@ -77,9 +111,24 @@ export function cloudStartPushed(
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
   const next = { ...current };
+  const now = Date.now();
   const step = CLOUD_START_STEPS.indexOf(fields.step as CloudStartStep);
   if (step >= 0 && step >= (current.step ? CLOUD_START_STEPS.indexOf(current.step) : -1))
     next.step = CLOUD_START_STEPS[step];
+  if (fields.initialized === true || fields.harnessStarted === true || fields.harness_started === true) {
+    next.initialized = true;
+    next.harnessStartedAt ??= now;
+  }
+  if (fields.initialized === false) next.initialized = false;
+  if (typeof fields.hasRepository === "boolean") next.hasRepository = fields.hasRepository;
+  if (typeof fields.has_repo === "boolean") next.hasRepository = fields.has_repo;
+  const repository = line(fields.repository ?? fields.repo, 160);
+  if (repository) {
+    next.repository = repository;
+    next.hasRepository = true;
+  }
+  const environmentId = line(fields.environmentId ?? fields.environment_id, 128);
+  if (environmentId) next.environmentId = environmentId;
   const folder = line(fields.folder, 64);
   if (folder && !folder.includes("/")) next.folder = folder;
   const machine = line(fields.machine, 64);
@@ -89,7 +138,83 @@ export function cloudStartPushed(
   if (typeof fields.secrets === "number" && Number.isSafeInteger(fields.secrets) && fields.secrets >= 0)
     next.secrets = fields.secrets;
   if (fields.network === "full" || fields.network === "limited") next.network = fields.network;
+  if (fields.step === "machine") next.machineStartedAt ??= now;
+  if (fields.step === "folder") next.machineFinishedAt ??= now;
+  if (fields.step === "opening") {
+    next.machineFinishedAt ??= now;
+    next.harnessStartedAt ??= now;
+    next.initialized = true;
+  }
+  const timings = asRecord(fields.timings);
+  if (timings) {
+    const machineTiming = timing(timings.machine);
+    const harnessTiming = timing(timings.harness);
+    if (machineTiming) Object.assign(next, prefixedTiming("machine", machineTiming));
+    if (harnessTiming) Object.assign(next, prefixedTiming("harness", harnessTiming));
+  }
+  const clone = operation(fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"]);
+  if (clone) next.clone = clone;
+  const setup = setupStatus(fields.setup ?? fields.environment);
+  if (setup) next.setup = setup;
+  if (next.clone?.state === "done" && next.clone.finishedAt === undefined) next.clone.finishedAt = now;
+  if (next.setup?.state === "done" && next.setup.finishedAt === undefined) next.setup.finishedAt = now;
   return next;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function number(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function timing(value: unknown): { startedAt?: number; finishedAt?: number } | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const startedAt = number(record.startedAt ?? record.started_at);
+  const finishedAt = number(record.finishedAt ?? record.finished_at);
+  return startedAt === undefined && finishedAt === undefined ? undefined : { ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }) };
+}
+
+function prefixedTiming(prefix: "machine" | "harness", value: { startedAt?: number; finishedAt?: number }): Record<string, number> {
+  return {
+    ...(value.startedAt !== undefined && { [`${prefix}StartedAt`]: value.startedAt }),
+    ...(value.finishedAt !== undefined && { [`${prefix}FinishedAt`]: value.finishedAt }),
+  } as Record<string, number>;
+}
+
+function operation(value: unknown): CloudStartupOperation | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const raw = record.state ?? record.status;
+  const state = raw === "done" || raw === "complete" ? "done" : raw === "failed" || raw === "error" ? "failed" : raw === "running" ? "running" : raw === "pending" ? "pending" : undefined;
+  if (!state) return undefined;
+  const startedAt = number(record.startedAt ?? record.started_at);
+  const finishedAt = number(record.finishedAt ?? record.finished_at);
+  const error = line(record.error ?? record.message, 240);
+  return { state, ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }), ...(error && { error }) };
+}
+
+function setupStatus(value: unknown): CloudStartupSetup | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const raw = record.status ?? record.state;
+  const status = raw === "ready" || raw === "building" || raw === "failed" ? raw : undefined;
+  const base = operation({ ...record, state: status === "ready" ? "done" : status === "building" ? "running" : status === "failed" ? "failed" : record.state });
+  if (!base && raw !== "skipped") return undefined;
+  const startedAt = number(record.startedAt ?? record.started_at);
+  const finishedAt = number(record.finishedAt ?? record.finished_at);
+  const hasScript = typeof record.hasScript === "boolean" ? record.hasScript : typeof record.has_script === "boolean" ? record.has_script : undefined;
+  const logTail = line(record.logTail ?? record.log_tail ?? record.error, 1200);
+  return {
+    ...(base ?? { state: "skipped" as const }),
+    ...(status && { status }),
+    ...(startedAt !== undefined && { startedAt }),
+    ...(finishedAt !== undefined && { finishedAt }),
+    ...(hasScript !== undefined && { hasScript }),
+    ...(logTail && { logTail }),
+  };
 }
 
 /// `current` once the host answered start `key`: none when the chat opened on the machine (this tab
