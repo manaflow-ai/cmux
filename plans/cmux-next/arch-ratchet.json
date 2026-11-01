@@ -771,16 +771,6 @@
       "owner": "aid-68ba07270dde07b96ff4",
       "receipt": "Review (codex gpt-6-astra high fast): SHIP at 75ee0affe9dc80b0a7550cc2533d46b54538403b",
       "expiry": "2026-12-31"
-    },
-    {
-      "date": "2026-11-01",
-      "row": "app_lines",
-      "allow": 248,
-      "why": "#27810 (New Cloud Space, a space that is one Cloud machine; lead decision 2026-11-01 07:30Z): RoomHandlers.bindCloudSpace and its space(following:) (+76), WindowManager+Profiles enterLoaded/fallBack/SpaceCreation (+53), MachineRegistry.creation(in:)/daemon(forSession:)/cloudSession(of:) (+39), WorkspaceSpawn Cloud-space routing (+29), CloudMachineSession.connectedForSpace (+21), AgentTabs+Wiring/AppActions+Workspaces glue and the fail-closed machine check. They are methods and stored state of App types (WindowManager, MachineRegistry, CloudMachineSession, RoomHandlers) that no package can host yet, so a move needs host protocols first. The owner moves the cloud-space and window-space logic into packages before the expiry.",
-      "author": "austinywang",
-      "owner": "austinywang",
-      "receipt": "Review (claude-review-subagent-cw): SHIP at 5d39eb03f43133deff623e46fa1a0fa7ca8f4e04",
-      "expiry": "2026-11-08"
     }
   ],
   "escape_reviews": [
