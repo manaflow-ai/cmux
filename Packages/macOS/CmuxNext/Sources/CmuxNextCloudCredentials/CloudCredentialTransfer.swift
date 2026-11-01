@@ -31,8 +31,19 @@ public import Foundation
     let teamID: String?
     let userID: String
     let openTerminal: @MainActor (String) async -> Bool
+    /// DEV and dogfood builds only (``CloudCredentialInstaller/creatorTeamGuest``): a team guest
+    /// whose creator is the caller (the platform's `vmKind == "owner"` answer, still required) may
+    /// receive the login although teammates share its Unix user. Off everywhere else.
+    public let allowsCreatorTeamGuest: Bool
 
-    public init(provider: Provider, machineID: String, teamID: String?, userID: String, openTerminal: @escaping @MainActor (String) async -> Bool) { self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID; self.openTerminal = openTerminal }
+    public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
+                openTerminal: @escaping @MainActor (String) async -> Bool) {
+        self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID
+        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.openTerminal = openTerminal
+    }
+
+    /// The guest check this transfer runs before and after the login.
+    var preflight: String { allowsCreatorTeamGuest ? CloudCredentialInstaller.creatorTeamPreflight : CloudCredentialInstaller.preflight }
 
     /// `callerOwnsVM`: the signed-in caller owns the machine, from the platform (the classic attach
     /// answer's `vmKind == "owner"`, which #28788 gives a team machine's creator, or a Worker
@@ -107,7 +118,7 @@ public import Foundation
         // No credential is acquired or read until the platform says the caller owns the machine and
         // the machine has the image's launchers.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        guard try await effects.exec(CloudCredentialInstaller.preflight) == 0 else { throw Failure.sharedMachine }
+        guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
         try checkScope()
         let cached = refresh ? nil : try await effects.load()
         let credential: Data
@@ -118,13 +129,13 @@ public import Foundation
         try checkScope()
         // Recheck after browser/Keychain interaction; the target may have changed meanwhile.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        guard try await effects.exec(CloudCredentialInstaller.preflight) == 0 else { throw Failure.sharedMachine }
+        guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
         let path = "/home/cmux/.cmux/credential-transfer/\(UUID().uuidString).json"
         do {
             try checkScope()
             try await effects.write(path, credential)
             try checkScope()
-            guard try await effects.exec(CloudCredentialInstaller.command(provider: provider, payloadPath: path)) == 0 else {
+            guard try await effects.exec(CloudCredentialInstaller.command(provider: provider, payloadPath: path, creatorTeamGuest: allowsCreatorTeamGuest)) == 0 else {
                 throw Failure.deliveryFailed
             }
         } catch {

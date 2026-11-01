@@ -43,6 +43,21 @@ struct CloudCredentialRecoveryTests {
         }))
     }
 
+    /// The restart checks the guest kind the transfer installed on: an owner guest, or with the DEV
+    /// creator allowance a team guest as well.
+    @Test func restartAcceptsTheCreatorsTeamGuestOnlyWithTheAllowance() async throws {
+        var commands: [String] = []
+        let ok = #"{"restarted":1,"after_turn":0,"failed":0,"errors":[]}"#
+        _ = try await CloudPresenter.restartCredentialSession("chat-1", exec: { command in
+            commands.append(command); return CloudExecResult(exitCode: 0, stdout: ok, stderr: "")
+        })
+        _ = try await CloudPresenter.restartCredentialSession("chat-1", creatorTeamGuest: true, exec: { command in
+            commands.append(command); return CloudExecResult(exitCode: 0, stdout: ok, stderr: "")
+        })
+        #expect(commands[0].contains("in owner)") && !commands[0].contains("team"))
+        #expect(commands[1].contains("in owner|team)"))
+    }
+
     @Test func credentialRecoveryConfirmationIsAlwaysUserOnly() {
         #expect(DebugDialog.userOnly.contains(CloudPresenter.credentialRecoveryIdentifier))
         #expect(DebugDialog.userOnly.contains(CloudPresenter.codexDeviceCodeIdentifier))
