@@ -228,7 +228,7 @@ class Decide(unittest.TestCase):
             with self.subTest(pools=pools):
                 placed = placement.decide(config, [live], snapshot(pools), NOW)
                 self.assertEqual((placed.linux_runner, placed.linux_jobs), ("", ()))
-                self.assertIn("Blacksmith", placed.why)
+                self.assertIn("Linux queue depth was not observed", placed.why)
         for queued in (0, 1, 2):
             with self.subTest(queued=queued):
                 placed = placement.decide(config, [live],
