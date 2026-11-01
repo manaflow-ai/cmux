@@ -1205,7 +1205,7 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const chipFace = (
     <>
-      <AgentMark agent={chipHarness} size={15} />
+      <AgentMark agent={chipHarness} size={16} />
       {sessionAuthChip && (
         <span className="acpmux-model-detail" aria-label={sessionAuthText}>
           {sessionAuthChip}
@@ -1423,7 +1423,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   }}
                   onClick={() => showTab(STARRED, -1, true)}
                 >
-                  <StarGlyph filled={false} size={15} />
+                  <StarGlyph filled={false} size={16} />
                 </PickerOption>
                 {railHarnesses.map((entry, index) => [
                   <PickerOption
@@ -1514,7 +1514,7 @@ export function ModelPicker(props: ModelPickerProps) {
               </output>
             )}
             <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
-              <SearchIcon size={15} />
+              <SearchIcon size={16} />
               <PickerComboboxInput
                 ref={search}
                 type="search"
@@ -1667,7 +1667,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
                           onClick={() => toggleFavorite(model.id)}
                         >
-                          <StarGlyph filled={favorites.has(model.id)} size={13} />
+                          <StarGlyph filled={favorites.has(model.id)} size={14} />
                         </button>
                         {model.id === props.model && owners.get(model)?.ids.includes(harness ?? "") && (
                           <span className="grid size-6 place-items-center text-muted">
