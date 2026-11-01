@@ -161,7 +161,7 @@ class VerdictDurabilityTests(unittest.TestCase):
             step_file = Path(tmp) / "step.sh"
             step_file.write_text(script)
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(step_file)],
-                                    env=full, capture_output=True, text=True, timeout=60)
+                                    env=full, cwd=tmp, capture_output=True, text=True, timeout=60)
             return result, output.read_text()
 
     def record(self, app: str, app_class: str = "") -> str:
