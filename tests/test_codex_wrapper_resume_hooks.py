@@ -35,6 +35,8 @@ def run_wrapper(
     restore_token: str | None = None,
     inject_args_available: bool = True,
     subrouter_marker: str | None = None,
+    launch_command: str | None = None,
+    launcher_reenters_shim: bool = False,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -72,6 +74,8 @@ done
   printf 'CMUX_WORKSPACE_ID=%s\\n' "${CMUX_WORKSPACE_ID-__UNSET__}"
   printf 'CMUX_SURFACE_ID=%s\\n' "${CMUX_SURFACE_ID-__UNSET__}"
   printf 'CMUX_CODEX_HEADLESS=%s\\n' "${CMUX_CODEX_HEADLESS-__UNSET__}"
+  printf 'FAKE_PROVIDER=%s\\n' "${FAKE_PROVIDER-__UNSET__}"
+  printf 'CMUX_CODEX_LAUNCH_COMMAND_ACTIVE=%s\\n' "${CMUX_CODEX_LAUNCH_COMMAND_ACTIVE-__UNSET__}"
 } > "$FAKE_REAL_ENV_LOG"
 """,
         )
@@ -117,6 +121,27 @@ exit 1
         env = os.environ.copy()
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
         env["HOME"] = str(tmp / "home")
+        home = Path(env["HOME"])
+        home.mkdir()
+        env["CFFIXED_USER_HOME"] = str(home)
+        env["ZDOTDIR"] = str(home)
+        env["SHELL"] = "/bin/zsh"
+        env["FAKE_TEST_PATH"] = env["PATH"]
+        env["FAKE_LAUNCHER_CALLS"] = str(tmp / "launcher-calls")
+        env["FAKE_CUSTOM_BINARY"] = str(wrapper if launcher_reenters_shim else real_dir / "codex")
+        (home / ".zshrc").write_text(
+            'export PATH="$FAKE_TEST_PATH"\n'
+            'subcodex() {\n'
+            '  printf "called\\n" >> "$FAKE_LAUNCHER_CALLS"\n'
+            '  export FAKE_PROVIDER=custom\n'
+            '  "$FAKE_CUSTOM_BINARY" "$@"\n'
+            '}\n', encoding="utf-8",
+        )
+        env.pop("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE", None)
+        if launch_command is None:
+            env.pop("CMUX_CODEX_LAUNCH_COMMAND", None)
+        else:
+            env["CMUX_CODEX_LAUNCH_COMMAND"] = launch_command
         env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
         env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
@@ -153,18 +178,58 @@ exit 1
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=15,
             )
         finally:
             if test_socket is not None:
                 test_socket.close()
 
         observed_env = dict(line.split("=", 1) for line in read_lines(real_env_log))
+        observed_env["launcher_calls"] = str(len(read_lines(tmp / "launcher-calls")))
         return proc.returncode, read_lines(real_args_log), read_lines(cmux_log), observed_env, proc.stderr.strip()
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
     if not condition:
         failures.append(message)
+
+
+def test_custom_launch_command(failures: list[str]) -> None:
+    for reentry in (False, True):
+        for argv in (
+            ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write"],
+            ["resume", SESSION_ID, "literal $(printf injected); 'quoted'"],
+            ["--version"], [],
+        ):
+            code, actual, calls, env, stderr = run_wrapper(
+                socket_state="stale", argv=argv, launch_command="subcodex",
+                launcher_reenters_shim=reentry,
+            )
+            label = f"custom-command/reentry={reentry}/{argv}"
+            expect(code == 0, f"{label}: exit {code}: {stderr}", failures)
+            expect(env.get("FAKE_PROVIDER") == "custom", f"{label}: shell function was bypassed", failures)
+            expect(env.get("launcher_calls") == "1", f"{label}: launcher must run exactly once", failures)
+            if reentry:
+                expect(env.get("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE") == "__UNSET__",
+                       f"{label}: re-entry guard leaked into Codex", failures)
+            if argv == ["--version"]:
+                expect(actual == argv, f"{label}: non-session args changed: {actual}", failures)
+                expect(not calls, f"{label}: hooks injected into --version", failures)
+            else:
+                expect(sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+                       f"{label}: SessionStart must be injected exactly once: {actual}", failures)
+                expect(env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",
+                       f"{label}: surface tracking was lost", failures)
+                if argv:
+                    expect(all(a in actual for a in argv), f"{label}: resume ID/options lost: {actual}", failures)
+
+    for command in ("", "  \n  "):
+        code, actual, _, env, _ = run_wrapper(socket_state="stale", argv=["--version"], launch_command=command)
+        expect(code == 0 and actual == ["--version"] and env.get("launcher_calls") == "0",
+               "empty custom command must preserve the default launcher", failures)
+
+    code, actual, _, _, _ = run_wrapper(socket_state="stale", argv=["--version"], launch_command="false")
+    expect(code != 0 and not actual, "a failed custom command must not fall back to ordinary Codex", failures)
 
 
 # cmux-launched Codex always disables the native `computer_use` provider before
@@ -374,6 +439,7 @@ def test_headless_marker_follows_the_subcommand(failures: list[str]) -> None:
 
 def main() -> int:
     failures: list[str] = []
+    test_custom_launch_command(failures)
     test_every_resume_route_is_instrumented(failures)
     test_direct_fork_is_instrumented(failures)
     test_explicit_disable_still_bypasses_hooks(failures)
