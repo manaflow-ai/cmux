@@ -5,6 +5,8 @@ import type { Artifact } from "./artifactPreview";
 
 export type OpenedArtifact = Artifact & {
   sessionId?: string;
+  /** Human-readable origin for a pinned view; the session id remains the authoritative identity. */
+  sourceTitle?: string;
   opened: number;
   pinned?: boolean;
   /** The source chat's known versions at the moment of Pin. Never read a different chat's rows. */
