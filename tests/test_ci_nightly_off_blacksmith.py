@@ -99,7 +99,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                     with self.subTest(job=name, attempt=attempt, placement=placement_attempt):
                         self.assertEqual(evaluate(expression, context), "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404")
                         context["needs.decide.outputs.track"] = "nightly"
-                        self.assertEqual(evaluate(expression, context), "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404")
+                        self.assertEqual(evaluate(expression, context), "blacksmith-16vcpu-ubuntu-2404")
                         context["github.repository_owner"] = "fork-owner"
                         self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
             for runner in ("cmux-nightly-reservation-control", "glaeda-side-std-xcode-26.6"):
