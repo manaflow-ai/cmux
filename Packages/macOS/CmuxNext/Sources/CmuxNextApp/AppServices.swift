@@ -10,7 +10,7 @@ import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
-import CmuxNextComputerUse
+public import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -18,7 +18,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDaemonRecovery
-import CmuxNextDictation
+public import CmuxNextDictation
 import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -89,6 +89,8 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
+    /// The editor `file.open {where: editor}` opens with; tests replace it to record the open.
+    var editorApps: any AgentPaneEditorApps = AgentPaneWorkspaceEditors()
     /// The app's key window, from the composition root (AppServices never reads the global `NSApp`, nil in a
     /// test process). Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow?
@@ -110,7 +112,7 @@ final class AppServices {
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"))
-    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, authCaptureFixture: environment.authCaptureFixture)  // first read in init (no IUO)
+    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, loginKeychain: loginKeychain, authCaptureFixture: environment.authCaptureFixture)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(
         auth: cloud.auth,
@@ -166,8 +168,10 @@ final class AppServices {
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
+    /// The process's one guard of the Keychain UI switch: every store of cmux's own Keychain items gets this one.
+    let loginKeychain = LoginKeychain()
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
-    let iphone = IPhoneHostService()
+    let iphone: IPhoneHostService
     /// Every action run's perform-to-commit time against the 10 ms budget (always on; zero-latency.md),
     /// each run published on the board of the app's ``MainWorkScheduler`` so the watchdog samples a slow one.
     let actionBudget: ActionBudgetMonitor
@@ -190,7 +194,7 @@ final class AppServices {
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
     let chromiumRuntime = ChromiumRuntimeService.make()
     /// The browser stores both engines and the App share: the one answer to "is this profile off the record".
-    let browserStores = BrowserSharedStores.application()
+    let browserStores: BrowserSharedStores
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
@@ -335,12 +339,10 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
-    /// Share Screen with Chief (docs/chief-screen-share.md): off at every launch; its journal is this
-    /// Mac's Chief home's `optchat/screen`, which the Chief's brain reads into memory notes.
+    /// Share Screen with Chief (docs/chief-screen-share.md), read by the Computer Use helper; journal in `optchat/screen`.
     lazy var chiefScreenShare = ChiefScreenShare(
-        capture: ChiefScreenSystemCapture(),
-        journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome
-            .appending(path: "optchat/screen", directoryHint: .isDirectory)))
+        capture: ChiefScreenHelperCapture(host: ComputerUseScreenStills(helper: .shared)),
+        journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome.appending(path: "optchat/screen", directoryHint: .isDirectory)))
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
@@ -536,6 +538,7 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil) {
         self.work = work
+        (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         // Before the updater's What's New tracker writes its record: an install that ran before
@@ -863,3 +866,5 @@ extension AppServices {
         if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }
+
+nonisolated extension ComputerUseScreenStills: ChiefScreenCaptureHost {}
