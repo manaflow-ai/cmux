@@ -40,7 +40,8 @@ export function uniqueRetryModels(models: readonly RetryModel[], current: string
 /**
  * Splits `models` into the rows shown at once and the ones under More models, one row per model.
  * `top` is the same harness-reported menu the composer uses. Without a report, both menus
- * show the newest available family members. A running older model stays under More models.
+ * show the newest available family members. With a report the running model keeps its row; without
+ * one a running older model stays under More models.
  */
 export function retryModelSections(
   models: readonly RetryModel[],
