@@ -127,6 +127,12 @@ def rescue_control(api: object, run: Mapping[str, object], *, now: Callable[[], 
     forced = False
     while True:
         current = api.run(run_id)
+        try:
+            settling_attempt = int(current.get("run_attempt") or 0)
+        except (TypeError, ValueError):
+            return Decision("noop", "current run attempt became invalid while cancelling")
+        if current.get("path") != WORKFLOW_PATH or settling_attempt != attempt:
+            return Decision("noop", "run attempt changed while cancelling")
         if current.get("status") in {"completed", "cancelled"}:
             break
         elapsed = (now() - started).total_seconds()

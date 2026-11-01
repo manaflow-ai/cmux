@@ -63,10 +63,24 @@ class RescueTests(unittest.TestCase):
     def test_cancel_timeout_does_not_rerun(self):
         api = mock.Mock()
         api.jobs.return_value = [watch()]
-        api.run.return_value = {"status": "in_progress"}
+        api.run.return_value = {"status": "in_progress", "run_attempt": 1, "path": r.WORKFLOW_PATH}
         clock = iter([NOW, NOW, NOW + dt.timedelta(seconds=r.CANCEL_WAIT_SECONDS)])
         result = r.rescue_control(api, run(), now=lambda: next(clock), sleep=lambda _: None)
         self.assertEqual(result.action, "noop")
+        api.rerun.assert_not_called()
+
+    def test_a_new_attempt_appearing_while_cancel_settles_is_not_touched(self):
+        api = mock.Mock()
+        api.jobs.return_value = [watch()]
+        api.run.side_effect = [
+            {"status": "in_progress", "run_attempt": 1, "path": r.WORKFLOW_PATH},
+            {"status": "in_progress", "run_attempt": 1, "path": r.WORKFLOW_PATH},
+            {"status": "in_progress", "run_attempt": 2, "path": r.WORKFLOW_PATH},
+        ]
+        result = r.rescue_control(api, run(), now=lambda: NOW, sleep=lambda _: None)
+        self.assertEqual(result.action, "noop")
+        self.assertIn("changed while cancelling", result.reason)
+        api.force_cancel.assert_not_called()
         api.rerun.assert_not_called()
 
 
