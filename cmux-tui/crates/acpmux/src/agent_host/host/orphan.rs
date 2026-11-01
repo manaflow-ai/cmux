@@ -67,22 +67,17 @@ pub(super) fn needs_a_daemon(entry: &Entry) -> bool {
     !matches!(entry, Entry::Err { .. } | Entry::Exit { .. } | Entry::Tap { dir: TapDir::In, .. })
 }
 
-/// Whether a hello that comes while the host ends its harness waits: `ending` the end began,
-/// `alive` its leader is not reaped yet, `exit_in` its exit entry is in the log.
-/// Until the exit entry is in: the waiter task marks the leader reaped before the main loop logs
-/// the exit (which also waits for the harness's output to close), so a reaped leader is not yet
-/// an exit a daemon can read. `alive` alone is not the rule.
-pub(super) fn holds_hello(ending: bool, _alive: bool, exit_in: bool) -> bool {
-    ending && !exit_in
-}
-
-/// Whether the hellos held while the host ends its harness are answered now (`reaped`: its leader
-/// is reaped, `exit_in`: its exit entry is in the log, `given_up`: the end stopped waiting for
-/// the exit entry, `end_by`).
-/// Once the exit is in, or once the end stopped waiting for it (an exit entry the buffer cap
-/// holds back may never come): a held daemon is never left without an answer.
-pub(super) fn answers_held(_reaped: bool, exit_in: bool, given_up: bool) -> bool {
-    exit_in || given_up
+/// Whether a hello that came while the host ends its harness still waits (one rule, for
+/// holding a new hello and for answering the held ones):
+/// - until the exit entry is in the log (`exit_in`): the waiter task marks the leader reaped
+///   before the main loop logs the exit (which also waits for the harness's output to close), so
+///   a reaped leader is not yet an exit a daemon can read;
+/// - not once the end stopped waiting for the exit (`given_up`, `end_by`): no daemon is left
+///   unanswered;
+/// - not once the leader is reaped while its output is held back by the buffer cap
+///   (`reaped_and_held_back`): only a daemon draining that output lets the exit entry come.
+pub(super) fn hello_waits(exit_in: bool, given_up: bool, reaped_and_held_back: bool) -> bool {
+    !exit_in && !given_up && !reaped_and_held_back
 }
 
 /// A host's own end ([`OrphanExit`]), and what it tracks for it.
@@ -118,16 +113,9 @@ pub(super) struct Orphan {
 
 impl Orphan {
     /// Holds connection `id`'s hello `frame` while the harness ends and its exit entry is not in
-    /// the log yet ([`holds_hello`]): true when it is held, to be answered once it is.
-    pub(super) fn hold_hello(
-        &mut self,
-        id: u64,
-        frame: &ControllerFrame,
-        alive: &std::sync::atomic::AtomicBool,
-        exit_in: bool,
-    ) -> bool {
-        let held =
-            holds_hello(self.ending, alive.load(std::sync::atomic::Ordering::SeqCst), exit_in);
+    /// the log yet ([`hello_waits`]): true when it is held, to be answered once it no longer waits.
+    pub(super) fn hold_hello(&mut self, id: u64, frame: &ControllerFrame, waits: bool) -> bool {
+        let held = self.ending && waits;
         if held {
             self.held.push((id, frame.clone()));
         }
@@ -186,6 +174,13 @@ impl State {
         }
     }
 
+    /// Whether a hello during the end still waits ([`hello_waits`]), from this host's state.
+    pub(super) fn hello_waits(&self) -> bool {
+        let reaped = !self.leader_alive.load(std::sync::atomic::Ordering::SeqCst);
+        let given_up = self.orphan.end_by.is_some_and(|by| std::time::Instant::now() >= by);
+        hello_waits(self.exit_h.is_some(), given_up, reaped && self.output_held_back())
+    }
+
     /// What this host still holds for a next daemon ([`Pending`]).
     async fn pending(&self) -> Pending {
         let translator = !self.held.is_empty()
@@ -214,9 +209,7 @@ impl State {
     /// good.
     pub(super) async fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
         if self.orphan.ending {
-            let reaped = !self.leader_alive.load(std::sync::atomic::Ordering::SeqCst);
-            let given_up = self.orphan.end_by.is_some_and(|by| std::time::Instant::now() >= by);
-            if answers_held(reaped, self.exit_h.is_some(), given_up) {
+            if !self.hello_waits() {
                 for (id, hello) in std::mem::take(&mut self.orphan.held) {
                     self.on_frame(id, Some(hello)).await;
                 }
@@ -348,9 +341,7 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Entry, OrphanStep, Pending, TapDir, answers_held, holds_hello, needs_a_daemon, orphan_step,
-    };
+    use super::{Entry, OrphanStep, Pending, TapDir, hello_waits, needs_a_daemon, orphan_step};
     use std::time::Duration;
 
     /// A host with no controller looks at its agent only once its whole wait passed, ends it
@@ -388,22 +379,18 @@ mod tests {
         assert!(!needs_a_daemon(&Entry::Exit { code: Some(0) }));
     }
 
-    /// A daemon that connects while the host ends its harness is answered only once the exit
-    /// entry is in the log, so its log has the exit and it never starts a turn on a dying harness.
-    /// The waiter task marks the leader reaped before the main loop logs the exit (and the exit
-    /// waits for the harness's output to close), so "reaped" is not "exit in": a hello in that
-    /// window was answered with no exit (orphan_exit `a_daemon_connecting_while_the_harness_
-    /// ends_is_told_it_exited`, `last_h` 0, red on base).
+    /// A daemon that connects while the host ends its harness waits until the exit entry is in
+    /// the log, so its log has the exit and it never starts a turn on a dying harness. The waiter
+    /// task marks the leader reaped before the main loop logs the exit, so "reaped" is not
+    /// "exit in" (orphan_exit `a_daemon_connecting_while_the_harness_ends_is_told_it_exited`,
+    /// `last_h` 0, red on base). It never waits past the end's deadline, nor while only a daemon
+    /// can drain the output the buffer cap holds back after the reap (review of #30897).
     #[test]
     fn a_hello_during_the_end_waits_for_the_exit_entry() {
-        // (ending, alive, exit_in) -> held
-        assert!(holds_hello(true, true, false), "the harness still runs");
-        assert!(holds_hello(true, false, false), "reaped, but the exit is not logged yet");
-        assert!(!holds_hello(true, false, true), "the exit is in");
-        assert!(!holds_hello(false, true, false), "no end began");
-        // (reaped, exit_in, given_up) -> answered
-        assert!(!answers_held(true, false, false), "reaped, but the exit is not logged yet");
-        assert!(answers_held(true, true, false));
-        assert!(answers_held(false, false, true), "the end stopped waiting for the exit");
+        // (exit_in, given_up, reaped_and_held_back) -> waits
+        assert!(hello_waits(false, false, false), "reaped or not, the exit is not logged yet");
+        assert!(!hello_waits(true, false, false), "the exit is in");
+        assert!(!hello_waits(false, true, false), "the end stopped waiting for the exit");
+        assert!(!hello_waits(false, false, true), "only a daemon can drain the capped output");
     }
 }

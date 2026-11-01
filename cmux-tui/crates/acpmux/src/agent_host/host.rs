@@ -830,6 +830,12 @@ impl State {
     }
 
     /// The exit entry follows the last output line and stderr line.
+    /// The harness's output is held back by the buffer cap (or a carry), so no more is read
+    /// until a daemon drains it: the main loop's `wanted` read condition is false.
+    pub(super) fn output_held_back(&self) -> bool {
+        !self.stdout_done && (self.weight > self.spec.buffer_cap || !self.held.is_empty())
+    }
+
     fn maybe_push_exit(&mut self) {
         if self.exit_h.is_none()
             && self.stdout_done
@@ -1067,9 +1073,8 @@ impl State {
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
             // An orphaned host that ends its harness answers once its exit is logged (`orphan.rs`).
-            if self.stall_hello
-                || self.orphan.hold_hello(id, &frame, &self.leader_alive, self.exit_h.is_some())
-            {
+            let waits = self.hello_waits();
+            if self.stall_hello || self.orphan.hold_hello(id, &frame, waits) {
                 return;
             }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
