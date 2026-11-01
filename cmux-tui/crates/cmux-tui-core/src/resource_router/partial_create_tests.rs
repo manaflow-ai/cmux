@@ -63,3 +63,179 @@ fn a_create_whose_commit_fails_leaves_no_workspace_or_terminal() {
     assert_eq!(workspaces(&mux), before_workspaces);
     mux.shutdown();
 }
+
+/// Every later write to the registry fails the way SQLite fails on a full
+/// disk: a temp trigger on each table refuses each INSERT, UPDATE and DELETE
+/// with "database or disk is full". The registry has one connection, so the
+/// triggers cover every write the daemon makes from now on.
+fn fill_the_disk(mux: &Mux) {
+    let registry = mux.workspace_registry.lock().unwrap();
+    let tables = registry
+        .query_text_for_test(
+            "SELECT group_concat(name, char(10)) FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+               AND sql NOT LIKE 'CREATE VIRTUAL TABLE%'",
+        )
+        .unwrap();
+    let mut refused = 0;
+    for (index, table) in tables.lines().enumerate() {
+        for (kind, event) in [("i", "INSERT"), ("u", "UPDATE"), ("d", "DELETE")] {
+            let sql = format!(
+                "CREATE TEMP TRIGGER cmux_test_disk_full_{kind}{index} BEFORE {event} ON \"{table}\"
+                 BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END;"
+            );
+            // An FTS shadow table can refuse a trigger; its writes come from
+            // its virtual table, whose other shadow tables still refuse.
+            if registry.execute_sql_for_test(&sql).is_ok() {
+                refused += 1;
+            }
+        }
+    }
+    assert!(refused > 0, "no registry table took a disk-full trigger: {tables}");
+}
+
+fn free_the_disk(mux: &Mux) {
+    let registry = mux.workspace_registry.lock().unwrap();
+    let triggers = registry
+        .query_text_for_test(
+            "SELECT coalesce(group_concat(name, char(10)), '') FROM sqlite_temp_master
+             WHERE type = 'trigger' AND name LIKE 'cmux_test_disk_full_%'",
+        )
+        .unwrap();
+    for trigger in triggers.lines() {
+        registry.execute_sql_for_test(&format!("DROP TRIGGER IF EXISTS temp.{trigger}")).unwrap();
+    }
+}
+
+fn listed_workspace_names(mux: &Arc<Mux>) -> Vec<String> {
+    let envelope = json!({
+        "protocol":"cmux.protocol/2",
+        "type":"request",
+        "id":"test-workspace.list",
+        "operation":"workspace.list",
+        "params":{"machine":"current","session":"current"},
+    });
+    let response = handle_resource_message(mux, &serde_json::to_string(&envelope).unwrap())
+        .unwrap_or_else(|error| panic!("workspace.list failed: {error:?}"));
+    assert_eq!(response["ok"], true, "workspace.list failed: {response}");
+    response["result"]
+        .as_array()
+        .unwrap_or_else(|| panic!("workspace.list returned no array: {response}"))
+        .iter()
+        .map(|workspace| workspace["name"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+/// The workspaces of the `list-workspaces` tree: the reply the app reads at
+/// launch and at every reconnect (and the launch snapshot stores).
+fn app_tree_workspace_names(mux: &Mux) -> Vec<String> {
+    let decorations = mux.tree_decorations();
+    let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+    tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|workspace| workspace["name"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+/// Fuzz finding restore h1 (STATUS 3083, build feat d1f0e63691a0): with the
+/// daemon's state directory on a full disk, `cmux workspace create --name X`
+/// answers `operation.failed` "database or disk is full" and `workspace list`
+/// has no X, but the app shows X (no tabs), also after a relaunch against the
+/// same daemon. Here the disk fills after the create wrote its workspace row
+/// and its terminal reservation. A refused create must leave X nowhere: not in
+/// `workspace.list`, not in the tree the app reads, and the event stream must
+/// not announce X without announcing its removal.
+#[test]
+fn a_create_refused_for_a_full_disk_leaves_no_workspace_for_the_app() {
+    let mux = Mux::new_for_test("diskfull-create", SurfaceOptions::default());
+    // The fuzz run made one workspace before the disk filled.
+    topology::dispatch(
+        &mux,
+        parsed_request(
+            "workspace.create",
+            json!({"initial_content":"terminal","name":"before"}),
+            "diskfull-before",
+        ),
+    )
+    .unwrap();
+    let workspaces_before = mux.with_state(|state| state.workspaces.len());
+    let events = mux.subscribe();
+    let filled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    mux.set_resource_terminal_reservation_hook_for_test(Some(Arc::new({
+        let mux = Arc::clone(&mux);
+        let filled = Arc::clone(&filled);
+        move |_terminal_id: &str| {
+            if !filled.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                fill_the_disk(&mux);
+            }
+        }
+    })));
+
+    let created = topology::dispatch(
+        &mux,
+        parsed_request(
+            "workspace.create",
+            json!({"initial_content":"terminal","name":"ghost"}),
+            "diskfull-ghost",
+        ),
+    );
+    mux.set_resource_terminal_reservation_hook_for_test(None);
+    assert!(filled.load(std::sync::atomic::Ordering::Acquire), "the disk never filled");
+    let error = created.expect_err("a create on a full disk reported success");
+    eprintln!("refused create: {error:?}");
+
+    // (a) The daemon's `workspace.list`.
+    let listed = listed_workspace_names(&mux);
+    // (b) The tree the app reads (`list-workspaces`), and the mux state under it.
+    let tree = app_tree_workspace_names(&mux);
+    let workspaces_after = mux.with_state(|state| state.workspaces.len());
+    // (c) The event stream the app subscribes to.
+    let mut announced = None;
+    let mut removed = false;
+    let mut resynced_after_add = false;
+    while let Ok(event) = events.try_recv() {
+        match event {
+            crate::MuxEvent::TreeDelta(delta)
+                if delta.kind == crate::TreeDeltaKind::WorkspaceAdded
+                    && delta.entity["name"] == "ghost" =>
+            {
+                announced = Some(delta.workspace);
+            }
+            crate::MuxEvent::TreeDelta(delta)
+                if delta.kind == crate::TreeDeltaKind::WorkspaceClosed
+                    && Some(delta.workspace) == announced =>
+            {
+                removed = true;
+            }
+            crate::MuxEvent::TreeChanged if announced.is_some() => resynced_after_add = true,
+            _ => {}
+        }
+    }
+    free_the_disk(&mux);
+
+    let mut problems = Vec::new();
+    if listed.iter().any(|name| name == "ghost") {
+        problems.push(format!("(a) workspace.list has the refused workspace: {listed:?}"));
+    }
+    if tree.iter().any(|name| name == "ghost") || workspaces_after != workspaces_before {
+        problems.push(format!(
+            "(b) the app's list-workspaces tree has the refused workspace: {tree:?} \
+             ({workspaces_before} workspaces before, {workspaces_after} after; \
+             workspace.list: {listed:?})"
+        ));
+    }
+    if announced.is_some() && !removed && !resynced_after_add {
+        problems.push(format!(
+            "(c) the event stream announced the refused workspace (WorkspaceAdded {announced:?}) \
+             and never its removal"
+        ));
+    }
+    assert!(
+        problems.is_empty(),
+        "a refused create left a ghost workspace:\n{}",
+        problems.join("\n")
+    );
+    mux.shutdown();
+}
