@@ -10044,6 +10044,7 @@ function AcpmuxPane() {
           const held = harnessSwitch.send(
             text,
             attachments,
+            undefined,
             switchPromptId,
             !seeded && promptId === undefined,
           );
