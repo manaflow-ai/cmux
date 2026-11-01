@@ -41,7 +41,9 @@ export function clock(ms: number): string {
   const total = Math.floor(ms / 1000);
   const seconds = String(total % 60).padStart(2, "0");
   const minutes = Math.floor(total / 60);
-  return minutes >= 60 ? `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
+  return minutes >= 60
+    ? `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}:${seconds}`
+    : `${minutes}:${seconds}`;
 }
 
 const bytes = (text: string) => new TextEncoder().encode(text).length;
@@ -72,7 +74,10 @@ function videoContext(name: string, transcript: VideoTranscript, budget: number)
 /// The hidden context a prompt carries: `base` (the chat's workspace context, when it has one) and
 /// the transcript of each attached video that has one, within acpmux's limit; undefined when there
 /// is nothing. Like the workspace context it starts on its own line.
-export function promptContext(base: string | undefined, attachments: readonly ComposerAttachment[]): string | undefined {
+export function promptContext(
+  base: string | undefined,
+  attachments: readonly ComposerAttachment[],
+): string | undefined {
   let context = base ?? "";
   for (const chip of attachments) {
     if (!chip.transcript) continue;
