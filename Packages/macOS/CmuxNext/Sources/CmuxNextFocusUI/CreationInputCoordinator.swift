@@ -62,7 +62,7 @@ public final class CreationInputCoordinator {
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
     /// Held keys run again since launch (tests: a key must never be run into a view it was not typed for).
-    public private(set) var replayedCount = 0
+    private(set) var replayedCount = 0
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     public var holdLimit: Duration = .seconds(2)
 
@@ -83,10 +83,10 @@ public final class CreationInputCoordinator {
     public func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
 
     /// How many keys `window`'s hold keeps now (tests).
-    public func heldCount(in window: NSWindow?) -> Int { window.flatMap { buffers[$0.windowNumber] }?.count ?? 0 }
+    func heldCount(in window: NSWindow?) -> Int { window.flatMap { buffers[$0.windowNumber] }?.count ?? 0 }
 
     /// Why `window`'s held keys would or would not go to a pending creation's early view now (tests' failure reports).
-    public func earlyDeliveryState(in window: NSWindow) -> String {
+    func earlyDeliveryState(in window: NSWindow) -> String {
         guard let buffer = buffers[window.windowNumber] else { return "no hold" }
         guard let focus = host?.creationFocus(in: window), focus.shell != nil else { return "no window" }
         return "resolved \(buffer.isResolved), held \(buffer.count), newestEarlyTab \(buffer.newestEarlyTab ?? "-"), "
@@ -233,10 +233,13 @@ public final class CreationInputCoordinator {
 
     /// Runs the held keys into the early view that has the keyboard, in order, at once. False when a key run again
     /// started another creation: the rest wait for it, in order.
+    /// A replayed key may also take the keyboard away from that view (Ctrl-1…9 or Ctrl-Tab onto another tab, whose
+    /// surface hold reuses this buffer and opens no creation): the rest, and the key being judged, then keep waiting.
     private func deliverEarly(_ buffer: CreationInputBuffer, in window: NSWindow) -> Bool {
         guard let host else { return true }
         let opened = buffer.openedCount
-        guard let rest = replay(buffer.take(), in: window, host: host, stopping: { buffer.openedCount != opened }) else { return true }
+        let stopping = { buffer.openedCount != opened || !Self.takesKeysEarly(buffer, host.creationFocus(in: window)) }
+        guard let rest = replay(buffer.take(), in: window, host: host, stopping: stopping) else { return true }
         buffer.prepend(rest)
         return false
     }
@@ -291,6 +294,9 @@ public final class CreationInputCoordinator {
         if !force {
             if let generation = focus.expectedGeneration, buffer.awaits(generation) { return }
             guard focus.takesKeys else { return }
+            // A key, not only a settle, now ends a resolved hold: when the focus names a terminal that its pane shows,
+            // that terminal must have the keyboard, never an agent's composer or a message box over it.
+            if focus.terminalShown, !focus.terminalHasKeyboard { return }
         }
         buffers[window.windowNumber] = nil
         let failed = failedCreation.remove(window.windowNumber) != nil

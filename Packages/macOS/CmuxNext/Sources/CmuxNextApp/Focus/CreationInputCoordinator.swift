@@ -15,19 +15,16 @@ extension KeyRouter: CreationInputHost {
         let state = controller.focus.state
         let expectedTab: String? = if case .tab(let tab)? = state.expectation?.key { tab } else { nil }
         let terminalTab: String? = if case .terminal(_, let tab) = state.resolved { tab } else { nil }
+        // The terminal the focus names, when its pane shows it now, and whether its view is the first responder.
+        var shown: TerminalEntry?
+        if case .terminal(let pane, let tab) = state.resolved, let paneController = controller.content?.paneController(key: pane),
+           paneController.currentTabKey == tab, case .terminal(let entry)? = paneController.currentContent { shown = entry }
+        let responder = shell.firstResponder as? NSView
+        let hasKeyboard = shown.map { entry in responder.map { $0 === entry.session.surfaceView || $0.isDescendant(of: entry.session.view) } ?? false } ?? false
         return CreationInputFocus(shell: shell, inContent: kind == .content, expectedTab: expectedTab,
                                   expectedGeneration: state.expectation?.generation, terminalTab: terminalTab,
                                   takesKeys: Self.responderTakesKeys(controller, window: shell),
-                                  terminalHasKeyboard: Self.terminalHasKeyboard(controller, window: shell))
-    }
-
-    /// The terminal the focus names is shown in its pane and its view is the window's first responder.
-    private static func terminalHasKeyboard(_ controller: WindowController, window: NSWindow) -> Bool {
-        guard case .terminal(let pane, let tab) = controller.focus.state.resolved,
-              let paneController = controller.content?.paneController(key: pane), paneController.currentTabKey == tab,
-              case .terminal(let entry)? = paneController.currentContent,
-              let responder = window.firstResponder as? NSView else { return false }
-        return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view)
+                                  terminalHasKeyboard: hasKeyboard, terminalShown: shown != nil)
     }
 
     func isCloseKey(_ event: NSEvent, in shell: NSWindow) -> Bool {
