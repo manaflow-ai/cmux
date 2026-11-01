@@ -53,6 +53,11 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-pr:is(:hover, :focus-within) .acpmux-chat-inspector-pr__more",
     "own-menu rule",
   ],
+  // A grant's Revoke is a plain button that revokes on click (EnvironmentSection.tsx); it opens no menu.
+  [
+    "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-row--grant:is(:hover, :focus-within) > .acpmux-chat-inspector-link",
+    "revoke affordance",
+  ],
   // The model star is a pressed toggle (QuickModelMenu.tsx); it opens no menu.
   [
     "agent-session/acpmux/modelPicker.css|.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-star",
