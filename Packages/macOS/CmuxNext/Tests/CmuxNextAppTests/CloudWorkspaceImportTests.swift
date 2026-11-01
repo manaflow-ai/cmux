@@ -21,13 +21,15 @@ import Testing
             #expect(payload["expectedGeneration"] as? Int == 2)
             #expect(payload["clientKey"] as? String == "native-workspace-import-v1")
             var answer: [String: Any] = ["machineId": "vm_aaaaaaaaaaaaaaaaaaaa", "generation": 2,
-                "provider": "freestyle-vm-api", "connectionMachine": "vm_bbbbbbbbbbbbbbbbbbbb"]
+                "reconnectRequired": true, "provider": "freestyle-cloud", "connectionMachine": "vm_bbbbbbbbbbbbbbbbbbbb"]
             switch url.host {
             case "wrong-machine.test": answer["machineId"] = "vm_cccccccccccccccccccc"
             case "wrong-generation.test": answer["generation"] = 3
             case "wrong-carrier.test": answer["connectionMachine"] = "vm_cccccccccccccccccccc"
             case "raw-provider.test": answer["connectionMachine"] = "vm_01abcdefghijklmnopqrstuvwx"
             case "trailing-newline.test": answer["connectionMachine"] = "vm_bbbbbbbbbbbbbbbbbbbb\n"
+            case "ready-repeat.test": answer["reconnectRequired"] = false
+            case "missing-reconnect.test": answer.removeValue(forKey: "reconnectRequired")
             default: break
             }
             let status = url.host == "pending.test" ? 503 : 200
@@ -59,10 +61,20 @@ import Testing
     }
 
     @Test func enrollmentBindsOnlyTheExistingVerifiedCarrier() async throws {
-        let connection = try await owner("ready.test").importWorkspace(workspace: "ws_one", machine: Self.machine, carrier: Self.carrier, generation: 2)
+        let enrollment = try await owner("ready.test").importWorkspace(workspace: "ws_one", machine: Self.machine, carrier: Self.carrier, generation: 2)
+        let connection = enrollment.connection
         #expect(connection.machineId == Self.machine)
         #expect(connection.connectionMachine == Self.carrier)
         #expect(connection.generation == 2)
+        #expect(enrollment.reconnectRequired)
+        let repeated = try await owner("ready-repeat.test").importWorkspace(workspace: "ws_one", machine: Self.machine, carrier: Self.carrier, generation: 2)
+        #expect(!repeated.reconnectRequired)
+    }
+
+    @Test func enrollmentMustStateWhetherItRestartedTheGuest() async {
+        await #expect(throws: DecodingError.self) {
+            try await owner("missing-reconnect.test").importWorkspace(workspace: "ws_one", machine: Self.machine, carrier: Self.carrier, generation: 2)
+        }
     }
 
     @Test(arguments: ["wrong-machine.test", "wrong-generation.test", "wrong-carrier.test", "raw-provider.test", "trailing-newline.test", "pending.test"])

@@ -4,7 +4,7 @@ public import Foundation
 /// so a restart never mistakes a retired provider row for the workspace's logical machine.
 @MainActor
 public final class CloudWorkspaceBindings {
-    public struct Scope: Codable, Equatable, Sendable {
+    public struct Scope: Codable, Hashable, Sendable {
         public let user: String
         public let team: String?
         public let origin: String

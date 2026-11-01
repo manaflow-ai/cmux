@@ -178,10 +178,10 @@ public actor CloudLinkSession {
 
     /// Rebinds transport after the owner API confirmed a replacement. Logical identity stays
     /// unchanged; all old tickets and owner proofs are retired before opening the new target.
-    public func retarget(machine: String, generation: Int) async -> Bool {
+    public func retarget(machine: String, generation: Int, forceReconnect: Bool = false) async -> Bool {
         guard generation >= machineGeneration, generation >= 0,
               generation != machineGeneration || machine == connectionKey.machine else { return false }
-        if isConnected(machine: machine, generation: generation) { return true }
+        if !forceReconnect, isConnected(machine: machine, generation: generation) { return true }
         end(reason: "machine rewound")
         let previous = connectionKey
         connectionKey = CloudLinkKey(machine: machine)

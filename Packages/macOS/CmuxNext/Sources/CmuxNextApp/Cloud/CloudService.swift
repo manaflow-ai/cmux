@@ -34,6 +34,7 @@ final class CloudService {
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
+    @ObservationIgnored private let workspaceEnrollment = CloudWorkspaceEnrollment()
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
@@ -544,6 +545,14 @@ final class CloudService {
     /// scope at startup. The owner endpoint reuses this carrier and performs no machine allocation.
     func enrollTurnWorkspace(workspace: String, machine: CloudMachineSession) async throws {
         guard let scope = workspaceBindingScope else { throw CancellationError() }
+        try await workspaceEnrollment.run(scope: scope, workspace: workspace, machine: machine.machineID) { [self] in
+            try await provisionTurnWorkspace(workspace: workspace, machine: machine, scope: scope)
+        }
+        guard workspaceBindingScope == scope else { throw CancellationError() }
+    }
+
+    private func provisionTurnWorkspace(workspace: String, machine: CloudMachineSession, scope: CloudWorkspaceBindings.Scope) async throws {
+        guard workspaceBindingScope == scope else { throw CancellationError() }
         let owner = workspaceOwner
         let current: CloudWorkspaceConnection?
         do {
@@ -552,12 +561,14 @@ final class CloudService {
         } catch CloudTurnRewindClient.Failure.http(404) { current = nil }
         try Task.checkCancellation()
         guard workspaceBindingScope == scope else { throw CancellationError() }
-        let target = try await owner.importWorkspace(workspace: workspace, machine: machine.machineID,
+        let enrollment = try await owner.importWorkspace(workspace: workspace, machine: machine.machineID,
             carrier: current?.connectionMachine ?? machine.connectionMachineID ?? machine.machineID,
             generation: current?.generation ?? 0)
+        let target = enrollment.connection
         try rememberTurnWorkspace(workspace: workspace, machine: machine.machineID, scope: scope, target: target.connectionMachine)
         try Task.checkCancellation()
-        try await machine.reconnectAfterRewind(connectionMachine: target.connectionMachine, generation: target.generation)
+        try await machine.reconnectAfterRewind(connectionMachine: target.connectionMachine, generation: target.generation,
+                                               forceReconnect: enrollment.reconnectRequired)
         guard workspaceBindingScope == scope else { throw CancellationError() }
     }
 

@@ -24,7 +24,17 @@ public struct CloudTurnRewindClient: Sendable {
     /// Enroll an existing owner-verified Cloud carrier before the first agent attachment.
     /// This endpoint never allocates a machine. Its idempotency scope includes the workspace,
     /// logical machine and generation, so relaunch can safely repeat the same request.
-    public func importWorkspace(workspace: String, machine: String, carrier: String, generation: Int) async throws -> CloudWorkspaceConnection {
+    public struct Enrollment: Decodable, Sendable {
+        public let connection: CloudWorkspaceConnection
+        public let reconnectRequired: Bool
+        private enum CodingKeys: String, CodingKey { case reconnectRequired }
+        public init(from decoder: any Decoder) throws {
+            connection = try CloudWorkspaceConnection(from: decoder)
+            reconnectRequired = try decoder.container(keyedBy: CodingKeys.self).decode(Bool.self, forKey: .reconnectRequired)
+        }
+    }
+
+    public func importWorkspace(workspace: String, machine: String, carrier: String, generation: Int) async throws -> Enrollment {
         guard Self.valid(workspace), Self.valid(machine), generation >= 0, carrier.utf8.count == 23,
               carrier.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil
         else { throw Failure.invalidScope }
@@ -32,9 +42,10 @@ public struct CloudTurnRewindClient: Sendable {
             "carrierMachine": carrier, "expectedMachine": machine, "expectedGeneration": generation,
             "clientKey": "native-workspace-import-v1",
         ])
-        let connection = try JSONDecoder().decode(CloudWorkspaceConnection.self, from: data).checked(machine: machine)
+        let enrollment = try JSONDecoder().decode(Enrollment.self, from: data)
+        let connection = try enrollment.connection.checked(machine: machine)
         guard connection.generation == generation, connection.connectionMachine == carrier else { throw Failure.invalidReply }
-        return connection
+        return enrollment
     }
 
     /// Reads the external generation and capture ledger for one workspace.

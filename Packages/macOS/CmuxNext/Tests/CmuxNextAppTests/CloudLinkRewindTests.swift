@@ -36,4 +36,21 @@ import Testing
         await link.close()
         #expect(await resolver.closed == ["vm_logical", "vm_replacement"])
     }
+    @Test func provisioningSupersedesTheSameGenerationConnection() async throws {
+        let resolver = Resolver(), logical = CloudLinkKey(machine: "vm_logical")
+        let link = CloudLinkSession(key: logical, resolver: resolver)
+        #expect(await link.retarget(machine: logical.machine, generation: 0))
+        let original = try await link.connect(origin: .user)
+        #expect(await link.isConnected(machine: logical.machine, generation: 0))
+        #expect(await link.retarget(machine: logical.machine, generation: 0, forceReconnect: true))
+        #expect(await link.ownerLink == nil)
+        await #expect(throws: CloudLinkError.self) { try await link.endpoint(original) }
+        let fresh = try await link.connect(origin: .user)
+        #expect(try await link.endpoint(fresh) == "/tmp/vm_logical.sock")
+        #expect(await link.isConnected(machine: logical.machine, generation: 0))
+        #expect(await resolver.opened == ["vm_logical", "vm_logical"])
+        #expect(await link.retarget(machine: "vm_other", generation: 0, forceReconnect: true) == false)
+        #expect(await link.retarget(machine: logical.machine, generation: -1, forceReconnect: true) == false)
+        await link.close()
+    }
 }

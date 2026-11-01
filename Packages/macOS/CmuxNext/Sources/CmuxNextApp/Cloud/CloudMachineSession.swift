@@ -473,9 +473,9 @@ final class CloudMachineSession {
 
     /// A rewind changed the provider machine behind this logical record. Retire every old link
     /// ticket and wait for the fresh daemon snapshot before the owner command reports success.
-    func reconnectAfterRewind(connectionMachine: String, generation: Int) async throws {
+    func reconnectAfterRewind(connectionMachine: String, generation: Int, forceReconnect: Bool = false) async throws {
         guard let appLink else { throw DaemonError.notConnected }
-        if await appLink.isConnected(machine: connectionMachine, generation: generation) {
+        if !forceReconnect, await appLink.isConnected(machine: connectionMachine, generation: generation) {
             try await daemon.waitForReadySnapshot()
             guard await appLink.isConnected(machine: connectionMachine, generation: generation) else { throw DaemonError.notConnected }
             connectionMachineID = connectionMachine
@@ -483,7 +483,7 @@ final class CloudMachineSession {
         }
         await linkTransition?.value
         guard !appConnecting else { throw DaemonError.notConnected }
-        guard await appLink.retarget(machine: connectionMachine, generation: generation) else { throw DaemonError.notConnected }
+        guard await appLink.retarget(machine: connectionMachine, generation: generation, forceReconnect: forceReconnect) else { throw DaemonError.notConnected }
         connectionMachineID = connectionMachine
         guard !appConnecting else { throw DaemonError.notConnected }
         appTicket = nil
