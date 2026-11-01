@@ -44,7 +44,7 @@ public struct HomeFeedRow: Hashable, Sendable {
     /// so they never pile up above the loaded messages.
     static func inserting(_ rows: [HomeFeedRow], into items: [TranscriptItem], author: ParticipantID,
                           since: Date? = nil) -> [TranscriptItem] {
-        let sorted = rows.filter { since.map { start in $0.date >= start } ?? true }.sorted { ($0.date, $0.id) < ($1.date, $1.id) }
+        let sorted = rows.filter { row in since.map { row.date >= $0 } ?? true }.sorted { ($0.date, $0.id) < ($1.date, $1.id) }
         guard !sorted.isEmpty else { return items }
         var out: [TranscriptItem] = []
         out.reserveCapacity(items.count + sorted.count)
