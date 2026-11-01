@@ -193,6 +193,19 @@ export type QueuedPrompt = {
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
   heldByStop?: true;
+  /// A guest's prompt that waits for the owner's Approve or Decline (acpmux `awaitingOwner`,
+  /// `_acpmux/queue_approve`): it never runs until approved (conversation/QueuedMessageCard.tsx).
+  awaitingOwner?: boolean;
+  /// The revision of the text the pane holds for it (a guest's edit makes a new one), which Approve
+  /// names: always from the same record as `prompt`.
+  revision?: number;
+  /// acpmux lists a newer revision whose whole text has not reached the pane yet: Approve waits.
+  updating?: boolean;
+  /// The newest revision acpmux listed or recorded for it, which `updating` waits for.
+  listedRevision?: number;
+  /// The queued incarnation acpmux names for a held prompt (its record's or listing's `turnId`),
+  /// which Approve names with the revision (`_acpmux/queue_approve` requires both).
+  turnId?: string;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
@@ -879,6 +892,8 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// acpmux serves the owner's Approve and Decline of a guest's prompt (initialize `queueApproval`).
+  queueApproval?: boolean;
   canHandoff?: boolean;
   handoff?: HandoffClientState;
   permissionGroups?: PermissionClientState;
