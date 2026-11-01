@@ -51,6 +51,9 @@ async fn an_adopted_turn_whose_model_went_quiet_ends_as_stalled_and_frees_its_ag
     std::thread::sleep(Duration::from_secs(5));
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    // `host_adopted` is logged before recovery restores the turn in flight
+    // (`hub/hosts.rs` `recover_work`): until then the row has no turn.
+    until_turn_restored(&daemon, &session).await;
     let row = listed(&daemon, &session).await;
     assert_eq!(row["status"], "running", "{row}");
     assert_eq!(

@@ -123,9 +123,10 @@ extension AgentPaneView {
             guard let self else { return }
             // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
             // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
-            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it.
+            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
+            // pane's table of posting processes (no system call).
             let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
-            guard let event, AgentPanePersonInput.isPerson(event) else { return }
+            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
             model.transport.gestures.record(click: false)
             model.droppedPaths.stash(urls, kind: .drop)
             let drag = NSPasteboard(name: .drag)
@@ -137,7 +138,7 @@ extension AgentPaneView {
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
-            guard let self, AgentPanePersonInput.currentIsPerson else { return }
+            guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)
             model.droppedPaths.stashSource(
@@ -153,7 +154,7 @@ extension AgentPaneView {
         // the upload of every picked file (Retry on each tile).
         let chosen: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
-            AgentPanePersonInput.record(model.transport.gestures)
+            AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
             model.droppedPaths.stash(urls, kind: .choose)
             model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
         }
@@ -223,7 +224,8 @@ extension AgentPaneView {
     }
 
     /// More (…) on a message's action row: the menu a right-click on that message opens, with the
-    /// same items, under the button (`anchor`, CSS px in the page's viewport).
+    /// same items, under the button (`anchor`, CSS px in the page's viewport), or above it with no
+    /// room below.
     private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect, popupID: String?) {
         // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
         defer { reportMessageMenuClosed(popupID) }
@@ -232,11 +234,27 @@ extension AgentPaneView {
         let menu = NSMenu()
         fillContextMenu(menu, target: target, selection: nil)
         guard !menu.items.isEmpty else { return }
+        popUp(menu, from: anchor, in: view)
+    }
+
+    /// Opens `menu` from the page's button at `anchor` (CSS px in the page's viewport) in `view`:
+    /// under it, or above it when the window has no room below (`AgentPaneContextMenu.popUpOrigin`).
+    private func popUp(_ menu: NSMenu, from anchor: CGRect, in view: NSView) {
+        guard let window = view.window else { return }
         // View points per CSS px, as the page host (`uiScale` times its zoom) or the pane's WebKit view shows it.
         let zoom: CGFloat = page.map { CGFloat(Double(DesignSettings.shared.uiScale) * $0.additionalZoom) }
             ?? webView.pageZoom * webView.magnification
-        let left = anchor.minX * zoom, bottom = anchor.maxY * zoom + 2
-        menu.popUp(positioning: nil, at: NSPoint(x: left, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
+        // The page's viewport runs down from the view's top.
+        let top = anchor.minY * zoom, height = anchor.height * zoom
+        let local = CGRect(x: anchor.minX * zoom, y: view.isFlipped ? top : view.bounds.height - top - height,
+                           width: anchor.width * zoom, height: height)
+        let button = window.convertToScreen(view.convert(local, to: nil))
+        // The display holding the button, not the window's main one: a window across two displays
+        // would clamp the menu onto the other display, away from its button.
+        let origin = AgentPaneContextMenu.popUpOrigin(
+            button: button, size: menu.size, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            window: window.convertToScreen(window.contentLayoutRect))
+        menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
     }
 
     /// The page lit the opener of the menu `popupID` names (`messageMenu.ts`); it goes dark now.
@@ -261,10 +279,7 @@ extension AgentPaneView {
             menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
             return
         }
-        let zoom: CGFloat = page.map { CGFloat(Double(DesignSettings.shared.uiScale) * $0.additionalZoom) }
-            ?? webView.pageZoom * webView.magnification
-        let bottom = anchor.maxY * zoom + 2
-        menu.popUp(positioning: nil, at: NSPoint(x: anchor.minX * zoom, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
+        popUp(menu, from: anchor, in: view)
     }
 
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).
@@ -291,20 +306,20 @@ extension AgentPaneView {
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
         guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         evaluateScript("window.cmuxAcpmuxActions?.['\(name)']?.(\(String(decoding: data, as: UTF8.self)));")
     }
 
     /// Open Link: outside the pane, on the rule a click on the link follows.
     private func openLink(_ url: URL) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures) { self.openURL($0, []) }
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is
     /// the user's gesture, as a native permission shortcut is.
     private func fork(through seq: Int) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         if NSEvent.modifierFlags.contains(.option) {
             popUpForkMenu(through: seq)
         } else {

@@ -33,4 +33,25 @@ private func glideVectors() throws -> [String: Any] {
             }
         }
     }
+
+    @Test func followIsAStraightConstantSpeedSegmentThatKeepsItsHeading() {
+        let motion = GlideMotion()
+        let plan = motion.follow(fromX: 10, fromY: 20, toX: 40, toY: 80, duration: 0.05, heading: 0.3)
+        #expect(plan.samples.count == 6)
+        #expect(plan.arrivedTick == 6)
+        #expect(plan.origin == CGPoint(x: 10, y: 20))
+        for (i, sample) in plan.samples.enumerated() {
+            let u = Double(i + 1) / 6
+            #expect(abs(sample.x - (10 + 30 * u)) < 1e-9)
+            #expect(abs(sample.y - (20 + 60 * u)) < 1e-9)
+            #expect(sample.heading == 0.3)
+        }
+        #expect(plan.samples.last == GlideSample(x: 40, y: 80, heading: 0.3))
+    }
+
+    @Test func followShorterThanOneTickStillLands() {
+        let plan = GlideMotion().follow(fromX: 0, fromY: 0, toX: 5, toY: 5, duration: 0, heading: 0)
+        #expect(plan.samples == [GlideSample(x: 5, y: 5, heading: 0)])
+        #expect(plan.arrivedTick == 1)
+    }
 }

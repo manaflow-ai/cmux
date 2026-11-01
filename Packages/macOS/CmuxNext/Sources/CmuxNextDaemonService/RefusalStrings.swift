@@ -58,6 +58,11 @@ public nonisolated enum RefusalStrings {
     public static var homeTabStays: String { text("handlers.refusal.homeTabStays", "Home stays open in its column.") }
     /// The user's close the daemon refused for another reason.
     public static var closeRefused: String { text("handlers.refusal.closeRefused", "The tab could not be closed.") }
+    /// A workspace close whose machine did not answer within its bound (`DaemonService.closeReplyBound`); the store still
+    /// lists it, and the result is unknown (a paused machine may still close it).
+    public static var closeUnanswered: String {
+        text("handlers.refusal.closeUnanswered", "Its machine did not answer, so the workspace may still close.")
+    }
     /// A Home action that opens the page or a sheet, run by automation that may not change the view.
     public static var homeNeedsFocus: String {
         text("handlers.refusal.homeNeedsFocus",
@@ -115,6 +120,11 @@ public nonisolated enum RefusalStrings {
     /// The local daemon has not answered yet (first connection or a restart).
     public static var daemonConnecting: String {
         text("handlers.refusal.daemonConnecting", "cmux is still starting its background service. Try again in a moment.")
+    }
+    /// A new incognito window whose workspace the local daemon neither answered nor made within its bound
+    /// (`DaemonService.createReplyBound`): no window opens.
+    public static var incognitoUnanswered: String {
+        text("handlers.refusal.incognitoUnanswered", "The incognito window did not open: cmux’s background service did not answer.")
     }
     /// The local daemon could not start (the window shows why).
     static var daemonUnavailable: String {

@@ -126,6 +126,8 @@ enum HomeMapping {
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
                                links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
+        // A Feed row in the main Chief's transcript: one muted caption line, not a bubble from the Chief.
+        if let row = item.feedRow, let caption = HomeAgentFoldRowProvider.part(feed: row) { return ([caption], [0]) }
         if let row = item.agentMessage {
             // A fold or notes row: a muted caption line, no bubble (HomeAgentFoldRowProvider).
             if let caption = HomeAgentFoldRowProvider.part(row) { return ([caption], [0]) }
@@ -151,10 +153,10 @@ enum HomeMapping {
         switch row.kind {
         case let .fold(count, peers, expanded):
             let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
-            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(peers.map(markdownEscaped).joined(separator: ", "))"
+            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(markdownEscaped), separator: ", "))"
         case let .notes(count, peers, reason, expanded):
             let label = CmuxStrings.agentNotes(reason, count)
-            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(peers.map(codeChip).joined(separator: " "))"
+            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(codeChip), separator: " "))"
         case let .note(peer, _, text):
             return "\(codeChip(peer)) *\(markdownEscaped(text))*"
         case let .message(from, to, _, text):
