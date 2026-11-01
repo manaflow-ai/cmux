@@ -93,7 +93,7 @@ describe("device overlay policy", () => {
     expect(response.status).toBe(200);
     const body = await json(response);
     expect(body).toMatchObject({ deviceId: id, meshId: mesh, wgPublicKey: WG, installPublicKey: install.publicKey, aclVersion: 0, peers: [] });
-    expect(Object.keys(body).sort()).toEqual(["aclVersion", "deviceId", "installPublicKey", "meshId", "peers", "policyDigest", "tenantId", "wgPublicKey"]);
+    expect(Object.keys(body).sort()).toEqual(["aclVersion", "deviceId", "installPublicKey", "meshId", "peers", "policyDigest", "tenantId", "vms", "wgPublicKey"]);
     expect(h.upstreamRequests).toHaveLength(before);
   });
 
