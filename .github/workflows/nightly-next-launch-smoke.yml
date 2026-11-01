@@ -79,7 +79,8 @@ jobs:
     # The routing App's read-only key for the placement, in the environment cmux-next's placement
     # uses; a pull request's run takes none (and mints no token).
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    permissions: {}
+    permissions:
+      actions: read
     outputs:
       build: ${{ steps.feed.outputs.build }}
       # Another run whose smoke of this build is queued or running, else empty. The value is `unknown`

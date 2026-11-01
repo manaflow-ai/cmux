@@ -403,6 +403,20 @@ def check_wiring():
     _check('[[ "$candidate_branch" == cp/* || "$candidate_branch" == lane/* || "$candidate_branch" == perf/* ]] && continue'
            in election, "the same-commit election never elects a cp/, lane/ or perf/ run")
 
+    owner_wait = all_jobs["tree-owner-wait"]
+    owner_steps = {s.get("id"): s for s in owner_wait["steps"]}
+    _check("read-token" in owner_steps, "owner-wait keeps its bounded status read on the routing App")
+    expected_token = "${{ steps.read-token.outputs.token || github.token }}"
+    _check(owner_steps["wait"]["env"]["GH_TOKEN"] == expected_token,
+           "owner-wait falls back to github.token only when the routing token cannot be minted")
+    recheck = next(s for s in owner_wait["steps"] if s.get("id") == "recheck")
+    _check(recheck["env"]["GH_TOKEN"] == expected_token,
+           "owner hand-off recheck stays off the shared workflow-token budget")
+    _check("environment" in owner_wait and owner_wait["environment"] == "ci-routing-agent",
+           "owner-wait's protected routing token stays in its environment")
+    for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
+        _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")
+
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
     index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
