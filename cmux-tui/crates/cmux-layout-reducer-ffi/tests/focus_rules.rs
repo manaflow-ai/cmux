@@ -17,7 +17,11 @@
 //! Seeds 38, 44, 57, 81 and 88 were re-recorded from the Rust rules when a
 //! closed pane's column whose id changed (two columns collapsing into a
 //! split screen) started to map to its surviving panes: each now focuses
-//! the closed pane's column neighbor instead of the first pane.
+//! the closed pane's column neighbor instead of the first pane. Seed 111
+//! step 7, seed 63 step 23 and seed 104 step 10 were rewritten to the Rust
+//! rules' output when a programmatic sidebar responder stopped taking a
+//! pane's keyboard and stopped dropping a keyboard sidebar focus (QUIT P0,
+//! 2026-11-01): the old steps encoded that bug. The Swift recorder is gone.
 
 use cmux_focus_core::event::{FocusEffect, FocusEvent};
 use cmux_focus_core::reducer;
