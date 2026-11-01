@@ -72,7 +72,10 @@ import Testing
     /// Every look but the before draws each remote machine as a group header row, never a section header.
     @Test func everyGroupLookDrawsTheMachineAsAGroupRow() {
         for look in SidebarHostGroupLook.allCases {
-            let rows = SidebarLayout.make(sections: Self.sections(look), metrics: .standard, options: SidebarLayoutOptions()).rows.map(\.key)
+            // One list (the app's default): a remote group's header is its group row, never a section header.
+            var options = SidebarLayoutOptions()
+            options.flattensMachines = true
+            let rows = SidebarLayout.make(sections: Self.sections(look), metrics: .standard, options: options).rows.map(\.key)
             let host = SidebarRowKey.group(SidebarGroup.hostGroupID(MachineID("ssh-build-box")))
             if look == .sectionHeader {
                 #expect(rows.contains(.section(.machine(MachineID("ssh-build-box")))))
