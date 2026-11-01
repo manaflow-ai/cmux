@@ -592,6 +592,7 @@ html[data-cmux-page="changelog"] {
    row's title and line. No rules between days, no motion. */
 .cls {
   --cls-column: 920px;
+  --cls-line: 20px;
   padding-block: var(--ds-space-6) calc(var(--ds-space-6) * 2);
   padding-inline: max(var(--ds-space-6), calc((100% - var(--cls-column)) / 2));
 }
@@ -617,10 +618,13 @@ html[data-cmux-page="changelog"] {
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cls-rows { display: grid; gap: var(--ds-space-1); margin: 0; padding: 0; list-style: none; }
-.cls-row { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: var(--ds-space-3); align-items: start; }
-.cls-icon { display: grid; place-items: center; width: 20px; height: 20px; color: var(--cmux-accent, var(--page-text)); }
+/* A day still loading holds about the three rows a day has, so the days under it barely move
+   when its rows arrive (gallery shift baselines many-builds and nightly-history). */
+.cls .clj-placeholder { height: calc(3 * var(--cls-line) + 2 * var(--ds-space-1)); }
+.cls-row { display: grid; grid-template-columns: var(--cls-line) minmax(0, 1fr); gap: var(--ds-space-3); align-items: start; }
+.cls-icon { display: grid; place-items: center; width: var(--cls-line); height: var(--cls-line); color: var(--cmux-accent, var(--page-text)); }
 .cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.cls-row-text { min-width: 0; line-height: 20px; }
+.cls-row-text { min-width: 0; line-height: var(--cls-line); }
 .cls-row-title { color: var(--page-text); font-weight: 600; }
 .cls-row-line { color: var(--page-text-2); }
 /* Inline (default): the muted line follows the title on its line and wraps under it when long. */
