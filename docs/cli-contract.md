@@ -1095,7 +1095,8 @@ the expected text without connecting to a cmux socket.
 - `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off> [--json]`
 - `cmux agent-hibernation --help` -> `cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]`
 - `cmux claude-account --help` -> `Usage: cmux claude-account [list] [--json]`
-- `cmux claude-account --help` -> `cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]`
+- `cmux claude-account --help` -> `cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]`
+- `cmux claude-account --help` -> `--workspace only scopes --surface and can't be used alone.`
 - `cmux claude-account list` -> `~/.claude`
 - `cmux restore --help` -> `Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux fork --help` -> `Usage: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>`
