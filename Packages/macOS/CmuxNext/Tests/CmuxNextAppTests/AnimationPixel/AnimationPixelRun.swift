@@ -119,7 +119,7 @@ struct AnimationPixelRun {
         print("ANIMATION-PIXEL \(name): scale \(Int(scale))x, \(window.effectiveAppearance.name.rawValue), refresh "
             + "\(String(format: "%.2f", fixture.display.refreshPeriod * 1000)) ms, \(frames.count) complete and \(stream.idleFrames) idle "
             + "frames (ScreenCaptureKit own-process capture, no Screen Recording grant asked), capture times put on the display link's "
-            + "vsync grid (max shift \(String(format: "%.2f", grid.maxResidual * 1000)) ms), \(failures.count) failures")
+            + "vsync grid (max shift \(String(format: "%.2f", grid.maxResidual * 1000)) ms, \(String(format: "%.2f", grid.linkOffset * 1000)) ms from the display link's phase), \(failures.count) failures")
         for line in verdict.report { print("ANIMATION-PIXEL \(name): \(line)") }
         for failure in failures.prefix(40) { print("ANIMATION-PIXEL \(name): FAIL \(failure)") }
         return failures
@@ -176,6 +176,15 @@ struct AnimationPixelRun {
         for divider in geometry.dividers where (axis == .row) == (divider.frame.height > divider.frame.width) {
             let rect = geometry.fixedSplits.contains(divider.id) ? divider.frame : divider.frame.offsetBy(dx: shift, dy: 0)
             add("divider:\(divider.id.rawValue)", rect, exact: thickness)
+        }
+        // A row edge draws its idle line (the separator at 0.32) centered in its hit band, in the row gap.
+        if axis == .column {
+            let line = fixture.model.style.dividerThickness
+            for edge in geometry.rowEdges {
+                let rect = CGRect(x: edge.hitFrame.minX, y: edge.hitFrame.midY - line / 2, width: edge.hitFrame.width, height: line)
+                add("rowedge:\(edge.upper.rawValue)", geometry.scrolls(pane: geometry.panes.keys.first { geometry.rowColumnOfPane[$0] == edge.column } ?? "")
+                    ? rect.offsetBy(dx: shift, dy: 0) : rect, exact: thickness)
+            }
         }
         return ScanlineSpan.tile(found, length: length)
     }

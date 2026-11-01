@@ -16,7 +16,11 @@ struct ScanlineSpan {
     /// The color the palette knows it by: every divider line draws the one separator color.
     var color: String { ScanlineSpan.color(of: label) }
 
-    static func color(of label: String) -> String { label.hasPrefix("divider") ? "divider" : label }
+    static func color(of label: String) -> String {
+        if label.hasPrefix("divider") { return "divider" }
+        if label.hasPrefix("rowedge") { return "rowedge" }
+        return label
+    }
 
     /// `spans` cut to 0..<length, in order, with "background" spans filling what lies between
     /// and around them: the whole scanline.
@@ -282,31 +286,40 @@ struct ScanlineJudge {
         return (drops, intervals)
     }
 
-    /// The capture times put on the display's vsync grid, the grid's phase fitted per run from
-    /// `link`, the display link's own timestamps of the window's screen in this run (the window
-    /// server shows a frame only at a refresh). ScreenCaptureKit stamped the first frame after an
-    /// idle stretch 2.4 ms late (green 38dc511f); on the grid that stamp cannot shift the oracle.
+    /// The capture times put on the display's vsync grid. The window server shows a frame only at
+    /// a refresh, but ScreenCaptureKit stamps it with a phase of its own: a constant offset from the
+    /// display link's timestamps (about half a refresh on cmux10s, green5 292c759a) plus a stray
+    /// stamp (2.4 ms late on cmux7s, green 38dc511f). So the grid's phase is fitted per run from the
+    /// capture times themselves (circular mean); `linkOffset` reports how far it is from the phase
+    /// of `link`, the display link's timestamps in the same run.
     ///
     /// The snap never hides a late frame: a frame shown a refresh late lands on that later
-    /// refresh. A capture time more than 0.4 of a period from every refresh (3.3 ms at 120 Hz;
-    /// rounding to the nearest refresh could then pick the wrong one) makes the run's timing
-    /// invalid: `invalid` lists those frames and the caller fails the run with them.
-    static func onVsyncGrid(_ times: [Double], link: [Double], period: Double) -> (times: [Double], maxResidual: Double, invalid: [String]) {
-        let reference = link.isEmpty ? times : link
-        guard !times.isEmpty, !reference.isEmpty, period > 0 else { return (times, 0, []) }
-        let angles = reference.map { 2 * Double.pi * ($0 / period).truncatingRemainder(dividingBy: 1) }
-        let phase = atan2(angles.map(sin).reduce(0, +), angles.map(cos).reduce(0, +)) / (2 * Double.pi)
+    /// refresh. A capture time more than 0.4 of a period from its refresh, or two frames on one
+    /// refresh, makes the run's timing invalid: `invalid` lists them and the caller fails the run.
+    static func onVsyncGrid(_ times: [Double], link: [Double], period: Double)
+        -> (times: [Double], maxResidual: Double, linkOffset: Double, invalid: [String]) {
+        guard !times.isEmpty, period > 0 else { return (times, 0, 0, []) }
+        func phase(_ values: [Double]) -> Double {
+            let angles = values.map { 2 * Double.pi * ($0 / period).truncatingRemainder(dividingBy: 1) }
+            return atan2(angles.map(sin).reduce(0, +), angles.map(cos).reduce(0, +)) / (2 * Double.pi)
+        }
+        let capture = phase(times)
+        var offset = link.isEmpty ? 0 : (capture - phase(link)).truncatingRemainder(dividingBy: 1)
+        if offset > 0.5 { offset -= 1 } else if offset < -0.5 { offset += 1 }
         var snapped: [Double] = [], worst = 0.0, invalid: [String] = []
         for time in times {
-            let grid = ((time / period - phase).rounded() + phase) * period
+            let grid = ((time / period - capture).rounded() + capture) * period
             let residual = abs(time - grid)
             worst = max(worst, residual)
             if residual > 0.4 * period {
-                invalid.append("capture timing invalid: a frame stamped \(String(format: "%.2f", residual * 1000)) ms from the nearest refresh")
+                invalid.append("capture timing invalid: a frame stamped \(String(format: "%.2f", residual * 1000)) ms from its refresh")
+            }
+            if let last = snapped.last, abs(last - grid) < period / 2 {
+                invalid.append("capture timing invalid: two frames on the refresh at \(String(format: "%.1f", grid * 1000)) ms")
             }
             snapped.append(grid)
         }
-        return (snapped, worst, invalid)
+        return (snapped, worst, offset * period, invalid)
     }
 
     static func ms(_ seconds: Double) -> String { String(format: "%.1f", seconds * 1000) }
