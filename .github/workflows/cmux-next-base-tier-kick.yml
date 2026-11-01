@@ -1,0 +1,56 @@
+name: cmux NEXT base tier kick
+
+# Leo (2026-10-30, on the fleet dashboard): "do we REALLY need to be compiling/testing THAT often...?"
+# feat-cmux-next took 557 pushes in a day, a median 1.4 minutes apart, and each ran the base Mac tier
+# (daemon tests, generated files, the Debug app scheme compile); 203 Mac hours of base jobs started
+# after a newer landing already existed (cmuxterm-hq#5424). A push now leaves that tier to this kick,
+# which dispatches one `cmux-next base tier · <tip>` run of cmux-next.yml at most once every 15 minutes,
+# on the tip it reads then, when a cmux-next push path changed since the last one
+# (scripts/ci/cmux_next_base_tier.py). That tip contains every landing before it, so each landing gets
+# a base tier run within 15 minutes. The Release compiles (nightly-next's input), the DEV landing
+# compile, the fast tier and every nightly, DEV or promote build still run on each push, untouched.
+# Once the tip has a base tier run, the kick cancels older base tier runs none of whose Mac jobs has
+# started: the tip's run covers their landings (on 2026-10-31 82% of base tier Mac minutes started
+# after a newer base tier run was dispatched). Nothing else is ever cancelled.
+# vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' turns this off and puts the tier back on every push.
+on:
+  push:
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+# One kick at a time: the running one waits once for the window to open and dispatches; a newer
+# push's kick replaces a pending one, which never started. It cancels no Mac job that started.
+concurrency:
+  group: cmux-next-base-tier-kick
+  cancel-in-progress: false
+
+jobs:
+  kick:
+    if: github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_BASE_TIER_COALESCE) != '0'
+    name: Dispatch the base tier on the tip at most every 15 minutes
+    # This job sleeps for most of a 15-minute window, then makes a GitHub API
+    # dispatch. The shared LINUX_RUNNER is currently a 32-vCPU compile machine:
+    # use the small ephemeral control-plane pool instead (also used by the
+    # nightly-next tick). Keep the fork route hosted and the overflow lever.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # The one wait (at most the 15-minute window) plus the listing and the dispatch.
+    timeout-minutes: 20
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/cmux_next_base_tier.py
+            scripts/ci/cmux_next_tree_notify.py
+            .github/workflows/cmux-next.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Dispatch the base tier when it is due
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/cmux_next_base_tier.py kick --repo "$GITHUB_REPOSITORY"

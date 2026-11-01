@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileBrowserStream
 import Foundation
 import Observation
 
@@ -27,8 +28,17 @@ public final class NativeBrowserTabs {
     private var nativeKeys: Set<String>
     @ObservationIgnored private var entries: [String: Entry]
     @ObservationIgnored private var models: [String: BrowserTabModel] = [:]
+    /// The `localhost` ports each tab opened: they stay forwarded until the tab
+    /// mirrors or closes (a sign-in round trip through another site comes back).
+    @ObservationIgnored private var tabPorts: [String: Set<UInt16>] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     static let defaultsKey = "cmuxMobile.browser.nativeTabs"
+    /// Forwards a tab's `localhost:<port>` page to its Mac's loopback (nil: those
+    /// pages stay on the Mac).
+    @ObservationIgnored public var forwarder: LocalhostForwarder?
+    /// Whether a Mac serves `localhost` (its `version` says `localhost-forward-v1`).
+    @ObservationIgnored public var macForwardsLocalhost: @MainActor (_ macID: String?) -> Bool = { _ in false }
+    public static let forwardCapability = "localhost-forward-v1"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -48,6 +58,65 @@ public final class NativeBrowserTabs {
 
     static func tab(ofKey key: String) -> String {
         key.split(separator: "\u{1}", maxSplits: 1).last.map(String.init) ?? key
+    }
+
+    static func macID(ofKey key: String) -> String? {
+        let pieces = key.split(separator: "\u{1}", maxSplits: 1)
+        return pieces.count == 2 ? String(pieces[0]) : nil
+    }
+
+    /// Whether a Mac's `localhost` pages can open on this iPhone.
+    func canForward(macID: String?) -> Bool {
+        forwarder != nil && macForwardsLocalhost(macID)
+    }
+
+    /// Whether `url` (a Mac `localhost:<port>` page) may load in the tab `key`.
+    private func loopbackPolicy(_ url: URL, key: String) -> BrowserTabModel.LoopbackForward {
+        let macID = Self.macID(ofKey: key)
+        guard forwarder != nil, let port = PhoneReach.port(url) else { return .macOnly(detail: nil) }
+        guard macForwardsLocalhost(macID) else {
+            return .macOnly(detail: String(localized: "Update cmux on the Mac to open its localhost pages on this iPhone. The mirrored page can show it now."))
+        }
+        // One port, one Mac: the port forwards to another Mac whose tab on this iPhone
+        // still shows it (a tab that was refused the port never holds it).
+        let owner = forwarder?.forwardsElsewhere(port, than: macID) == true
+        let shownThere = nativeKeys.contains { other in
+            other != key && Self.macID(ofKey: other) != macID && models[other]?.problem == nil
+                && entries[other]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) == port
+        }
+        if owner && shownThere {
+            return .macOnly(detail: String(localized: "Another Mac's tab on this iPhone shows localhost:\(port). Mirror this one, or close that tab first."))
+        }
+        return .forwarded
+    }
+
+    /// Readies `url`'s port on this iPhone, forwarded to the Mac of the tab `key`.
+    private func forward(_ url: URL, key: String) async -> BrowserTabModel.LoopbackForward {
+        guard case .forwarded = loopbackPolicy(url, key: key), let forwarder, let port = PhoneReach.port(url) else {
+            return loopbackPolicy(url, key: key)
+        }
+        do throws(LocalhostForwarder.Failure) {
+            try await forwarder.forward(port: port, macID: Self.macID(ofKey: key))
+            // The tab closed or mirrored while the port was starting: nothing keeps it.
+            guard nativeKeys.contains(key) else {
+                retainPorts()
+                return .forwarded
+            }
+            tabPorts[key, default: []].insert(port)
+            return .forwarded
+        } catch .portInUse {
+            return .macOnly(detail: String(localized: "Another app on this iPhone uses port \(port), so the mirrored page has to show it."))
+        } catch {
+            return .macOnly(detail: nil)
+        }
+    }
+
+    /// Stops forwarding ports no tab on this iPhone shows any more.
+    private func retainPorts() {
+        guard let forwarder else { return }
+        tabPorts = tabPorts.filter { nativeKeys.contains($0.key) }
+        let shown = nativeKeys.compactMap { entries[$0]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) }
+        forwarder.retain(ports: Set(shown).union(tabPorts.values.joined()))
     }
 
     public func isNative(tab: String, macID: String?) -> Bool {
@@ -95,6 +164,7 @@ public final class NativeBrowserTabs {
         // The web view stays for the next "Open on iPhone" (its history and scroll),
         // but stops playing or loading behind the mirror.
         model?.pause()
+        retainPorts()
         guard entry.browsed, let now, now.absoluteString != "about:blank" else { return nil }
         return now
     }
@@ -117,6 +187,7 @@ public final class NativeBrowserTabs {
             let next = key.replacingOccurrences(of: old, with: new, options: [.anchored, .backwards])
             entries[next] = entries.removeValue(forKey: key)
             models[next] = models.removeValue(forKey: key)
+            tabPorts[next] = tabPorts.removeValue(forKey: key)
             nativeKeys.remove(key)
             nativeKeys.insert(next)
             if let model = models[next] { observe(model, key: next) }
@@ -128,6 +199,7 @@ public final class NativeBrowserTabs {
         models.removeValue(forKey: key)?.pause()
         nativeKeys.remove(key)
         if entries.removeValue(forKey: key) != nil { save() }
+        retainPorts()
     }
 
     private func makeModel(key: String, url: URL?) -> BrowserTabModel {
@@ -141,6 +213,19 @@ public final class NativeBrowserTabs {
     private func observe(_ model: BrowserTabModel, key: String) {
         model.urlChanged = { [weak self] url in self?.remember(url, for: key) }
         model.personNavigated = { [weak self] in self?.noteBrowsed(key) }
+        model.loopbackPolicy = { [weak self] url in
+            self?.loopbackPolicy(url, key: key) ?? .macOnly(detail: nil)
+        }
+        model.forwardLoopback = { [weak self] url in
+            await self?.forward(url, key: key) ?? .macOnly(detail: nil)
+        }
+        model.loopbackIsOpen = { [weak self] url in
+            guard let self, let port = PhoneReach.port(url) else { return false }
+            return self.forwarder?.ports.contains(port) == true
+        }
+        model.loopbackRefusal = { [weak self] url in
+            PhoneReach.port(url).flatMap { self?.forwarder?.refusals[$0] }
+        }
     }
 
     private func remember(_ url: URL, for key: String) {
@@ -148,6 +233,7 @@ public final class NativeBrowserTabs {
         entry.url = url.absoluteString
         entries[key] = entry
         save()
+        retainPorts()
     }
 
     private func noteBrowsed(_ key: String) {
@@ -174,8 +260,18 @@ enum PhoneReach: Equatable {
     case web
     /// A private or tailnet host: the phone tries, and says why when it can't reach it.
     case privateNetwork
-    /// The Mac's own loopback: only the mirror can show it.
+    /// A page of the Mac's own browser (`file:`, `view-source:`): only the mirror can show it.
     case macOnly
+    /// A web page on the Mac's loopback (`localhost:<port>`): forwarded to the Mac when
+    /// it serves `localhost`, else only the mirror can show it.
+    case macLoopback
+
+    /// The loopback port of a `localhost` page.
+    static func port(_ url: URL) -> UInt16? {
+        guard PhoneReach(url) == .macLoopback else { return nil }
+        if let port = url.port { return port == 0 ? nil : UInt16(exactly: port) }
+        return url.scheme?.lowercased() == "https" ? 443 : 80
+    }
 
     static let macSchemes: Set<String> = ["file", "view-source", "chrome", "chrome-extension", "devtools"]
 
@@ -189,7 +285,13 @@ enum PhoneReach: Equatable {
         }
         guard let raw = url.host(percentEncoded: false)?.lowercased(), !raw.isEmpty else { self = .web; return }
         let host = raw.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        if host == "localhost" || host.hasSuffix(".localhost") || host == "::1" || host == "0.0.0.0" || host.hasPrefix("127.") {
+        // What this iPhone can listen on for the Mac: `localhost`, `127.0.0.1`, `[::1]`.
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+            self = .macLoopback
+            return
+        }
+        // Other loopback names and addresses: only the Mac's browser opens them.
+        if host.hasSuffix(".localhost") || host == "0.0.0.0" || host.hasPrefix("127.") {
             self = .macOnly
             return
         }

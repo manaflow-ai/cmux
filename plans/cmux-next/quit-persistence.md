@@ -15,6 +15,12 @@ the "quit = plain NSAlert" decision; the default choice is Keep sessions running
 automated quit-and-relaunch proof runs on cmux-lawrence-2. The work is split between the dialogs
 lead and the durable-sessions owner.
 
+Update 2026-11-01 (QUIT P0, #29984): from 2026-10-11 (cx-7vu, aba72a3fbae, Lawrence 2026-10-07 "no confirm dialogs")
+until #29984, an interactive quit asked nothing and kept the sessions. Lawrence 2026-11-01 asked for the prompt again
+("cmd q needs to prompt for what type of quit"): with local terminals and `app.quitBehavior` "ask", Cmd-Q asks Keep
+Sessions Running (default) / End Sessions, Keep Layout / End Everything / Cancel in one cmux dialog (the four buttons
+stack when they do not fit on one line); "Don't ask again" writes the choice. Scripts, signals and power off never ask.
+
 Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start with `cmux-tui/`.
 
 ## 1. What happens today
@@ -57,7 +63,7 @@ Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start
   it is 15 commits ahead of and 100 behind origin/feat-cmux-next.** On that branch,
   `Quit/QuitAlert.swift` already presents through `CmuxDialogCenter` (`.window(w)` or `.app`), with
   Return for Quit (keep) and Escape for Cancel.
-- Completion (`QuitCoordinator.swift:84-116`, `Quit/QuitCompletion.swift:18-25`) runs in this
+- Completion (`QuitCoordinator.swift:84-116`, `CmuxNextControl/Quit/QuitSteps.swift` `run`) runs in this
   order:
   1. Write the crash-recovery "quitting" marker.
   2. Remember the choice, if asked.
@@ -90,6 +96,12 @@ Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start
   call is the version handoff (`AcpmuxVersionHandoff.swift:67`). **End Sessions and End
   Everything do not end agents** (slice A4 `endAgents` is planned:
   `plans/cmux-next/durable-sessions.md:217-228`).
+  Since perfx/quit-helpers (2026-11-01) the daemon follows its app (`ACPMUX_OWNER_APP_PID`,
+  acpmux `daemon/owner_exit.rs`, a kernel exit watch): after the app exits it stops 2 s after its
+  last client left, only when no agent, agent host, turn, pending permission or task keeps it
+  (`Hub::in_use`), and asks again every 60 s while one does. Keep Sessions Running keeps working
+  agents; an idle daemon no longer outlives the quit. The daemon's `cmux-browser-host` exits at
+  once when the app's provider leaves and no session uses it.
 - **Terminal end mechanism (End choices).** `shutdown-daemon end_terminals`
   (`CmuxNextDaemon/Connection/DaemonConnection+Commands.swift:318-324`) makes each host send
   SIGHUP to the terminal process groups, wait for a bounded grace, then send SIGKILL
@@ -380,7 +392,7 @@ work.
   skips the home workspace (`WorkspaceSnapshot.isHome`), never stops at the first error, and
   returns every failed step in `EndedSessions.failures`.
   - `DaemonService.endSessionsAndStop` returns the failures and keeps the connection for Retry.
-  - `QuitCompletion` shows them in `QuitFailureAlert` ("Some sessions did not end"), with Retry
+  - `QuitSteps.run` shows them in `QuitFailureAlert` ("Some sessions did not end"), with Retry
     and Quit Anyway, until the CmuxDialog conversion replaces both alerts. The quit never goes on
     silently.
   - `debug.quit` reports `failure` and answers `retry` and `quit-anyway`.

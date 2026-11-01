@@ -18,12 +18,37 @@ public struct HoverCardBody {
     public var placement: HoverCardPlacement
     public weak var themeAnchor: NSView?
     public var applyTheme: () -> Void
-    public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, applyTheme: @escaping () -> Void) {
+    /// An interactive body receives mouse events inside the card and may consume
+    /// keyboard navigation before the coordinator dismisses the card.
+    public var interactive: Bool
+    /// The card's corner radius; nil is the floating panels' (`HoverCardPanel.cornerRadius`). A card
+    /// that hangs from its target with no gap takes the target's shape (a tab's card, the tab's
+    /// `Metrics.tabCornerRadius`).
+    public var cornerRadius: CGFloat?
+    public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
+                cornerRadius: CGFloat? = nil,
+                applyTheme: @escaping () -> Void) {
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor
+        self.interactive = interactive
+        self.cornerRadius = cornerRadius
         self.applyTheme = applyTheme
     }
+}
+
+/// A card body that handles keyboard navigation while the card window remains
+/// non-activating. The coordinator calls this from its local event monitor.
+@MainActor
+public protocol HoverCardInteractiveBody: AnyObject {
+    /// Returns true when the body consumed `event`.
+    func handleHoverCardKeyDown(_ event: NSEvent) -> Bool
+    /// Whether a mouse press at the card's screen point belongs to an interactive control.
+    func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool
+}
+
+public extension HoverCardInteractiveBody {
+    func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool { false }
 }
 
 /// A card body that can say what it shows, for `debug.hover_cards` (GUI proofs read it).

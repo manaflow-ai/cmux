@@ -7,10 +7,12 @@ public import Foundation
 extension UpdaterService {
     /// The circle's phase: Sparkle's flow, else (no Sparkle) the probe the
     /// user asked for. A staged update that is not newer than the running
-    /// build is no update (``offersStagedUpdate(version:)``).
+    /// build is no update (``offersStagedUpdate(version:)``), nor is a found
+    /// build known pulled (``dropPulledAvailable()``).
     public var indicatorPhase: UpdateIndicatorPhase {
         let phase = sourcePhase
         if case .ready(let version) = phase, !offersStagedUpdate(version: version) { return .hidden }
+        if case .available = phase, let found = availableBuild(), isKnownPulled(found) { return .hidden }
         return phase
     }
 

@@ -14,21 +14,11 @@ import CmuxNextWakeups
 // and diagnostics.
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        bind("newCloudMachine", registry, reason: reason) { invocation in
-            let request = try newMachineRequest(invocation)
-            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            if request.isDefault, origin(of: invocation) == .user, window != nil {
-                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: CloudChatPick.chatTab(invocation, context.services))
-                return
-            }
-            let flow = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
-            guard request.isDefault else { return createRequested(request, flow: flow, window: window, context) }
-            // The new machine's progress shows in the window at once; its
-            // first workspace opens there when its daemon is ready.
-            reportCreatedMachine(flow.start(in: window, existing: nil), context)
-        }
-        bind("newCloudWorkspace", registry, reason: reason) { invocation in
+        let cloud = context.services.cloud
+        bindMachineCreation(into: registry, context: context, reason: reason)
+        bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
+            if let target { try requireAttachableState(target) }
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 if target == nil, origin(of: invocation) == .user, window != nil {
@@ -39,7 +29,8 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
+                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                             reveals: invocation.allowsViewChange).start(in: window, existing: target)
                 // A CLI or agent hears that the workspace comes later: its machine is starting or connecting.
                 result("new cloud workspace", context) {
                     (target.map { machineFields($0.machineID) } ?? [:]).merging(["pending": .bool(true), "status": .string(target == nil ? "creating" : "connecting")]) { field, _ in field }
@@ -75,7 +66,8 @@ extension CloudHandlers {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
-                teamID: cloud.auth.teamID, supportsFileRoute: cloud.configuration.linkSource == .legacy)
+                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true, passesLogin: true),
+                passesLogin: CloudStartChat.passesHarnessLoginHere)
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
@@ -84,10 +76,15 @@ extension CloudHandlers {
             // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
             let supportsEnvironments = cloud.configuration.linkSource == .appServer
             let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
+            // The plan's sizes, from the last machine list: only the `/api/vm` create takes a size
+            // (the app server's create refuses one for now), so its path shows no size choice.
+            let sizes = cloud.configuration.linkSource == .legacy
+                ? cloud.planSizes : []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
                 supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: supportsEnvironments, present: present) else { return }
+                environments: environments, supportsEnvironments: supportsEnvironments,
+                sizes: sizes, autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
                 // Saved first, then booted: the first machine starts cold and runs the setup itself.
@@ -172,8 +169,9 @@ extension CloudHandlers {
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
-                try await transfer.run(api: cloud.api, currentTeamID: { cloud.auth.teamID },
-                                       currentUserID: { cloud.auth.user?.id }, confirmed: true)
+                try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
+                                       currentUserID: { cloud.auth.user?.id }, confirmed: true,
+                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
             }
         }
     }
@@ -359,7 +357,10 @@ extension CloudHandlers {
     /// `startedByPerson`: true only for an action invoked with origin user;
     /// any other create (a Retry or Dismiss button of the progress view,
     /// which carries no gesture origin) asks the person first.
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil,
+    /// `reveals`: the run may change the view (a person's, or one with `--focus`): a machine made with no
+    /// window showing its creation still opens its workspace in one. Without it the workspace waits,
+    /// out of the sidebar, until the person opens the machine (`unopenedCloudWorkspaces`).
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil, reveals: Bool = false,
                              proceed: @escaping (CloudMachineCreation) throws -> Void = { _ in }) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
@@ -374,9 +375,11 @@ extension CloudHandlers {
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
                 // The window that still shows the creation shows its
-                // workspace; one that moved on gets it filed quietly.
+                // workspace; one that moved on gets it filed quietly. A
+                // machine an agent or the CLI made without focus stays out
+                // of the sidebar until the person opens it (`unopenedCloudWorkspaces`).
                 guard let windowID = creation.windowID, let state = windows.controller(for: windowID)?.state else {
-                    windows.reveal(workspaceID: id)
+                    if startedByPerson || reveals { windows.reveal(workspaceID: id) }
                     return
                 }
                 if state.cloudCreation == creation.id {
@@ -405,7 +408,7 @@ extension CloudHandlers {
             // The bootstrap and the machine config go with the machine, so a Retry starts each too while it
             // has not started.
             bootstrap: { creation, session in
-                let machine = CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(creation.request.team), machineID: session.machineID)
+                let machine = CloudMachineBootstrap.Machine(api: cloud.machineAPI.pinningTeam(creation.request.team), machineID: session.machineID)
                 await CloudCreationFlow.startBootstrap(creation, on: machine)
             }
         )
@@ -506,4 +509,6 @@ extension CloudHandlers {
         }
         return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
     }
+
+    static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) { CloudSignInRecovery(pending: cloud.signedOutCreation, signIn: { await cloud.auth.signIn() }, hasCurrentList: { cloud.hasCurrentList(within: .seconds(30)) }, isSignedIn: { cloud.isSignedIn }, refresh: { await cloud.refresh() }).bind(into: registry) } // HQ #4884
 }

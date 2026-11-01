@@ -16,7 +16,10 @@ import Testing
 
     /// `count` chats, newest first (`c0` newest).
     private static func chats(_ count: Int) -> [SidebarHistoryChat] {
-        (0..<count).map { SidebarHistoryChat(id: "c\($0)", title: "chat \($0)", updatedAt: start.addingTimeInterval(-Double($0) * 60)) }
+        (0..<count).map {
+            SidebarHistoryChat(id: "c\($0)", title: "chat \($0)", updatedAt: start.addingTimeInterval(-Double($0) * 60),
+                               harness: $0.isMultiple(of: 2) ? "codex" : "claude-code")
+        }
     }
 
     private static func make(_ index: [SidebarHistoryChat], live: Set<String> = [], pinned: [String] = [], limit: Int = 3,
@@ -116,6 +119,20 @@ import Testing
         #expect(Self.layout(SidebarChatHistoryState()).totalHeight == plain.totalHeight)
         let filtered = Self.layout(Self.make(Self.chats(10), pinned: ["c1"]), filter: [WorkspaceID("a")])
         #expect(filtered.pinnedChatsY == nil && filtered.earlierChatsY == nil)
+    }
+
+    /// Chat history lives in gaps between rows, so its placement must participate in layout
+    /// identity. Otherwise `SidebarView+Observation` can skip moving the pinned or Earlier block
+    /// when the rows and their frames stay unchanged.
+    @Test func layoutEqualityIncludesChatHistoryPlacement() {
+        var before = Self.layout(nil)
+        var after = before
+        after.pinnedChatsY = 12
+        after.earlierChatsY = 96
+        #expect(before != after)
+        before.pinnedChatsY = after.pinnedChatsY
+        before.earlierChatsY = after.earlierChatsY
+        #expect(before == after)
     }
 
     @Test func pinnedStillShowsWhenNoComputerListsARow() {
@@ -220,17 +237,40 @@ import Testing
         #expect(lane("claude", nil)?.chat == nil)
     }
 
-    @Test func theFeedListsTheIndexWithoutChildChatsAndNamesUntitledOnes() {
-        var store = AcpmuxChatsStore()
-        store.reset(["chats": [
+    /// acpmux's window holds no child chat (`topLevel`); the history names an untitled chat by its
+    /// folder, else its harness, and leaves out a chat an open workspace shows until acpmux's next
+    /// window excludes it too.
+    @Test func theFeedListsTheWindowAndNamesUntitledOnes() {
+        let json: [[String: Any]] = [
             ["key": "claude-code:1", "sessionId": "1", "harness": "claude-code", "title": "Fix the build", "updatedMs": 3_000],
             ["key": "codex:2", "sessionId": "2", "harness": "codex", "cwd": "/Users/me/cmux", "updatedMs": 2_000],
-            ["key": "claude-code:3", "sessionId": "3", "harness": "claude-code", "updatedMs": 1_000, "parent": "claude-code:1"],
             ["key": "claude-code:4", "sessionId": "4", "harness": "claude-code", "updatedMs": 500]
-        ]])
-        let state = SidebarChatHistoryFeed.state(store, live: ["claude-code:1"], pinned: [], limit: 10, folded: false)
+        ]
+        let rows = json.compactMap(AcpmuxChat.init(json:))
+        let inputs = SidebarChatHistoryFeed.Inputs(live: ["claude-code:1"], pinned: [], limit: 10, folded: false)
+        #expect(inputs.earlierSpec.topLevel)
+        #expect(inputs.earlierSpec.exclude == ["claude-code:1"])
+        let state = SidebarChatHistoryFeed.state(earlier: rows, pinned: [], inputs: inputs)
         #expect(state.earlier.map(\.id) == ["codex:2", "claude-code:4"])
         #expect(state.earlier.map(\.title) == ["cmux", "claude-code"])
-        #expect(Array(store.newestFirst.map(\.id)) == ["claude-code:1", "codex:2", "claude-code:4"])
+        #expect(state.earlier.map(\.harness) == ["codex", "claude-code"])
+    }
+
+    @Test func historyRowsCarryHarnessMarksAndStableFallbackColoursAcrossReuse() throws {
+        let view = SidebarChatHistoryView(part: .earlier)
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
+        let codex = SidebarHistoryChat(id: "codex:1", title: "same title", updatedAt: Self.start, harness: "codex")
+        let unknown = SidebarHistoryChat(id: "acme:1", title: "same title", updatedAt: Self.start, harness: "acme-agent")
+        view.show(SidebarChatHistoryState(earlier: [codex]), metrics: .standard)
+        view.layoutSubtreeIfNeeded()
+        let row = try #require(view.rows.first)
+        #expect(row.harness == "codex")
+        #expect(row.harnessMarkColor == nil)
+        #expect(row.titleText == "same title")
+        view.show(SidebarChatHistoryState(earlier: [unknown]), metrics: .standard)
+        view.layoutSubtreeIfNeeded()
+        #expect(row.harness == "acme-agent")
+        #expect(row.harnessMarkColor == GroupColor.unset(id: "acme-agent"))
+        #expect(row.harnessMarkColor != nil)
     }
 }

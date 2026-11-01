@@ -167,7 +167,7 @@ pub(super) fn continuation(
             json!({"code":"patch_read_failed"}),
         )
     })?;
-    metadata["patch_page"] = page_value(&window, revision, offset, bytes)?;
+    metadata.set("patch_page", page_value(&window, revision, offset, bytes)?);
     Ok(Some(metadata))
 }
 
@@ -196,7 +196,7 @@ pub(in crate::git_ops) fn between(
     let comparison = cmux_git::diff::between(repository, from, to);
     let mut metadata = json!({"from":fields.get("from"), "complete":complete});
     if let Some(to) = fields.get("to") {
-        metadata["to"] = to.clone();
+        metadata.set("to", to.clone());
     }
     report(repository, &comparison, operation, fields, metadata)
 }
@@ -301,24 +301,27 @@ fn report(
         object.extend(extra.clone());
     }
     if let Some(offset) = page_offset {
-        if files.len() != 1 || files[0].path != paths[0] || !files[0].has_patch() {
-            return Err(ResourceError::validation_invalid(
-                Some("paths"),
-                "a patch page requires one changed text file",
-            ));
-        }
+        let file = match files.as_slice() {
+            [file] if paths.first() == Some(&file.path) && file.has_patch() => file,
+            _ => {
+                return Err(ResourceError::validation_invalid(
+                    Some("paths"),
+                    "a patch page requires one changed text file",
+                ));
+            }
+        };
         let (page, revision) = patch_page(
             repository,
             comparison,
             operation,
-            &files[0],
+            file,
             context_lines,
             offset,
             fields,
             &value,
         )?;
         super::diff_pages::put(page_key, revision, value.clone());
-        value["patch_page"] = page;
+        value.set("patch_page", page);
     }
     Ok(value)
 }

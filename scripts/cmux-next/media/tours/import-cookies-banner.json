@@ -1,0 +1,99 @@
+{
+  "title": "Import Cookies banner",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Fresh state: the banner setting on",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {
+          "action": "reset"
+        }
+      },
+      "shot": false
+    },
+    {
+      "title": "Browser workspace",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newBrowserWorkspace",
+          "focus": true
+        }
+      },
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "The person types a page into the omnibar of their own tab",
+      "rpc": {
+        "method": "debug.omnibar_type",
+        "params": {
+          "text": "https://example.com/"
+        }
+      },
+      "wait": 5,
+      "shot": false
+    },
+    {
+      "title": "The banner offers to import cookies (Don't Show Again, Not Now, Import)",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {
+          "action": "show"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "State: shown",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {}
+      },
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Don't Show Again: browser.import.cookieBanner turns off and the banner goes",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {
+          "action": "answer",
+          "choice": "never"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "State: dismissed",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {}
+      },
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Show Import Cookies Banner (cmux browser show-cookie-banner): on again and shown on the person's tab",
+      "cmux": [
+        "browser",
+        "show-cookie-banner"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "State: shown again",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {}
+      },
+      "record": true,
+      "shot": false
+    }
+  ]
+}

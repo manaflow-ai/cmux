@@ -60,17 +60,17 @@ describe("Cloud plan entitlements", { timeout: 60_000 }, () => {
     const big = { cpu: 16, memory_mb: 32768, disk_mb: 65536 }
     const ok = await create(max.t, big)
     expect(ok.ok, JSON.stringify(ok)).toBe(true)
-    expect((await planGet(max.t)).value).toMatchObject({ plan_id: "max", upgrade_plan: null, limits: { max_active: 20 } })
+    expect((await planGet(max.t)).value).toMatchObject({ plan_id: "max", upgrade_plan: null, limits: { max_active: 5 } })
     const pro = await person("cloud-ent-pro-big", "pro")
     const refused = await create(pro.t, big)
     expect(refused.ok).toBe(false)
     expect(refused.error?.code ?? refused.code).toBe("cloud.size.locked")
   })
 
-  it("Go allows one 2 vCPU / 4 GB machine with 40 VM-hours", async () => {
+  it("Plus (go) allows one machine at Pro sizes with no hour cap, as classic sells it", async () => {
     const x = await person("cloud-ent-go", "go")
-    expect((await planGet(x.t)).value).toMatchObject({ plan_id: "go", upgrade_plan: "pro", limits: { max_active: 1, memory_options_mb: [4096], vm_hours_included: 40 } })
-    expect((await create(x.t, { cpu: 2, memory_mb: 4096, disk_mb: 16384 })).ok).toBe(true)
+    expect((await planGet(x.t)).value).toMatchObject({ plan_id: "go", upgrade_plan: "pro", limits: { max_active: 1, memory_options_mb: [4096, 8192, 16384], vm_hours_included: null } })
+    expect((await create(x.t, { cpu: 8, memory_mb: 16384, disk_mb: 65536 })).ok).toBe(true)
     const second = await create(x.t, { cpu: 2, memory_mb: 4096, disk_mb: 16384 })
     expect(second.error?.code ?? second.code).toBe("cloud.quota.exceeded")
   })

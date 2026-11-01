@@ -101,6 +101,10 @@ fn brief_for(hub: &Hub, conn: &Conn, id: &str) -> Result<Value, RpcError> {
         .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))
 }
 
+/// How long the peers together may take to list their briefs (they are asked at once); one
+/// that has not answered by then is left out and named in `peersFailed`.
+const PEERS_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(super) async fn list(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -126,17 +130,28 @@ pub(super) async fn list(
         return Ok(json!({ "briefs": rows }));
     }
     let mut rows = hub.briefs.list(status, limit);
-    // As with the models catalog, every peer shares one deadline. A stalled peer leaves its
-    // cached briefs in place; healthy peers still refresh theirs. Timeout drops each pending
-    // request (ForgetPending), and there are no detached workers or retries to clean up.
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    // The peers at once, under one deadline: one by one, each with the request budget (600 s),
+    // a stalled peer held the list for ten minutes. A peer left out is named, with why.
+    let deadline = tokio::time::Instant::now() + PEERS_BUDGET;
     let peers = hub.connected_peers();
     let replies = futures::future::join_all(peers.iter().map(|peer| {
         tokio::time::timeout_at(deadline, peer.request(method::MUX_BRIEFS, json!({"limit": 500})))
     }))
     .await;
-    for reply in replies {
-        let Ok(Ok(remote)) = reply else { continue };
+    let mut failed = Vec::new();
+    for (peer, reply) in peers.iter().zip(replies) {
+        let remote = match reply {
+            Ok(Ok(remote)) => remote,
+            Ok(Err(e)) => {
+                failed.push(json!({"peer": peer.name, "error": e.message}));
+                continue;
+            }
+            Err(_) => {
+                let error = format!("no answer within {}s", PEERS_BUDGET.as_secs());
+                failed.push(json!({"peer": peer.name, "error": error}));
+                continue;
+            }
+        };
         for row in remote.get("briefs").and_then(Value::as_array).into_iter().flatten() {
             let Some(id) = row.get("briefId").and_then(Value::as_str) else { continue };
             if let Some(local) = rows
@@ -153,7 +168,13 @@ pub(super) async fn list(
     if status.is_some() {
         rows.retain(wanted);
     }
-    Ok(json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() }))
+    let mut reply =
+        json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() });
+    if !failed.is_empty() {
+        tracing::warn!(peers = ?failed, "briefs left out the peers that did not answer");
+        reply.set("peersFailed", Value::Array(failed));
+    }
+    Ok(reply)
 }
 
 pub(super) async fn report(

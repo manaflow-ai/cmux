@@ -43,6 +43,31 @@ public nonisolated enum MachineKind: String, Hashable, Sendable, CaseIterable {
     }
 }
 
+/// What the machine's server says about a Cloud machine that is not simply running: a settled state
+/// the row writes in words instead of a spinner (a paused machine is not connecting), or a resume
+/// that is on its way (a spinner, read as "Resuming…"). Nil for a running machine and every
+/// non-Cloud machine: the row follows its link.
+public nonisolated enum MachineServerState: String, Hashable, Sendable, CaseIterable {
+    /// Paused (the idle auto-pause or a person's Pause Machine); an attach resumes it.
+    case paused
+    /// A resume of the paused machine is on its way.
+    case resuming
+    /// The server reports the machine failed.
+    case failed
+    /// The machine was deleted.
+    case deleted
+
+    /// The state in words.
+    public var text: String {
+        switch self {
+        case .paused: AddMachineStrings.paused
+        case .resuming: AddMachineStrings.resuming
+        case .failed: AddMachineStrings.failed
+        case .deleted: AddMachineStrings.deleted
+        }
+    }
+}
+
 /// One machine of the Machines section (a value snapshot).
 public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     /// The machine id (`workspace.newOnMachine`'s `machine`).
@@ -52,8 +77,12 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     public let isLocal: Bool
     /// What the machine is: its icon and its group.
     public let kind: MachineKind
-    /// The link is being made (a spinner, not "Offline").
+    /// The link is being made, or a resume is on its way (a spinner, not "Offline"). Never true for a
+    /// machine whose server says it is paused, failed or deleted: nothing is connecting to it.
     public let isConnecting: Bool
+    /// What the machine's server says when it is not simply running (``MachineServerState``); nil
+    /// for a running machine and every non-Cloud machine.
+    public let serverState: MachineServerState?
     /// The last check's outcome; nil before one ran in this app run.
     public let health: HostHealth?
     /// The step the last check flagged (its first failure, else its first warning).
@@ -64,14 +93,19 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
 
     /// - Parameter kind: nil takes `.local` for this Mac and `.ssh` for any other machine (a joined
     ///   machine's own row, ``joined(_:health:)``, passes `.joined`).
+    /// - Parameter serverState: a settled state (paused, failed, deleted) turns the spinner off and
+    ///   writes the state; `.resuming` keeps a spinner. A connected link wins over either.
     public init(id: String, name: String, isConnected: Bool, isLocal: Bool, kind: MachineKind? = nil, isConnecting: Bool = false,
-                health: HostHealth? = nil, healthStep: HostStep? = nil, joined: JoinedMachine? = nil) {
+                serverState: MachineServerState? = nil, health: HostHealth? = nil, healthStep: HostStep? = nil,
+                joined: JoinedMachine? = nil) {
         self.id = id
         self.name = name
         self.isConnected = isConnected
         self.isLocal = isLocal
         self.kind = kind ?? (isLocal ? .local : .ssh)
-        self.isConnecting = !isConnected && isConnecting
+        let serverState = isConnected ? nil : serverState
+        self.serverState = serverState
+        self.isConnecting = !isConnected && (serverState.map { $0 == .resuming } ?? isConnecting)
         self.health = health
         self.healthStep = healthStep
         self.joined = joined
@@ -97,9 +131,23 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
         }
     }
 
-    /// The link state in words: Connected, Connecting… or Offline.
+    /// The state in words: Connected, the server's state (Paused, Resuming…, Failed, Deleted),
+    /// Connecting… or Offline.
     public var stateText: String {
-        isConnected ? AddMachineStrings.connected : isConnecting ? AddMachineStrings.connecting : AddMachineStrings.offline
+        if isConnected { return AddMachineStrings.connected }
+        if let serverState { return serverState.text }
+        return isConnecting ? AddMachineStrings.connecting : AddMachineStrings.offline
+    }
+
+    /// Where the row sorts inside its group (Leo, 2026-10-31: "ready machines first, then paused, then
+    /// offline"): this Mac, then connected machines, then those connecting or resuming, then paused ones,
+    /// then the rest (offline, failed, deleted). Lower sorts first; equal ranks keep the registry's order.
+    public var readinessRank: Int {
+        if isLocal { return 0 }
+        if isConnected { return 1 }
+        if isConnecting { return 2 }
+        if serverState == .paused { return 3 }
+        return 4
     }
 
     /// What VoiceOver reads for the row: its name, its link state and its last check.
@@ -127,15 +175,22 @@ public nonisolated enum MachineSectionStyle: String, Sendable, CaseIterable, Has
         }
     }
 
+    /// `rows` by ``MachineSectionRow/readinessRank``, keeping the given order inside a rank (a stable sort).
+    static func byReadiness(_ rows: [MachineSectionRow]) -> [MachineSectionRow] {
+        rows.enumerated().sorted { ($0.element.readinessRank, $0.offset) < ($1.element.readinessRank, $1.offset) }.map(\.element)
+    }
+
     /// Whether machines sit under a header per kind.
     public var groupsByKind: Bool { self != .flat }
     /// Whether each row has a second line with its link state.
     public var showsStateLine: Bool { self != .compact }
 
     /// `rows` in this style's groups: one untitled group for `.flat`; otherwise this Mac first with no
-    /// header, then Cloud, SSH, server and joined machines under their headers, each in the order given.
-    /// A kind with no machine has no group.
+    /// header, then Cloud, SSH, server and joined machines under their headers. Inside a group, ready
+    /// machines come first, then connecting, paused and offline ones (``MachineSectionRow/readinessRank``),
+    /// each rank in the order given. A kind with no machine has no group.
     public func groups(_ rows: [MachineSectionRow]) -> [MachineSectionGroup] {
+        let rows = Self.byReadiness(rows)
         guard groupsByKind else { return rows.isEmpty ? [] : [MachineSectionGroup(id: "all", kind: nil, rows: rows)] }
         return MachineKind.allCases.compactMap { kind in
             let members = rows.filter { $0.kind == kind }
@@ -165,6 +220,7 @@ extension MachineSectionRow {
     public static let fixtures: [MachineSectionRow] = [
         MachineSectionRow(id: "fixture-cloud-1", name: "atlas-web", isConnected: true, isLocal: false, kind: .cloud, health: .ok),
         MachineSectionRow(id: "fixture-cloud-2", name: "gpu-box", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true),
+        MachineSectionRow(id: "fixture-cloud-3", name: "night-batch", isConnected: false, isLocal: false, kind: .cloud, serverState: .paused),
         MachineSectionRow(id: "fixture-ssh-1", name: "linux-box", isConnected: true, isLocal: false, kind: .ssh, health: .warning, healthStep: .update),
         MachineSectionRow(id: "fixture-ssh-2", name: "build-host", isConnected: false, isLocal: false, kind: .ssh),
         MachineSectionRow(id: "fixture-server-1", name: "studio", isConnected: true, isLocal: false, kind: .server),

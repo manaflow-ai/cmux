@@ -1,0 +1,69 @@
+name: cmux-next Chromium currency
+
+# Fails when the Chromium that cmux-next ships (scripts/cmux-next/cef-manifest.json)
+# is more than one Chrome stable milestone behind (Google's version history API),
+# or when the CEF shim lets a sandbox-weakening switch through
+# (CEFShim/tests/command_line_switches_test.cpp, also in cmux-next-shim-cpp.yml).
+# Chrome ships its security fixes in stable first: the pwn.ai GPU sandbox escape
+# (CVE-2026-106378) was fixed in Chrome 155 while cmux shipped Chromium 154.
+# Runs daily, because stable moves without a change here, and on every change
+# to the pin or the check.
+
+on:
+  schedule:
+    - cron: "17 14 * * *"
+  pull_request:
+    paths:
+      - scripts/cmux-next/cef-manifest.json
+      - scripts/cmux-next/check-chromium-currency.py
+      - scripts/cmux-next/tests/chromium-currency.test.sh
+      - .github/workflows/cmux-next-chromium-currency.yml
+  push:
+    branches:
+      - feat-cmux-next
+    paths:
+      - scripts/cmux-next/cef-manifest.json
+      - scripts/cmux-next/check-chromium-currency.py
+      - scripts/cmux-next/tests/chromium-currency.test.sh
+      - .github/workflows/cmux-next-chromium-currency.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-chromium-currency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  currency:
+    name: Shipped Chromium is at most one stable milestone behind
+    # Python and one HTTPS request: Linux, off the Mac pools.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
+          fetch-depth: 2
+      - name: The check itself (fixed versions)
+        run: bash scripts/cmux-next/tests/chromium-currency.test.sh
+      # On a pull request that leaves the pin alone, the pin's age is the base's state, not the PR's
+      # change: it warns there. A PR that changes the pin is judged as before, and the daily and push
+      # runs on feat-cmux-next stay red until the pin moves (cmuxterm-hq#5745). HEAD^1 is the base side
+      # of the PR's merge commit; when it can't be read, the step judges as before.
+      - name: Pinned Chromium against Chrome stable
+        if: ${{ !cancelled() }}
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ] && git diff --quiet HEAD^1 HEAD -- scripts/cmux-next/cef-manifest.json; then
+            python3 scripts/cmux-next/check-chromium-currency.py \
+              || echo "::warning::The base's Chromium pin is behind stable; this PR does not change it."
+            exit 0
+          fi
+          python3 scripts/cmux-next/check-chromium-currency.py
+      - name: Sandbox-weakening switches never reach Chromium
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-switches-cpp.sh

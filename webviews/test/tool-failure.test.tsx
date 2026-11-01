@@ -40,6 +40,8 @@ test("a call that did not fail has no failure", () => {
 test("a hook's refusal names the hook and its reason, without the harness's lead", () => {
   const failure = toolFailure(call("PreToolUse:Bash hook error: Blocked: `gh pr merge` needs a review receipt."));
   expect(failure).toMatchObject({ kind: "hook", hook: "PreToolUse", cause: "`gh pr merge` needs a review receipt." });
+  // Opened, the call shows the hook's words without the harness's envelope.
+  expect(failure?.output).toBe("`gh pr merge` needs a review receipt.");
 });
 
 test("Claude Code's Exit code line becomes the exit code, and the cause is the error line", () => {
@@ -118,12 +120,15 @@ test("a long result is read only at its ends, and a long cause is cut", () => {
 });
 
 test("a command row says the word in the error tone and the cause on a quiet line under it", () => {
+  // A hook's block reads "blocked by hook" alone, as Claude Code desktop draws it: no "PreToolUse"
+  // and no line of its words until it is opened (Leo, 2026-10-31: "WHY IS THERE PRETOOLUSE").
   const html = renderToStaticMarkup(
     <CommandRow item={item(call("PreToolUse:Bash hook error: Blocked: needs a review.", { description: "Merge" }))} />,
   );
-  expect(html).toMatch(/class="cv-command__failed"[^>]*>blocked</);
-  expect(html).toContain('class="cv-tool-error"');
-  expect(words(html)).toContain("PreToolUse needs a review.");
+  expect(html).toMatch(/class="cv-command__failed"[^>]*>blocked by hook</);
+  expect(html).not.toContain('class="cv-tool-error"');
+  expect(words(html)).not.toContain("PreToolUse");
+  expect(words(html)).not.toContain("needs a review.");
   // Claude Code's exit line reads as the row's "Exit 1".
   const exited = renderToStaticMarkup(<CommandRow item={item(call("Exit code 1\nmake: *** [all] Error 2"))} />);
   expect(exited).toMatch(/class="cv-command__failed"[^>]*>Exit 1</);
