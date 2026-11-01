@@ -34,6 +34,90 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func privatePathPairingSupersedesAnAutomaticDiscoveryInFlight() async throws {
+        let mac = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let pending = SuspendedIrohDiscovery(candidates: [mac])
+        let discovery = FirstReadSuspendedIrohDiscovery(pending: pending)
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: "mac-a")
+        defer {
+            pending.resume()
+            fixture.cleanup()
+        }
+        // Computers already has an authorized row from an earlier directory
+        // response; automatic recovery is now refreshing that directory.
+        fixture.shell.discoveredIrohMacs = [mac]
+        let automatic = Task {
+            await fixture.shell.reconnectActiveMacOutcome(stackUserID: "user-1")
+        }
+        await pending.waitUntilRequested()
+
+        #expect(await fixture.shell.connectDiscoveredIrohMac(
+            macDeviceID: mac.deviceID,
+            instanceTag: mac.instanceTag,
+            directOnlyDialCandidates: [CmxIrohDirectDialCandidate(address: "100.64.0.2", port: 52074)]
+        ))
+        pending.resume()
+        let outcome = await automatic.value
+        guard case .superseded = outcome else {
+            Issue.record("Explicit private-path pairing must supersede automatic recovery")
+            return
+        }
+        #expect(fixture.shell.connectionState == .connected)
+        #expect(fixture.shell.connectedMacDeviceID == "mac-a")
+    }
+
+    @Test
+    func failedPrivatePathPairingKeepsTheConnectedMac() async throws {
+        let active = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let unavailable = try candidate(deviceID: "mac-b", endpointByte: "b")
+        let fixture = try await makeFixture(
+            discovery: ScriptedIrohDiscovery(snapshots: [[active], [active, unavailable]]),
+            reportedDeviceID: "mac-a",
+            failingRouteIDs: ["iroh-mac-b"]
+        )
+        defer { fixture.cleanup() }
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let activeClient = try #require(fixture.shell.remoteClient)
+        fixture.shell.discoveredIrohMacs = [unavailable]
+        let attemptsBefore = fixture.factory.attemptedRouteIDs().filter { $0 == "iroh-mac-b" }.count
+
+        #expect(!(await fixture.shell.connectDiscoveredIrohMac(
+            macDeviceID: unavailable.deviceID,
+            instanceTag: unavailable.instanceTag,
+            directOnlyDialCandidates: [CmxIrohDirectDialCandidate(address: "100.64.0.2", port: 52074)]
+        )))
+
+        #expect(fixture.factory.attemptedRouteIDs().filter { $0 == "iroh-mac-b" }.count > attemptsBefore)
+        #expect(fixture.shell.connectionState == .connected)
+        #expect(fixture.shell.connectedMacDeviceID == "mac-a")
+        #expect(fixture.shell.remoteClient === activeClient)
+    }
+
+    @Test
+    func disabledPrivatePathDoesNotDialOrPersistTheDiscoveredMac() async throws {
+        let mac = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let fixture = try await makeFixture(candidates: [mac], reportedDeviceID: "mac-a")
+        defer { fixture.cleanup() }
+        fixture.shell.discoveredIrohMacs = [mac]
+        let disabled = CmxIrohCustomPrivatePathDraft(
+            macDeviceID: mac.deviceID, instanceTag: mac.instanceTag,
+            macDisplayName: "Test Mac", addresses: ["100.64.0.2:52074"], isEnabled: false
+        )
+
+        #expect(!(await fixture.shell.connectDiscoveredIrohMac(using: disabled)))
+        #expect(fixture.factory.attemptedRouteIDs().isEmpty)
+        #expect(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).isEmpty)
+
+        let enabled = CmxIrohCustomPrivatePathDraft(
+            macDeviceID: mac.deviceID, instanceTag: mac.instanceTag,
+            macDisplayName: "Test Mac", addresses: disabled.addresses, isEnabled: true
+        )
+        #expect(await fixture.shell.connectDiscoveredIrohMac(using: enabled))
+        #expect(fixture.factory.attemptedRouteIDs().contains("iroh-mac-a"))
+        #expect(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).map(\.macDeviceID) == ["mac-a"])
+    }
+
+    @Test
     func canonicalUUIDDeviceIDComparisonIgnoresLetterCase() async throws {
         let canonicalID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
         let fixture = try await makeFixture(
@@ -1110,7 +1194,7 @@ final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
 }
 
 @MainActor
-private final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
+final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
     private let candidates: [MobileDiscoveredIrohMac]
     private var requestWaiters: [CheckedContinuation<Void, Never>] = []
     private var resumeWaiter: CheckedContinuation<Void, Never>?

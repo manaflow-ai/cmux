@@ -7,10 +7,13 @@ public protocol MobileIrohMacDiscovering: Sendable {
     func discoverLiveMacs() async -> [MobileDiscoveredIrohMac]
     /// Requests fresh metadata after an explicit user refresh or a failed route.
     func invalidateDiscovery(forMacDeviceID deviceID: String) async
+    /// Invalidates the account directory snapshot before a user-requested refresh.
+    func refreshDirectory() async
     /// Emits only when directory content or account/team authority changes, never heartbeats.
     func directoryUpdates() -> AsyncStream<Void>
 }
 
 public extension MobileIrohMacDiscovering {
     func directoryUpdates() -> AsyncStream<Void> { AsyncStream { $0.finish() } }
+    func refreshDirectory() async {}
 }
