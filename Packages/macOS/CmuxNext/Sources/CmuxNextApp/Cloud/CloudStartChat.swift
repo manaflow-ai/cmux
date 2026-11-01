@@ -110,25 +110,13 @@ struct CloudStartChat {
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
         // copy finished opens its chat without copying again, which would overwrite what it changed.
-        let copyTo = { (socket: String) in
-            try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
-                                        local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots)
-        }
-        var copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool))
+        let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool))
         do {
-            copy = try await copyTo(socket)
-            // A new machine's image may carry an older cmux-tui than this app, and the automatic update
-            // its first handshake queued may not have run yet: update it now to the app's own build
-            // (`--to-bundled --if-older`, as Update Machine does) and copy once more, instead of
-            // failing the person's first send with "Update the machine".
-            if Self.updatesBeforeCopyingAgain(copy.0), await CloudMachineUpdates.updateNow(machine.machineID, services: services) {
-                guard let updated = await machine.daemon.connection?.endpoint?.socketPath else {
-                    throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
-                }
-                copy = try await copyTo(updated)
-            }
-        } catch let failure as CloudMove.Failure {
-            throw failure
+            // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again (CloudOutdatedMachine).
+            copy = try await CloudOutdatedMachine.copy({
+                try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
+                                            local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots)
+            }, answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) }) { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
             // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
             throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
@@ -143,12 +131,6 @@ struct CloudStartChat {
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size))
         return try await open(start, tab: tab, on: machine, cwd: remoteChat, tabKey: plan.tabKey)
-    }
-
-    /// Whether a copy's answer is the machine's older daemon refusing it (`machine_outdated` about the
-    /// machine, not this Mac), which an update of the machine to the app's build fixes.
-    static func updatesBeforeCopyingAgain(_ answer: CloudMoveCLI.Answer) -> Bool {
-        !answer.ok && answer.errorCode == CloudMoveStrings.outdatedCode && answer.side != "source"
     }
 
     /// Opens the chat on `machine` in `cwd` under the plan's `tabKey` (a retry gets the same tab) and closes

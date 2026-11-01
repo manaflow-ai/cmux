@@ -340,6 +340,21 @@ test("the rail has no narrow or tucked presentation", () => {
   expect(css).not.toMatch(/acpmux-minimap[^{]*\{[^}]*animation[^}]*infinite/);
 });
 
+// Leo (2026-10-24): "for the narrow windows, i think we should just simply be able to show it. don't shove
+// the ui, but like... it should be fine. just hide it more". The occluded rail stays drawn, dimmed, over
+// the text; it is never invisible at rest and never takes clicks from the text.
+test("the occluded rail stays visible at rest, dimmed, and leaves the text its clicks", () => {
+  const css = readFileSync(
+    new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const occluded = /\.acpmux-minimap__rail\[data-occluded\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  const opacity = Number(/opacity:\s*([\d.]+)/.exec(occluded)?.[1]);
+  expect(opacity).toBeGreaterThan(0);
+  expect(opacity).toBeLessThan(0.75);
+  expect(occluded).toMatch(/pointer-events:\s*none/);
+});
+
 test("the rail keeps a live strip at the smallest pane width", async () => {
   paneWidth = 760;
   const view = await mount(12);

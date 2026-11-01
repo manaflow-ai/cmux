@@ -161,7 +161,9 @@ struct CloudMove {
         let ownerPID = await machine.link?.ownerPID
         let moved: CloudMoveCLI.Answer
         do {
-            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat,
+            // A running turn goes on on the machine, with what it wrote since the sync above.
+            let sync = CloudMoveCLI.FrozenSync(pull: false, socket: machineSocket, local: folder.root, remote: remote.folder)
+            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat, sync: sync,
                                             vmKind: ownerPID == nil ? "none" : "owner", toPID: ownerPID)
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
@@ -290,7 +292,7 @@ struct CloudMove {
         }
         let daemon = session.daemon
         // A failed resume ends the wait at once, with its reason.
-        guard await Self.holds(within: .seconds(180), until: {
+        guard await CloudWait.holds(within: .seconds(180), until: {
             session.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }) else {
             throw Failure(message: CloudMoveStrings.notConnected(session.machine.title), retry: .move(machineID: session.machineID))
@@ -348,26 +350,5 @@ struct CloudMove {
         let action = retry == nil ? nil : CmuxToast.Action(title: retryTitle)
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration), in: window)
         handle.onAction = { retry?() }
-    }
-
-    /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
-    static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
-        if condition() { return true }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a machine link's start
-        return await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await observe(condition) }
-            group.addTask {
-                // wakeup-allow: one-shot deadline for a machine link to come up
-                try? await Task.sleep(for: limit)
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
-    }
-
-    private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
-        for await ready in ObservationStream({ condition() }) where ready { return true }
-        return false
     }
 }

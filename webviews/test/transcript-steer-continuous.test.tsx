@@ -631,10 +631,11 @@ test("a socket dropped while the send awaits its gesture cannot receive the prom
   }
 });
 
-test("a Claude turn steered twice keeps every call under one completed-turn fold", () => {
-  // Leo's live Claude turns (2026-10-21): a call, his steer, a reply and a call, a second steer,
-  // more calls, the answer. Ended, the folds hold every call; nothing is dropped or moved above
-  // a steer it came after.
+test("a turn steered twice keeps every call under one completed-turn fold", () => {
+  // Leo's live turns (2026-10-21): a call, his steer, a reply and a call, a second steer, more
+  // calls, the answer. Ended, the fold holds every call; nothing is dropped or moved above a steer
+  // it came after. A Claude chat draws each run on its own line instead
+  // (transcript-claude-turn-groups.test.ts).
   let at = START;
   const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
     id,
@@ -660,7 +661,7 @@ test("a Claude turn steered twice keeps every call under one completed-turn fold
     row("sum", "turnSummary", { status: "completed" }),
   ];
   // A clock just after the turn, so no date line comes before it.
-  const now = { now: START + 200_000, agentFamily: "claude" };
+  const now = { now: START + 200_000, agentFamily: "codex" };
   const view = turnView(rows, new Set(), now);
   const ids = view.map((each) => each.id);
   expect(ids).toEqual(["u", `${WORKED}-u`, "s1", "r1", "s2", "r2", "sum"]);
@@ -682,7 +683,7 @@ test("a Claude turn steered twice keeps every call under one completed-turn fold
   expect(rows.map((_, index) => turnFoldFor(rows, index))).toEqual(rows.map(() => `${WORKED}-u`));
 });
 
-test("only Codex folds interim assistant text; Claude keeps every assistant message visible", () => {
+test("Codex folds interim text under Worked for; Claude folds it into its run's line", () => {
   let at = START;
   const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
     id,
@@ -704,11 +705,14 @@ test("only Codex folds interim assistant text; Claude keeps every assistant mess
     row("summary", "turnSummary", { status: "completed" }),
   ];
 
-  const claude = turnView(rows, new Set(), { agentFamily: "claude" });
-  expect(claude.filter((each) => each.kind === "assistant").map((each) => each.id)).toEqual(["interim", "final"]);
-  expect(claude.some((each) => each.kind === WORKED)).toBe(true);
+  const now = START + 200_000;
+  const claude = turnView(rows, new Set(), { now, agentFamily: "claude" });
+  expect(claude.map((each) => each.id)).toEqual(["prompt", "a-one", "final", "summary"]);
+  const run = claude.find((each) => each.id === "a-one");
+  expect(run?.foldRun).toBe(true);
+  expect(run?.items?.find((item) => item.kind === "note")?.text).toBe("The first check is still running.");
 
-  const codex = turnView(rows, new Set(), { agentFamily: "codex" });
+  const codex = turnView(rows, new Set(), { now, agentFamily: "codex" });
   expect(codex.some((each) => each.id === "interim")).toBe(false);
   expect(codex.some((each) => each.id === "final")).toBe(true);
   expect(codex.some((each) => each.kind === WORKED)).toBe(true);

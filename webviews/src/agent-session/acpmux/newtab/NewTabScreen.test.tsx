@@ -214,8 +214,13 @@ test("cancelling a saved environment browse keeps the New Tab project", async ()
     '.acpmux-location-picker[data-kind="computer"] .acpmux-location-button',
   );
   expect(environmentButton).toBeTruthy();
-  await act(async () => environmentButton!.click());
-  const create = [...document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find((item) =>
+  // Create environment is the control's right-click menu (the list holds only where a chat runs).
+  await act(async () =>
+    environmentButton!.dispatchEvent(
+      new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const create = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((item) =>
     item.textContent?.includes("Create environment"),
   );
   expect(create).toBeTruthy();

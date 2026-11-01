@@ -6,7 +6,9 @@
 // these records, draw exactly as before.
 import { expect, test } from "bun:test";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { messageRevealTarget, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
+import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
@@ -145,7 +147,11 @@ test("a prompt that interrupts a background turn starts a normal turn after it",
   const { client, rows } = await connect(daemon);
   try {
     // The prompt and everything after it are the real turn's, never the background turn's.
-    expect(rows().filter((row) => row.inBackground).map((row) => row.text)).toEqual(["Still building."]);
+    expect(
+      rows()
+        .filter((row) => row.inBackground)
+        .map((row) => row.text),
+    ).toEqual(["Still building."]);
     const view = drawn(rows());
     const line = view.findIndex((row) => row.kind === BACKGROUND_TURN);
     expect(texts(view.slice(line))).toEqual([
@@ -213,4 +219,102 @@ test("an older page's started record takes the rows its turn already made", () =
   expect(rows.get("inside")?.inBackground).toBe("bg6");
   expect(rows.get("after")?.inBackground).toBeUndefined();
   expect(rows.sorted().find((row) => row.id === "inside")?.inBackground).toBe("bg6");
+});
+
+const spawned = (id: string, state = "running"): Step => [
+  "in",
+  "subagent_spawned",
+  {
+    method: "session/update",
+    params: {
+      update: { sessionUpdate: "subagent_spawned" },
+      _meta: { acpmux: { subagents: [{ id, parent: null, name: id, state, toolCallId: `${id}-call` }] } },
+    },
+  },
+];
+
+// cmux#30314: a quiet turn that ends with no prose of its own must not leave its subagent group open.
+test("each background turn's subagent starts a group of its own", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Keep an eye on CI", "Watching.", "t1"),
+      started("bg7"),
+      spawned("first"),
+      ended("bg7", true),
+      started("bg8"),
+      spawned("second"),
+      ended("bg8", false),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const groups = rows().filter((row) => row.kind === "subagents");
+    expect(groups.map((row) => [row.subagents?.map((agent) => agent.id), row.inBackground])).toEqual([
+      [["first"], "bg7"],
+      [["second"], "bg8"],
+    ]);
+    // The second turn has something to say: its subagent is in sight, not in the first one's fold.
+    expect(drawn(rows()).some((row) => row.subagents?.some((agent) => agent.id === "second"))).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// cmux#30315: the tray's done line stands in for the group and keeps its background turn.
+test("a subagent's done line folds with its quiet background turn", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Run the checks", "Started.", "t1"),
+      started("bg9"),
+      spawned("checker"),
+      spawned("checker", "completed"),
+      say("Done."),
+      ended("bg9", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    // A line cached before its group was tagged (an older page read later) is made again.
+    const cache = new Map();
+    const untagged = rows().map((row) => (row.kind === "subagents" ? { ...row, inBackground: undefined } : row));
+    expect(withSubagentLines(untagged, cache).find((row) => row.kind === SUBAGENT_DONE)?.inBackground).toBeUndefined();
+    const tray = withSubagentLines(rows(), cache);
+    const done = tray.find((row) => row.kind === SUBAGENT_DONE)!;
+    expect(done.inBackground).toBe("bg9");
+    expect(drawn([...tray]).some((row) => row.kind === SUBAGENT_DONE)).toBe(false);
+    expect(drawn([...tray], [backgroundTurnRowId("bg9")]).some((row) => row.kind === SUBAGENT_DONE)).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// cmux#30316: Find and a message link open the background turn's line, not the fold before it.
+test("Find and a link open the background line that hides a row", async () => {
+  const daemon = fakeDaemon(
+    record([...personTurn("Ship it", "Shipping.", "t1"), started("bg10"), say("Still green."), ended("bg10", true)]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const all = rows();
+    const at = all.findIndex((row) => row.text === "Still green.");
+    expect(turnFoldFor(all, at)).toBe(backgroundTurnRowId("bg10"));
+    expect(messageRevealTarget(all, drawn(all), [all[at]!.id])).toEqual({
+      rowId: all[at]!.id,
+      fold: backgroundTurnRowId("bg10"),
+    });
+    // A row of the person's own turn still opens that turn's fold.
+    expect(
+      turnFoldFor(
+        all,
+        all.findIndex((row) => row.text === "Shipping."),
+      ),
+    ).toBe(
+      turnFoldFor(
+        all,
+        all.findIndex((row) => row.text === "Ship it"),
+      ),
+    );
+  } finally {
+    client.close();
+  }
 });
