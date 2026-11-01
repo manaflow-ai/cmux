@@ -28,10 +28,11 @@
   margin-inline-start: calc(-1 * var(--cv-disclosure-gap));
 }
 /* A tag that opens a chat is a link chip (design/chat-transcript.md, "Session link chip"): the
-   link colour on a tint of it, real padding, centred on its row's icon line, and an open cue (↗)
+   theme's text on a wash of it, real padding, centred on its row's icon line, and an open cue (↗)
    after the name, so it reads as a way to somewhere else and not as the row's own words (Leo,
-   2026-11-01: "it's not obvious that clicking on this will be a new thing"). The look is this one
-   rule's; rows only place it. */
+   2026-11-01: "it's not obvious that clicking on this will be a new thing"). Its colours are the
+   theme's, never the link blue (Leo, 2026-11-01: "dont do blue by default, theme it"). The look is
+   this one rule's; rows only place it. */
 button.cv-agent-tag.is-open {
   display: inline-flex;
   align-items: center;
@@ -42,10 +43,9 @@ button.cv-agent-tag.is-open {
      room above and below inside every row it sits on. */
   height: var(--cv-tool-row-height);
   padding: 0 var(--ds-space-1);
-  color: var(--agent-link, var(--agent-accent));
-  background: color-mix(in srgb, var(--agent-link, var(--agent-accent)) 13%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
-    color-mix(in srgb, var(--agent-link, var(--agent-accent)) 28%, transparent);
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-text) 9%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 18%, transparent);
   line-height: var(--cv-tool-row-height);
 }
 .cv-agent-tag__label {
@@ -61,9 +61,9 @@ button.cv-agent-tag.is-open {
 /* Pointing at it lights the chip alone; the row under it stays as it was (each row's hover rule
    skips a line whose open chip is pointed at). */
 button.cv-agent-tag.is-open:is(:hover, :focus-visible, :active) {
-  color: var(--agent-link, var(--agent-accent));
-  background: color-mix(in srgb, var(--agent-link, var(--agent-accent)) 22%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-link, var(--agent-accent)) 50%, transparent);
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-text) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-text) 30%, transparent);
 }
 button.cv-agent-tag.is-open:is(:hover, :focus-visible, :active) .cv-agent-tag__cue,
 button.cv-agent-tag.is-open:is(:has([data-popup-open]), :focus-visible, :active) .cv-agent-tag__cue {

@@ -37,124 +37,138 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
     [1000, "light", 1.25],
   ];
   for (const [width, theme, scale] of rhythmCases) {
-      test(`${theme} ${width}px${scale === 1 ? "" : ` at ${scale}x interface`}: transcript column and block rhythm survive hover`, async () => {
-        const page = await browser.newPage({ viewport: { width, height: 900 } });
-        try {
-          const port = (vite.httpServer!.address() as { port: number }).port;
-          await page.goto(
-            `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", {
-              variant: "grid-rhythm",
-              theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors",
-              colorScheme: theme,
-              interfaceScale: scale === 1 ? undefined : scale,
-            })}`,
-          );
-          await page.locator('[data-row-id="grid-message"] .cv-md').waitFor();
-          await page.evaluate(() => document.fonts.ready);
-          await page.evaluate(
-            () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
-          );
-          const measure = () =>
-            page.evaluate(() => {
-              const rect = (selector: string) => {
-                const el = document.querySelector(selector);
-                if (!el) throw new Error(`Missing rhythm element: ${selector}`);
-                const r = el.getBoundingClientRect();
-                return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height };
-              };
-              const header = rect('[data-row-id="grid-header"] .cv-disclosure__line');
-              const prompt = rect('[data-row-id="grid-prompt"] .cv-user__bubble');
-              const message = rect('[data-row-id="grid-message"] .cv-md');
-              const group = rect(".acpmux-activity .cv-tools > .cv-tool");
-              const live = rect(
-                ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
-              );
-              const composer = rect(".acpmux-composer-box");
-              // A received message's line leads with its sender (IncomingMessageCard.tsx `leading`).
-              const headerIcon = rect('[data-row-id="grid-header"] .cv-disclosure__line > :first-child');
-              const toolIcon = rect(".acpmux-activity .cv-tool__icon");
-              const chevron = rect(".acpmux-activity .cv-tool__chevron");
-              // A reply's own action row, when it draws one: a turn's copy now lives in its footer
-              // (model.ts `hasReplyActions`), so the reply in this scene may have none.
-              const copyEl = document.querySelector('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg');
-              const copy = copyEl ? rect('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg') : undefined;
-              const composerBox = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-              // Every tool row's disclosure caret (inline after its label, cmux#28018).
-              const chevronCenters = [...document.querySelectorAll(".acpmux-row :is(.cv-tool__chevron, .cv-disclosure__line .cv-rotor)")].map((el) => {
-                const r = el.getBoundingClientRect();
-                return composerBox.right - (r.left + r.right) / 2;
-              });
-              // Every non-prompt block's first glyph or 16 icon box on col-left: no extra indents.
-              const firstInk = [...document.querySelectorAll(".acpmux-row")]
-                .filter((row) => !row.classList.contains("acpmux-user") && row.getBoundingClientRect().height > 0)
-                .map((row) => {
-                  const lead = row.querySelector(
-                    ".cv-tool__icon, .cv-disclosure__line > :first-child, .cv-md > :first-child, .cv-worked, .cv-activity",
-                  );
-                  return {
-                    id: row.getAttribute("data-row-id") ?? row.className,
-                    left: lead ? lead.getBoundingClientRect().left - composerBox.left : Number.NaN,
-                  };
-                });
-              const paragraphs = [...document.querySelectorAll('[data-row-id="grid-message"] .cv-md > .cv-p')].map(
-                (el) => el.getBoundingClientRect(),
-              );
-              return {
-                header,
-                prompt,
-                turn: header.top - prompt.bottom,
-                actionMid: copy ? (copy.top + copy.bottom) / 2 - message.bottom : undefined,
-                message,
-                group,
-                live,
-                composer,
-                headerIcon,
-                toolIcon,
-                chevron,
-                copy,
-                gaps: [message.top - header.bottom, group.top - message.bottom, live.top - group.bottom],
-                inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
-                composerGap: composer.top - live.bottom,
-                floating: Boolean(document.querySelector(".acpmux-main[data-dock=float]")),
-                chevronCenters,
-                firstInk,
-              };
+    test(`${theme} ${width}px${scale === 1 ? "" : ` at ${scale}x interface`}: transcript column and block rhythm survive hover`, async () => {
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      try {
+        const port = (vite.httpServer!.address() as { port: number }).port;
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", {
+            variant: "grid-rhythm",
+            theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors",
+            colorScheme: theme,
+            interfaceScale: scale === 1 ? undefined : scale,
+          })}`,
+        );
+        await page.locator('[data-row-id="grid-message"] .cv-md').waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        await page.evaluate(
+          () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+        );
+        const measure = () =>
+          page.evaluate(() => {
+            const rect = (selector: string) => {
+              const el = document.querySelector(selector);
+              if (!el) throw new Error(`Missing rhythm element: ${selector}`);
+              const r = el.getBoundingClientRect();
+              return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height };
+            };
+            const header = rect('[data-row-id="grid-header"] .cv-disclosure__line');
+            const prompt = rect('[data-row-id="grid-prompt"] .cv-user__bubble');
+            const message = rect('[data-row-id="grid-message"] .cv-md');
+            const group = rect(".acpmux-activity .cv-tools > .cv-tool");
+            const live = rect(
+              ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
+            );
+            const composer = rect(".acpmux-composer-box");
+            // A received message's line leads with its sender (IncomingMessageCard.tsx `leading`).
+            const headerIcon = rect('[data-row-id="grid-header"] .cv-disclosure__line > :first-child');
+            const toolIcon = rect(".acpmux-activity .cv-tool__icon");
+            const chevron = rect(".acpmux-activity .cv-tool__chevron");
+            // A reply's own action row, when it draws one: a turn's copy now lives in its footer
+            // (model.ts `hasReplyActions`), so the reply in this scene may have none.
+            const copyEl = document.querySelector('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg');
+            const copy = copyEl ? rect('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg') : undefined;
+            const composerBox = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+            // Every tool row's disclosure caret (inline after its label, cmux#28018).
+            const chevronCenters = [
+              ...document.querySelectorAll(".acpmux-row :is(.cv-tool__chevron, .cv-disclosure__line .cv-rotor)"),
+            ].map((el) => {
+              const r = el.getBoundingClientRect();
+              return composerBox.right - (r.left + r.right) / 2;
             });
-          await page.mouse.move(0, 0);
-          const hidden = await measure();
-          await page.locator('[data-row-id="grid-message"] .cv-md').hover();
-          const shown = await measure();
-          for (const [state, data] of Object.entries({ hidden, shown }))
-            for (const [metric, value] of Object.entries(data))
-              console.log(`TRANSCRIPT_RHYTHM ${JSON.stringify({ width, theme, state, metric, value })}`);
-          if (process.env.CMUX_RHYTHM_CAPTURES) {
-            await mkdir(process.env.CMUX_RHYTHM_CAPTURES, { recursive: true });
-            await page.screenshot({ path: `${process.env.CMUX_RHYTHM_CAPTURES}/${theme}-${width}${scale === 1 ? "" : `-${scale}x`}.png` });
-          }
-          for (const state of [hidden, shown]) {
-            expect(Math.abs(state.turn - 32 * scale), "turn gap").toBeLessThanOrEqual(0.5);
-            if (state.actionMid !== undefined)
-              expect(Math.abs(state.actionMid - 12 * scale), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
-            for (const gap of state.gaps) expect(Math.abs(gap - 24 * scale), "block gap").toBeLessThanOrEqual(0.5);
-            expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
-            // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
-            // 2026-11-01: "more space between composer and latest messages"); docked in flow, the
-            // composer gap.
-            expect(Math.abs(state.composerGap - (state.floating ? REST_GAP : 16 * scale)), "composer gap").toBeLessThanOrEqual(0.5);
-            for (const box of [state.message, state.headerIcon, state.toolIcon, state.live, ...(state.copy ? [state.copy] : [])]) {
-              expect(Math.abs(box.left - state.composer.left), "col-left").toBeLessThanOrEqual(0.5);
-            }
-            // Disclosure carets sit right after their label, not on col-right (cmux#28018, Leo,
-            // 2026-10-31: "we can fit stuff closer"); this test checks only that one is drawn.
-            expect(state.chevronCenters.length, "tool chevrons").toBeGreaterThan(0);
-            for (const ink of state.firstInk) expect(Math.abs(ink.left), `first ink on col-left: ${ink.id}`).toBeLessThanOrEqual(0.5);
-          }
-          expect(shown).toEqual(hidden);
-        } finally {
-          await page.close();
+            // Every non-prompt block's first glyph or 16 icon box on col-left: no extra indents.
+            const firstInk = [...document.querySelectorAll(".acpmux-row")]
+              .filter((row) => !row.classList.contains("acpmux-user") && row.getBoundingClientRect().height > 0)
+              .map((row) => {
+                const lead = row.querySelector(
+                  ".cv-tool__icon, .cv-disclosure__line > :first-child, .cv-md > :first-child, .cv-worked, .cv-activity",
+                );
+                return {
+                  id: row.getAttribute("data-row-id") ?? row.className,
+                  left: lead ? lead.getBoundingClientRect().left - composerBox.left : Number.NaN,
+                };
+              });
+            const paragraphs = [...document.querySelectorAll('[data-row-id="grid-message"] .cv-md > .cv-p')].map((el) =>
+              el.getBoundingClientRect(),
+            );
+            return {
+              header,
+              prompt,
+              turn: header.top - prompt.bottom,
+              actionMid: copy ? (copy.top + copy.bottom) / 2 - message.bottom : undefined,
+              message,
+              group,
+              live,
+              composer,
+              headerIcon,
+              toolIcon,
+              chevron,
+              copy,
+              gaps: [message.top - header.bottom, group.top - message.bottom, live.top - group.bottom],
+              inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
+              composerGap: composer.top - live.bottom,
+              floating: Boolean(document.querySelector(".acpmux-main[data-dock=float]")),
+              chevronCenters,
+              firstInk,
+            };
+          });
+        await page.mouse.move(0, 0);
+        const hidden = await measure();
+        await page.locator('[data-row-id="grid-message"] .cv-md').hover();
+        const shown = await measure();
+        for (const [state, data] of Object.entries({ hidden, shown }))
+          for (const [metric, value] of Object.entries(data))
+            console.log(`TRANSCRIPT_RHYTHM ${JSON.stringify({ width, theme, state, metric, value })}`);
+        if (process.env.CMUX_RHYTHM_CAPTURES) {
+          await mkdir(process.env.CMUX_RHYTHM_CAPTURES, { recursive: true });
+          await page.screenshot({
+            path: `${process.env.CMUX_RHYTHM_CAPTURES}/${theme}-${width}${scale === 1 ? "" : `-${scale}x`}.png`,
+          });
         }
-      });
-    }
+        for (const state of [hidden, shown]) {
+          expect(Math.abs(state.turn - 32 * scale), "turn gap").toBeLessThanOrEqual(0.5);
+          if (state.actionMid !== undefined)
+            expect(Math.abs(state.actionMid - 12 * scale), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
+          for (const gap of state.gaps) expect(Math.abs(gap - 24 * scale), "block gap").toBeLessThanOrEqual(0.5);
+          expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
+          // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
+          // 2026-11-01: "more space between composer and latest messages"); docked in flow, the
+          // composer gap.
+          expect(
+            Math.abs(state.composerGap - (state.floating ? REST_GAP : 16 * scale)),
+            "composer gap",
+          ).toBeLessThanOrEqual(0.5);
+          for (const box of [
+            state.message,
+            state.headerIcon,
+            state.toolIcon,
+            state.live,
+            ...(state.copy ? [state.copy] : []),
+          ]) {
+            expect(Math.abs(box.left - state.composer.left), "col-left").toBeLessThanOrEqual(0.5);
+          }
+          // Disclosure carets sit right after their label, not on col-right (cmux#28018, Leo,
+          // 2026-10-31: "we can fit stuff closer"); this test checks only that one is drawn.
+          expect(state.chevronCenters.length, "tool chevrons").toBeGreaterThan(0);
+          for (const ink of state.firstInk)
+            expect(Math.abs(ink.left), `first ink on col-left: ${ink.id}`).toBeLessThanOrEqual(0.5);
+        }
+        expect(shown).toEqual(hidden);
+      } finally {
+        await page.close();
+      }
+    });
+  }
   const openScene = async (entry: string, variant: string, width: number, theme: string) => {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     const port = (vite.httpServer!.address() as { port: number }).port;
@@ -190,10 +204,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
         const page = await openScene("agent-pane.transcript", "grid-waiting", width, theme);
         try {
           const prompt = await rectOf(page, '[data-row-id="grid-prompt"] .cv-user__bubble');
-          const indicator = await rectOf(
-            page,
-            ":is(.acpmux-thinking, .acpmux-working) .cv-worked",
-          );
+          const indicator = await rectOf(page, ":is(.acpmux-thinking, .acpmux-working) .cv-worked");
           const composer = await rectOf(page, ".acpmux-composer-box");
           const above = indicator.top - prompt.bottom;
           const below = composer.top - indicator.bottom;
@@ -202,7 +213,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           await shot(page, `waiting-${theme}-${width}`);
           expect(Math.abs(above - 24), "block gap above the waiting indicator").toBeLessThanOrEqual(0.5);
           // Over a floating stack the indicator, the newest line, rests the rest gap over it.
-          expect(Math.abs(below - (floating ? REST_GAP : 24)), "gap below the waiting indicator").toBeLessThanOrEqual(0.5);
+          expect(Math.abs(below - (floating ? REST_GAP : 24)), "gap below the waiting indicator").toBeLessThanOrEqual(
+            0.5,
+          );
         } finally {
           await page.close();
         }
@@ -252,8 +265,13 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           await shot(page, `settled-${theme}-${width}`);
           // Docked in flow, the block gap the action row lies in; over a floating stack that band
           // (to the action row's bottom edge, restBand) and then the rest gap.
-          expect(Math.abs(gap - (floating ? restBand(true) + REST_GAP : 24)), "composer gap after a message").toBeLessThanOrEqual(0.5);
-          expect(Math.abs(glyph.top - message.bottom - 4), "action glyph top 4 under the message").toBeLessThanOrEqual(0.5);
+          expect(
+            Math.abs(gap - (floating ? restBand(true) + REST_GAP : 24)),
+            "composer gap after a message",
+          ).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(glyph.top - message.bottom - 4), "action glyph top 4 under the message").toBeLessThanOrEqual(
+            0.5,
+          );
           expect(composer.top - glyph.bottom, "room under the action row").toBeGreaterThanOrEqual(3.5);
           expect(after, "showing the action row moves nothing").toEqual(message);
         } finally {
@@ -316,7 +334,8 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             // Carets sit inline after their label (cmux#28018), so no `trail` line is measured here;
             // each sits at most one grid gap after its words.
             const caretGaps = {
-              subsession: box(".cv-disclosure__line .cv-rotor").left - box(".cv-disclosure__line .cv-disclosure__label").right,
+              subsession:
+                box(".cv-disclosure__line .cv-rotor").left - box(".cv-disclosure__line .cv-disclosure__label").right,
               group: box("[data-grid-count] .cv-tool__chevron").left - box("[data-grid-count] .cv-tool__text").right,
             };
             const panel = box(".cv-disclosure__panel");
@@ -334,8 +353,10 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               // never in the verb column, so the space glyph is all that parts verb and count.
               if (document.querySelector(`${root} .cv-tool__verb`))
                 throw new Error("A count summary's verb must not take the verb column");
-              const label = document.querySelector(`${root} .cv-tool__summary, ${root} .cv-tool__text`)!.textContent ?? "";
-              if (!/^\S+ \d+ \S/.test(label)) throw new Error(`Count label must be "verb N noun": ${JSON.stringify(label)}`);
+              const label =
+                document.querySelector(`${root} .cv-tool__summary, ${root} .cv-tool__text`)!.textContent ?? "";
+              if (!/^\S+ \d+ \S/.test(label))
+                throw new Error(`Count label must be "verb N noun": ${JSON.stringify(label)}`);
               if (
                 getComputedStyle(document.querySelector(`${root} .cv-tool__text`)!).fontVariantNumeric !==
                 "tabular-nums"

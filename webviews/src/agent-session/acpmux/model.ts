@@ -1701,22 +1701,25 @@ function listHeight(
   const inner = width - LIST_INDENT;
   // `.cv-list` stacks its items with the inner gap (conversation.css), scaled per pass.
   const itemGaps = Math.max(0, list.items.length - 1) * blockGap();
-  return itemGaps + list.items.reduce((sum, item) => {
-    const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
-    const text = measuredText(
-      item.tokens.filter((token) => token.type !== "list"),
-      nested.length ? "" : item.text,
-    );
-    // An empty item (or one still streaming in) still draws its bullet's line.
-    const own = text ? textHeight(text, inner, prepared, used) : 0;
-    return (
-      sum +
-      Math.max(
-        metrics().lineHeight,
-        own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
-      )
-    );
-  }, 0);
+  return (
+    itemGaps +
+    list.items.reduce((sum, item) => {
+      const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
+      const text = measuredText(
+        item.tokens.filter((token) => token.type !== "list"),
+        nested.length ? "" : item.text,
+      );
+      // An empty item (or one still streaming in) still draws its bullet's line.
+      const own = text ? textHeight(text, inner, prepared, used) : 0;
+      return (
+        sum +
+        Math.max(
+          metrics().lineHeight,
+          own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
+        )
+      );
+    }, 0)
+  );
 }
 
 /** A fenced code card's estimated height in a column `width` wide, without its outer margin. */

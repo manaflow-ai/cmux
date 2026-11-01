@@ -225,9 +225,11 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* In the body's side inset, past the trailing column, outside the row highlight. */
-  right: calc(-1 * var(--grid-sidebar-highlight-inset));
-  width: var(--grid-sidebar-highlight-inset);
+  /* The first 4px of the body's right inset, past the trailing column and outside the row highlight;
+     the inset's other 4px keep it clear of the scrollbar's thumb (Leo, 2026-11-01: "the dragger is a
+     bit too close to the thumb"). The inset stays the grid's, so the trailing column keeps its line. */
+  right: calc(-1 * (var(--grid-sidebar-highlight-inset) - var(--grid-base)));
+  width: calc(var(--grid-sidebar-highlight-inset) - var(--grid-base));
   height: var(--grid-row);
   display: flex;
   align-items: center;
@@ -263,6 +265,8 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-session-info__body[data-layout] {
+  /* The handle's 4px, then 4px clear of the scrollbar's thumb (Leo, 2026-11-01: "the dragger is a bit
+     too close to the thumb"), inside the grid's side inset. */
   padding-right: var(--grid-sidebar-highlight-inset);
   padding-left: var(--grid-sidebar-highlight-inset);
 }
