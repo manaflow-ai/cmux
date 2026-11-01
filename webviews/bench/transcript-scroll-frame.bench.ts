@@ -51,7 +51,10 @@ try {
   // fling marks its own.
   const wheel = async (steps: number) => {
     await page.evaluate(async () => {
-      const { acpmuxPerf } = await import("/src/agent-session/acpmux/perf.ts");
+      // The page's URL for the module, which tsc cannot resolve from here: a variable, not a literal.
+      const perfUrl = "/src/agent-session/acpmux/perf.ts";
+      type Perf = typeof import("../src/agent-session/acpmux/perf");
+      const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as Perf;
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.scrollTop = scroller.scrollHeight;
       for (let frame = 0; frame < 30; frame += 1) await new Promise(requestAnimationFrame);
