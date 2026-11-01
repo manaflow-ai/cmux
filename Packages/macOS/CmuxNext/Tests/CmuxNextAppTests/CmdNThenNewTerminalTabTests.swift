@@ -105,7 +105,7 @@ struct CmdNThenNewTerminalTabTests {
             for task in work { _ = await task.value }
             try await PasswordManagerRouteTests.until({
                 store.panesByHandle[standInHandle] == nil
-                    && !store.pendingIntents.contains { if case .createWorkspace = $0 { true } else { false } }
+                    && !store.pendingIntents.contains { if case .createWorkspace = $0.intent { true } else { false } }
             }, report: { "Cmd-N's create did not hand its stand-in over" })
 
             // The person's Ctrl-` reaches the controller that still shows the stand-in.

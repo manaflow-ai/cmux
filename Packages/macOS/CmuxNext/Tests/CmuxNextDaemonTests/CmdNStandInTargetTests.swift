@@ -116,7 +116,7 @@ struct CmdNStandInTargetTests {
                 store.noteSettledAtNextSnapshot(cmdN)
                 store.apply(snapshot: DaemonTree(workspaceRevision: 3,
                                                  workspaces: [Self.base, Self.daemonWorkspace(key, pane: daemonPane, surface: SurfaceID(rawValue: 12))]))
-                #expect(!store.pendingIntents.contains { if case .createWorkspace = $0 { true } else { false } }, "Cmd-N's intent did not leave the log")
+                #expect(!store.pendingIntents.contains { if case .createWorkspace = $0.intent { true } else { false } }, "Cmd-N's intent did not leave the log")
             }
             #expect(store.panesByHandle[workspace.pane] == nil, "the stand-in still shows after the hand-over")
             // A window that still shows the stand-in for a frame: the Ctrl-` names it.
