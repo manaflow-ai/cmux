@@ -38,6 +38,7 @@ mod pick;
 mod tests;
 
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -136,6 +137,24 @@ pub(super) fn valid_key(key: &str) -> bool {
 
 fn refused(code: &str, error: impl std::fmt::Display) -> Value {
     json!({"ok": false, "error": error.to_string(), "error_code": code})
+}
+
+fn now_millis() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|value| value.as_secs_f64() * 1_000.0).unwrap_or_default()
+}
+
+/// Add clone state and host-observed timing boundaries to a copy answer.
+fn copy_progress(mut answer: Value, state: &str, phase: &str, started_at: f64, finished_at: Option<f64>) -> Value {
+    if let Some(object) = answer.as_object_mut() {
+        object.insert("seed_state".into(), json!(state));
+        object.insert("seed_phase".into(), json!(phase));
+        object.insert("machine_started_at".into(), json!(started_at));
+        if let Some(finished_at) = finished_at {
+            object.insert("machine_finished_at".into(), json!(finished_at));
+            object.insert("harness_started_at".into(), json!(finished_at));
+        }
+    }
+    answer
 }
 
 /// The account a send began in, as the App spells it: printable, at most 512 bytes.
@@ -344,6 +363,7 @@ impl StartCopy {
     /// copy whose answer was lost (it may have finished on the machine) or
     /// a second copy of the same send at once never writes over another.
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
+        let started_at = now_millis();
         let send = Send::new(&self.key, &self.account);
         let place = self.fresh_place();
         match Ledger::update(ledger, |pins| {
@@ -353,9 +373,9 @@ impl StartCopy {
             }
             finished
         }) {
-            Ok(Some(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(Some(chat)) => return copy_progress(json!({"ok": true, "chat": chat, "copied": false}), "done", "cached", started_at, Some(now_millis())),
             Ok(None) => {}
-            Err(error) => return refused("ledger_failed", format!("{error:#}")),
+            Err(error) => return copy_progress(refused("ledger_failed", format!("{error:#}")), "failed", "ledger", started_at, None),
         }
         let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
         for root in &self.work_roots {
@@ -366,9 +386,9 @@ impl StartCopy {
                         pins.record_copy(&chat, &send, &self.machine, &place);
                     }) {
                         Ok(()) => {
-                            json!({"ok": true, "chat": chat, "folder": folder, "copied": true})
+                            copy_progress(json!({"ok": true, "chat": chat, "folder": folder, "copied": true}), "done", "complete", started_at, Some(now_millis()))
                         }
-                        Err(error) => refused("ledger_failed", format!("{error:#}")),
+                        Err(error) => copy_progress(refused("ledger_failed", format!("{error:#}")), "failed", "ledger", started_at, None),
                     };
                 }
                 Err(failure) => {
@@ -381,7 +401,7 @@ impl StartCopy {
                 }
             }
         }
-        refused(&last.0, last.1)
+        copy_progress(refused(&last.0, last.1), "failed", "copy", started_at, None)
     }
 }
 

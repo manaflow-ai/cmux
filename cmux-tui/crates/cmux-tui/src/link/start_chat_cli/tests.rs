@@ -385,6 +385,20 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
 }
 
 #[test]
+fn copy_answer_emits_namespaced_seed_state_and_host_timings() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let answer = copy.run(&path, &|_: &Path, _: &Path, _: &str| Ok(()));
+    assert_eq!(answer["seed_state"], json!("done"));
+    assert_eq!(answer["seed_phase"], json!("complete"));
+    let machine_started = answer["machine_started_at"].as_f64().expect("machine start timestamp");
+    let machine_finished = answer["machine_finished_at"].as_f64().expect("machine finish timestamp");
+    assert!(machine_finished >= machine_started);
+    assert_eq!(answer["harness_started_at"], answer["machine_finished_at"]);
+}
+
+#[test]
 fn copy_refuses_paths_that_could_escape() {
     let send = key();
     let flags = |extra: &[&str]| {
