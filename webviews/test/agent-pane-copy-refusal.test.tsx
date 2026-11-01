@@ -19,6 +19,7 @@ const replacements: Record<string, unknown> = {
   Element: dom.window.Element,
   Node: dom.window.Node,
   MutationObserver: dom.window.MutationObserver,
+  customElements: dom.window.customElements,
   ResizeObserver: class {
     observe() {}
     unobserve() {}
@@ -140,7 +141,13 @@ test("edit-diff Copy stays Copy after refusal, and can recover on retry", async 
     additions: 1,
     deletions: 0,
     created: false,
-    edits: [],
+    edits: [
+      {
+        toolId: "edit-1",
+        numbered: false,
+        hunks: [{ lines: [{ type: "add", text: "export const entry = 1;" }] }],
+      },
+    ],
   };
   await act(async () => root.render(<EditDiff file={file} />));
   const button = host.querySelector<HTMLButtonElement>(".cv-edit-diff__copy")!;
