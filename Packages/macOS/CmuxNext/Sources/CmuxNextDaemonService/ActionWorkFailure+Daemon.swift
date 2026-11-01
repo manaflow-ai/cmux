@@ -21,6 +21,13 @@ extension ActionWorkFailure {
             shown = notReady.shown
             return
         }
+        // A close past its bound with no answer: its result is unknown (`CloseUnanswered`). A caller reads that it may
+        // still apply (a timeout, not a refusal); the person reads why.
+        if let unanswered = error as? CloseUnanswered {
+            self.init("\(label): \(unanswered)", mayHaveApplied: true)
+            shownReason = unanswered.description
+            return
+        }
         let daemonError = error as? DaemonError
         var timedOut = false
         if case .timedOut = daemonError { timedOut = true }
@@ -42,4 +49,11 @@ extension DaemonError {
         if case .terminalStartTimedOut = self { return true }
         return false
     }
+}
+
+/// A workspace close whose machine did not answer within its bound (`DaemonService.closeReplyBound`), and whose
+/// workspace its store still lists: the result is unknown, since a paused daemon may still close it later.
+public struct CloseUnanswered: Error, Sendable, CustomStringConvertible {
+    public init() {}
+    public var description: String { RefusalStrings.closeUnanswered }
 }

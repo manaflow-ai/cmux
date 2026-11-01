@@ -626,9 +626,10 @@ fn wakes(meta: &SessionMeta, item: &Item) -> bool {
 }
 
 /// Whether the person's (or any) prompt waits in the queue: no notice steers into the running
-/// turn then, so it is never held up behind them.
+/// turn then, so it is never held up behind them. One a failed turn holds or that waits for the
+/// owner (`QueuedPrompt::aside`) runs nothing, so it holds no notice back.
 fn prompt_waits(session: &Session) -> bool {
-    session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.held)
+    session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.aside())
 }
 
 /// Whether one of the person's prompts waits in the queue (not held, no agent's message): no other
@@ -636,14 +637,14 @@ fn prompt_waits(session: &Session) -> bool {
 /// Other agents' messages waiting do not hold one: they never held each other up.
 pub(super) fn persons_prompt_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-    queue.iter().any(|q| !q.held && q.run.agent.is_none())
+    queue.iter().any(|q| !q.aside() && q.run.agent.is_none())
 }
 
 /// Whether a chat's first work waits in its queue ([`FIRST_WORK`] on its provenance), as one a
 /// person's prompt went ahead of does, and one a restart rebuilt with no hold of its own.
 fn first_work_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-    queue.iter().any(|q| !q.held && is_first_work(q.run.provenance.as_ref()))
+    queue.iter().any(|q| !q.aside() && is_first_work(q.run.provenance.as_ref()))
 }
 
 /// Whether a prompt is the person's own (module docs): no other agent's message, and none of

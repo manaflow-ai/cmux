@@ -426,12 +426,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var onInstalled: [(ChatController) -> Void] = []
     /// cmux: the host's shared stop action (Home: stop the Chief's turn).
     var onStop: (() -> Void)?
+    /// cmux: after an accepted stop, the same button offers Continue until
+    /// the next person message or turn.
+    var onContinue: (() -> Void)?
     /// cmux: the host's Stop all agents (Option-click on the stop button);
     /// nil: Option-click stops as a click does.
     var onStopAll: (() -> Void)?
     /// cmux: the stop button's tooltip while the Chief works (the host's
     /// words, naming Option-click); nil: "Stop".
     var stopToolTip: String? { didSet { updateStopButton() } }
+    /// True after `chief.stop` accepted the running turn and before a new
+    /// message or turn clears the action.
+    var continueAvailable = false { didSet { if continueAvailable != oldValue { updateStopButton() } } }
     /// cmux: whether a pasteboard holds text the field pastes (Cmd+V from the
     /// pane, PaneHost+Keyboard.swift); tests stub it.
     var pasteboardHasText: (NSPasteboard) -> Bool = { $0.availableType(from: [.string]) != nil }

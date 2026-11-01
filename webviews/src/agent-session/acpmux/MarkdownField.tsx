@@ -404,6 +404,14 @@ function typedText(remark: RemarkParser, markdown: string): string {
 }
 
 /** The caret's offset inside the first paragraph, else past its end. */
+/// Brings a selection the browser changed on its own (not yet told by a selectionchange) into the
+/// editor's state, as ProseMirror's DOM observer would at that event. Its observer is not public API.
+function readDomSelection(view: EditorView) {
+  const observer = (view as unknown as { domObserver?: { forceFlush?(): void; flush?(): void } }).domObserver;
+  observer?.forceFlush?.();
+  observer?.flush?.();
+}
+
 function caretOf(view: EditorView): number {
   const { selection, doc } = view.state;
   const first = doc.firstChild;
@@ -506,7 +514,15 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           literalKeys.current!,
         ]
       : richPlugins.current;
+    // A new plugin list remakes every plugin view, and Milkdown's root view then unwraps and wraps
+    // the editor's element again: the move blurs it. The New Tab field is plain in both of its
+    // modes (`plainInput`), so leaving shell mode asks for the list it already has; keep it, and
+    // the keyboard with it. A list that does change gives the focus back to the field that had it.
+    const now = current.state.plugins;
+    if (plugins.length === now.length && plugins.every((plugin, index) => plugin === now[index])) return;
+    const focused = current.hasFocus();
     current.updateState(current.state.reconfigure({ plugins }));
+    if (focused && !current.hasFocus()) current.focus();
   }, []);
   useLayoutEffect(configureLiteral, [configureLiteral, literal, plainInput]);
   // The markdown the field last emitted or applied; a different `value` comes from outside.
@@ -665,6 +681,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               handleDOMEvents: {
                 keydown: (_view, event) => {
                   returnTaken = false;
+                  // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
+                  // the editor's state only at the next selectionchange, a task later. A key that
+                  // comes first saw the old selection: after ArrowRight collapsed a selected New Tab
+                  // location, ProseMirror's keypress typed over the whole location it still thought
+                  // was selected. Its own keydown flushes only pending DOM mutations, so read the
+                  // selection here, before the surface's keys and ProseMirror's see it.
+                  if (!event.isComposing && event.keyCode !== 229 && !_view.composing) readDomSelection(_view);
                   latest.current.onKeyDown?.(event);
                   if (event.defaultPrevented) return true;
                   // Browser editing shortcuts must remain reliable in literal New Tab input.
