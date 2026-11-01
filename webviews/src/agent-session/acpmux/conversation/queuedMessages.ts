@@ -45,9 +45,9 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
   const rows: AcpmuxRow[] = [];
   for (const entry of queue) {
     const person = isHeldEntry(entry) ? entry.author : undefined;
-    const message =
-      entry.message ??
-      (isHeldEntry(entry) ? { name: person?.name ?? "", text: entry.prompt, raw: entry.prompt } : undefined);
+    const message = isHeldEntry(entry)
+      ? { name: person?.name ?? "", text: entry.prompt, raw: entry.prompt, fromPerson: true as const }
+      : entry.message;
     if (!message) continue;
     // The first message may explain a Stop hold, once for the run.
     const lead = rows.length === 0;

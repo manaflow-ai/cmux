@@ -7192,7 +7192,7 @@ export class AcpmuxDirectClient {
       at: event.at,
       kind: QUEUED_MESSAGE,
       text,
-      incoming: { kind: "message", message: { name: entry.author.name, text, raw: text } },
+      incoming: { kind: "message", message: { name: entry.author.name, text, raw: text, fromPerson: true } },
       queuedMessage: { promptId, person: entry.author, declined: true },
       untyped: true,
     });
