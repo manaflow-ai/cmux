@@ -266,6 +266,7 @@ export function useSessionInfo({
   snapshot,
   machineName,
   repository,
+  cloudRepositoryAvailable,
   shell,
   onOpenOutput,
   onOpenSourceFile,
@@ -311,6 +312,8 @@ export function useSessionInfo({
   machineName?: string;
   /// The chat folder's GitHub repository (`git.githubRepository`), `owner/name`.
   repository?: string;
+  /// Native says whether this pane has an authenticated Cloud repository route.
+  cloudRepositoryAvailable?: boolean;
   /// The pane's shell: Session Info measures it to float or push.
   shell?: HTMLElement | null;
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
@@ -486,6 +489,7 @@ export function useSessionInfo({
         pullRequest={pullRequest}
         machineName={machineName}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         shell={shell}
         beside={beside}
         wide={wide}
@@ -554,6 +558,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   pullRequest,
   machineName,
   repository,
+  cloudRepositoryAvailable,
   shell,
   beside,
   wide,
@@ -589,6 +594,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   pullRequest: HeaderPullRequest | undefined;
   machineName?: string;
   repository?: string;
+  cloudRepositoryAvailable?: boolean;
   shell?: HTMLElement | null;
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
   beside?: unknown;
@@ -774,6 +780,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         machineName={machineName}
         peerKinds={snapshot.peerKinds}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         links={links}
         artifacts={artifacts}
@@ -990,6 +997,7 @@ export function SessionInfo({
   machineName,
   peerKinds,
   repository,
+  cloudRepositoryAvailable,
   made,
   links = [],
   artifacts = 0,
@@ -1035,6 +1043,7 @@ export function SessionInfo({
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   repository?: string;
+  cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links?: readonly OutputLink[];
@@ -1190,6 +1199,7 @@ export function SessionInfo({
         machineName={machineName}
         peerKinds={peerKinds}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
         onSave={onSaveEnvironment}
         onOpenFolder={onOpenFolder}
