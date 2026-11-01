@@ -173,6 +173,12 @@ export class AcpmuxClient {
    * with no `sessions`, is an error: a short list would pass for the whole one. */
   private async wholeList(method: string, params: Record<string, unknown>): Promise<SessionList> {
     const reply = await this.request<SessionList>(method, params);
+    // A malformed sessions response is unknown inventory, never an empty fleet.
+    // Legacy watch replies may be {} to acknowledge the subscription.
+    if (reply === null || typeof reply !== "object" || Array.isArray(reply))
+      throw new Error(`${method}: acpmux gave an invalid session-list reply`);
+    if (method === "_acpmux/sessions" && !Array.isArray(reply.sessions))
+      throw new Error(`${method}: the reply lists no sessions`);
     const rest = { ...params };
     delete rest.enabled;
     const seen = new Set<string>();
