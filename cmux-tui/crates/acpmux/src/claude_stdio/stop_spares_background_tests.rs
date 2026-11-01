@@ -10,7 +10,9 @@ use super::*;
 async fn initialize_declares_per_task_stop_so_an_interrupt_spares_background_tasks() {
     let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
     let req = Message::request(1, method::INITIALIZE, json!({"protocolVersion": 1}));
-    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!("initialize answered at once") };
+    let Outbound::Lines(lines) = t.outbound(&req).await else {
+        panic!("initialize answered at once")
+    };
     let init = lines
         .iter()
         .find(|l| l.pointer("/request/subtype") == Some(&json!("initialize")))
@@ -29,8 +31,10 @@ async fn a_cancel_beside_background_work_is_one_interrupt_and_nothing_else() {
     t.background_subagents.lock().await.insert("toolu_agent".into());
     let cancel = Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}));
     let Outbound::Lines(lines) = t.outbound(&cancel).await else { panic!("expected lines") };
-    let subtypes: Vec<&str> =
-        lines.iter().filter_map(|l| l.pointer("/request/subtype").and_then(Value::as_str)).collect();
+    let subtypes: Vec<&str> = lines
+        .iter()
+        .filter_map(|l| l.pointer("/request/subtype").and_then(Value::as_str))
+        .collect();
     assert_eq!(subtypes, ["interrupt"], "{lines:?}");
     // The stopped turn's result leaves the background subagent running.
     t.subagents.lock().await.insert("toolu_agent".into(), "child-bg".into());
@@ -48,6 +52,12 @@ async fn a_cancel_beside_background_work_is_one_interrupt_and_nothing_else() {
             _ => None,
         })
         .collect();
-    assert!(cancelled_children.is_empty(), "a background subagent was ended: {cancelled_children:?}");
-    assert!(t.subagents.lock().await.contains_key("toolu_agent"), "the background subagent is forgotten");
+    assert!(
+        cancelled_children.is_empty(),
+        "a background subagent was ended: {cancelled_children:?}"
+    );
+    assert!(
+        t.subagents.lock().await.contains_key("toolu_agent"),
+        "the background subagent is forgotten"
+    );
 }

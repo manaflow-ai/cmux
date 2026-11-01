@@ -262,8 +262,6 @@ mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 mod outbound;
 #[cfg(test)]
-mod stop_spares_background_tests;
-#[cfg(test)]
 mod steer_now_tests;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
 mod steer_batch;
@@ -272,6 +270,8 @@ mod steer_batch_tests;
 mod steer_withdraw;
 #[cfg(test)]
 mod steer_withdraw_tests;
+#[cfg(test)]
+mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;

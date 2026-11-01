@@ -148,8 +148,11 @@ async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
 async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process() {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-beside-background").await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "works-through-cancel-beside-background", Some("p-work")))
-        .await;
+    c.send(
+        method::SESSION_PROMPT,
+        prompt(&id, "works-through-cancel-beside-background", Some("p-work")),
+    )
+    .await;
     let first =
         c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
     let title = first["update"]["title"].as_str().unwrap().to_owned();
@@ -191,7 +194,10 @@ async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process(
         .filter(|e| e.kind == "tool_call" && e.seq > result.seq)
         .filter_map(|e| e.msg["params"]["update"]["title"].as_str())
         .collect();
-    assert!(after.iter().any(|t| t.ends_with(&pid)), "the agent's process did not run on: {after:?}");
+    assert!(
+        after.iter().any(|t| t.ends_with(&pid)),
+        "the agent's process did not run on: {after:?}"
+    );
     let row = summary(&hub, &id);
     assert!(row["turn"].is_null(), "the stopped turn is still open: {row}");
 }
