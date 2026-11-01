@@ -29,7 +29,7 @@ on:
         default: '3600'
       runner:
         description: >-
-          A Blacksmith Linux label (8, 16 or 32 vCPU) to run on instead of the default, or empty.
+          A fleet or Blacksmith Linux label to run on instead of the fleet default, or empty.
           The lane-gh broker sets it when it dispatches a run again because the first one waited 3 minutes on a
           label that started no job; any other value is ignored
         default: ''
@@ -44,14 +44,10 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux'
     # inputs.runner: the broker's re-dispatch off a stalled label (HQ tools/lane-gh-broker ci_reroute). GitHub binds
     # a job's label when it creates the job, so a run stuck on a label that starts nothing is dispatched again on
-    # another size; only the Blacksmith Linux labels listed are taken.
-    # Otherwise the linux pool's live member (.github/runners.json pools.linux, which scripts/ci/runner_pools.py keeps
-    # on a size that starts jobs, from the overflow probe's per-size health), never a size named here: one stalled
-    # size moves the pool to the next, which the overflow switch (it trips only when every size stalls) never did.
-    # tests/test_ci_runner_set.py fails any job whose label comes only from literals.
-    # The fork pull request branch is never taken (this workflow is dispatch-only); it is the shape
-    # tests/test_ci_repo_variable_defaults.py asks of every RUNNER_POOLS read, which has no literal fallback.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    # another size; the fleet label is first and Blacksmith labels are bounded overflow.
+    # The fleet label is an ephemeral GCP JIT runner. A stalled fleet run is moved by the broker to
+    # the measured Blacksmith overflow labels above; no job is bound to one Blacksmith size by default.
+    runs-on: ${{ contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 195
     defaults:
       run:
