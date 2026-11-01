@@ -1,5 +1,6 @@
 use super::*;
 use crate::cloud::client::{MemoryStore, ensure_install_key};
+use crate::cloud::wire::{BIND_FILE, BOUND_FILE};
 use serde_json::json;
 
 fn enrolled_store() -> (MemoryStore, InstallKey) {
