@@ -46,8 +46,10 @@ overflow switch's record names it among the variables it changed, and --check fa
 label outside the pool.
 
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
-creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
-which then read the pool's new member.
+creates the job. Each pass records the moves it writes (a pool member, a MIRRORS variable) in
+RUNNER_POOLS' `_moved` (route_moves.record_moves()), and the queue janitor re-runs the queued jobs
+whose runs-on took the old label from that variable (queue_janitor.route_lost()), which then read the
+new one.
 
 RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label, so a
 job reading it can never land on an owned Mac, whoever started it (a fork's pull request
@@ -75,6 +77,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402  (its GitHub client reads the janitor snapshot)
 import simple_pool_picker  # noqa: E402  (the one Blacksmith stall rule)
+import route_moves  # noqa: E402  (the `_moved` record the queue janitor reads)
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNERS = ROOT / ".github" / "runners.json"
@@ -92,6 +95,8 @@ MIRRORS = {"LINUX_RUNNER": "linux"}
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
 UPDATED_KEY = "_updated"
+# The moves this script made, for the queue janitor (route_moves.py).
+MOVED_KEY = route_moves.MOVED_KEY
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
@@ -191,7 +196,37 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
     if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
         clean[UPDATED_KEY] = value[UPDATED_KEY]
+    moved = value.get(MOVED_KEY)
+    if isinstance(moved, list):
+        good_moves = [entry for entry in moved if route_moves.valid_entry(entry)]
+        if len(good_moves) != len(moved):
+            dropped.append(f"{VARIABLE}.{MOVED_KEY} holds entries that are not moves; dropped")
+        clean[MOVED_KEY] = good_moves
+    elif moved is not None:
+        dropped.append(f"{VARIABLE}.{MOVED_KEY} is not a list; reset")
     return clean, dropped
+
+
+def with_moves(value: Mapping[str, Any], current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]],
+               mirrors: Sequence[tuple[str, str]], live: Mapping[str, str | None], *,
+               now: dt.datetime) -> dict[str, Any]:
+    """`value` with its `_moved` record (route_moves.record_moves()): this pass's pool moves (`current` is the
+    value before it) and MIRRORS writes (`mirrors`, from mirror_writes(); `live` their values before it)."""
+    changes: list[tuple[str, str | None, str]] = []
+    for name in sorted(pools):
+        old, new = current.get(name), value.get(name)
+        if isinstance(old, str) and isinstance(new, str) and old != new:
+            changes.append((f"{VARIABLE}.{name}", old, new))
+    written = dict(mirrors)
+    for name, label in mirrors:
+        changes.append((name, live.get(name), label))
+    after = {f"{VARIABLE}.{name}": value[name] for name in pools if isinstance(value.get(name), str)}
+    after.update({name: written.get(name, (live.get(name) or "").strip()) for name in MIRRORS if name in live})
+    out = dict(value)
+    out[MOVED_KEY] = route_moves.record_moves(current.get(MOVED_KEY), changes, current=after, now=now)
+    if not out[MOVED_KEY] and not current.get(MOVED_KEY):
+        del out[MOVED_KEY]
+    return out
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -481,16 +516,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### Runner pools\n\n" + ("\n".join(f"- {line}" for line in lines) or "- no change")
                          + "\n\n```json\n" + json.dumps(value, indent=2, sort_keys=True) + "\n```\n")
+    # The mirrored variables and the switch's record, read live: the switch step just before this one
+    # may have moved them, so the job-start values could undo its failover.
+    live, record, readable = _live(switch, env)
+    mirrors = mirror_writes(value, live, record=record) if readable else []
+    # Every move this pass makes, recorded where the queue janitor reads it (route_moves.py).
+    value = with_moves(value, current, pools, mirrors, live if readable else {}, now=now)
+    for entry in value.get(MOVED_KEY) or ():
+        print(f"recorded move: {entry['variable']} {entry['from']} -> {entry['to']} at {entry['at']}")
     writes: list[tuple[str, str]] = []
     if render(value) == (env.get(VARIABLE) or "").strip():
         print(f"{VARIABLE} unchanged")
     else:
         writes.append((VARIABLE, render(value)))
-    # The mirrored variables and the switch's record, read live: the switch step just before this one
-    # may have moved them, so the job-start values could undo its failover.
-    live, record, readable = _live(switch, env)
-    if readable:
-        writes += mirror_writes(value, live, record=record)
+    writes += mirrors
     if not writes:
         return 0
     if args.dry_run:

@@ -213,7 +213,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 import zlib
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -229,6 +229,7 @@ from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_arti
 import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
+import route_moves  # noqa: E402
 import starved_labels  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
@@ -1438,6 +1439,8 @@ class LostJob:
     # Every lost job of the run (their ids), this one among them: a failed run whose unfinished jobs are all
     # lost re-runs its failed jobs, bringing every one of them back (open_head_lost()).
     job_ids: tuple[int, ...] = ()
+    # Set when the evidence is a route move instead of skipped_by_pool() (route_lost()): what moved.
+    route: str = ""
 
 
 def _overdue(run_jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> Iterable[tuple[Mapping[str, Any], dt.datetime]]:
@@ -1513,6 +1516,122 @@ def find_lost(
             ids = tuple(item.job_id for _, item in found if item.job_id is not None)
             lost[run["id"]] = dataclasses.replace(oldest, job_ids=ids if len(ids) == len(found) else ())
     return lost
+
+
+# Route moves (route_moves.py): a job queued on a label a routing variable left joins category e here.
+# A job queued at least this long since it could run; younger ones may still be starting.
+ROUTE_MIN_QUEUED_SECONDS = 5 * 60
+# Per sweep: at most this many runs become route-moved candidates (they then share category e's cancel and
+# re-run caps), this many extra job listings of runs the inventory did not list (linux-only workflows), and
+# this many workflow file reads (over git first; the API only when git cannot), within this many seconds.
+ROUTE_MAX_RUNS = 20
+ROUTE_JOB_READS = 20
+ROUTE_FILE_READS = 40
+ROUTE_BUDGET_S = 150.0
+
+
+def route_scope(run: Mapping[str, Any], moves: Sequence[route_moves.Move]) -> list[route_moves.Move]:
+    """The moves a run may hold a job for: it is in category e's scope (push or pull request, never a nightly,
+    DEV, promote, release or other protected run) and was created before the move."""
+    created = parse_time(run.get("created_at"))
+    if created is None or not _lost_scope(run) or is_delivery_run(str(run.get("path") or ""), run.get("name"),
+                                                                     run.get("display_title")):
+        return []
+    return [move for move in moves if created < move.at]
+
+
+def route_listings(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+                   moves: Sequence[route_moves.Move], files: "route_moves.WorkflowFiles", *,
+                   unread: Iterable[int] = (), cap: int = ROUTE_JOB_READS) -> list[Mapping[str, Any]]:
+    """The runs whose jobs route_lost() needs and the inventory did not list, oldest first, at most `cap`: in
+    route_scope(), and their workflow file at their head names a moved variable (read before any listing)."""
+    skip = set(unread)
+    wanted = []
+    for run in sorted(runs, key=lambda r: (str(r.get("created_at") or ""), r.get("id") or 0)):
+        if len(wanted) >= cap:
+            break
+        if run.get("id") in jobs_by_run or run.get("id") in skip:
+            continue
+        held = route_scope(run, moves)
+        if not held:
+            continue
+        text = files.read(str(run.get("head_sha") or ""), str(run.get("path") or "").split("@", 1)[0])
+        if any(route_moves.mentions(text, move) for move in held):
+            wanted.append(run)
+    return wanted
+
+
+def route_lost(
+    runs: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    moves: Sequence[route_moves.Move],
+    *,
+    now: dt.datetime,
+    values: Mapping[str, str],
+    repo: str,
+    read: Callable[[str, str], str | None],
+    exclude: Iterable[int] = (),
+    max_runs: int = ROUTE_MAX_RUNS,
+) -> tuple[dict[int, LostJob], list[str]]:
+    """Run id -> a LostJob for runs holding a job a route move left behind, and a line per run looked at.
+
+    A job qualifies when it is unassigned() (queued, no runner id or name: never a job a runner has), asks for
+    exactly the move's old label, could have run for ROUTE_MIN_QUEUED_SECONDS, its run was created before the
+    move (route_scope()), and its runs-on in the workflow file at the run's head (read(sha, path)) takes that
+    label from the moved variable and gives another one with today's values (route_moves.qualifies()). As in
+    find_lost(), a run with any other unfinished job is left alone (_gated()): its cancel would end work that
+    has a runner or a gate it waits on. The verdict (a stale head cancelled, an open or live head cancelled and
+    re-run at the same head, a bot's attempt left alone) is category e's, classify_lost(). Oldest runs first, at
+    most `max_runs`; runs in `exclude` (already lost) are skipped."""
+    found: dict[int, LostJob] = {}
+    lines: list[str] = []
+    skip = set(exclude)
+    for run in sorted(runs, key=lambda r: (str(r.get("created_at") or ""), r.get("id") or 0)):
+        if len(found) >= max_runs:
+            break
+        if run.get("id") in skip:
+            continue
+        held = route_scope(run, moves)
+        run_jobs = jobs_by_run.get(run.get("id"))
+        if not held or run_jobs is None:
+            continue
+        context = route_moves.run_context(run, repo)
+        path = str(run.get("path") or "").split("@", 1)[0]
+        sha = str(run.get("head_sha") or "")
+        suspects: list[tuple[Mapping[str, Any], LostJob]] = []
+        why_not = ""
+        for job in run_jobs:
+            if not unassigned(job):
+                continue
+            labels = [str(label).lower() for label in job.get("labels") or ()]
+            move = next((m for m in held if labels == [m.old.lower()]), None)
+            if move is None:
+                continue
+            since = lost_wait_start(job, run_jobs)
+            if since is None or (now - since).total_seconds() < ROUTE_MIN_QUEUED_SECONDS:
+                why_not = why_not or f"`{job.get('name')}` queued under {ROUTE_MIN_QUEUED_SECONDS // 60} minutes"
+                continue
+            runs_on = route_moves.runs_on_of(lambda file, sha=sha: read(sha, file), path, str(job.get("name") or ""))
+            target, why = route_moves.qualifies(runs_on, move, values, context)
+            if target is None:
+                why_not = why_not or f"`{job.get('name')}`: {why}"
+                continue
+            job_id = job.get("id") if isinstance(job.get("id"), int) else None
+            suspects.append((job, LostJob(str(job.get("name") or ""), job_pool_key(job), since, 0, job_id,
+                                          route=why)))
+        if not suspects:
+            if why_not:
+                lines.append(f"run {run.get('id')} ({run.get('name')}): left alone: {why_not}")
+            continue
+        if _gated(run_jobs, [job for job, _ in suspects]):
+            lines.append(f"run {run.get('id')} ({run.get('name')}): left alone: another job of the run is unfinished")
+            continue
+        oldest = min((item for _, item in suspects), key=lambda item: item.queued_since)
+        ids = tuple(item.job_id for _, item in suspects if item.job_id is not None)
+        found[run["id"]] = dataclasses.replace(oldest, job_ids=ids if len(ids) == len(suspects) else ())
+        lines.append(f"run {run.get('id')} ({run.get('name')}): {len(suspects)} job(s) on `{oldest.labels}`; "
+                     f"{oldest.route}")
+    return found, lines
 
 
 def evidence_queries(
@@ -1785,8 +1904,12 @@ def classify_lost(
     if prs is None:
         return None
     state, pr, why = lost_pr_state(run, prs, branch_head)
-    evidence = (f"lost runner assignment: `{lost.job_name}` queued {format_age(now - lost.queued_since)} with no "
-                f"runner while {lost.skipped} newer job(s) on `{lost.labels}` started")
+    if lost.route:
+        evidence = (f"route moved: `{lost.job_name}` queued {format_age(now - lost.queued_since)} with no runner on "
+                    f"`{lost.labels}`, which its route left ({lost.route})")
+    else:
+        evidence = (f"lost runner assignment: `{lost.job_name}` queued {format_age(now - lost.queued_since)} with no "
+                    f"runner while {lost.skipped} newer job(s) on `{lost.labels}` started")
     if state == "unknown":
         return LostVerdict("skip", evidence, why)
     if pr is not None and JANITOR_OPT_OUT_LABEL in pr_labels(pr):
@@ -4258,6 +4381,11 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     branch_linux_only = branch_linux_only_paths(args.branch_workflows)
+    moves: list[route_moves.Move] = []
+    no_moves = ""
+    route_files: route_moves.WorkflowFiles | None = None
+    route_reads = 0
+    route_lines: list[str] = []
     try:
         runs = github.in_flight_runs()
         jobs_by_run, unread, unlisted = read_run_jobs(github, runs, linux_only, now,
@@ -4285,6 +4413,31 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
             except RuntimeError as error:
                 print(f"queue-janitor: lost-assignment evidence for {workflow}: {error}", file=sys.stderr)
         lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
+        # Route moves (route_moves.py): RUNNER_POOLS' `_moved`, from this job's env (no API read). A job left on
+        # a label its route moved off joins category e, bounded per sweep; a rate limit here ends the sweep
+        # before anything is cancelled, like every read above.
+        moves, no_moves = route_moves.moves_in(os.environ.get("RUNNER_POOLS"), now=now)
+        if moves and not route_moves.yaml_available():
+            moves, no_moves = [], "PyYAML is missing on this runner, so no runs-on can be read"
+        if moves:
+            route_files = route_moves.WorkflowFiles(
+                args.repo, api=lambda path: github.request("GET", path), max_reads=ROUTE_FILE_READS,
+                deadline=time.monotonic() + ROUTE_BUDGET_S)
+            route_jobs = dict(jobs_by_run)
+            for run in route_listings(runs, jobs_by_run, moves, route_files, unread=unread):
+                route_reads += 1
+                try:
+                    route_jobs[run["id"]] = github.jobs(run["id"])
+                except RateLimited:
+                    raise
+                except RuntimeError as error:  # unread: not a candidate this sweep
+                    print(f"queue-janitor: route move: jobs of run {run['id']}: {error}", file=sys.stderr)
+            moved, route_lines = route_lost(runs, route_jobs, moves, now=now,
+                                            values=route_moves.values_from(os.environ), repo=args.repo,
+                                            read=route_files.read, exclude=lost)
+            for run_id in moved:
+                jobs_by_run[run_id] = route_jobs[run_id]
+            lost = {**lost, **moved}
         unclaimed = find_unclaimed(runs, jobs_by_run, now=now, lost=lost, evidence_jobs=evidence_jobs,
                                    blacksmith_legs=os.environ.get("PR_POOL_OWNED", "").strip() == "1")
         # The re-runs an earlier sweep left pending, from its pool snapshot.
@@ -4596,6 +4749,8 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         summary += "\nRe-run by the next sweep unless a newer dispatch of the same kind took the job: " + ", ".join(
             f"run {entry['run_id']} (`{entry['dispatch']['job']}`)" for entry in orphan_rerun_entries) + ".\n"
     summary += render_superseded_summary(superseded_decisions)
+    summary += route_moves.summary(moves, no_moves, route_lines, route_files, dry_run=args.dry_run,
+                                   listings=route_reads)
     summary += f"\n_{render_listing(listing)}._\n"
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings " \
                f"({branch_skipped} more runs not listed: linux-only on their branch), {len(branches)} PR branches, " \

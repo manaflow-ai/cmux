@@ -246,6 +246,12 @@ jobs:
           # dashboard (cmuxterm-hq build-fleet/ci-dash); JSON data only, read
           # through env and never expanded into a script. Into the snapshot as `gates`.
           FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
+          # Route moves (scripts/ci/route_moves.py): RUNNER_POOLS' `_moved` names the labels runner_pools.py
+          # moved a routing variable off; a queued job left there whose runs-on read that variable joins
+          # category e. These are the values a re-run reads; JSON data only, read through env.
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
+          CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on
