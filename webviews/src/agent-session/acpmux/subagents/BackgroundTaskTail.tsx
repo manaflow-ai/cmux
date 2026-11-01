@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import { useT } from "../i18n";
 import { TerminalSquare } from "../conversation/icons";
 import { tailLines, useLiveBackgroundTaskOutput } from "../conversation/backgroundTaskOutput";
-import type { BackgroundCommand } from "../inspector/processes";
+import type { BackgroundCommand } from "../session-info/processes";
 
 const TAIL_LINES = 10;
 

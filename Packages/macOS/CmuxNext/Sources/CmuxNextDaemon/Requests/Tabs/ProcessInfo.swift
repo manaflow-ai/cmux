@@ -42,5 +42,15 @@ public struct TerminalProcessInfoRequest: DaemonRequest {
 
     public static let command = "process-info"
     public var surface: SurfaceID
+    /// A person's action on `surface` (typing into its foreground program): a stand-in is refused at the request boundary
+    /// and the refusal shows, as for every action (rule b).
     public init(surface: SurfaceID) { self.surface = surface }
+
+    /// A read of `surface`'s process that the person did not ask for: nil for a stand-in tab (a Ctrl-` or split still
+    /// opening), whose terminal has no process in the daemon yet, so the read is never sent and never shows "This pane is
+    /// still opening". The boundary's own test (`DaemonRequestExecutor.standInReference`), so the two never disagree.
+    public init?(reading surface: SurfaceID) {
+        guard surface.rawValue < ProvisionalPane.firstHandle else { return nil }
+        self.surface = surface
+    }
 }

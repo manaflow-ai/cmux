@@ -49,7 +49,7 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
@@ -65,6 +65,9 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(programChecksCommand(lock)).toContain("acpmux --version");
     const list = acpmuxListCommand();
     expect(list).toContain("acpmux ls --json");
+    // acpmux ls no longer starts a daemon (#28046), so the smoke starts one before listing.
+    expect(list.indexOf("acpmux daemon start")).toBeGreaterThan(-1);
+    expect(list.indexOf("acpmux daemon start")).toBeLessThan(list.indexOf("acpmux ls --json"));
     const syntax = await runChild("bash", ["-n"], { input: list, timeout: 20_000 });
     expect(syntax.stderr).toBe("");
     expect(syntax.status).toBe(0);
@@ -182,7 +185,7 @@ describe("base fingerprint and closure checks", () => {
   test("base packages and npm globals must be in the lock", () => {
     expect(basePackageProblems(lock, new Map(Object.entries(lock.base.basePackages)))).toEqual([]);
     expect(basePackageProblems(lock, new Map())).toHaveLength(Object.keys(lock.base.basePackages).length);
-    const globals = new Map([["npm", "11.19.0"], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
+    const globals = new Map([["npm", lock.base.npmGlobals.keep.npm], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
     expect(npmGlobalProblems(lock, globals)).toEqual([
       "base npm global left-pad@1.3.0 is not in the lock (keep or strip it)",
       "base npm global corepack@0.37.0, lock keeps 0.36.0",
@@ -297,6 +300,32 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(problemsOf(raw)).toEqual([]);
     raw.programs.find((p: { name: string }) => p.name === "cmux-cua").roles = ["cua", "nope"];
     expect(problemsOf(raw).some((p) => p.includes('roles: unknown role "nope"'))).toBe(true);
+  });
+});
+
+describe("agent-desktop (vercel-labs, Lawrence's ask 2026-10-30)", () => {
+  test("1.0.2 x86_64 is baked by release URL, sha256, size and checksums.txt, with its clipboard helper beside the binary", () => {
+    const lock = readInputsLock();
+    const pinned = lock.programs.find((p) => p.name === "agent-desktop")!;
+    expect(pinned).toMatchObject({
+      version: "1.0.2",
+      url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+      sha256: "ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4",
+      size: 3359127,
+      format: "tar.gz",
+      bin: { "agent-desktop": "agent-desktop" },
+      versionArgs: ["--version"],
+      expect: "agent-desktop 1.0.2",
+      checksumsUrl: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/checksums.txt",
+      checksumsName: "agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+    });
+    expect(pinned.firstUse).toBeUndefined();
+    expect(bakedPrograms(lock).map((p) => p.name)).toContain("agent-desktop");
+    expect(profileLinks(lock).map((l) => l.command)).toContain("agent-desktop");
+    expect(programChecksCommand(lock)).toContain("agent-desktop --version");
+    const install = programInstallCommand(pinned);
+    expect(install).toContain("agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz' ");
+    expect(install).toContain("ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4");
   });
 });
 

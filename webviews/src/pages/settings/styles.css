@@ -170,6 +170,26 @@ mark {
   gap: 1px;
 }
 
+/* A titled run of categories (Look and Feel, AI, ...); the space above each header separates the
+   runs, so no divider line is needed. */
+/* Its links keep the list's own rhythm: the section is a column with no gap of its own. */
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-section + .sidebar-section { margin-top: 14px; }
+
+.sidebar-section-title {
+  margin: 0;
+  padding: 0 8px 4px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
 .section-link {
   display: flex;
   align-items: center;
@@ -887,7 +907,7 @@ mark {
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--muted-text);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 
@@ -994,10 +1014,14 @@ mark {
   padding: 4px 0 0;
 }
 
+.accounts-row {
+  --accounts-mark-width: 20px;
+}
+
 .accounts-mark {
   display: inline-flex;
   flex: none;
-  width: 20px;
+  width: var(--accounts-mark-width);
 }
 
 .accounts-status {
@@ -1031,7 +1055,7 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Under the title: the mark's 20 px plus the row's 20 px gap (layout.css .row-main). */
+  /* Under the title: the mark plus the row's gap; refined.css sets it from --row-main-gap. */
   padding: 6px 0 0 40px;
 }
 
@@ -2010,7 +2034,8 @@ button.menu-disclosure {
 }
 
 .menu-row:hover .menu-row-actions,
-.menu-row:focus-within .menu-row-actions {
+.menu-row:focus-within .menu-row-actions,
+.menu-row:has([data-popup-open]) .menu-row-actions {
   opacity: 1;
 }
 
@@ -2094,4 +2119,12 @@ button.menu-disclosure {
   margin: 0 0 10px;
   color: var(--danger);
   font-size: var(--text-detail);
+}
+
+/* Live storage and phone totals, plus editable numeric tokens, keep equal-width digits. */
+.backdrop-own-bar > .row-help,
+[data-card="mobile"] > .rows:first-of-type > [data-action-row]:first-child .row-help,
+.number-list .token,
+.number-list .token-input {
+  font-variant-numeric: tabular-nums;
 }

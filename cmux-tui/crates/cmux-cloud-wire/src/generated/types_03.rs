@@ -5,6 +5,58 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBodyTrigger {
+    pub id: Option<TriggerId>,
+    pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBodyOutcome {
+    pub goal_met: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+pub type ServerCapability = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkBinding {
+    pub state: LitConfirmed,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub confirmed_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_grant: Option<GrantId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkProof {
+    #[serde(rename = "signedAt")]
+    pub signed_at: i64,
+    pub nonce: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkReservation {
+    pub state: LitReserved,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum ServerNetworkState {
     ServerNetworkReservation(ServerNetworkReservation),
@@ -847,54 +899,4 @@ pub struct TriggerInputPresence {
     pub idle_minutes: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earliest: Option<CronSpec>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageMeterLine {
-    pub meter: Meter,
-    pub unit: String,
-    pub quantity: WireNumber,
-    pub usd: WireNumber,
-}
-
-wire_enum! {
-    UsageStopReason {
-        CapReached = "cap.reached",
-        CapNotConfigured = "cap.not_configured",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageSummary {
-    pub owner: Option<TeamId>,
-    pub month: String,
-    pub meters: Vec<UsageMeterLine>,
-    pub total_usd: WireNumber,
-    pub cap_usd: Option<WireNumber>,
-    pub ceiling_usd: Option<WireNumber>,
-    pub team_cap_usd: Option<WireNumber>,
-    pub stopped: Option<UsageStopReason>,
-}
-
-/// A cmux user (Stack user id kept as an external id).
-pub type UserId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserProfile {
-    pub id: UserId,
-    pub stack_user_id: String,
-    pub email: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email_verified: Option<bool>,
-    pub display_name: String,
-    pub personal_team: TeamId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTeam {
-    pub id: TeamId,
-    pub display_name: String,
-    pub kind: UserTeamKind,
-    pub role: TeamRole,
-    pub sso_required: bool,
 }

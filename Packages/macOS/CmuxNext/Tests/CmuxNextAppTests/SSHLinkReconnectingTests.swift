@@ -1,3 +1,4 @@
+import CmuxNextBridge
 import CmuxNextRemote
 import CmuxNextSidebar
 import Foundation
@@ -54,7 +55,7 @@ struct SSHLinkReconnectingTests {
         /// The sidebar status of this machine while its daemon socket (the link client's local
         /// socket) still answers, as it does for the whole outage.
         func sidebar() async -> SidebarMachine.Status {
-            SidebarBridge.sshStatus(link: await link.status, startupFailed: false, daemonConnected: true, compatibility: nil)
+            (await link.status).sidebarStatus(startupFailed: false, daemonConnected: true, compatibility: nil)
         }
 
         func waitFor(_ condition: (SidebarMachine.Status) -> Bool) async -> SidebarMachine.Status {

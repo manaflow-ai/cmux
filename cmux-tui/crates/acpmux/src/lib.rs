@@ -8,6 +8,8 @@
 // violated in many render and RPC signatures. Refactoring them is separate
 // work from moving the crate into the cmux-tui workspace.
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
+// The generated initialize capability reply is intentionally explicit; keep json! expansion bounded.
+#![recursion_limit = "256"]
 // The Windows port lands in steps (src/platform.rs): until the daemon runs
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
@@ -21,6 +23,7 @@ pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_link;
+pub mod agent_login;
 pub mod agent_tools;
 pub mod attach;
 pub mod author;
@@ -37,6 +40,8 @@ pub mod claude_stdio;
 pub mod cli;
 pub mod client;
 pub mod clock;
+pub mod cloud_repo_mcp;
+pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
@@ -47,9 +52,11 @@ pub mod cua_socket;
 pub mod cua_v2;
 pub mod cwd_pin;
 pub mod daemon;
+mod default_harness;
 pub mod deliver;
 pub mod forum;
 pub mod forum_mcp;
+pub mod frame_compress;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
@@ -60,6 +67,7 @@ pub mod harness_fixture;
 pub mod harness_health;
 pub mod harness_icon_set;
 pub mod harness_limits;
+pub mod host_load;
 pub mod host_pressure;
 pub mod hub;
 #[cfg(windows)]
@@ -73,6 +81,8 @@ pub mod local_stream;
 pub mod login_env;
 pub mod machine_wake;
 pub mod mailbox;
+pub mod managed_codex;
+pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
@@ -132,6 +142,8 @@ pub mod subsession_worktree;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
+#[cfg(test)]
+mod test_stack;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
@@ -139,7 +151,9 @@ pub mod tui;
 pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
+pub mod watch_delta;
 pub mod web_modes;
+pub mod wire_size;
 pub mod wireguard;
 pub mod worktree_sessions;
 

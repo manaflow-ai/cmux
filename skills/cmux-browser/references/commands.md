@@ -2,7 +2,8 @@
 
 Run `cmux browser --help` against the installed binary before relying on exact
 syntax. `TAB` below is a `tab_…` id (or a unique prefix) from `cmux tab list`
-or `cmux tab create browser`; `page` means the focused browser tab. See
+or `cmux tab create browser`; `page` means the browser nearest you (your
+workspace, then your window; never the focused tab in another window). See
 [surface-discovery.md](surface-discovery.md) before targeting a tab in another
 workspace.
 
@@ -148,7 +149,7 @@ cmux browser browser_… close
 
 `key` also takes `--kind down|up|press` and `--modifiers shift,control,alt,meta`.
 
-## UI actions on the focused browser
+## UI actions on the nearest browser
 
 These run the same action as the menu or palette and return no page data:
 `browser screenshot-page`, `browser screenshot-section`,

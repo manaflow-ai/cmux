@@ -93,4 +93,42 @@ struct OmnibarFocusParityTests {
         #expect(state.edit.userText == "cats")
         #expect(state.edit.selection == NSRange(location: 0, length: 0))
     }
+
+    // MARK: Saved selection (OmniboxViewViews::OnBlur / OnFocus, OnTabChanged)
+
+    /// Chromium saves the selection on blur and puts it back when focus returns without a click
+    /// or Cmd-L (Tab into the field, a return to the tab): typed text keeps its caret.
+    @Test func focusThatIsNotAClickOrCmdLRestoresTheSavedSelection() {
+        let (typed, _) = reduce(typed("goo"))
+        let (moved, _) = reduce(typed, [.fieldChanged(.init(text: "goo", selection: NSRange(location: 1, length: 0)), nil)])
+        let (blurred, _) = reduce(moved, [.focusLost])
+        let (back, _) = reduce(blurred, [.focusGained(.programmatic)])
+        #expect(back.fieldText == "goo")
+        #expect(back.edit.selection == NSRange(location: 1, length: 0))
+    }
+
+    /// Cmd-L (user-initiated focus) selects all, whatever was saved.
+    @Test func cmdLSelectsAllOverTheSavedSelection() {
+        let (typed, _) = reduce(typed("goo"))
+        let (blurred, _) = reduce(typed, [.focusLost])
+        let (back, _) = reduce(blurred, [.focusGained(.keyboard)])
+        #expect(back.edit.selection == NSRange(location: 0, length: 3))
+    }
+
+    /// A focusing click selects all on its release (`select_all_on_mouse_release_` invalidates the
+    /// saved selection).
+    @Test func aFocusingClickSelectsAllOverTheSavedSelection() {
+        let (typed, _) = reduce(typed("goo"))
+        let (blurred, _) = reduce(typed, [.focusLost])
+        let (back, _) = reduce(blurred, [.fieldMouseDown(clickCount: 1), .focusGained(.mouse), .fieldMouseUp])
+        #expect(back.edit.selection == NSRange(location: 0, length: 3))
+    }
+
+    /// An untouched URL left by blur comes back with the selection it had (all of it, by default).
+    @Test func anUntouchedURLComesBackAllSelected() throws {
+        let url = try #require(URL(string: "https://example.com/a"))
+        let (focused, _) = reduce(OmnibarState(pageURL: url), [.focusGained(.programmatic)])
+        let (back, _) = reduce(focused, [.focusLost, .focusGained(.programmatic)])
+        #expect(back.edit.selection == NSRange(location: 0, length: (back.fieldText as NSString).length))
+    }
 }

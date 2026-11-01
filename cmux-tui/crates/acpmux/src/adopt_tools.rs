@@ -555,11 +555,16 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
         .filter(|b| s(b, "type") == Some("tool_result"))
         .filter_map(|block| {
             let failed = block.get("is_error").and_then(Value::as_bool) == Some(true);
+            // Its text, then the images it returned (a Read of a PNG), as a live turn sends them.
+            // What is kept is bounded by the transcript tail adopt reads (`adopt_replay::MAX_BYTES`),
+            // which already holds each image.
+            let mut content = result_text(block.get("content"));
+            content.extend(crate::claude_stdio::result_images(block.get("content")));
             Some(ToolResult {
                 id: s(block, "tool_use_id")?.to_owned(),
                 done: json!({
                     "status": if failed { "failed" } else { "completed" },
-                    "content": result_text(block.get("content")),
+                    "content": content,
                 }),
                 structured: structured.cloned(),
             })
@@ -598,6 +603,24 @@ mod tests {
         assert_eq!(applied.done["status"], "completed");
         assert_eq!(applied.done["content"][0]["type"], "diff", "{}", applied.done);
         assert_eq!(applied.done["content"][0]["newText"], "b");
+    }
+
+    /// An adopted Read of an image keeps the image its result returned, so a reopened chat on
+    /// another machine draws it instead of "Image unavailable".
+    #[test]
+    fn an_adopted_claude_read_keeps_the_image_its_result_returned() {
+        let read = json!([{"type": "tool_use", "id": "r1", "name": "Read",
+                           "input": {"file_path": "/tmp/shot.png"}}]);
+        let [mut tool] = claude_tool_uses(&read, Some(1)).try_into().unwrap();
+        let block = json!([{"type": "tool_result", "tool_use_id": "r1", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0K"}}]}]);
+        let [result] = claude_tool_results(&block, None).try_into().unwrap();
+        tool.settle(&result, Some(2));
+        assert_eq!(tool.done["status"], "completed");
+        assert_eq!(
+            tool.done["content"],
+            json!([{"type": "content", "content": {"type": "image", "mimeType": "image/png", "data": "iVBORw0K"}}])
+        );
     }
 
     fn write(id: &str) -> Value {

@@ -203,13 +203,28 @@ rustfmt. The pre-commit hook does the same for staged files and restages them.
 Both touch only those files, so agents sharing a checkout never reformat each
 other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
 
+## macOS and iOS parity
+
+Every new feature or capability built on cmux-next macOS, however small or big, must also be
+supported in the cmux-next iPhone app (`cmux-next-ios/`), with a row in
+[cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md). Two exceptions, each
+recorded there as "not from a phone" with its reason: Mac-only chrome (windows, menu bar, Dock),
+and anything a paired phone may not do under [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md)
+and "Remote CLI relay" below. A phone path that needs a new trust or security policy goes to
+https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
 
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- Cloud backend code (control plane, VM API routes, provider drivers, billing,
+  entitlements, the NEXT Worker): new code goes to the private
+  manaflow-ai/cmux-platform repository, not here. Read
+  [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
+- `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
 
 ## Contributions and publication
 
@@ -277,7 +292,7 @@ enforces this.
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
   by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
-- A native UI change shows a real capture in its description (`pr-capture-check` fails it otherwise):
+- A native UI change shows a real capture in its description (`pr-capture-check` warns otherwise; a missing capture never blocks a land, since Leo tries the build himself):
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
   real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
   the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
@@ -323,7 +338,7 @@ enforces this.
   When your review subagent passes (and the risk tier's evidence is in the description), add the
   `ready-to-land` label. A label older than the head's last push doesn't count: after any later
   push, remove and add it again. `next-autoland` on Huge Blue then merges that exact head
-  (leo-workspace `tools/next_autoland.py`). It also requires `ci-status` to have run, a red
+  (leo-workspace `tools/next_autoland.py`). `ci.yml`'s `ci-status` does not run here; a red
   `risk evidence` or `merge freeze` keeps the PR out, and it reads the merge freezes again right
   before merging. Don't wait for, rerun or fix base reds in your PR; a red it causes keeps it out
   until you fix it. Don't merge with `gh-merge-green` here (`--revert` still works).
@@ -397,16 +412,3 @@ execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes
 on the remote host. An allowlist addition without this analysis blocks review.
-
-## Hand the person something to try
-
-End every implementation with something the person can run or see, not only a diff or a summary:
-
-- App changes: a tagged dev build named after the task ([tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md);
-  team agents build it on the fleet, see the hq link at the top), with its tag and how to open it
-  (`CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, or the team's Tag Opener link). Never a raw `.app` path or `file://` URL.
-- Web or webview changes: a preview URL. Visual changes: screenshots or a video.
-- Anything else: the test or run command that exercises the change.
-
-Say where it is and how to try it, with the exact steps and what the person should see. Check it works before
-handing off. If none could be produced, say why. Documentation-only changes need no build.

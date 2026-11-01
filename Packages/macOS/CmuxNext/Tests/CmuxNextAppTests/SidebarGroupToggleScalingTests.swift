@@ -13,7 +13,7 @@ import Testing
 /// list, then the observation's render, as the window draws it). The toggled group always holds the same 10
 /// workspaces, so 100 and 10,000 workspaces change the same rows. Each toggle's main-thread CPU is timed; the median
 /// of 16 is compared.
-@MainActor @Suite(.serialized) struct SidebarGroupToggleScalingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupToggleScalingTests {
     struct Harness {
         let sidebar: SidebarView
         let model: SidebarModel
@@ -72,9 +72,11 @@ import Testing
             Issue.record("the toggled group's header has no view")
             return
         }
-        // A plain click on the header's name (a109: any plain click on the bar folds it).
+        // A plain click on the header's bar past its name (a109: any plain click on the bar folds it; one on the name
+        // waits out the double-click interval, which renames in place).
         let name = header.nameHitFrame
-        let at = list.convert(header.convert(NSPoint(x: name.midX, y: name.midY), to: list), to: nil)
+        let x = (name.maxX + (header.debugDisclosure?.frame.minX ?? header.bounds.maxX)) / 2
+        let at = list.convert(header.convert(NSPoint(x: x, y: name.midY), to: list), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             guard let event = NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0,
                                                  windowNumber: h.window.windowNumber, context: nil, eventNumber: 0,
@@ -150,7 +152,8 @@ import Testing
     /// app, the next job on a shared fleet runner) delays the main thread without adding to the toggle's cost. Timed
     /// by the wall clock, a 1 ms toggle at 10,000 workspaces read 70-90 ms at p90 while threads at the highest QoS
     /// took every core (aws-m4pro-1, 2026-10-21). A toggle that waits 20 ms stands in for those delays here.
-    @Test func aToggleThatWaitsCostsOnlyItsOwnWork() {
+    @Test(.disabled("Quarantined: on slow-compositor runners a plain toggle is over 8 ms unscaled, https://github.com/manaflow-ai/cmux/issues/30976"))
+    func aToggleThatWaitsCostsOnlyItsOwnWork() {
         let h = Self.make(100)
         defer { h.window.close() }
         var calibration = FrameBudgetCalibration()
@@ -190,7 +193,8 @@ import Testing
 
     /// The guard: a toggle at 10,000 workspaces costs at most 1.5x one at 100, and fits in one 8 ms frame (scaled to
     /// the runner by FrameBudgetCalibration). The ratio is not scaled: both sizes run on the same runner in one run.
-    @Test func toggleCostDoesNotGrowWithWorkspaces() {
+    @Test(.disabled("Quarantined: the ratio of two ~1 ms medians flakes 2/6 on CI, https://github.com/manaflow-ai/cmux/issues/30975"))
+    func toggleCostDoesNotGrowWithWorkspaces() {
         var calibration = FrameBudgetCalibration()
         let small = Self.make(100)
         let smallCost = Self.measure(small, calibrating: &calibration)

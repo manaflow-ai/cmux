@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextFeed
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The Labs reports basket is AppKit (plans/cmux-next/no-swiftui-DESIGN.md rule 4): it builds no
+/// The reports basket is AppKit (plans/cmux-next/no-swiftui-DESIGN.md rule 4): it builds no
 /// hosting view, its rows follow clicks and the model, and a reply is sent once while in flight
 /// and keeps its draft (and its id) when it was not sent.
-@MainActor @Suite struct ReportsBasketViewTests {
+@MainActor @Suite(.closesItsWindows) struct ReportsBasketViewTests {
     private let older = FeedReport(id: "r1", sender: "host/alpha", body: "first report",
                                    createdAt: Date(timeIntervalSince1970: 1_000))
     private let newer = FeedReport(id: "r2", sender: "host/beta", body: "second report",

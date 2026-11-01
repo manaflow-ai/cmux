@@ -8,6 +8,7 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
+import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
   appearanceKeys,
   captureAppearance,
@@ -210,7 +211,7 @@ export class SettingsStore {
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
       ),
-      // A machine's update failing while Updates shows (its toast's Details opens it) shows in
+      // A machine's update failing while Updates shows (its toast's Details shows the reason in the toast) shows in
       // the Channels card's row at once, in every channel's read.
       this.listen("cmux.settings.channels.machines.changed", (machines) =>
         this.queryClient.setQueriesData<ChannelsState | null>(
@@ -601,6 +602,13 @@ export class SettingsStore {
     return reply.ok ? null : reply.error.message;
   }
 
+  /** A build row's Switch in Settings > Updates' Channels card; answers the host's refusal, else
+   * null (success quits the app into that build). */
+  async channelsSwitchBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.switch_build", { build });
+    return reply.ok ? null : reply.error.message;
+  }
+
   /** The Update button of a machine in Settings > Updates' row of other machines; answers the
    * host's refusal, else null (the row's push then shows it updating). */
   async channelsUpdateMachine(id: string): Promise<string | null> {
@@ -848,6 +856,13 @@ export class SettingsStore {
     return this.applyAppearanceStep(t("settingsPage.history.resetDefaults"), defaults);
   }
 
+  /** Applies a preset (the window's Opacity and Material, every surface back on the window's
+   * opacity) as one undoable step, "Preset → Frosted". */
+  async applyAppearancePreset(preset: AppearancePreset): Promise<boolean> {
+    const label = t("settingsPage.history.change", t("settingsPage.presets.title"), t(preset.nameKey));
+    return this.applyAppearanceStep(label, presetTargets(this.getSnapshot(), preset));
+  }
+
   /** Applies `targets` as one recorded step named `label`; true when the owner took every write. */
   private async applyAppearanceStep(label: string, targets: readonly TargetState[]): Promise<boolean> {
     const state = this.getSnapshot();
@@ -883,11 +898,18 @@ export class SettingsStore {
     return this.write({ kind: "resetAll" });
   }
 
-  preview(key: string, value: unknown): void {
+  /** The host holds one live preview at a time, whatever its key: its latest owner. */
+  private previewOwner: object | null = null;
+
+  preview(key: string, value: unknown, owner?: object): void {
+    this.previewOwner = owner ?? {};
     if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
   }
 
-  previewEnd(key: string): void {
+  /** With an `owner`, ends the preview only while that owner's is still the one showing. */
+  previewEnd(key: string, owner?: object): void {
+    if (owner && this.previewOwner !== owner) return;
+    this.previewOwner = null;
     void this.request("cmux.settings.preview.end", { key });
   }
 

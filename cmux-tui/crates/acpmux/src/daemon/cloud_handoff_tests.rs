@@ -24,6 +24,7 @@ impl Io for Fake {
         st.sent.push(v["handoff_report"].clone());
         st.replies.pop_front().unwrap_or_else(|| panic!("no reply scripted for {line}"))
     }
+    async fn notify(&self, _line: String) {}
 }
 
 impl Fake {
@@ -673,6 +674,21 @@ async fn a_cut_turn_goes_on_with_its_continuation() {
     );
 }
 
+/// A continuation that arrives just after the provider reset deadline still owns the hand-off;
+/// the reset wake needs a short dispatch window before the old turn may be reported failed.
+#[tokio::test(start_paused = true)]
+async fn a_continuation_after_reset_deadline_is_not_reported_failed() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "running"), ok(1, "done")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    r.step(S, Step::RetryScheduled).await;
+    r.step(S, began(1)).await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "running", None)]);
+    r.step(S, done(1, "Picked up after reset.")).await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Picked up after reset."))]);
+}
+
 /// A cut turn with no continuation coming is reported failed: no retry, another prompt, a close,
 /// or too long a wait.
 #[tokio::test(start_paused = true)]
@@ -743,6 +759,19 @@ fn a_cause_in_the_raw_error_holds_the_turn() {
     };
     assert!(retried);
     assert_eq!(why, "The turn failed.");
+}
+
+/// A revoked token holds the turn too: a chat's first send goes again on it
+/// (`hub/auto_resume/first_send.rs`), and a later turn's is settled at once.
+#[test]
+fn a_revoked_token_holds_the_turn_for_its_first_send_retry() {
+    let msg = json!({"status": "failed", "error": "Failed to authenticate: OAuth token revoked",
+        "errorText": "Failed to authenticate: OAuth token revoked", "promptId": "handoff-1-a"});
+    let Some(Step::Ended(End::Failed { retried, .. }, Some(1))) = step_of("turn_result", &msg)
+    else {
+        panic!()
+    };
+    assert!(retried);
 }
 
 #[tokio::test]

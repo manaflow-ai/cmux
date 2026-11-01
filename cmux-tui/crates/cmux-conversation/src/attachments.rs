@@ -7,8 +7,6 @@
 
 use crate::types::{DerivedImage, Part};
 
-/// Per file, every type (decimal megabytes, like the cloud owner).
-pub const MAX_ATTACHMENT_BYTES: u64 = 100_000_000;
 /// A video's poster: at most this size, JPEG or WebP.
 pub const MAX_POSTER_BYTES: u64 = 2_000_000;
 /// An image's preview: at most this size, JPEG or WebP.
@@ -116,7 +114,7 @@ pub enum AttachmentReject {
     Invalid,
     /// Not one of the owner's types.
     TypeRefused,
-    /// Over the class's size cap.
+    /// Over a derived image's representation budget.
     TooLarge,
     /// A poster on a non-video or a preview on a non-image.
     DerivedRefused(DerivedVariant),
@@ -163,9 +161,6 @@ pub fn validate_attachment_meta(
         return Err(AttachmentReject::Invalid);
     }
     let class = attachment_class(mime_type).ok_or(AttachmentReject::TypeRefused)?;
-    if byte_count > MAX_ATTACHMENT_BYTES {
-        return Err(AttachmentReject::TooLarge);
-    }
     Ok(class)
 }
 

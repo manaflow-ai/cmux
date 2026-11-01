@@ -17,13 +17,17 @@ describe("pause and start", { timeout: 60_000 }, () => {
     const paused = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine }, pauseKey)))
     // The answer is the intent (pausing, like create answers provisioning); the call's outcome lands as cloud.machine.upsert.
     expect(paused, JSON.stringify(paused)).toMatchObject({ t: "result", value: { machine: { id: machine, status: "pausing" } } })
-    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "paused" } })
+    // Cost fields (cloud-cost.ts): a paused machine keeps its rate and has no running start.
+    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "paused", running_since: null, hourly_rate_usd: expect.any(Number) } })
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine }, pauseKey)))).toMatchObject({ t: "result", replayed: true })
     const plan = await x.stub.readOp(x.team, x.p, "cloud.plan.get", {})
     expect(plan.value.usage.active).toBe(0)
     const started = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine })))
     expect(started).toMatchObject({ t: "result", value: { machine: { id: machine, status: "starting" } } })
-    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "running" } })
+    const startedAt = Date.now()
+    const running = await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })
+    expect(running).toMatchObject({ value: { status: "running", running_since: expect.any(Number) } })
+    expect(running.value.running_since).toBeLessThanOrEqual(startedAt)
     const ctl = (await x.stub.fakeControl({})) as unknown as { pauses: number; starts: number }
     expect([ctl.pauses, ctl.starts]).toEqual([1, 1])
   })

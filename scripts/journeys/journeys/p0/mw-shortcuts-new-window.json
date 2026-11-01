@@ -1,0 +1,446 @@
+{
+  "id": "mw-shortcuts-new-window",
+  "priority": "P0",
+  "title": "Two windows: everyday shortcuts typed in the new window act in the new window only",
+  "why": "Lawrence 2026-10-28 (handoff/multiwindow.md): \"keyboard shortcuts dont work ... we need to completely eliminate this error class\". In a second window every shortcut must act in the window it was typed in from that window's first frame, never in the first window (the app's first controller, the old `controllers.first` / `windows.active ?? controllers.first` fallback). Each key here goes to the new window explicitly (`debug.key` `window`: a capture slot's app is never active) and each check reads both windows: the new one changed as the key asks (tab and pane counts, the selected tab, the sidebar selection) and the first one did not change at all (shown workspace, rows, panes, tabs, focused pane, frame). Guards cp/multiwindow-2 (WindowTarget resolved once at the entrypoint). No binding is changed.",
+  "source": "handoff/multiwindow.md item 5 (P0 journeys: every keyboard shortcut in the new window); KeyBindingDefaults and the action catalog: Cmd-Shift-N newWindow, Ctrl-` newSurface, Cmd-T newTab.default, Cmd-W closeTab, Cmd-D splitRight, Cmd-Shift-D splitDown, Cmd-Shift-] nextSurface, Cmd-1 selectWorkspaceByNumber",
+  "budget_seconds": 180,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "name": "mw-sc-${nonce}",
+      "as": "first",
+      "title": "set-up: workspace mw-sc with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "name_window",
+      "as": "w1",
+      "title": "the first window (the app's first controller: what an implicit 'first window' fallback picks)"
+    },
+    {
+      "do": "remember_windows",
+      "as": "start"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-Shift-N in the first window (New Window)",
+      "key": "n",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "window": "w1",
+      "mark": "new-window"
+    },
+    {
+      "do": "await_window",
+      "as": "w2",
+      "title": "the new window opens; keys and frames go to it from here"
+    },
+    {
+      "do": "expect",
+      "title": "one more window; the first window did not change",
+      "since": "new-window",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "windows_open": {
+            "since": "start",
+            "delta": 1
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start"
+          }
+        }
+      ]
+    },
+    {
+      "do": "wait",
+      "seconds": 4.5,
+      "title": "the New Tab page's key hold (NewTabInputCoordinator.incomingHoldLimit, 4 s) ends: in a capture slot the app is never active, so held keys would be replayed into the first window (NSApp.keyWindow is nil), which no person sees; no state shows the hold's end"
+    },
+    {
+      "do": "remember_windows",
+      "as": "k-term1"
+    },
+    {
+      "do": "key",
+      "title": "Ctrl-` (New Terminal Tab) in the new window",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "window": "w2",
+      "mark": "k-term1"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "t1"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "expect",
+      "title": "Ctrl-` (New Terminal Tab): acts in the new window; the first window did not change",
+      "since": "k-term1",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "since": "k-term1",
+            "dtabs": 1,
+            "dpanes": 0,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "k-cmdt"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-T (New Tab: the New Tab page) in the new window",
+      "key": "t",
+      "modifiers": [
+        "cmd"
+      ],
+      "window": "w2",
+      "mark": "k-cmdt"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-T (New Tab: the New Tab page): acts in the new window; the first window did not change",
+      "since": "k-cmdt",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "since": "k-cmdt",
+            "dtabs": 1,
+            "dpanes": 0,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    },
+    {
+      "do": "wait",
+      "seconds": 4.5,
+      "title": "the New Tab page's key hold (NewTabInputCoordinator.incomingHoldLimit, 4 s) ends: in a capture slot the app is never active, so held keys would be replayed into the first window (NSApp.keyWindow is nil), which no person sees; no state shows the hold's end"
+    },
+    {
+      "do": "remember_windows",
+      "as": "k-cmdw"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-W (Close Tab: the New Tab page Cmd-T opened) in the new window",
+      "key": "w",
+      "modifiers": [
+        "cmd"
+      ],
+      "window": "w2",
+      "mark": "k-cmdw"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-W (Close Tab: the New Tab page Cmd-T opened): acts in the new window; the first window did not change",
+      "since": "k-cmdw",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "since": "k-cmdw",
+            "dtabs": -1,
+            "dpanes": 0,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "k-cmdd"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-D (Split Right) in the new window",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "window": "w2",
+      "mark": "k-cmdd"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "t2"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-D (Split Right): acts in the new window; the first window did not change",
+      "since": "k-cmdd",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "since": "k-cmdd",
+            "dpanes": 1,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "k-cmdsd"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-Shift-D (Split Down) in the new window",
+      "key": "d",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "window": "w2",
+      "mark": "k-cmdsd"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "t3"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-Shift-D (Split Down): acts in the new window; the first window did not change",
+      "since": "k-cmdsd",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "since": "k-cmdsd",
+            "dpanes": 1,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "k-term2"
+    },
+    {
+      "do": "key",
+      "title": "Ctrl-` again (a second terminal tab in the focused pane) in the new window",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "window": "w2",
+      "mark": "k-term2"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "t4"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "expect",
+      "title": "Ctrl-` again (a second terminal tab in the focused pane): acts in the new window; the first window did not change",
+      "since": "k-term2",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "since": "k-term2",
+            "dtabs": 1,
+            "dpanes": 0,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    },
+    {
+      "do": "type",
+      "text": "echo mw-sc-${nonce}-typed",
+      "enter": true,
+      "window": "w2",
+      "mark": "typed",
+      "title": "typing in the new window"
+    },
+    {
+      "do": "expect",
+      "title": "the keys reach the new window's terminal; the first window did not change",
+      "since": "typed",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-sc-${nonce}-typed"
+        },
+        {
+          "app_text_line": "mw-sc-${nonce}-typed"
+        },
+        {
+          "pane_frame_text": "mw-sc-${nonce}-typed"
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "k-next"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-Shift-] (Next Tab: the focused pane's other terminal tab) in the new window",
+      "key": "]",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "window": "w2",
+      "mark": "k-next"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-Shift-] (Next Tab: the focused pane's other terminal tab): acts in the new window; the first window did not change",
+      "since": "k-next",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "since": "k-next",
+            "selected_changed": true,
+            "dpanes": 0,
+            "dtabs": 0,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    },
+    {
+      "do": "outwait_hold",
+      "title": "the tab Cmd-Shift-] selected may make its terminal's view now"
+    },
+    {
+      "do": "remember_windows",
+      "as": "k-cmd1"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-1 (Select the first sidebar item) in the new window",
+      "key": "1",
+      "modifiers": [
+        "cmd"
+      ],
+      "window": "w2",
+      "mark": "k-cmd1"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-1 (Select the first sidebar item): acts in the new window; the first window did not change",
+      "since": "k-cmd1",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "since": "k-cmd1",
+            "first_entry": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "start",
+            "window": "w1"
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "do": "close_extra_windows",
+      "title": "clean-up: close the new window"
+    }
+  ]
+}

@@ -16,6 +16,7 @@ extension UpdaterService {
         // A found update nobody asked about (downloads wait for a click) is the sidebar footer's quiet
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
+        if let cancelledDownloadCard { return cancelledDownloadCard }
         guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
@@ -46,6 +47,7 @@ extension UpdaterService {
     /// repeated or late press (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
+        if downloadAgainIfCancelled() { return }
         guard case .available = flow.phase else {
             log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
             return
@@ -145,7 +147,6 @@ extension UpdaterService {
             return
         }
         recordBeforeInstall()
-        willInstallStaged?()
         installStaged()
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_handed_to_sparkle")
@@ -190,6 +191,7 @@ extension UpdaterService {
         let clickedInstall = flow.installRequested
         let previous = flow.phase
         send(.sparkle(phase))
+        followCancelledDownload(phase)
         carryInstallClick(phase)
         followNewestFetch(phase, previous: previous)
         followInstall(phase)
@@ -212,12 +214,13 @@ extension UpdaterService {
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             log.append("automatic install ended without a relaunch (not shown)")
+            abandonInstall()
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
             // A staged update that ends without a click (a background failure) opens nothing.
             log.append("install ended without a relaunch")
-            installAbandoned?()
+            abandonInstall()
             presentUpdateUI?()
             #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("failure_sheet_presented")

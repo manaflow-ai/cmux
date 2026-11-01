@@ -33,11 +33,11 @@ struct AcpmuxStrayDaemonTests {
         let pids: Result<(Int32?, Int32?), any Error>
         do {
             // The CLI's autostart (or launchd) runs `~/.local/bin/acpmux` on the app's home.
-            try await AcpmuxHost(environment: try environment(localBin)).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment(localBin)).prewarm()
             let before = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
             // The app's launch: its chats connect, to an acpmux run from its own bundle.
             step = "the app's launch"
-            try await AcpmuxHost(environment: try environment(bin)).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment(bin)).prewarm()
             pids = .success((before, try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid))
         } catch {
             pids = .failure(error)

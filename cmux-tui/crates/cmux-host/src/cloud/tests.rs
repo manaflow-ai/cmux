@@ -107,7 +107,8 @@ impl Http for Fake {
                 }
                 Ok((
                     200,
-                    json!({ "access_token": "tok-1", "token_type": "Bearer", "expires_at": T0 + 3_600_000 }),
+                    json!({ "access_token": "tok-1", "token_type": "Bearer", "expires_at": T0 + 3_600_000,
+                        "user": USER, "install": INSTALL, "grant": "grant_v000000000000000004", "team": TEAM }),
                 ))
             }
             "/v1/ops" => Ok(st.ops.pop_front().unwrap_or((200, applied()))),
@@ -149,6 +150,9 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     assert_eq!(bound["env"], "dev");
     assert_eq!(store.read(BIND_FILE), None);
     assert_eq!(store.mode_of(BOUND_FILE), Some(0o600));
+    let identity = crate::identity::enrolled(&store, "i-aaa").unwrap();
+    assert_eq!(identity.machine, MACHINE);
+    assert_eq!(identity.instance_id, "i-aaa");
 }
 
 #[test]
@@ -293,4 +297,38 @@ fn a_failed_write_leaves_no_temp_file() {
     store.write(VM_KIND_FILE, "owner\n", 0o644).unwrap();
     assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new());
     assert_eq!(std::fs::read_to_string(&kind).unwrap(), "owner\n");
+}
+
+/// Token pinning also applies to the existing bind/report path. Use the key
+/// actually registered at bind, and retain the existing single refresh on403.
+#[test]
+fn vm_receiver_client_existing_bind_auth_report_and_refresh_keep_working() {
+    use super::client::CloudClient;
+    use super::sender::{Answer, OpRequest};
+    let fake = Fake::new();
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-original", &rng).unwrap().key;
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), T0);
+    assert!(matches!(bound, BindResult::Bound(_)), "original bind failed");
+    let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
+    if let BindResult::Bound(bound) = bound {
+        assert_eq!(*bound, saved);
+    }
+    let mut client = CloudClient::new(fake.clone(), saved, key);
+    let report = OpRequest {
+        op: STATUS_REPORT_OP,
+        params: json!({"machine":MACHINE,"state":"running","daemon":daemon().to_json()}),
+        reason: "start".into(),
+    };
+    assert!(matches!(client.op(&report, T0), Answer::Http { status: 200, .. }));
+    fake.0.borrow_mut().ops.push_back((403, json!({"code":"auth.forbidden"})));
+    assert!(matches!(client.op(&report, T0 + 1), Answer::Http { status: 200, .. }));
+    let state = fake.0.borrow();
+    assert_eq!(state.seen.iter().filter(|s| s.url.ends_with("/v1/auth/token")).count(), 2);
+    let ops: Vec<_> = state.seen.iter().filter(|s| s.url.ends_with("/v1/ops")).collect();
+    assert_eq!(ops.len(), 3, "the refused report gets exactly one retry");
+    assert!(ops.iter().all(|s|s.bearer.as_deref()==Some("tok-1") && s.body["params"]["machine"]==MACHINE));
+    assert_eq!(store.read(BIND_FILE), None);
 }

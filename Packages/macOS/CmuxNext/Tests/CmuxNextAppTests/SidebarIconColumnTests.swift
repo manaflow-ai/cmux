@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-28, on the top of the sidebar: "the alignment"; on its glyphs: "i feel like this is misaligned
@@ -8,7 +9,7 @@ import Testing
 /// (two blue unread dots right of two red (i) marks). Every leading glyph (a band row's, a pinned row's pin, a
 /// workspace row's icon) centers on one icon column and on its title's center line, and every trailing mark (the
 /// unread dot, an error, Home's dot) centers on one trailing column.
-@MainActor @Suite(.serialized) struct SidebarIconColumnTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct SidebarIconColumnTests {
     typealias Case = HomePinnedRowAlignmentTests.Case
 
     static let home = LayoutItem(id: LayoutItemID("itm_column_home"), ref: .builtIn(.home))

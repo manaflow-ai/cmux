@@ -3,7 +3,7 @@
 // language and the theme are in place before the page's own modules load, as the app has them
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
-import { readEnv, widthPx } from "../env";
+import { overPicture, readEnv, widthPx } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
@@ -18,10 +18,16 @@ import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 import { installUiFont } from "./uiFont";
+import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
+import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
+import { startBoxTracker } from "../shift";
+import { collectInvariants, type Violation } from "../invariants";
 
 installGalleryClock();
+// A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
+setLastingGrace(0);
 
 const params = new URLSearchParams(location.search);
 const env = readEnv(params);
@@ -92,6 +98,8 @@ const pair =
     ? { dark: theme, light: themeNamed(DEFAULT_LIGHT_THEME, DEFAULT_LIGHT_THEME) }
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
 const tokens = themeTokens(theme, env.accent);
+// The background axis: over a picture the page is see-through, as over the user's in the app.
+const seeThrough = overPicture(env);
 
 emulateMedia({
   "prefers-color-scheme": scheme,
@@ -106,8 +114,17 @@ document.head.append(bootstrap);
 bootstrap.remove();
 installUiFont();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-  webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
+  webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
 );
+if (seeThrough) {
+  const [{ applyGalleryBackground }, { default: metrics }] = await Promise.all([
+    import("./background"),
+    import("virtual:cmux-gallery/metrics"),
+  ]);
+  // The same window-mode test as the shell's stage (Stage.tsx): page entries sit in a real pane.
+  const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
+  applyGalleryBackground(env, tokens, { windowed, metrics });
+}
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
 if (env.scale !== 1) root.style.zoom = String(env.scale);
@@ -148,7 +165,7 @@ const context: StageContext = {
   theme,
   pair,
   tokens,
-  agentTheme: agentPaneTheme(tokens, env.reducedMotion),
+  agentTheme: agentPaneTheme(tokens, env.reducedMotion, seeThrough),
   appearance: diffAppearance(pair, { family: env.fontFamily || undefined, size: env.fontSize || undefined }),
   log: (method, params) => log.push({ method, params }),
   options: optionValues,
@@ -175,8 +192,64 @@ function markReady(): void {
   );
 }
 
+declare global {
+  interface Window {
+    cmuxGalleryLoadReport?: LoadReport;
+    /** The design specs' geometry rules this stage breaks (invariants.ts); the runner reads it after its screenshot. */
+    cmuxGalleryInvariants?: () => Violation[];
+  }
+}
+window.cmuxGalleryInvariants = () => collectInvariants(document);
+
+/**
+ * Opening the stage, measured like a play step: the browser's layout-shift entries since navigation
+ * and the tracked rows' boxes frame by frame (shift.ts), from before the mount until the play starts.
+ * A surface draws its final layout in its first frame (design/motion-and-polish.md: "No flicker, no
+ * layout shift"); the composer gap that jumps after load or the rail that grows in steps scores here.
+ */
+const loadShifts: Shift[] = [];
+type ShiftEntry = PerformanceEntry & {
+  value: number;
+  sources?: { node?: Node; previousRect?: DOMRectReadOnly; currentRect?: DOMRectReadOnly }[];
+};
+const noteLoadShifts = (entries: PerformanceEntryList) => {
+  for (const shift of entries as ShiftEntry[]) {
+    const sources = shift.sources ?? [];
+    if (isSubpixelLayoutShift(sources)) continue;
+    loadShifts.push({
+      value: shift.value,
+      sources: sources.map(({ node }) =>
+        node instanceof Element
+          ? `${node.tagName.toLowerCase()}${typeof node.className === "string" && node.className ? `.${node.className.split(" ")[0]}` : ""}`
+          : "#text",
+      ),
+    });
+  }
+};
+const loadObserver = PerformanceObserver.supportedEntryTypes?.includes("layout-shift")
+  ? new PerformanceObserver((list) => noteLoadShifts(list.getEntries()))
+  : undefined;
+loadObserver?.observe({ type: "layout-shift", buffered: true });
+const loadBoxes = startBoxTracker(document, {
+  extra: () => (entry.anchors ?? []).flatMap((target) => resolveTarget(document, target) ?? []),
+});
+
+function finishLoad(): void {
+  if (window.cmuxGalleryLoadReport) return;
+  noteLoadShifts(loadObserver?.takeRecords() ?? []);
+  loadObserver?.disconnect();
+  const boxes = loadBoxes.stop();
+  window.cmuxGalleryLoadReport = {
+    layoutShift: Math.round(loadShifts.reduce((sum, shift) => sum + shift.value, 0) * 1e5) / 1e5,
+    shifts: loadShifts.slice(0, 24),
+    boxShift: boxes.score,
+    boxMoves: boxes.moves,
+  };
+}
+
 /** The variant's play steps (play.ts), then ready: the state the stage shows is the played one. */
 async function playThenReady(): Promise<void> {
+  finishLoad();
   const variant = entry.variants[variantName];
   const play = variant?.play;
   if (play) {

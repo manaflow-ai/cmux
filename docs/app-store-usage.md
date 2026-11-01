@@ -18,7 +18,8 @@ Then use one of these:
 - the command line: `cmux app store`.
 
 **Discover** lists every app you can install. **Installed** lists your apps, what each app may
-do, and their logs.
+do, and their logs. An open App Store updates by itself when an app is installed or removed
+somewhere else (the command line, another window).
 
 ## 2. The example apps
 
@@ -84,7 +85,9 @@ has nothing to open.
 ## 5. Install = deploy + pin (your own machine or cmux Cloud)
 
 An app with a `deploy` block in its manifest runs a server: a container on a machine that you
-pick. Its pane in cmux shows that server. The same install works on two kinds of machine.
+pick. Its pane in cmux shows that server. The same install works on two kinds of machine. The
+listing's **Runs on** section, and `cmux apps info <app>`, name the kinds of machine the app
+accepts.
 
 ### A machine you host yourself (no cmux Cloud needed)
 
@@ -113,9 +116,10 @@ cmux apps install manaflow-ai/hello-deploy --deploy cloud-vm:<machine id>
 2. cmux installs the app and starts the container on that machine. The container binds to the
    machine's tailnet address, or to 127.0.0.1 when the machine has none, never to every
    interface. cmux then waits until the app's health path answers.
-3. When the server is healthy, `cmux apps list --installed --json` shows the instance as
-   `running`, with its URL. Open the app from the sidebar or the palette, and its pane shows the
-   server.
+3. When the server is healthy, App Store > Installed shows "Running on <machine>" under the
+   app (and "Starting on <machine>" before), and `cmux apps list --installed --json` shows the
+   instance as `running`, with its URL. Open the app from the sidebar or the palette, and its
+   pane shows the server.
 4. When the server does not start or fails its health check, cmux removes the container and
    undoes the install. The reason is in the app's log (App Store > Installed > Logs).
 

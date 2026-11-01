@@ -52,6 +52,8 @@ extension HostView {
     func useHeaderGlass() {
         guard headerGlass == nil else { return }
         let glass = HeaderGlassView(frame: .zero)
+        // Hidden until a row is under it (`updateTopFadeScrollEdge`).
+        glass.isHidden = true
         addSubview(glass, positioned: .below, relativeTo: paneHeader)
         headerGlass = glass
         headerBackdrop.isHidden = true

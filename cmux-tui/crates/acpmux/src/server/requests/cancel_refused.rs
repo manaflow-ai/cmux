@@ -91,9 +91,10 @@ fn send(conn: &Conn, params: Value) {
     let key = wait_key(&params);
     let msg = Message::notification(method::MUX_CANCEL_REFUSED, params);
     let masked = (!conn.raw_text).then(|| peer_text::masked(&msg)).flatten();
-    let Ok(line) = masked.as_ref().unwrap_or(&msg).bounded_line() else {
-        // Larger than a frame: what `Conn::send` does with one.
-        return conn.send(&msg);
+    let line = match masked.as_ref().unwrap_or(&msg).bounded_line() {
+        Ok(line) => line,
+        // Larger than a frame: what `Conn::send` does with one (counted once, just now).
+        Err(bytes) => return conn.left_out_too_large(msg.method(), bytes),
     };
     let mut inner = conn.cancel_refusals.inner.lock().unwrap_or_else(|e| e.into_inner());
     if !inner.keep(key, line) {

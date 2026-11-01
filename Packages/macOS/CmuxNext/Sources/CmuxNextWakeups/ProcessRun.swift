@@ -21,11 +21,16 @@ final class ProcessRun: Sendable {
         var output = Data()
         var errorOutput = Data()
         var sources: [any DispatchSourceRead] = []
+        var processSource: (any DispatchSourceProcess)?
+        var exitHandled = false
         /// The child's pid from its launch until its termination handler runs (0 otherwise). Foundation's
         /// Process reaps the child just before it calls that handler, so a signal sent in that short window
         /// could reach a pid the kernel has handed to a new process; the kernel hands pids out in order, so
         /// that needs the whole pid space to wrap within the window.
         var pid: pid_t = 0
+        /// The dedicated process group, when this request uses group termination. It remains valid after the
+        /// leader exits so the grace-period SIGKILL can still stop hooks and filters it started.
+        var processGroup: pid_t = 0
         /// The child has exited (its termination handler ran, which can be before `run()` returns).
         var ended = false
         /// The failure of the first stop (timeout, cancel). A stop before the launch makes the launch
@@ -72,6 +77,10 @@ final class ProcessRun: Sendable {
             killDeadline.cancel()
             // A finish-run stopped before its launch has no exit to wait for: it resolves with its stop.
             if let stop = state.withLock({ $0.stop }) { resolve(.failure(stop)) }
+            return
+        }
+        if request.terminationScope == .processGroup {
+            launchProcessGroupChild()
             return
         }
         let process = Process()
@@ -146,6 +155,156 @@ final class ProcessRun: Sendable {
         if let input, let bytes = request.input { feed(bytes, to: input) }
     }
 
+    /// Foundation's `Process` does not expose `posix_spawn` attributes, so group-scoped runs use a
+    /// direct spawn with `POSIX_SPAWN_SETPGROUP`. The group is created before the executable runs, which
+    /// closes the race where a git hook could fork before a later `setpgid` call.
+    private func launchProcessGroupChild() {
+        let output = Pipe()
+        let errorPipe: Pipe? = switch request.errorOutput {
+        case .discard, .merge: nil
+        case .separate: Pipe()
+        }
+        let input = request.input.map { _ in Pipe() }
+        let outFD = output.fileHandleForReading.fileDescriptor
+        let errFD = errorPipe?.fileHandleForReading.fileDescriptor
+        var sources = [source(outFD, of: output, into: \.output)]
+        if let errorPipe, let errFD { sources.append(source(errFD, of: errorPipe, into: \.errorOutput)) }
+        sources.forEach { $0.activate() }
+
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else {
+            sources.forEach { $0.cancel() }
+            resolve(.failure(ProcessFailure.launch("could not configure process group")))
+            return
+        }
+        guard posix_spawnattr_init(&attributes) == 0 else {
+            posix_spawn_file_actions_destroy(&actions)
+            sources.forEach { $0.cancel() }
+            resolve(.failure(ProcessFailure.launch("could not configure process group")))
+            return
+        }
+        defer {
+            posix_spawn_file_actions_destroy(&actions)
+            posix_spawnattr_destroy(&attributes)
+        }
+        let stderrConfigured: Int32
+        switch request.errorOutput {
+        case .discard:
+            stderrConfigured = "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, $0, O_WRONLY, 0) }
+        case .merge:
+            stderrConfigured = posix_spawn_file_actions_adddup2(&actions, output.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+        case .separate:
+            // .separate always creates errorPipe above; a missing pipe fails the configured guard below.
+            stderrConfigured = errorPipe.map {
+                posix_spawn_file_actions_adddup2(&actions, $0.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+            } ?? EBADF
+        }
+        let stdinConfigured: Int32
+        if let input {
+            stdinConfigured = posix_spawn_file_actions_adddup2(&actions, input.fileHandleForReading.fileDescriptor, STDIN_FILENO)
+        } else {
+            stdinConfigured = "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, $0, O_RDONLY, 0) }
+        }
+        let configured = posix_spawn_file_actions_adddup2(&actions, output.fileHandleForWriting.fileDescriptor, STDOUT_FILENO) == 0
+            && stderrConfigured == 0
+            && stdinConfigured == 0
+            && (request.directory?.path.withCString { posix_spawn_file_actions_addchdir_np(&actions, $0) } ?? 0) == 0
+            && posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0
+            && posix_spawnattr_setpgroup(&attributes, 0) == 0
+        guard configured else {
+            sources.forEach { $0.cancel() }
+            resolve(.failure(ProcessFailure.launch("could not configure process group")))
+            return
+        }
+
+        let argv = [request.executable.path] + request.arguments
+        let environment = request.environment?.map { "\($0.key)=\($0.value)" }
+        var pid: pid_t = 0
+        let spawned = withCStrings(argv) { argv in
+            if let environment {
+                return withCStrings(environment) { envp in
+                    posix_spawn(&pid, request.executable.path, &actions, &attributes, argv, envp)
+                }
+            }
+            return posix_spawn(&pid, request.executable.path, &actions, &attributes, argv, environ)
+        }
+        guard spawned == 0 else {
+            sources.forEach { $0.cancel() }
+            resolve(.failure(ProcessFailure.launch(String(cString: strerror(spawned)))))
+            return
+        }
+        let childPID = pid
+        try? output.fileHandleForWriting.close()
+        try? errorPipe?.fileHandleForWriting.close()
+        try? input?.fileHandleForReading.close()
+
+        let stopped = state.withLock { state -> Bool in
+            guard !state.ended else { return false }
+            state.pid = childPID
+            state.processGroup = childPID
+            return state.stop != nil
+        }
+        if stopped { send(request.stopSignal) }
+        let finishExit: @Sendable (Int32?) -> Void = { [self] providedStatus in
+            let first = state.withLock { state -> Bool in
+                guard !state.exitHandled else { return false }
+                state.exitHandled = true
+                return true
+            }
+            guard first else { return }
+            var rawStatus = providedStatus ?? 0
+            if providedStatus == nil {
+                repeat { _ = waitpid(childPID, &rawStatus, 0) } while errno == EINTR
+            }
+            state.withLock { state in
+                state.pid = 0
+                state.ended = true
+            }
+            let exited = (rawStatus & 0x7f) == 0
+            let status = exited ? (rawStatus >> 8) & 0xff : rawStatus & 0x7f
+            let source = state.withLock { state -> (any DispatchSourceProcess)? in
+                defer { state.processSource = nil }
+                return state.processSource
+            }
+            source?.cancel()
+            let stopped = state.withLock { $0.stop != nil }
+            let stop = state.withLock { $0.stop }
+            if !stopped { killDeadline.cancel() }
+            queue.async { [self] in
+                drain(outFD, into: \.output)
+                if let errFD { drain(errFD, into: \.errorOutput) }
+                if stopped {
+                    let open = state.withLock { state -> [any DispatchSourceRead] in
+                        let open = state.sources
+                        state.sources = []
+                        return open
+                    }
+                    open.forEach { $0.cancel() }
+                    withExtendedLifetime((output, errorPipe, input)) {}
+                    if let stop { resolve(.failure(stop)) }
+                    return
+                }
+                let (open, result) = state.withLock { state -> ([any DispatchSourceRead], Result<ProcessOutcome, any Error>) in
+                    defer { state.sources = []; state.processGroup = 0 }
+                    return (state.sources, .success(ProcessOutcome(status: status, exited: exited, output: state.output,
+                                                                   errorOutput: state.errorOutput)))
+                }
+                open.forEach { $0.cancel() }
+                resolve(result)
+                withExtendedLifetime((output, errorPipe, input)) {}
+            }
+        }
+        let processSource = DispatchSource.makeProcessSource(identifier: childPID, eventMask: .exit, queue: queue)
+        processSource.setEventHandler { finishExit(nil) }
+        state.withLock { $0.processSource = processSource }
+        processSource.activate()
+        var probeStatus: Int32 = 0
+        if waitpid(childPID, &probeStatus, WNOHANG) == childPID { finishExit(probeStatus) }
+        request.onLaunch?(childPID)
+        if let input, let bytes = request.input { feed(bytes, to: input) }
+    }
+
     /// Stops the child for `failure`: sends the request's stop signal now and SIGKILL after its kill grace
     /// (the exit cancels that). A ``ProcessRequest/CancelBehavior/stop`` run resolves with `failure` at
     /// once; a ``ProcessRequest/CancelBehavior/finish`` run at the exit or at the SIGKILL. A stop before the
@@ -162,6 +321,7 @@ final class ProcessRun: Sendable {
         if request.stopSignal != SIGKILL {
             killDeadline.schedule(after: request.killGrace) { [self] in
                 send(SIGKILL)
+                state.withLock { $0.processGroup = 0 }
                 // Bounded: a child that does not end even on SIGKILL (stuck in the kernel) does not hold the caller.
                 resolve(.failure(failure))
             }
@@ -173,7 +333,11 @@ final class ProcessRun: Sendable {
     /// Sends signal `number` to the child while it runs; nothing before its launch or after its exit.
     private func send(_ number: Int32) {
         state.withLock { state in
-            if state.pid > 0 { _ = Darwin.kill(state.pid, number) }
+            if state.processGroup > 0 {
+                _ = Darwin.kill(-state.processGroup, number)
+            } else if state.pid > 0 {
+                _ = Darwin.kill(state.pid, number)
+            }
         }
     }
 
@@ -239,5 +403,11 @@ final class ProcessRun: Sendable {
         channel.write(offset: 0, data: data, queue: queue) { done, _, _ in
             if done { channel.close() }
         }
+    }
+
+    private func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
+        let pointers = strings.map { strdup($0) } + [nil]
+        defer { for pointer in pointers { free(pointer) } }
+        return body(pointers)
     }
 }

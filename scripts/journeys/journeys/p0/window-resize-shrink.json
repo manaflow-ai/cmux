@@ -1,0 +1,53 @@
+{
+  "id": "window-resize-shrink",
+  "priority": "P0",
+  "title": "Drag the window narrower, then shorter (live): the grid follows the window and the prompt stays in view",
+  "why": "A person makes a window smaller as often as larger. Each step must refit the grid (the PTY gets the new size, so the shell and programs wrap at the new width), with no blank frame and the prompt still at the bottom (the live-resize bug of dogfood v1, fix 673587c97dc, guarded on the shrink side).",
+  "source": "window life: resize by drag (holistic-quality.md 1)",
+  "budget_seconds": 75,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-resize-shrink"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "main"},
+    {"do": "window_place", "title": "set-up: the window at 85% x 85% of the screen, top left", "fraction": [0.02, 0.03, 0.85, 0.85]},
+    {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}]},
+    {"do": "remember", "as": "start"},
+    {"do": "type", "text": "seq 1 3000; echo end-${nonce}", "enter": true, "mark": "filled"},
+    {"do": "expect", "title": "a long scrollback, the prompt at the bottom", "since": "filled", "timeout": 20,
+     "all": [{"daemon_line": "end-${nonce}"}, {"daemon_prompt": true}, {"app_prompt": true}, {"at_bottom": {}}]},
+
+    {"do": "window_drag", "title": "press the bottom-right corner and drag 420 points left (button held)", "by": [-420, 0], "events": 40, "release": false, "mark": "narrower"},
+    {"do": "expect", "title": "mid-drag, narrower: fewer columns, the prompt stays in view", "since": "narrower", "timeout": 10,
+     "all": [
+       {"window_frame": {"from": "start", "dw": -420, "dh": 0}},
+       {"grid_fits": {"vs": "start", "cols": "narrower", "rows": "same"}},
+       {"app_prompt": true},
+       {"at_bottom": {}},
+       {"daemon_prompt": true},
+       {"pane_frame_text": "end-${nonce}"}
+     ]},
+    {"do": "window_drag", "title": "keep the button held and drag 300 points up", "press": false, "by": [0, -300], "events": 36, "release": false, "mark": "shorter"},
+    {"do": "expect", "title": "mid-drag, shorter: fewer rows, the prompt stays in view", "since": "shorter", "timeout": 10,
+     "all": [
+       {"window_frame": {"from": "start", "dw": -420, "dh": -300}},
+       {"grid_fits": {"vs": "start", "cols": "narrower", "rows": "shorter"}},
+       {"app_prompt": true},
+       {"at_bottom": {}},
+       {"app_text_line": "end-${nonce}"},
+       {"pane_frame_text": "end-${nonce}"}
+     ]},
+    {"do": "window_drag", "title": "release", "press": false, "by": [-10, -10], "events": 4, "release": true},
+
+    {"do": "type", "text": "echo pty-${nonce} $(stty size)", "enter": true, "mark": "after"},
+    {"do": "expect", "title": "after the drag: the PTY has the window's smaller grid", "since": "after", "timeout": 10,
+     "all": [
+       {"pty_size": "pty-${nonce}"},
+       {"grid_fits": {"vs": "start", "cols": "narrower", "rows": "shorter"}},
+       {"app_prompt": true},
+       {"at_bottom": {}},
+       {"daemon_line": "${prompt}echo pty-${nonce} $(stty size)"},
+       {"pane_frame_text": "pty-${nonce}"}
+     ]}
+  ],
+  "finally": [{"do": "restore_window", "from": "before-place"}]
+}

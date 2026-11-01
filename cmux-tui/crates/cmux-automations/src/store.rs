@@ -2,10 +2,10 @@
 //!
 //! ```text
 //! <root>/
-//!   .runner.lock              flock: one runner per machine
+//!   .runner.lock              file lock: one runner per machine
 //!   auto_…/automation.json    the definition (atomic replace)
 //!   auto_…/state.json         the schedule cursor (atomic replace)
-//!   auto_…/runs.jsonl         run history, append-only, flock while appending
+//!   auto_…/runs.jsonl         run history, append-only, locked while appending
 //!   auto_…/logs/run_….log     each run's output
 //!   .deleted/auto_…-<time>/   deleted automations, history kept
 //! ```
@@ -17,14 +17,13 @@
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::automation::{Automation, AutomationSpec, new_automation_id};
 use crate::run::Run;
+use crate::sys::{create_private_dir, private_file, sync_dir};
 
 /// A store operation that failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,39 +81,39 @@ pub struct RunnerLock {
 impl RunnerLock {
     /// Take the lock, or `None` when another runner holds it.
     pub fn acquire(store: &Store) -> Result<Option<RunnerLock>, StoreError> {
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .mode(0o600)
+        let file = private_file(OpenOptions::new().create(true).truncate(false).write(true))
             .open(store.root.join(".runner.lock"))?;
-        // SAFETY: flock on a descriptor this function owns.
-        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-        if rc == 0 {
-            return Ok(Some(RunnerLock { _file: file }));
+        // std's lock is flock on Unix (as runners before it took) and
+        // LockFileEx on Windows.
+        match file.try_lock() {
+            Ok(()) => Ok(Some(RunnerLock { _file: file })),
+            Err(fs::TryLockError::WouldBlock) => Ok(None),
+            Err(fs::TryLockError::Error(e)) => Err(e.into()),
         }
-        let err = std::io::Error::last_os_error();
-        if err.raw_os_error() == Some(libc::EWOULDBLOCK) { Ok(None) } else { Err(err.into()) }
     }
 }
 
-/// Holds an exclusive flock on a file until dropped.
+/// Holds a lock on a file until dropped.
 struct Flock(File);
 
 impl Flock {
+    /// Blocking is fine: holders only append one line.
     fn exclusive(file: File) -> std::io::Result<Flock> {
-        // SAFETY: as above; blocking is fine, holders only append one line.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
+        file.lock()?;
+        Ok(Flock(file))
+    }
+
+    /// A reader's lock. Windows locks are mandatory, so a read must not
+    /// overlap an append; on Unix it also never sees half a line.
+    fn shared(file: File) -> std::io::Result<Flock> {
+        file.lock_shared()?;
         Ok(Flock(file))
     }
 }
 
 impl Drop for Flock {
     fn drop(&mut self) {
-        // SAFETY: unlock the descriptor locked in `exclusive`.
-        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+        let _ = self.0.unlock();
     }
 }
 
@@ -134,12 +133,12 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     ));
     {
         let mut f =
-            OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(&tmp)?;
+            private_file(OpenOptions::new().create(true).truncate(true).write(true)).open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
     }
     fs::rename(&tmp, path)?;
-    File::open(dir)?.sync_all()
+    sync_dir(dir)
 }
 
 impl Store {
@@ -154,7 +153,7 @@ impl Store {
 
     /// Open (and make) the store at `root`.
     pub fn open(root: &Path) -> Result<Store, StoreError> {
-        fs::DirBuilder::new().recursive(true).mode(0o700).create(root)?;
+        create_private_dir(root)?;
         Ok(Store { root: root.to_path_buf() })
     }
 
@@ -206,7 +205,7 @@ impl Store {
     pub fn create(&self, spec: AutomationSpec, now: i64) -> Result<Automation, StoreError> {
         self.check(&spec, None)?;
         let id = new_automation_id()?;
-        fs::DirBuilder::new().recursive(true).mode(0o700).create(self.dir(&id).join("logs"))?;
+        create_private_dir(&self.dir(&id).join("logs"))?;
         let a = Automation {
             id,
             name: spec.name.trim().to_string(),
@@ -268,7 +267,7 @@ impl Store {
     pub fn delete(&self, id: &str) -> Result<(), StoreError> {
         let a = self.get(id)?;
         let trash = self.root.join(".deleted");
-        fs::DirBuilder::new().recursive(true).mode(0o700).create(&trash)?;
+        create_private_dir(&trash)?;
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -336,7 +335,7 @@ impl Store {
 
     /// Move the schedule cursor.
     pub fn set_handled_through(&self, id: &str, t: i64) -> Result<(), StoreError> {
-        fs::DirBuilder::new().recursive(true).mode(0o700).create(self.dir(id))?;
+        create_private_dir(&self.dir(id))?;
         let json = serde_json::to_vec(&AutomationState { handled_through: t })
             .map_err(|e| StoreError::Io(e.to_string()))?;
         write_atomic(&self.dir(id).join("state.json"), &json)?;
@@ -344,11 +343,7 @@ impl Store {
     }
 
     fn runs_file(&self, id: &str) -> std::io::Result<File> {
-        OpenOptions::new()
-            .create(true)
-            .read(true)
-            .append(true)
-            .mode(0o600)
+        private_file(OpenOptions::new().create(true).read(true).append(true))
             .open(self.dir(id).join("runs.jsonl"))
     }
 
@@ -366,11 +361,15 @@ impl Store {
 
     /// The run history of one automation, in the order runs were made.
     pub fn runs(&self, id: &str) -> Result<Vec<Run>, StoreError> {
-        match fs::read_to_string(self.dir(id).join("runs.jsonl")) {
-            Ok(text) => Ok(Self::parse_runs(&text)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(e) => Err(e.into()),
-        }
+        let file = match File::open(self.dir(id).join("runs.jsonl")) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut lock = Flock::shared(file)?;
+        let mut text = String::new();
+        lock.0.read_to_string(&mut text)?;
+        Ok(Self::parse_runs(&text))
     }
 
     /// One run by id.

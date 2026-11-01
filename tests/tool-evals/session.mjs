@@ -4,7 +4,7 @@
 // nothing reaches the user's sessions or app (no app socket, scrubbed env).
 import { execFile, spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -82,6 +82,12 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
   // threw after the spawn left the daemon running (1,115 daemons after one overloaded panel).
   const stopDaemon = async () => {
     await pexec(cli, ["daemon", "stop", "--socket", socket, "--end-terminals", "--force"], { env }).catch(() => {});
+    // A remote daemon outlives a stop sent through a closed forward (1,000+ daemons of old
+    // runs were still up on the remote host, 2026-10-31): stop it there by its session name.
+    if (remote) {
+      const stop = `${remote.cli} daemon stop --socket ${socket} --end-terminals --force; pkill -f "[d]aemon start --session ${name} "`;
+      await pexec("ssh", [...SSH_OPTS, "-n", remote.host, stop]).catch(() => {});
+    }
     try { process.kill(-daemon.pid, "SIGTERM"); } catch {}
     try { if (launcher) process.kill(-launcher.pid, "SIGTERM"); } catch {}
     for (const f of readdirSync("/tmp/cte")) if (f.startsWith(`${name}.sock`)) rmSync(join("/tmp/cte", f), { force: true });
@@ -99,8 +105,18 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
       `CMUX_TUI_SOCKET=${socket}`, `CMUX_TUI_TERMINAL_ID=${agentEnvRef.CMUX_TUI_TERMINAL_ID}`,
       `CMUX_SOCKET_PATH=${env.CMUX_SOCKET_PATH}`, `CMUX_NEXT_CONFIG_FILE=${env.CMUX_NEXT_CONFIG_FILE}`,
     ];
-    const forward = noApp ? [] : ["-o", "StreamLocalBindUnlink=yes", "-R", `${env.CMUX_SOCKET_PATH}:${env.CMUX_SOCKET_PATH}`];
-    return { command: "ssh", args: [...SSH_OPTS, ...forward, remote.host, "env", ...remoteEnv, remote.cli, "mcp", "serve", ...serveArgs] };
+    const serve = ["env", ...remoteEnv, remote.cli, "mcp", "serve", ...serveArgs];
+    if (noApp) return { command: "ssh", args: [...SSH_OPTS, remote.host, ...serve] };
+    // Tailscale SSH creates a forwarded socket as root, mode 0600, so the MCP server (this
+    // user, which also checks the peer's uid) could not reach the stand-in app: every
+    // remote run so far saw no app. The forward goes to `<app>.fwd`, opened with sudo, and
+    // a relay of this user listens at the app path until the MCP server exits.
+    const app = env.CMUX_SOCKET_PATH;
+    const sq = (text) => `'${String(text).replaceAll("'", "'\\''")}'`;
+    const relay = `import base64;exec(base64.b64decode("${Buffer.from(APP_RELAY).toString("base64")}"))`;
+    const prelude = `sudo -n chmod 666 ${sq(`${app}.fwd`)} && (setsid python3 -c ${sq(relay)} ${sq(app)} ${sq(`${app}.fwd`)} $$ </dev/null >/dev/null 2>&1 &) && sleep 0.3 && exec`;
+    const forward = ["-o", "StreamLocalBindUnlink=yes", "-R", `${app}.fwd:${app}`];
+    return { command: "ssh", args: [...SSH_OPTS, ...forward, remote.host, prelude, ...serve.map(sq)] };
   };
   const agentEnvRef = {};
   /** The markers the stub helpers wrote (on the daemon's host). */
@@ -124,7 +140,7 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
     await cmux(["workspace", origin.workspace_id, "focus"]);
     await cmux(["pane", origin.pane_id, "focus"]);
 
-    app = noApp ? null : await standInApp(env.CMUX_SOCKET_PATH, cmux, origin);
+    app = noApp ? null : await standInApp(env.CMUX_SOCKET_PATH, cmux, origin, join(dir, "app-calls.jsonl"));
 
     // The agent runs in the origin terminal, so `current` is its workspace and pane.
     // A terminal reaches its session through CMUX_TUI_SOCKET, not --session (which turns
@@ -197,6 +213,12 @@ async function runSetup(cmux, setup, origin, work) {
     if (step.op === "workspace") {
       const r = await cmux(["workspace", "create", "--name", step.name, "--cwd", work]);
       if (step.alias) aliases[step.alias] = r.workspace_id;
+    } else if (step.op === "dock") {
+      // Pins the column of `pane` (an alias) to `edge` (default right): a sticky column.
+      const pane = aliases[step.pane] ?? step.pane;
+      const layout = await cmux(["screen", origin.screen_id, "layout", "export"]);
+      const column = columnsOf(layout).find((c) => c.pane_ids.includes(pane))?.column_id;
+      if (column) await cmux(["screen", origin.screen_id, "column", column, "update", "--dock", "true", "--edge", step.edge ?? "right"]);
     } else if (step.op === "split-right") {
       const r = await cmux(["pane", origin.pane_id, "split", "--right", "--viewport-width", "0.5"]);
       if (step.alias) aliases[step.alias] = r.pane_id;
@@ -217,15 +239,110 @@ async function runSetup(cmux, setup, origin, work) {
   return aliases;
 }
 
+/** A unix socket relay (argv: listen path, target path, owner pid): one thread pair per
+ * connection; it exits when the owner process does. */
+const APP_RELAY = `import os,socket,sys,threading,time
+listen,target,owner=sys.argv[1],sys.argv[2],int(sys.argv[3])
+try: os.unlink(listen)
+except OSError: pass
+srv=socket.socket(socket.AF_UNIX); srv.bind(listen); os.chmod(listen,0o600); srv.listen(16)
+def pipe(a,b):
+  try:
+    while True:
+      d=a.recv(65536)
+      if not d: break
+      b.sendall(d)
+  except OSError: pass
+  for s in (a,b):
+    try: s.shutdown(socket.SHUT_RDWR)
+    except OSError: pass
+def serve():
+  while True:
+    c,_=srv.accept(); t=socket.socket(socket.AF_UNIX)
+    try: t.connect(target)
+    except OSError: c.close(); continue
+    threading.Thread(target=pipe,args=(c,t),daemon=True).start(); threading.Thread(target=pipe,args=(t,c),daemon=True).start()
+threading.Thread(target=serve,daemon=True).start()
+while True:
+  time.sleep(2)
+  try: os.kill(owner,0)
+  except OSError: break
+try: os.unlink(listen)
+except OSError: pass`;
+
+/** The app actions that open a viewer tab (a file, a diff, a page), by id and CLI name. */
+const OPEN_ACTIONS = new Map([
+  ["file.open", "file"], ["file open", "file"],
+  ["openDiffViewer", "diff"], ["browser open-diff-viewer", "diff"],
+  ["palette.openDirectoryDiffViewer", "diff"], ["browser open-directory-diff-viewer", "diff"],
+  ["openBrowser", "page"], ["tab new-browser", "page"],
+  ["openBrowser.webkit", "page"], ["tab new-webkit", "page"],
+  ["openBrowser.chromium", "page"], ["tab new-chromium", "page"],
+]);
+
 /**
  * The app's place-and-focus answers, without an app: `system.identify` names the
  * agent's own terminal (as the app does for a chat in it) and `snapshot.get` the
  * daemon's focus. `action.list` and `system.capabilities` replay a real app's catalogue,
- * so the app's tools are listed and searched as in the app. Every other app method fails as an app that cannot do it would.
+ * so the app's tools are listed and searched as in the app.
+ *
+ * The app's open actions (a file, a diff, a page: OPEN_ACTIONS and `browser.open_split`)
+ * run as the app places them: a tab in the `target` pane (a pane, or a tab's pane), else
+ * the focused pane; a page with no workspace beside the chat. The tab is a terminal named
+ * for what it shows (headless renders no viewer), and every open is recorded in `log` for
+ * the grader. Every other app method fails as an app that cannot do it would.
  */
-async function standInApp(path, cmux, origin) {
+async function standInApp(path, cmux, origin, log) {
   rmSync(path, { force: true });
-  const answer = async (method) => {
+  const paneOf = async (target) => {
+    const id = String(target ?? "").replace(/^(pane|tab|workspace):/, "").replace(/^[\w.-]+:(?=(pane|tab|ws)_)/, "");
+    if (id.startsWith("pane_")) return id;
+    if (id.startsWith("tab_")) return (await cmux(["tab", id, "show"]))?.pane_id ?? null;
+    if (id.startsWith("ws_")) return workspacePane(id);
+    return null;
+  };
+  // A named workspace's pane: its focused one, else its first (the app's default pane).
+  const workspacePane = async (workspace) => {
+    const panes = await cmux(["pane", "list", "--workspace", workspace]);
+    const items = panes?.items ?? panes ?? [];
+    return (items.find((p) => p.focused) ?? items[0])?.id ?? null;
+  };
+  const besidePane = async () => {
+    const layout = await cmux(["screen", origin.screen_id, "layout", "export"]);
+    const columns = columnsOf(layout);
+    const mine = columns.findIndex((c) => c.pane_ids.includes(origin.pane_id));
+    const right = mine >= 0 ? columns.slice(mine + 1).find((c) => !c.docked) : null;
+    if (right?.pane_ids[0]) return right.pane_ids[0];
+    return (await cmux(["pane", origin.pane_id, "split", "--right"]))?.pane_id ?? origin.pane_id;
+  };
+  const open = async (kind, what, pane, request) => {
+    const label = `[${kind}] ${what}`.slice(0, 80);
+    const created = await cmux(["tab", "create", "terminal", "--pane", pane, "--name", label]);
+    // `focus: true` (the run's or the open's) shows the new tab, as the app does.
+    if (request.focus === true && created?.tab_id) await cmux(["tab", created.tab_id, "focus"]);
+    appendFileSync(log, `${JSON.stringify({ kind, what, pane, tab: created?.tab_id, request })}\n`);
+    return { created: { tab_id: created?.tab_id, pane_id: pane }, state: "done" };
+  };
+  const answer = async ({ method, params = {} }) => {
+    if (method === "action.run" && OPEN_ACTIONS.has(params.action)) {
+      const kind = OPEN_ACTIONS.get(params.action);
+      const args = params.args ?? {};
+      const what = args.path ?? args.url ?? (kind === "diff" ? "changes" : "");
+      // The app's own refusals: a file or diff path must be absolute (AgentHandlers.openFile,
+      // ViewerHandlers), and a page takes a tab target (TabActionCatalog `targets: [.tab]`).
+      if (kind !== "page" && args.path != null && !String(args.path).startsWith("/")) {
+        throw { code: "invalid_argument", message: `path must be absolute: ${args.path}` };
+      }
+      if (kind === "page" && params.target != null && !/(^|:)tab_/.test(String(params.target))) {
+        throw { code: "invalid_argument", message: `No tab matches ${params.target}` };
+      }
+      const pane = (await paneOf(params.target)) ?? origin.pane_id;
+      return open(kind, what, pane, { method, action: params.action, args, target: params.target ?? null, focus: params.focus === true || args.focus === true });
+    }
+    if (method === "browser.open_split") {
+      const pane = params.workspace_id ? await workspacePane(params.workspace_id) : await besidePane();
+      return open("page", params.url ?? "", pane ?? origin.pane_id, { method, url: params.url, focus: params.focus === true });
+    }
     if (method === "system.identify") {
       const caller = { workspace: origin.workspace_id, screen: origin.screen_id, pane: origin.pane_id, tab: origin.tab_id, terminal_id: origin.terminal_id };
       // `beside`: the first undocked pane in the column right of the chat's, as the app answers.
@@ -257,7 +374,7 @@ async function standInApp(path, cmux, origin) {
         buf = buf.slice(i + 1);
         let msg;
         try { msg = JSON.parse(line); } catch { continue; }
-        const reply = await answer(msg.method).then((result) => ({ id: msg.id, ok: true, result }), (error) => ({ id: msg.id, ok: false, error }));
+        const reply = await answer(msg).then((result) => ({ id: msg.id, ok: true, result }), (error) => ({ id: msg.id, ok: false, error }));
         socket.write(`${JSON.stringify(reply)}\n`);
       }
     });

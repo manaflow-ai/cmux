@@ -355,48 +355,11 @@ fn result_bytes(reply: &Value) -> usize {
 
 /// Omit the largest event payloads only when one whole turn still cannot fit after page sizing.
 /// Every event, including its sequence, kind, timestamps and identity, remains in the page; only
-/// its renderable message is replaced by the same explicit marker used by ordinary event pages.
-/// This makes a large turn finite and advances its byte cursor instead of returning
-/// `message.too_large` forever.
+/// its renderable message is replaced by the same explicit marker used by ordinary event pages
+/// (`paging::fit_reply`). This makes a large turn finite and advances its byte cursor instead of
+/// returning `message.too_large` forever.
 fn fit_reply(mut reply: Value) -> Value {
-    if result_bytes(&reply) <= REPLY_BYTES {
-        return reply;
-    }
-    let mut bytes = result_bytes(&reply);
-    let Some(events) = reply.get_mut("events").and_then(Value::as_array_mut) else { return reply };
-    let mut event_sizes: Vec<usize> = events
-        .iter()
-        .map(|event| serde_json::to_string(event).map_or(usize::MAX, |text| text.len()))
-        .collect();
-    let mut omitted = vec![false; events.len()];
-    while bytes > REPLY_BYTES {
-        let Some((index, _)) = event_sizes
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !omitted.get(*index).copied().unwrap_or(true))
-            .max_by_key(|(_, size)| *size)
-        else {
-            break;
-        };
-        let Some(event) = events.get_mut(index) else { break };
-        let original = event_sizes.get(index).copied().unwrap_or(usize::MAX);
-        let original_msg = event.get("msg").cloned().unwrap_or(Value::Null);
-        let original_msg_bytes = serde_json::to_string(&original_msg).map_or(0, |text| text.len());
-        let Some(event_object) = event.as_object_mut() else { break };
-        event_object.insert("msg".to_owned(), json!({
-            "_meta": {"acpmux": {"omitted": {"bytes": original_msg_bytes, "reason": "too_large"}}}
-        }));
-        let replacement = serde_json::to_string(event).map_or(usize::MAX, |text| text.len());
-        let Some(event_size) = event_sizes.get_mut(index) else { break };
-        *event_size = replacement;
-        let Some(event_omitted) = omitted.get_mut(index) else { break };
-        *event_omitted = true;
-        bytes = bytes.saturating_sub(original.saturating_sub(replacement));
-    }
-    // `fit_reply` is only called after reducing to one turn. Its event count is bounded by the
-    // transcript parser, so the identity-only envelopes above always fit in one frame. Keep this
-    // assertion as a guard if those parser bounds change.
-    debug_assert!(bytes <= REPLY_BYTES, "native history reply still too large: {bytes}");
+    super::fit_reply(&mut reply);
     reply
 }
 

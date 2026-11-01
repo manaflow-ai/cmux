@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
-const USAGE: &str = "usage: cmux apps list [--installed] [--query TEXT] [--json]\n       cmux apps info <app> [--json]\n\n  list: every app in the App Store with its tier and install state.\n  info: one app's listing and the scopes it asks for, with their risk class.\n  Install and remove with `cmux apps install <app>` and `cmux apps remove <app>`:\n  cmux shows you a consent card and changes nothing until you confirm.";
+const USAGE: &str = "usage: cmux apps list [--installed] [--query TEXT] [--json]\n       cmux apps info <app> [--json]\n\n  list: every app in the App Store with its tier and install state.\n  info: one app's listing, the machines a deployed app runs on, and the scopes it asks for, with their risk class.\n  Install and remove with `cmux apps install <app>` and `cmux apps remove <app>`:\n  cmux shows you a consent card and changes nothing until you confirm.";
 
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,6 +119,17 @@ pub(super) fn info_text(detail: &Value) -> String {
         detail["summary"].as_str().unwrap_or(""),
         detail["tier"].as_str().unwrap_or(""),
     );
+    let targets: Vec<&str> = detail
+        .get("deploy")
+        .and_then(|deploy| deploy.get("targets"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    if !targets.is_empty() {
+        out.push_str(&format!("runs on: {}\n", targets.join(", ")));
+    }
     let scopes = detail["scopes"].as_array().cloned().unwrap_or_default();
     if scopes.is_empty() {
         out.push_str("asks for: nothing\n");

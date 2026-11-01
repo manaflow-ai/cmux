@@ -109,7 +109,11 @@ test("a canceled start's late Trust refusal cannot replace the newer start's ret
     const started = await newStart;
     expect(started).toBeDefined();
     expect(client.shownSession()?.sessionId).toBe(started);
-    expect(client.shownSession()?.cwd).toBe("/tmp/newer-start");
+    // The retry started the newer folder's session. Read its folder from the daemon's listing: the
+    // mock's new session carries its seeded "This Mac" host (acpmux itself sends none), and
+    // shownSession() names a folder only for a session with no host.
+    const listed = (await daemon.answer("_acpmux/watch", {})) as { sessions: { sessionId: string; cwd?: string }[] };
+    expect(listed.sessions.find((session) => session.sessionId === started)?.cwd).toBe("/tmp/newer-start");
   } finally {
     client.close();
   }
@@ -120,14 +124,19 @@ test("a retained New Tab start rejects Trust refusal when this remote origin can
   const { client, requests } = fixture;
   try {
     const start = client.create("claude", undefined, undefined, true, undefined, true);
-    const refused = expect(start).rejects.toThrow("Trust must be answered on the host");
+    // Held as a value: an un-awaited expect(start).rejects waits for the start to settle right
+    // there, before the refusal below is sent, and the test hangs.
+    const refused = start.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     await fixture.requested;
     fixture.rejectStart(
       Object.assign(new Error("Trust must be answered on the host"), {
         data: { reason: "trust.pending", cwd: "/tmp/remote-trust" },
       }),
     );
-    await refused;
+    expect(((await refused) as Error | undefined)?.message).toBe("Trust must be answered on the host");
     expect(client.shownSession()).toBeUndefined();
     expect(requests.filter((request) => request.method === "session/prompt")).toEqual([]);
     // Once the host has answered, an explicit retry must be able to start again.
