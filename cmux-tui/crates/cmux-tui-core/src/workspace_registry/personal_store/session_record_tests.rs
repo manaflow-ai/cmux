@@ -229,21 +229,20 @@ fn a_session_put_compares_effective_fields_and_preserves_personal_state() {
     );
     assert_eq!(registry.personal_snapshot().unwrap(), before);
 
-    let mut revision = registry.personal_revision().unwrap();
-    for (machine, session, transport, capabilities) in [
+    let revisions = registry.personal_revision().unwrap() + 1..;
+    for (revision, (machine, session, transport, capabilities)) in revisions.zip([
         (Some("renamed-box"), None, transport.clone(), None),
         (None, Some("renamed-session"), transport.clone(), None),
         (None, None, json!({"kind":"ssh","host":"new-host"}), None),
         (None, None, json!({"kind":"ssh","host":"new-host"}), Some(json!([]))),
-    ] {
+    ]) {
         let (record, created) = registry
             .put_session("remote-1", machine, session, &transport, capabilities.as_ref(), None)
             .unwrap();
         assert!(!created);
         assert_eq!(record.icon.as_deref(), Some("🧪"));
         assert!(record.migrated);
-        assert_eq!(registry.personal_revision().unwrap(), revision + 1);
-        revision += 1;
+        assert_eq!(registry.personal_revision().unwrap(), revision);
         let before_retry = registry.personal_snapshot().unwrap();
         let (retry, _) = registry
             .put_session("remote-1", machine, session, &transport, capabilities.as_ref(), None)
