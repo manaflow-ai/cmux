@@ -59,7 +59,12 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     );
     await page.waitForSelector(".acpmux-running-tray .acpmux-agent-line");
     // The tray rises in as it joins the stack (bottomStack.css ui-enter): measure where it lands.
-    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
+    // Settle the entrances; a working Spinner's turn never ends (spinner.css), so only finite ones.
+    await page.evaluate(() => {
+      for (const animation of document.getAnimations()) {
+        if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
+      }
+    });
     return page;
   }
 
@@ -135,7 +140,12 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         );
         await page.waitForSelector(".acpmux-running-tray__head");
         await openRunningTray(page);
-        await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
+        // Settle the entrances; a working Spinner's turn never ends (spinner.css), so only finite ones.
+        await page.evaluate(() => {
+          for (const animation of document.getAnimations()) {
+            if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
+          }
+        });
         await page.click(".acpmux-running-tray__finished");
         await page.waitForFunction(
           () => document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116,
