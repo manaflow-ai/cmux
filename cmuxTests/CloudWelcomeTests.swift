@@ -314,6 +314,27 @@ struct CloudWelcomeTests {
         }
     }
 
+    @Test("any persisted welcome marker prevents a repeat")
+    @MainActor
+    func nonStringCampaignMarkerAlsoSuppressesWelcome() throws {
+        let suiteName = "CloudWelcomeTests.nonStringMarker.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        defaults.set(["seen": true], forKey: CloudWelcomeWindowController.seenVersionDefaultsKey)
+
+        #expect(CloudWelcomeWindowController.hasSeenWelcome(in: defaults))
+        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(
+            defaults: defaults,
+            appVersion: "0.65.2",
+            policy: policy
+        ))
+        #expect(!CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(
+            appVersion: "0.65.2",
+            policy: policy
+        ))
+    }
+
     @Test("only a profile-enforced DisableCloud policy suppresses the welcome")
     func unmanagedDisableCloudPreferenceDoesNotSuppressWelcome() throws {
         let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
