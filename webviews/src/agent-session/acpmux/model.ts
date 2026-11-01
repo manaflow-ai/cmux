@@ -893,6 +893,8 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// The current turn's daemon start time, in the session clock. Unset when no turn is running.
+  turnStartedAtMs?: number;
   /// How many of the shown chat's turns this client saw end: it only grows, so an end is seen even
   /// when React draws a turn's start and end as one render (App.tsx `pane.tabState`).
   turnsEnded?: number;
