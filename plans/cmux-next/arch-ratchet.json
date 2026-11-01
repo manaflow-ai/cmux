@@ -751,6 +751,16 @@
       "owner": "cloud-ux-flows",
       "receipt": "Review (codex gpt-6-astra high via router-review): SHIP at c11edce515cad9c92dc27832f162b82f6125e044",
       "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 13,
+      "why": "Native chat menu presentation requires PaneContentView owner-checked callback binding and parking/retirement cleanup. These 13 lines are composition-root AppKit view lifecycle wiring; menu construction stays in CmuxNextTabs and publication stays in shared web. Move this wiring with the pane host lifecycle when that shell is extracted, rather than relocating unrelated code for the count.",
+      "author": "teamleaderleo",
+      "owner": "teamleaderleo (pane host lifecycle extraction)",
+      "receipt": "Review (codex gpt-6-astra high, app-lines exception): SHIP at 43c8d40ab7ba12c008873d898a526e7072c622e8",
+      "expiry": "2026-11-30"
     }
   ],
   "escape_reviews": [
