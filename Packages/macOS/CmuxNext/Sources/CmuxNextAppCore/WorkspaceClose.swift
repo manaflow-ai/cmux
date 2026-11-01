@@ -70,18 +70,21 @@ public struct WorkspaceClose {
         }
     }
 
-    /// A close whose daemon did not answer within its bound, decided from the store and not from the timeout. The store
-    /// first applies every event the connection received (a close's events can come without its reply); then the close
-    /// went through when the store lists none of `keys`, on the same connection. Else, or when the connection changed,
-    /// it throws ``CloseUnanswered``: the result is unknown (a paused daemon may still close it), the caller lists the
-    /// rows again with that reason, and a close that commits later removes them as any close does.
+    /// A close whose daemon did not answer within its bound, decided from the store as it is now and not from the
+    /// timeout. It went through when the store of the same connection lists none of `keys` (a close's events can come
+    /// without its reply). Else, or when the connection changed, it throws ``CloseUnanswered``: the result is unknown
+    /// (a paused daemon may still close it), the caller lists the rows again with that reason, and a close that commits
+    /// later removes them as any close does. It never waits for the store to catch up: that wait can hang on a resync
+    /// snapshot only the unanswering daemon sends, and a store that is behind can only turn a done close into this
+    /// unknown result, which its late events then settle.
     public static func unanswered(_ keys: [WorkspaceKey], on daemon: DaemonService, connection: DaemonConnection) async throws {
-        if await daemon.appliedThroughReply(on: connection, after: "close past its bound"), await !lists(keys, on: daemon) { return }
+        if await !lists(keys, on: daemon, connection: connection) { return }
         throw CloseUnanswered()
     }
 
-    @MainActor private static func lists(_ keys: [WorkspaceKey], on daemon: DaemonService) -> Bool {
-        daemon.store.workspaces.contains { $0.key.map(keys.contains) ?? false }
+    /// Whether the store lists any of `keys`; true (unknown) when `connection` is no longer the daemon's.
+    @MainActor private static func lists(_ keys: [WorkspaceKey], on daemon: DaemonService, connection: DaemonConnection) -> Bool {
+        daemon.connection !== connection || daemon.store.workspaces.contains { $0.key.map(keys.contains) ?? false }
     }
 
     /// What a close's toast says for `failure`: its reason in the person's words (its machine did not answer), else nil
