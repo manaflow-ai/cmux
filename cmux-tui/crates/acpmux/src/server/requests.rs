@@ -684,13 +684,6 @@ pub(super) async fn handle_request(
     ) {
         return super::trigger_chat::handle(hub, conn, m, params).await;
     }
-    if conn.is_trigger() {
-        return Err(RpcError::new(
-            -32001,
-            "trigger connection accepts trigger/chat operations only",
-        )
-        .with_data(json!({"reason": "trigger.connection_scope"})));
-    }
     // Before forwarding: only the local connection's authenticated caller may attest itself.
     if m == method::MUX_TURN_ATTESTATION {
         let ask =

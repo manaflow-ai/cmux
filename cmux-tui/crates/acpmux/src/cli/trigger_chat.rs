@@ -14,11 +14,11 @@ use crate::rpc::method;
 
 const MAX_INPUT_BYTES: usize = 128 * 1024;
 
-fn required(input: &Value, key: &str) -> Result<String> {
+fn required(input: &Value, key: &str, max: usize) -> Result<String> {
     input
         .get(key)
         .and_then(Value::as_str)
-        .filter(|v| !v.is_empty() && v.len() <= 256 && !v.chars().any(char::is_control))
+        .filter(|v| !v.is_empty() && v.len() <= max && !v.chars().any(char::is_control))
         .map(str::to_owned)
         .ok_or_else(|| anyhow!("trigger-chat: missing or invalid {key}"))
 }
@@ -36,7 +36,13 @@ fn operation(input: Value) -> Result<&'static str> {
 /// `trigger-chat-v1` is a hard unsupported result for callers (exit 82 is
 /// applied by the package launcher); this command never falls back to a normal
 /// person prompt.
-pub async fn run() -> Result<()> {
+pub async fn run(protocol: &str, principal_fd: i32) -> Result<()> {
+    if protocol != "trigger-chat-v1" {
+        return Err(anyhow!("trigger-chat: --protocol must be trigger-chat-v1"));
+    }
+    if principal_fd != 0 {
+        return Err(anyhow!("trigger-chat: --principal-fd must be 0"));
+    }
     let mut bytes = Vec::new();
     std::io::stdin()
         .take((MAX_INPUT_BYTES + 1) as u64)
@@ -47,33 +53,45 @@ pub async fn run() -> Result<()> {
     }
     let input: Value = serde_json::from_slice(&bytes).context("trigger-chat: invalid JSON")?;
     let op = operation(input.clone())?;
-    // The token is consumed by the fixed platform authorize call in the
-    // provider/guest wrapper. It is intentionally never forwarded to the
-    // daemon or included in a session log.
-    let _token = required(&input, "token")?;
-    let principal = input
-        .get("principal")
-        .cloned()
-        .ok_or_else(|| anyhow!("trigger-chat: platform authorization is required"))?;
-    let client = crate::daemon::connect(true).await?;
+    let token = required(&input, "token", 8192)?;
+    let client = crate::daemon::connect_without_caller(true).await?;
     if !client.daemon_lists(crate::capabilities::TRIGGER_CHAT) {
-        return Err(anyhow!("trigger-chat unsupported: daemon lacks trigger-chat-v1"));
+        return Err(anyhow::Error::new(
+            crate::cli::errors::AppError::new(
+                crate::cli::errors::Code::Runtime,
+                "trigger_unsupported",
+                "trigger-chat unsupported: daemon lacks trigger-chat-v1",
+            )
+            .with_exit(82),
+        ));
     }
     let result = match op {
         "ensure" => {
             client
                 .request(
                     method::TRIGGER_CHAT_ENSURE,
-                    json!({"operation": "ensure", "principal": principal}),
+                    json!({
+                        "operation": "ensure", "token": token.clone(),
+                        "workspace": required(&input, "workspace", 256)?,
+                        "session": required(&input, "session", 256)?,
+                        "delivery": required(&input, "delivery", 512)?,
+                        "cwd": required(&input, "cwd", 4096)?,
+                        "harness": required(&input, "harness", 256)?,
+                    }),
                 )
                 .await?
         }
         "send" => {
-            let prompt = required(&input, "prompt")?;
+            let prompt = required(&input, "prompt", 64 * 1024)?;
             client
                 .request(
                     method::TRIGGER_CHAT_SEND,
-                    json!({"operation": "send", "body": prompt, "principal": principal}),
+                    json!({
+                        "operation": "send", "token": token.clone(), "body": prompt,
+                        "workspace": required(&input, "workspace", 256)?,
+                        "session": required(&input, "session", 256)?,
+                        "delivery": required(&input, "delivery", 512)?,
+                    }),
                 )
                 .await?
         }
@@ -81,7 +99,12 @@ pub async fn run() -> Result<()> {
             client
                 .request(
                     method::TRIGGER_CHAT_STATUS,
-                    json!({"operation": "status", "principal": principal}),
+                    json!({
+                        "operation": "status", "token": token.clone(),
+                        "workspace": required(&input, "workspace", 256)?,
+                        "session": required(&input, "session", 256)?,
+                        "delivery": required(&input, "delivery", 512)?,
+                    }),
                 )
                 .await?
         }

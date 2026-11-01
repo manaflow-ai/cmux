@@ -1167,6 +1167,17 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     connect_with_systemctl("systemctl", &home, &path, autostart, || Client::connect(&path)).await
 }
 
+/// Connect a trigger client without forwarding ambient session caller
+/// credentials into the daemon connection.
+pub async fn connect_without_caller(autostart: bool) -> Result<Arc<Client>> {
+    let home = home();
+    let path = socket_path();
+    connect_with_systemctl("systemctl", &home, &path, autostart, || {
+        Client::connect_without_caller(&path)
+    })
+    .await
+}
+
 /// A connected socket to the daemon, starting one if needed, for a client
 /// that speaks the wire protocol itself (`acpmux stdio`).
 pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
