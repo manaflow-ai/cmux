@@ -107,7 +107,7 @@ async fn a_busy_hosts_list_goes_in_pages_under_the_message_limit() {
     let seen = Seen::default();
     let got = read_all(&list, plan(PAGE_ROWS), crate::rpc::MAX_MESSAGE_BYTES, &seen).await.unwrap();
     assert_eq!(got.rows.len(), 3_700);
-    assert_eq!(seen.requests.get(), 2);
+    assert_eq!(seen.requests.get(), 3);
     let largest = seen.largest.get();
     assert!(largest < crate::rpc::MAX_MESSAGE_BYTES, "{largest}");
 }
