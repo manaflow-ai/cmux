@@ -185,6 +185,7 @@ actor AgentHibernationProcessSnapshotCoordinator {
             return nil
         }
         var validatedIdentities: [Int: AgentPIDProcessIdentity] = [:]
+        var cmuxHelperProcessIDs: Set<Int> = []
         if let processScopeKey {
             guard observedProcessIDs.allSatisfy({ processID in
                 guard let process = snapshot.process(pid: processID),
@@ -200,6 +201,17 @@ actor AgentHibernationProcessSnapshotCoordinator {
                     return false
                 }
                 validatedIdentities[processID] = currentIdentity
+                // A detached helper leads its own authorized group; it has
+                // no terminal to match.
+                if process.ttyDevice == nil,
+                   process.processGroupID == processID,
+                   CmuxAgentHelperProcess.isRegistered(
+                       arguments,
+                       workspaceId: processScopeKey.workspaceId,
+                       surfaceId: processScopeKey.panelId
+                   ) {
+                    cmuxHelperProcessIDs.insert(processID)
+                }
                 return true
             }) else {
                 return nil
@@ -233,7 +245,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
                 processID: processID,
                 processIdentity: identity,
                 processGroupID: processGroupID,
-                ttyDevice: process.ttyDevice
+                ttyDevice: process.ttyDevice,
+                isCmuxHelper: cmuxHelperProcessIDs.contains(processID)
             )
             if let leaderIdentity = authorizedLeaders[processGroupID] {
                 liveAuthorizedLeaders[processGroupID] = leaderIdentity
