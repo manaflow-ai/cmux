@@ -165,10 +165,15 @@ function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: stri
   else button.removeAttribute("title");
 }
 
-/// Bridge failures whose request may already have reached acpmux (it answered late, or the socket
-/// closed after sending); every other rejection (`native.not_connected`, a typed refusal) means
-/// the edit was not applied.
-const UNCERTAIN_CODES = new Set(["native.timed_out", "transport.closed", "transport.stale_connection"]);
+/// Bridge failures whose request may already have reached acpmux (it answered late, the socket
+/// closed after sending, or the reply was malformed or lost after the edit applied: `native.failed`);
+/// every other rejection (`native.not_connected`, a typed refusal) means the edit was not applied.
+const UNCERTAIN_CODES = new Set([
+  "native.timed_out",
+  "native.failed",
+  "transport.closed",
+  "transport.stale_connection",
+]);
 const mayHaveReachedAcpmux = (error: unknown) => {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" && UNCERTAIN_CODES.has(code);
@@ -215,6 +220,8 @@ export function ComposerQueue({
 }) {
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
+  const leavingNow = useRef(leaving);
+  leavingNow.current = leaving;
   // A successful Send now is reflected by acpmux's next snapshot, but the action must disappear
   // immediately after the queue_edit reply so a second click cannot resend it.
   const [sentNow, setSentNow] = useState<ReadonlySet<string>>(new Set());
@@ -226,6 +233,9 @@ export function ComposerQueue({
   // Each row's latest Save: an older one that settles after a newer one began must not reopen its
   // superseded text (the newer save's editor, or its result, is the one that counts).
   const saveGeneration = useRef(new Map<string, number>());
+  // The authoritative queue and the rows hidden while their removal is pending, for calls that settle later.
+  const queueNow = useRef(queue);
+  queueNow.current = queue;
   // Typed text of Saves that failed before acpmux had them while another editor was open (or a
   // sibling's recovery was just claimed): each waits, per row, for the editor to be free again.
   const recovered = useRef(new Map<string, { text: string; original: string; generation: number }>());
@@ -409,8 +419,12 @@ export function ComposerQueue({
   // text back to the composer, and one saved again since is dropped (its newer save counts).
   const reopenRecovered = () => {
     for (const [id, waiting] of recovered.current) {
+      // The authoritative queue decides whether a row is gone, never what is drawn: a row hidden
+      // while its removal is still pending is not gone (the removal can be refused and the row
+      // come back), so its text waits for the answer instead of going to the composer too.
+      const row = queueNow.current.find((entry) => entry.id === id && entry.author === undefined);
+      if (row && leavingNow.current.has(id)) continue;
       recovered.current.delete(id);
-      const row = drawnRows.current.find((entry) => entry.id === id && entry.author === undefined);
       if (!row) onLost?.(waiting.text, id);
       else if (saveGeneration.current.get(id) === waiting.generation) {
         editingNow.current = id;
@@ -423,6 +437,12 @@ export function ComposerQueue({
   // The layout effect below runs on queue changes only, and calls the latest closure.
   const reopenRecoveredRef = useRef(reopenRecovered);
   reopenRecoveredRef.current = reopenRecovered;
+  // A waiting recovery is revisited when the authoritative queue, the rows hidden for a pending
+  // removal, or the open editor change: a refused removal brings the row (and its text) back, an
+  // accepted one hands the text to the composer.
+  useLayoutEffect(() => {
+    if (editing === undefined && recovered.current.size > 0) reopenRecoveredRef.current();
+  }, [queue, leaving, editing]);
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
@@ -711,13 +731,14 @@ export function ComposerQueue({
     // reached acpmux already: the next snapshot says, and restoring could duplicate it.
     void onChange(entry.id, edit).then(
       (ok) => {
-        if (!ok) onLost?.(next, entry.id);
+        // A superseded Save's answer is stale: the newer one's text is the one that counts.
+        if (!ok && latest()) onLost?.(next, entry.id);
       },
       (error: unknown) => {
         if (mayHaveReachedAcpmux(error) || !latest()) return;
         // Another edit is open (or a sibling's recovery just claimed the editor in this batch): its
         // draft is not ours to drop, so this text waits its turn and the row stays queued meanwhile.
-        if (editingNow.current !== undefined) {
+        if (editingNow.current !== undefined || leavingNow.current.has(entry.id)) {
           recovered.current.set(entry.id, { text: next, original: entry.prompt, generation });
           return;
         }
