@@ -184,7 +184,12 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
             const rows = [...scroller.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter(
               (row) => own(menu, row) && !row.closest("[inert]") && box(row).height > 0,
             );
-            const profileRows = lists(menu) ? rows.slice(1) : [];
+            // Family routes now share the Account submenu with the chat's profiles. Keep the
+            // bounded-height assertion focused on the 48 generated profile rows; route choices
+            // are real menu items but are not profiles.
+            const profileRows = lists(menu)
+              ? rows.filter((row) => row.textContent?.startsWith("Claude account"))
+              : [];
             const area = box(scroller);
             const shown = box(rows.at(-1)!);
             const lastProfile = profileRows.at(-1);
