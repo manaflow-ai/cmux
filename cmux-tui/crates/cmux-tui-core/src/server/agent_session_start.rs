@@ -218,7 +218,10 @@ pub(super) struct StartParams {
     harness: Option<String>,
     #[serde(default)]
     model: Option<String>,
-    cwd: String,
+    /// The selected folder on the machine. A missing folder is allowed only
+    /// for the caller's own Cloud VM, where Rust creates `~/chats/<id>`.
+    #[serde(default)]
+    cwd: Option<String>,
     /// The person chose the home folder as the chat's folder (`agent-session-trust`'s rule).
     #[serde(default)]
     home_confirmed: bool,
@@ -245,10 +248,11 @@ impl StartParams {
             (1..=64).contains(&harness.len())
                 && harness.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
         });
-        let cwd = &self.cwd;
-        let cwd_ok = (1..=MAX_CWD_BYTES).contains(&cwd.len())
-            && cwd.starts_with('/')
-            && !cwd.chars().any(char::is_control);
+        let cwd_ok = self.cwd.as_deref().is_none_or(|cwd| {
+            (1..=MAX_CWD_BYTES).contains(&cwd.len())
+                && cwd.starts_with('/')
+                && !cwd.chars().any(char::is_control)
+        });
         let instance_ok = self.person_instance.as_deref().is_none_or(|instance| {
             (1..=128).contains(&instance.len())
                 && instance.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
@@ -287,18 +291,26 @@ pub(super) fn start(
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
     }
-    // On the caller's own Cloud VM a new chat that would start in the home
-    // folder (no folder of the person's own) starts in the work folder.
+    // On the caller's own Cloud VM a new chat with no folder gets a fresh
+    // per-chat folder. Non-Cloud hosts retain the required-folder behavior.
     let own = super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind);
-    if let Some(work) =
-        super::agent_session_trust::owner_cloud_cwd(own, &params.cwd, params.home_confirmed)
-    {
-        params.cwd = work;
+    if params.cwd.is_none() && !own {
+        return refuse(writer, id, Refusal::BadRequest);
+    }
+    if let Some(work) = super::agent_session_trust::owner_cloud_cwd(
+        own,
+        params.cwd.as_deref(),
+        params.home_confirmed,
+        params.surface,
+    ) {
+        params.cwd = Some(work);
     }
     // A chat never starts in `/`, above the home folder, or in the home folder
     // unless the person chose it (cx-1bhjj), as on the Mac.
-    if let Err(refusal) = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
-    {
+    let Some(cwd) = params.cwd.as_deref() else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if let Err(refusal) = super::agent_session_trust::home_rule(cwd, params.home_confirmed) {
         return refuse(writer, id, refusal);
     }
     let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
@@ -473,6 +485,7 @@ fn start_and_bind(
     link: &AcpmuxLink,
     params: &StartParams,
 ) -> Result<Value, Refusal> {
+    let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
         .control_clients
         .agent_sessions
@@ -482,9 +495,8 @@ fn start_and_bind(
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let catalog = link
-        .call("_acpmux/harnesses", json!({"cwd": params.cwd}), CALL_TIMEOUT)
-        .map_err(Refusal::of)?;
+    let catalog =
+        link.call("_acpmux/harnesses", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
     let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
     if !owner_cloud && refused_family(&table, &family) {
         return Err(Refusal::NotAsking);
@@ -493,9 +505,8 @@ fn start_and_bind(
     // run the folder's own hooks and settings at start); this daemon reaches
     // acpmux over its unix socket, which acpmux's trust gate does not hold;
     // only the person answers it (`agent-session-trust`, from the app).
-    let trust = link
-        .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
-        .map_err(Refusal::of)?;
+    let trust =
+        link.call("acp.trust.get", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
     // The caller's own Cloud VM's work folder reads trusted (no question).
     let trust = super::agent_session_trust::owner_cloud_trust(
         super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind),
