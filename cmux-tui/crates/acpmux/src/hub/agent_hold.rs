@@ -57,7 +57,7 @@ impl Hub {
     /// Whether `sender` manages `receiver` (see the module docs).
     pub(crate) fn manages(sender: &Session, receiver: &Session) -> bool {
         let Managers { sessions, chief } = managers(&receiver.meta.lock().unwrap());
-        if sessions.iter().any(|id| *id == sender.id) {
+        if sessions.contains(&sender.id) {
             return true;
         }
         let Some(home) = chief else { return false };
