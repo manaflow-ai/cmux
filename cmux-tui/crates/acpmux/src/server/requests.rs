@@ -1265,6 +1265,7 @@ async fn dispatch_request(
             if !adopting && super::ephemeral::requested(&params) {
                 super::ephemeral::own(hub, conn, &s).await;
             }
+            let meta = s.meta();
             let mut summary = hub.session_summary(&s);
             if let Some(w) = worktree {
                 summary.set("worktree", w);
