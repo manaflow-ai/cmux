@@ -261,7 +261,7 @@ async fn cloud_acpmux(
                     let request: Value = serde_json::from_str(message.as_str())
                         .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
                     let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
-                    if apply_cloud_effects(&mut write, &sender, effects).await.is_err() { break; }
+                    if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
                 }
                 Some(ChannelEvent::Closed(_)) | None => break,
             },
@@ -270,11 +270,11 @@ async fn cloud_acpmux(
                 let response: Value = serde_json::from_slice(&line)
                     .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
                 let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
-                if apply_cloud_effects(&mut write, &sender, effects).await.is_err() { break; }
+                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
             }
             _ = tick.tick() => {
                 let effects = adapter.expire();
-                if apply_cloud_effects(&mut write, &sender, effects).await.is_err() { break; }
+                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
             }
         }
     }
