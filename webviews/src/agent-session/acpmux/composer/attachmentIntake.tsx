@@ -33,6 +33,7 @@ import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
+import { SourceBadge, useSourceLabel, withSourceLabel } from "./SourceBadge";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
@@ -1166,7 +1167,10 @@ export function AttachmentChip({
       live = false;
     };
   }, [attachment.data, attachment.id, attachment.mimeType, image]);
-  const remove = (
+  // The app it came from, at the tile's top-right corner (composer/SourceBadge.tsx); the × takes
+  // that corner while the pointer is on the tile, and the tooltip names the source.
+  const from = useSourceLabel(attachment.source);
+  const removeButton = (
     <button
       type="button"
       className="acpmux-attachment-remove"
@@ -1177,6 +1181,12 @@ export function AttachmentChip({
         <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
     </button>
+  );
+  const remove = (
+    <>
+      <SourceBadge source={attachment.source} />
+      {removeButton}
+    </>
   );
   // Its right-click menu: Open (or what a click does) where a click opens it, and Remove (cx-2lm4).
   const menu = (open: (() => void) | undefined, chip: React.ReactNode, openLabel = t("image.open")) => (
@@ -1215,7 +1225,7 @@ export function AttachmentChip({
       openImage ? () => openImage(source, name) : undefined,
       <div
         className="acpmux-attachment acpmux-attachment-image"
-        /* tooltip-allow: an image thumbnail shows no name */ title={name}
+        /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(name, from)}
       >
         {openImage ? (
           <button
@@ -1310,7 +1320,13 @@ export function AttachmentChip({
     const play = () => void callChipHost("video.quickLook", { src: attachment.path });
     return menu(
       attachment.video ? play : undefined,
-      <VideoAttachmentTile name={attachment.name} video={attachment.video} remove={remove} onPlay={play} />,
+      <VideoAttachmentTile
+        name={attachment.name}
+        title={withSourceLabel(attachment.name, from)}
+        video={attachment.video}
+        remove={remove}
+        onPlay={play}
+      />,
       t("media.play"),
     );
   }
@@ -1320,7 +1336,7 @@ export function AttachmentChip({
       className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
       data-saved={attachment.saved || undefined}
       /* tooltip-allow: the full path is secondary detail for the file chip */
-      title={attachment.path}
+      title={withSourceLabel(attachment.path, from)}
     >
       <FileAttachment
         file={{
@@ -1328,7 +1344,7 @@ export function AttachmentChip({
           // Native path-only choices have no byte count; do not invent a zero-byte file.
           size: attachment.mimeType || attachment.size > 0 ? attachment.size : undefined,
         }}
-        remove={remove}
+        remove={removeButton}
       />
     </div>,
   );

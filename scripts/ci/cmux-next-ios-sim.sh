@@ -234,6 +234,9 @@ cleanup() {
     fi
     rm -rf "$mac_dd" || true
   fi
+  # Cloud routing payloads contain machine/team/session ids; remove this exact
+  # file even when SIGTERM/INT interrupts the Python leg before its finally.
+  if [[ -n "${work:-}" ]]; then rm -f "$work/cloud-routing-push.json" || true; fi
   if [[ "$mode" == release-build ]]; then
     # Keep failure evidence too, including FFI or project-generation failures.
     local log
@@ -242,6 +245,9 @@ cleanup() {
     done
     note "- exit status: $result" || result=1
     (cd "$out" && zip -qr evidence.zip . -x evidence.zip) || result=1
+  fi
+  if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+    python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
   fi
   return "$result"
 }
@@ -799,18 +805,30 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
 fi
 
-# The app log goes through the pairing redactor: a pairing link or token it logged never reaches the artifact.
-simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' 2>/dev/null |
-  python3 -I scripts/ci/cmux_next_pair_e2e.py --redact > "$out/app-log.txt" || true
-cp "$work/build.log" "$out/build.log" 2>/dev/null || true
-# The app (so the same build runs on another Mac's simulator) and the recordings.
-ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
-if [[ -d "$work/corpus" ]]; then
-  mkdir -p "$out/corpus"
-  cp "$work/corpus/"*.typescript "$work/corpus/"*.rate "$out/corpus/" 2>/dev/null || true
+# Cloud proof mode exports an allowlisted receipt only. The ordinary pair-e2e
+# mode keeps its existing diagnostics and app artifact. This boundary runs
+# after Python teardown, so a Python failure cannot leave raw Cloud captures in
+# the public archive; a missing receipt makes the step fail.
+if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+  python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "${pair_status:-0}" || pair_status=1
+  cat "$out/SUMMARY.md"
+  [[ "${pair_status:-0}" -eq 0 ]] || pair_status=1
+else
+  # The app log goes through the pairing redactor: a pairing link or token it logged never reaches the artifact.
+  simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' 2>/dev/null |
+    python3 -I scripts/ci/cmux_next_pair_e2e.py --redact > "$out/app-log.txt" || true
+  cp "$work/build.log" "$out/build.log" 2>/dev/null || true
+  # The app (so the same build runs on another Mac's simulator) and the recordings.
+  ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
+  if [[ -d "$work/corpus" ]]; then
+    mkdir -p "$out/corpus"
+    cp "$work/corpus/"*.typescript "$work/corpus/"*.rate "$out/corpus/" 2>/dev/null || true
+  fi
+  (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 fi
-(cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
-cat "$summary"
+if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+  cat "$summary"
+fi
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi

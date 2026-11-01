@@ -425,6 +425,13 @@ export class SettingsStore {
     return reply.ok ? { bytes: reply.value.bytes, folder: reply.value.folder ?? null } : null;
   }
 
+  /** Use My Screen Saver: the background id of the macOS screen saver's aerial, or null when it is
+   * not one (a classic screen saver) or the host cannot say. */
+  async screenSaverBackdrop(): Promise<{ id: string; pending: boolean } | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.screen_saver", {});
+    return reply.ok && reply.value.id ? { id: reply.value.id, pending: reply.value.pending } : null;
+  }
+
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
    * lists as not downloaded. macOS says nothing when it finishes, so the lists are read again
    * once the person is back in this window. */
