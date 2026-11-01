@@ -68,10 +68,7 @@ pub(super) struct BackgroundTurns {
 pub fn is_quiet(text: &str) -> bool {
     let text = text.trim();
     let lines = text.lines().filter(|l| !l.trim().is_empty()).count();
-    lines <= 1
-        && text.chars().count() <= SHORT_LINE
-        && !text.contains('?')
-        && !text.contains("://")
+    lines <= 1 && text.chars().count() <= SHORT_LINE && !text.contains('?') && !text.contains("://")
 }
 
 impl BackgroundTurns {
@@ -156,11 +153,12 @@ impl Hub {
     pub(super) fn background_turn_line(&self, session: &Session, method: &str, line: &Value) {
         let acpmux_turn = session.turn().is_some();
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
-        let records = session
-            .background_turns
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .on_line(method, line, acpmux_turn, seq);
+        let records = session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).on_line(
+            method,
+            line,
+            acpmux_turn,
+            seq,
+        );
         for msg in records {
             self.append(session, "mux", RECORD_KIND, msg);
         }

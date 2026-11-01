@@ -219,6 +219,7 @@ mod turn_git;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
+pub mod background_turn;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
@@ -232,7 +233,6 @@ pub(crate) mod watches;
 mod web_control;
 mod web_token;
 mod work_below;
-pub mod background_turn;
 pub(crate) mod worktree_care;
 mod xai;
 pub use web_control::Control;

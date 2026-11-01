@@ -4,12 +4,17 @@
 //! chat's preview. Leo, 2026-10-31, about "Nothing new for you yet.": "why do you guys keep
 //! sending me this/get pinged to send this".
 
-use super::*;
 use super::claude_subagents::wait_for;
+use super::*;
 
 /// The chat's records of `kind`.
 fn records(hub: &Hub, id: &str, kind: &str) -> Vec<Value> {
-    hub.events(id, 0, 10_000).unwrap().into_iter().filter(|e| e.kind == kind).map(|e| e.msg).collect()
+    hub.events(id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == kind)
+        .map(|e| e.msg)
+        .collect()
 }
 
 /// Runs a person's turn, hides the chat, then lets Claude Code run its own turn saying `text`;
@@ -72,7 +77,10 @@ async fn a_task_notification_turn_with_nothing_to_say_is_quiet_and_never_pings()
     let after = hub.session_summary(&session);
     assert_eq!(after["unread"], false, "a turn the person did not start never marks it: {after}");
     assert_eq!(after["lastTurn"], before["lastTurn"], "no acpmux turn ended: {after}");
-    assert_eq!(after["lastMessage"], before["lastMessage"], "its words stay off the preview: {after}");
+    assert_eq!(
+        after["lastMessage"], before["lastMessage"],
+        "its words stay off the preview: {after}"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 
