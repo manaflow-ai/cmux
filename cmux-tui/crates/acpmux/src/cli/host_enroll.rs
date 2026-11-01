@@ -1037,6 +1037,28 @@ fn remote_harness_discovered(r: &dyn Remote, id: &str) -> bool {
         .is_some_and(|profile| profile.get("unavailable").is_none())
 }
 
+/// `ids` with [`LOCAL_HARNESSES`] replaced by the ids of this machine's
+/// profiles (`<id>.toml` in its harness folder), sorted, without repeats.
+fn local_profile_ids(local: &Local, ids: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = ids.iter().filter(|id| *id != LOCAL_HARNESSES).cloned().collect();
+    if let Some(entries) = local.harness_dir.as_deref().and_then(|d| std::fs::read_dir(d).ok()) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") || !path.is_file() {
+                continue;
+            }
+            if let Some(id) = path.file_stem().and_then(|s| s.to_str()) {
+                if crate::config::profiles::valid_id(id) {
+                    out.push(id.to_owned());
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 fn harness(
     r: &dyn Remote,
     peer_name: &str,
@@ -1047,6 +1069,20 @@ fn harness(
     if ids.is_empty() {
         return StepResult::new(Step::Harness, StepState::Skip, "no --harness given");
     }
+    let expanded;
+    let ids = if ids.iter().any(|id| id == LOCAL_HARNESSES) {
+        expanded = local_profile_ids(local, ids);
+        if expanded.is_empty() {
+            return StepResult::new(
+                Step::Harness,
+                StepState::Skip,
+                "this machine has no agent profiles to copy",
+            );
+        }
+        &expanded[..]
+    } else {
+        ids
+    };
     let remote_home = match hosts::run(r, "printf %s \"$HOME\"") {
         Ok(h) if h.starts_with('/') => h,
         Ok(h) => {
