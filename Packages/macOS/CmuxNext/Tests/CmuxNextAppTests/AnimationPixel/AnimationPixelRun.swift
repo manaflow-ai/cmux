@@ -78,6 +78,9 @@ struct AnimationPixelRun {
                 + "\(before.map { "\($0.label)[\($0.start)..<\($0.end)]" })")
         }
         let sampler = PresentationSampler(window: window, views: fixture.sampledViews)
+        let turns = MainThreadTurns()
+        turns.watch(fixture.root)
+        defer { turns.stop() }
         let trigger = CACurrentMediaTime()
         try await change()
         try await fixture.settle()
@@ -117,8 +120,9 @@ struct AnimationPixelRun {
         failures += sampler.gridFailures(from: trigger - fixture.display.refreshPeriod, scale: scale)
         if moves {
             let end = sampler.samples.last { $0.rects != sampler.samples.last?.rects }?.time ?? trigger
-            for gap in sampler.missedRefreshes(from: trigger, to: end, period: fixture.display.refreshPeriod) {
-                failures.append("the main thread missed a display refresh in the motion: \(String(format: "%.1f", gap)) ms between ticks")
+            for gap in sampler.missedGaps(from: trigger, to: end, period: fixture.display.refreshPeriod) {
+                failures.append("the main thread missed a display refresh in the motion: \(String(format: "%.1f", (gap.end - gap.start) * 1000)) ms "
+                    + "between ticks at t=\(AnimationPixelRun.ms(gap.start - trigger)) ms; owner: \(turns.owner(from: gap.start, to: gap.end))")
             }
         }
         print("ANIMATION-PIXEL \(name): scale \(Int(scale))x, \(window.effectiveAppearance.name.rawValue), refresh "

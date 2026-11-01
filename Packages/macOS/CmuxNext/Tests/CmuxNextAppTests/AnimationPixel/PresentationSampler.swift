@@ -75,6 +75,12 @@ final class PresentationSampler: NSObject {
 
     static func ms(_ seconds: Double) -> String { String(format: "%.1f", seconds * 1000) }
 
+    /// The gaps (start and end tick times) over 1.5 refresh periods between `start` and `end`.
+    func missedGaps(from start: Double, to end: Double, period: Double) -> [(start: Double, end: Double)] {
+        let times = samples.map(\.time).filter { $0 >= start && $0 <= end }
+        return zip(times, times.dropFirst()).filter { $1 - $0 > 1.5 * period }.map { (start: $0, end: $1) }
+    }
+
     /// Display refreshes the main thread missed from `start` to `end` (a tick interval over 1.5
     /// periods), with each gap in milliseconds.
     func missedRefreshes(from start: Double, to end: Double, period: Double) -> [Double] {

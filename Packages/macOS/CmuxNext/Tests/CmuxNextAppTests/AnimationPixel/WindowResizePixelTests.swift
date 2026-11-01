@@ -71,7 +71,10 @@ struct WindowResizePixelTests {
             try palette.learn(element.color, rest.pixel(x: center, y: rowY))
         }
         let sampler = PresentationSampler(window: window, views: fixture.sampledViews)
-        let driver = WindowWidthDriver(window: window, widths: widths)
+        let turns = MainThreadTurns()
+        turns.watch(fixture.root)
+        defer { turns.stop() }
+        let driver = WindowWidthDriver(window: window, widths: widths, turns: turns)
         let trigger = CACurrentMediaTime()
         try await driver.run()
         try await fixture.settle()
@@ -123,7 +126,7 @@ struct WindowResizePixelTests {
             let changed = moves.contains { $0.time > a.time - period && $0.time < b.time - period }
             if changed {
                 failures.append("dropped \(Int(((b.time - a.time) / period).rounded()) - 1) frame(s) at t=\(AnimationPixelRun.ms(a.time - trigger)) ms: "
-                    + "\(AnimationPixelRun.ms(b.time - a.time)) ms with no new frame while the width changed")
+                    + "\(AnimationPixelRun.ms(b.time - a.time)) ms with no new frame while the width changed; owner: \(turns.owner(from: a.time, to: b.time))")
             }
         }
         failures += sampler.gridFailures(from: trigger - period, scale: scale)
@@ -144,10 +147,12 @@ final class WindowWidthDriver: NSObject {
     private var widths: [Double]
     private var link: CADisplayLink?
     private var done = false
+    private let turns: MainThreadTurns?
 
-    init(window: NSWindow, widths: [Double]) {
+    init(window: NSWindow, widths: [Double], turns: MainThreadTurns? = nil) {
         self.window = window
         self.widths = widths
+        self.turns = turns
         super.init()
     }
 
@@ -170,7 +175,8 @@ final class WindowWidthDriver: NSObject {
         let width = widths.removeFirst()
         var frame = window.frame
         frame.size.width = width
-        window.setFrame(frame, display: true)
+        // The window's layout and display run inside setFrame: layout work, timed.
+        if let turns { turns.layoutWork { window.setFrame(frame, display: true) } } else { window.setFrame(frame, display: true) }
         moves.append((link.timestamp, width))
     }
 }

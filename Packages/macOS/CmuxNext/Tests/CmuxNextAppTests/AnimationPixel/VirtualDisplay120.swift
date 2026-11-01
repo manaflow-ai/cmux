@@ -117,7 +117,7 @@ final class VirtualDisplay120 {
             }
         }
         guard shown.backingScaleFactor == CGFloat(scale) else {
-            throw Failure(description: "virtual display \(id) is \(shown.backingScaleFactor)x, not \(scale)x after choosing its \(scale)x mode")
+            throw Failure(description: "NOT RUN: no \(scale)x display: virtual display \(id) is \(shown.backingScaleFactor)x after choosing its \(scale)x mode")
         }
         screen = shown
         var periods: [Double] = []
@@ -139,7 +139,7 @@ final class VirtualDisplay120 {
         let modes = (CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode]) ?? []
         guard let mode = modes.filter({ $0.pixelWidth == $0.width * scale && $0.pixelHeight == $0.height * scale })
             .max(by: { $0.width < $1.width }) else {
-            throw Failure(description: "virtual display \(id) offers no \(scale)x mode: "
+            throw Failure(description: "NOT RUN: no \(scale)x display: virtual display \(id) offers no \(scale)x mode: "
                 + modes.map { "\($0.width)x\($0.height)@\($0.pixelWidth)x\($0.pixelHeight)" }.joined(separator: ", "))
         }
         var config: CGDisplayConfigRef?
