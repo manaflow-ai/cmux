@@ -318,3 +318,47 @@ test("Find and a link open the background line that hides a row", async () => {
     client.close();
   }
 });
+
+// The quiet background turn may have ended before a subagent it started. If that subagent ends
+// after another person's prompt, its done line is inserted under that later turn by end time.
+// It must still fold under the *original* quiet background line (cmux#30535).
+test("a subagent done after the next user prompt stays folded with its owner background turn", () => {
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow =>
+    ({ id, at, kind, version: 1, ...fields });
+  const owner = "backgroundTurn-bg-cross";
+  const rows: AcpmuxRow[] = [
+    row("prompt-1", 1, "user", { text: "Watch CI" }),
+    row("answer-1", 2, "assistant", { text: "Watching." }),
+    row("summary-1", 3, "turnSummary", { status: "completed" }),
+    row(owner, 4, BACKGROUND_TURN, {
+      background: { id: "bg-cross", trigger: "scheduled", running: false, quiet: true },
+    }),
+    row("group", 5, "subagents", {
+      inBackground: "bg-cross",
+      subagents: [{
+        id: "child-cross", parent: null, name: "CI observer", kind: "general-purpose",
+        state: "completed", startedAt: 5, endedAt: 11, background: true,
+      }],
+    }),
+    row("prompt-2", 7, "user", { text: "Show me the status" }),
+    row("answer-2", 8, "assistant", { text: "Still working." }),
+    row("summary-2", 9, "turnSummary", { status: "completed" }),
+  ];
+  const tray = withSubagentLines(rows);
+  const done = tray.find((item) => item.kind === SUBAGENT_DONE)!;
+  expect(done.inBackground).toBe("bg-cross");
+  expect(tray.indexOf(done)).toBeGreaterThan(tray.findIndex((item) => item.id === "prompt-2"));
+
+  // Closing the original quiet line hides only its own done line, wherever it arrived.
+  const closed = drawn([...tray]);
+  expect(closed.some((item) => item.id === done.id)).toBe(false);
+  expect(closed.some((item) => item.id === "prompt-2")).toBe(true);
+  expect(closed.some((item) => item.id === "answer-2")).toBe(true);
+
+  // Disclosure of the original background line reveals the late completion in chronology order.
+  const opened = drawn([...tray], [owner]);
+  expect(opened.some((item) => item.id === done.id)).toBe(true);
+  expect(opened.indexOf(opened.find((item) => item.id === done.id)!)).toBeGreaterThan(
+    opened.findIndex((item) => item.id === "prompt-2"),
+  );
+});
