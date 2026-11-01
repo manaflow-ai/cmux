@@ -35,3 +35,8 @@ test("a language with more forms picks among them", () => {
 test("a string with no plural forms formats as before", () => {
   expect(createStrings(table, ["ru"]).format("updates.version", "1.2.0")).toBe("Версия 1.2.0");
 });
+
+test("a language whose catalog gave it no plural forms uses its plain string, not English", () => {
+  const plain = { ...table, ja: { "updates.available": "%@件のアップデートがあります", "updates.version": "v%@" } };
+  expect(createStrings(plain, ["ja"]).format("updates.available", "1")).toBe("1件のアップデートがあります");
+});
