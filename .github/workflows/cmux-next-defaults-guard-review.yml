@@ -53,7 +53,7 @@ jobs:
           # author association. Reject ordinary comments before spending a
           # pull-request or comment API read; the API checks below remain the
           # authority for an eligible-looking receipt.
-          event_first_line="$(jq -r '.comment.body // "" | split("\\n")[0]' "$EVENT_PATH")"
+          event_first_line="$(jq -r '.comment.body // "" | split("\n")[0]' "$EVENT_PATH")"
           event_association="$(jq -r '.comment.author_association // empty' "$EVENT_PATH")"
           event_receipt_re='^Review \([^)]*\): SHIP at [0-9a-f]{40}$'
           if [[ ! "$event_first_line" =~ $event_receipt_re ]]; then
@@ -70,7 +70,7 @@ jobs:
           head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
           comment_json="$(gh api "repos/$REPO/issues/comments/$COMMENT_ID")"
           association="$(jq -r '.author_association // empty' <<<"$comment_json")"
-          first_line="$(jq -r '.body // "" | split("\\n")[0]' <<<"$comment_json")"
+          first_line="$(jq -r '.body // "" | split("\n")[0]' <<<"$comment_json")"
           receipt_re='^Review \([^)]*\): SHIP at ([0-9a-f]{40})$'
           if [[ "$base_ref" != feat-cmux-next || "$head_repo" != "$REPO" ]]; then
             echo "This is not a same-repository feat-cmux-next pull request."
