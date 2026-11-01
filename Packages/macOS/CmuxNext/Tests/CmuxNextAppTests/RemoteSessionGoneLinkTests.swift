@@ -98,7 +98,11 @@ struct RemoteSessionGoneLinkTests {
         let ended = await Self.waitFor({ await link.status }) { $0 == .connecting }
         #expect(ended == .connecting, "a link whose session is gone still reads \(ended)")
         #expect(ended.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil) == .connecting)
+        // Nothing dials until the daemon loop asks for an endpoint: an app that redialed from the
+        // exit by itself would have probed, spawned and come up connected by now.
+        try await Task.sleep(for: .milliseconds(500))
         #expect(Self.runs(root) == 1, "the app redialed before its daemon loop asked for an endpoint")
+        #expect(await link.status == .connecting, "the link changed state with no endpoint call")
 
         // The daemon loop's reconnect asks for the endpoint: one new link, a new session, up.
         let second = try await link.socketPath()
@@ -156,12 +160,20 @@ struct RemoteSessionGoneLinkTests {
         let firstPID = await link.pid
         #expect(sidebar() == .connected)
         #expect(await link.callerOwnsVM)
+        let ownership = link.ownership
+        #expect(await Self.waitFor({ ownership.callerOwnsVM }) { $0 } == true)
 
         Self.mark(root, "drop")
-        // The link client exited on the typed end: the link no longer counts as running.
-        let ended = await Self.waitFor({ await link.callerOwnsVM }) { !$0 }
-        #expect(!ended, "a link whose session is gone still reads as running")
+        // The link client exited on the typed end: the link handled it (its owner answer, which
+        // only the link's end clears on the main-actor mirror, is gone).
+        let ended = await Self.waitFor({ ownership.callerOwnsVM }) { !$0 }
+        #expect(!ended, "the link did not handle the end of its client")
+        #expect(!(await link.callerOwnsVM), "a link whose session is gone still reads as running")
+        // Nothing dials until the daemon loop asks for an endpoint: an app that redialed from the
+        // exit by itself would have asked for an attach endpoint and spawned a new client by now.
+        try await Task.sleep(for: .milliseconds(500))
         #expect(Self.runs(root) == 1, "the app redialed before its daemon loop asked for an endpoint")
+        #expect(await link.pid == firstPID, "a new link started with no endpoint call")
 
         // The daemon loop's reconnect asks for the endpoint: one new link, a new session, up.
         _ = try await link.socketPath()
