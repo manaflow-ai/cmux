@@ -38,10 +38,6 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
-  // The line's context menu (ui/ContextMenu.tsx): its keyboard path reads the line's direction and
-  // dispatches a right-click.
-  MouseEvent: dom.window.MouseEvent,
-  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -63,6 +59,7 @@ const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/su
 const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray } =
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
+const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 const { nestAgents } = await import("../src/agent-session/acpmux/subagents/AgentsPill");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
@@ -112,7 +109,17 @@ const row = (id: string, kind: string, seconds: number, fields: Partial<Row> = {
   ...fields,
 });
 
-async function render(node: ReturnType<typeof createElement>): Promise<{
+/// Where focus is, as a short name: a failed match prints this, not a whole DOM node.
+const focusedName = () => {
+  const node = dom.window.document.activeElement;
+  return node ? `${node.tagName.toLowerCase()}.${[...node.classList].join(".")}` : "none";
+};
+/// Mounts `node`. With `open`, a headed tray, which starts folded to its header (cmux#28875), is
+/// opened as the person would, by clicking its header.
+async function render(
+  node: ReturnType<typeof createElement>,
+  { open = false }: { open?: boolean } = {},
+): Promise<{
   root: HTMLElement;
   show: (next: ReturnType<typeof createElement>) => Promise<void>;
   done: () => Promise<void>;
@@ -120,32 +127,14 @@ async function render(node: ReturnType<typeof createElement>): Promise<{
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   await act(async () => root.render(node));
+  const head = host.querySelector<HTMLButtonElement>('.acpmux-running-tray__head[aria-expanded="false"]');
+  if (open && head) await act(async () => head.click());
   return {
     root: host,
     show: async (next) => act(async () => root.render(next)),
     done: async () => act(async () => root.unmount()),
   };
 }
-
-/// Right-clicks a tray line's button and returns its open menu's items (the page draws the menu: the
-/// test has no host's native menu).
-async function openMenu(line: HTMLElement): Promise<HTMLButtonElement[]> {
-  const button = line.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
-  await act(async () => {
-    button.dispatchEvent(
-      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
-    );
-    await Promise.resolve();
-  });
-  return [...dom.window.document.body.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')];
-}
-
-/// The buttons on a line that stop something: none at rest (#28533, Leo's rule on a control repeated
-/// down the rows).
-const stopButtons = (root: Element) =>
-  [...root.querySelectorAll<HTMLButtonElement>("button")].filter((each) =>
-    /stop/i.test(`${each.getAttribute("aria-label") ?? ""} ${each.getAttribute("title") ?? ""}`),
-  );
 
 describe("the transcript keeps no running card", () => {
   const transcript = (agents: Subagent[]) => [
@@ -342,10 +331,9 @@ describe("the tray", () => {
       expect(lines.length).toBe(1);
       const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
       expect(text(".acpmux-summary-agent__name")).toBe("Explore the daemon");
-      // No subtitle (its kind, what it does now) and no Running word: the spinner says it.
+      // No type subtitle; the status word occupies the shared tray status track.
       expect(lines[0]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
-      expect(lines[0]!.querySelector(".acpmux-summary-agent__state")).toBeNull();
-      expect(text(".acpmux-agent-line__sr")).toBe("Running");
+      expect(text(".acpmux-summary-agent__state")).toBe("Running");
       const tooltip = lines[0]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title;
       expect(tooltip).toContain("general-purpose");
       expect(tooltip).toContain("Bash");
@@ -389,7 +377,7 @@ describe("the tray", () => {
     }
   });
 
-  test("several get a header; past three they start folded", async () => {
+  test("several get a header and start folded to it, however few (cmux#28875)", async () => {
     const now = Date.now();
     const few = trayItems(
       [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
@@ -402,6 +390,10 @@ describe("the tray", () => {
     );
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      // Folded to its one line: no line under the header until it is opened.
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+      await act(async () => head.click());
       expect(head.getAttribute("aria-expanded")).toBe("true");
       // A fixed running-work mark, never the spinner (#27103) and never the chat bubble.
       expect(head.querySelector('svg[data-icon="app.sample.runningagents"]')).not.toBeNull();
@@ -434,6 +426,109 @@ describe("the tray", () => {
       expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(TRAY_OPEN_MAX + 1);
     } finally {
       await folded.done();
+    }
+  });
+
+  test("a chat's open or fold holds when the person switches away and back; another chat starts folded", async () => {
+    resetTrayOpenMemory();
+    const now = Date.now();
+    const items = trayItems(
+      // Between turns: a background subagent and two commands with their own processes.
+      [agent("A", { background: true, startedAt: now - 5000 })],
+      [
+        command("s/1", { command: "bun run dev", processId: "s/1", startedAt: now - 3000 }),
+        command("s/2", { processId: "s/2", startedAt: now - 2000 }),
+      ],
+      NONE,
+      false,
+    );
+    // App.tsx keys the tray by chat, so a switch remounts it.
+    const tray = (chat: string) =>
+      createElement(SubagentTray, {
+        key: chat,
+        chat,
+        items,
+        working: false,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      });
+    const { root, show, done } = await render(tray("chat-1"));
+    const head = () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+    try {
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+      expect(head().querySelector(".acpmux-running-tray__title")?.textContent).toBe(
+        "Running in background · 1 subagent · 2 commands",
+      );
+      await act(async () => head().click());
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
+      await show(tray("chat-2"));
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+      await show(tray("chat-1"));
+      expect(head().getAttribute("aria-expanded")).toBe("true");
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
+      // Folding it again holds too.
+      await act(async () => head().click());
+      await show(tray("chat-2"));
+      await show(tray("chat-1"));
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await done();
+      resetTrayOpenMemory();
+    }
+  });
+
+  for (const motion of ["on", "off"] as const)
+    test(`a lone line gaining a header folds the list; focus on the line moves to the header (motion ${motion})`, async () => {
+      // With motion off the fold leaves in the same commit, taking the focused line with it.
+      if (motion === "off") dom.window.document.documentElement.dataset.agentMotion = "off";
+      const now = Date.now();
+      const tray = (agents: Subagent[]) =>
+        createElement(SubagentTray, {
+          items: trayItems(agents, [], NONE, true),
+          working: true,
+          waiting: new Set<string>(),
+          onOpen: () => {},
+        });
+      const first = agent("Reviewer", { startedAt: now - 5000 });
+      const { root, show, done } = await render(tray([first]));
+      try {
+        const line = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+        line.focus();
+        expect(focusedName()).toBe(
+          "button.acpmux-summary-row.acpmux-summary-link.acpmux-summary-agent.acpmux-agent-line__button",
+        );
+        await show(tray([first, agent("Tester", { startedAt: now - 1000 })]));
+        const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+        expect(head.getAttribute("aria-expanded")).toBe("false");
+        expect(focusedName()).toBe("button.acpmux-summary-row.acpmux-summary-link.acpmux-running-tray__head");
+      } finally {
+        await done();
+        delete dom.window.document.documentElement.dataset.agentMotion;
+      }
+    });
+
+  test("focus the person moved out of the list stays where they put it when the list folds", async () => {
+    const now = Date.now();
+    const outside = dom.window.document.createElement("button");
+    dom.window.document.body.append(outside);
+    const tray = (agents: Subagent[]) =>
+      createElement(SubagentTray, {
+        items: trayItems(agents, [], NONE, true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      });
+    const first = agent("Reviewer", { startedAt: now - 5000 });
+    const { root, show, done } = await render(tray([first]));
+    try {
+      root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!.focus();
+      outside.focus();
+      await show(tray([first, agent("Tester", { startedAt: now - 1000 })]));
+      expect(dom.window.document.activeElement === outside).toBe(true);
+    } finally {
+      await done();
+      outside.remove();
     }
   });
 
@@ -496,6 +591,7 @@ describe("the tray", () => {
         onOpenSession: () => {},
         stop: async () => {},
       }),
+      { open: true },
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -510,10 +606,9 @@ describe("the tray", () => {
         lines.find((line) => line.textContent?.includes("Started chat"))?.querySelector(".acpmux-agent-line__time")
           ?.textContent,
       ).toBe("");
-      // No Stop on the line at rest: it is in the line's menu.
-      expect(stopButtons(tray)).toEqual([]);
-      const reviewer = lines.find((line) => line.textContent?.includes("Reviewer"))!;
-      expect((await openMenu(reviewer)).map((item) => item.textContent)).toEqual(["Stop Reviewer"]);
+      expect(
+        lines.find((line) => line.textContent?.includes("Reviewer"))?.querySelector(".cv-subagent__stop"),
+      ).not.toBeNull();
     } finally {
       await done();
     }
@@ -573,6 +668,7 @@ describe("the tray", () => {
         onOpenSession: (id: string) => opened.push(`chat:${id}`),
         stopProcess: async (id: string) => void stopped.push(id),
       }),
+      { open: true },
     );
     try {
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
@@ -586,9 +682,7 @@ describe("the tray", () => {
       ]);
       for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
       expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
-      expect(stopButtons(root)).toEqual([]);
-      const [kill] = await openMenu(lines[1]!);
-      await act(async () => kill!.click());
+      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-session-info-stop")!.click());
       expect(stopped).toEqual(["s/1"]);
     } finally {
       await done();
@@ -722,125 +816,14 @@ describe("a tray line says what it is and what a click does", () => {
       expect(button.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
       await act(async () => button.click());
       expect(opened).toEqual(["s/1"]);
-      // No stop control on the line at rest; its menu's one Stop says exactly what it stops.
-      expect(stopButtons(root)).toEqual([]);
-      const items = await openMenu(line);
-      expect(items.map((item) => item.textContent)).toEqual(["Stop only this command"]);
-      await act(async () => items[0]!.click());
+      // One stop control on the line, and it says exactly what it stops.
+      const stops = [...root.querySelectorAll<HTMLButtonElement>("button")].filter((each) =>
+        /stop/i.test(`${each.getAttribute("aria-label") ?? ""} ${each.getAttribute("title") ?? ""}`),
+      );
+      expect(stops.length).toBe(1);
+      expect(stops[0]!.getAttribute("title")).toBe("Stop only this command");
+      await act(async () => stops[0]!.click());
       expect(stopped).toEqual(["s/1"]);
-    } finally {
-      await done();
-    }
-  });
-
-  // #28533's review: a Stop on every running line is a control repeated down the rows, a block on
-  // Leo's visual rule. Each line stops from its own context menu instead (a right-click, or Shift-F10
-  // on the focused line); a line with nothing to stop opens no menu.
-  test("no line carries a Stop at rest; each running subagent stops from its own menu", async () => {
-    const now = Date.now();
-    const stopped: string[] = [];
-    const refuse = new Set(["Linter"]);
-    const { root, done } = await render(
-      createElement(SubagentTray, {
-        items: trayItems(
-          [agent("Reviewer", { startedAt: now }), agent("Linter", { startedAt: now })],
-          [],
-          [{ sessionId: "c1", title: "Started chat", state: "running" }],
-          true,
-        ),
-        finished: finishedTrayItems(
-          [agent("Writer", { state: "completed", startedAt: now - 9000, endedAt: now })],
-          NONE,
-        ),
-        working: true,
-        waiting: new Set<string>(),
-        onOpen: () => {},
-        onOpenSession: () => {},
-        stop: async (id: string) => {
-          stopped.push(id);
-          if (refuse.has(id)) throw new Error("refused");
-        },
-      }),
-    );
-    try {
-      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
-      const named = (name: string) => lines.find((line) => line.textContent?.includes(name))!;
-      expect(lines).toHaveLength(4);
-      expect(stopButtons(root)).toEqual([]);
-      // The Reviewer's menu stops the Reviewer, and its item is off while the request is out.
-      const [reviewerStop] = await openMenu(named("Reviewer"));
-      expect(reviewerStop!.textContent).toBe("Stop Reviewer");
-      await act(async () => reviewerStop!.click());
-      expect(stopped).toEqual(["Reviewer"]);
-      expect((await openMenu(named("Reviewer")))[0]!.disabled).toBe(true);
-      await act(async () =>
-        dom.window.document.body
-          .querySelector<HTMLElement>(".ui-context-menu-backdrop")!
-          .dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true })),
-      );
-      // The keyboard opens a line's menu too; a refused stop says so and can be tried again.
-      const linter = named("Linter").querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
-      linter.focus();
-      await act(async () => {
-        linter.dispatchEvent(
-          new dom.window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }),
-        );
-        await Promise.resolve();
-      });
-      const linterStop = dom.window.document.body.querySelector<HTMLButtonElement>('[role="menu"] [role="menuitem"]')!;
-      expect(linterStop.textContent).toBe("Stop Linter");
-      await act(async () => linterStop.click());
-      expect(stopped).toEqual(["Reviewer", "Linter"]);
-      const [retry] = await openMenu(named("Linter"));
-      expect(retry!.textContent).toBe("Couldn’t stop Linter");
-      expect(retry!.disabled).toBe(false);
-      await act(async () => retry!.click());
-      expect(stopped).toEqual(["Reviewer", "Linter", "Linter"]);
-      // A chat the agent started and a subagent that ended have nothing to stop: no menu.
-      expect(await openMenu(named("Started chat"))).toEqual([]);
-      expect(await openMenu(named("Writer"))).toEqual([]);
-    } finally {
-      await done();
-    }
-  });
-
-  // #28533's review: a taken Stop stays off only for that run. A subagent that ends and resumes while
-  // the tray stays mounted can be stopped again.
-  test("a subagent stopped, ended and resumed can be stopped again", async () => {
-    const now = Date.now();
-    const stopped: string[] = [];
-    const tray = (state: Subagent["state"]) => {
-      const agents = [agent("Reviewer", { state, startedAt: now, ...(state !== "running" && { endedAt: now }) })];
-      return createElement(SubagentTray, {
-        items: trayItems(agents, [], NONE, true),
-        finished: finishedTrayItems(agents, NONE),
-        working: true,
-        waiting: new Set<string>(),
-        onOpen: () => {},
-        stop: async (id: string) => void stopped.push(id),
-      });
-    };
-    const { root, show, done } = await render(tray("running"));
-    const reviewer = () => root.querySelector<HTMLElement>(".acpmux-agent-line")!;
-    const dismiss = () =>
-      act(async () =>
-        dom.window.document.body
-          .querySelector<HTMLElement>(".ui-context-menu-backdrop")
-          ?.dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true })),
-      );
-    try {
-      const [first] = await openMenu(reviewer());
-      await act(async () => first!.click());
-      expect(stopped).toEqual(["Reviewer"]);
-      expect((await openMenu(reviewer()))[0]!.disabled).toBe(true);
-      await dismiss();
-      await show(tray("cancelled"));
-      await show(tray("running"));
-      const [again] = await openMenu(reviewer());
-      expect(again!.textContent).toBe("Stop Reviewer");
-      expect(again!.disabled).toBe(false);
-      await act(async () => again!.click());
-      expect(stopped).toEqual(["Reviewer", "Reviewer"]);
     } finally {
       await done();
     }
@@ -892,10 +875,9 @@ describe("a tray line says what it is and what a click does", () => {
         live!.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
       ).not.toBeNull();
       // No tokens or tool uses on the line (Leo, 2026-10-31: "we can remove the symbols and the
-      // tokens"); the done line says no Done.
+      // tokens"); each line keeps its status word.
       expect(live!.querySelector(".acpmux-agent-line__stats, .acpmux-agent-line__progress")).toBeNull();
-      expect(finished!.querySelector(".acpmux-summary-agent__state")).toBeNull();
-      expect(finished!.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
+      expect(finished!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Done");
       // The button's accessible name carries the quiet state, since an aria-label overrides its text.
       expect(finished!.querySelector(".acpmux-agent-line__button")!.getAttribute("aria-label")).toContain("Done");
       expect(live!.querySelector(".acpmux-agent-line__button")!.getAttribute("aria-label")).toContain("Running");
@@ -1011,7 +993,7 @@ describe("the tray tells the truth", () => {
       await act(async () => more.click());
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
       expect(names(ended)).toEqual(["Fuzzer", "Linter", "Fix the dock", "Retry the upload"]);
-      // Failed says so; Done is the quiet line's, read only by screen readers.
+      // Ended rows keep their status words in the same track.
       expect(
         ended.map((line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent),
       ).toEqual(["Failed", "Done", "Done", "Failed"]);
@@ -1177,6 +1159,7 @@ describe("the tray tells the truth", () => {
     const items = trayItems([], commands, NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      { open: true },
     );
     try {
       expect(names(liveLines(root))).toEqual(["Start the dev server", "nice bun test"]);
@@ -1206,6 +1189,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     const { items, finished } = panel(2, 116);
     const { root, done } = await render(
       createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      { open: true },
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -1255,6 +1239,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
+      await act(async () => head.click());
       head.focus();
       // Run 1 ends: one runs, one ended. The header stays, the same node, focused and open.
       await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
@@ -1425,61 +1410,6 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       await done();
     }
   });
-
-  // #28533's review: a line that can stop sits in its context menu's host; when it can no longer stop
-  // (it ended, or a command's process id arrives) the host stays, so the focused line is the same node.
-  test("a stoppable subagent ending keeps its focused line, the same node", async () => {
-    const now = Date.now();
-    const runs = [agent("Run 0", { startedAt: now - 9000 }), agent("Run 1", { startedAt: now - 8000 })];
-    const tray = (agents: Subagent[]) =>
-      createElement(SubagentTray, {
-        items: trayItems(agents, [], NONE, true),
-        finished: finishedTrayItems(agents, NONE),
-        working: true,
-        waiting: new Set<string>(),
-        onOpen: () => {},
-        stop: async () => {},
-      });
-    const { root, show, done } = await render(tray(runs));
-    const button = (name: string) =>
-      [...root.querySelectorAll<HTMLButtonElement>(".acpmux-agent-line__button")].find((each) =>
-        each.textContent?.includes(name),
-      )!;
-    try {
-      const line = button("Run 1");
-      line.focus();
-      await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
-      expect(button("Run 1")).toBe(line);
-      expect(dom.window.document.activeElement).toBe(line);
-      // The ended line has nothing to stop: a right-click opens no menu.
-      expect(await openMenu(line.closest<HTMLElement>(".acpmux-agent-line")!)).toEqual([]);
-    } finally {
-      await done();
-    }
-  });
-
-  test("a command whose process id arrives keeps its focused line, the same node", async () => {
-    const tray = (entry: BackgroundCommand) =>
-      createElement(SubagentTray, {
-        items: trayItems([], [entry], NONE, true),
-        working: true,
-        waiting: new Set<string>(),
-        onOpen: () => {},
-        onOpenCommand: () => {},
-        stopProcess: async () => {},
-      });
-    const started = command("s/1", { startedAt: Date.now() });
-    const { root, show, done } = await render(tray(started));
-    try {
-      const line = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
-      line.focus();
-      await show(tray({ ...started, processId: "s/1" }));
-      expect(root.querySelector(".acpmux-agent-line__button")).toBe(line);
-      expect(dom.window.document.activeElement).toBe(line);
-    } finally {
-      await done();
-    }
-  });
 });
 
 describe("a failed sub-session's line", () => {
@@ -1524,7 +1454,7 @@ describe("workflow progress in the default tray and Session Info", () => {
               onOpen: () => {},
             })
           : createElement(SubagentsSection, { agents: [current, other], waiting, onOpen: () => {} });
-      const view = await render(draw(workflow));
+      const view = await render(draw(workflow), { open: true });
       try {
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")).toBeNull();
         const buttons = () => [...view.root.querySelectorAll(".acpmux-agent-line__button")];

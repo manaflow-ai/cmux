@@ -4,6 +4,7 @@ import CmuxNextHibernation
 extension AppServices: WorkspaceHibernationHost {
     func hibernationResidents() -> [WorkspaceHibernationResident] { windows.hibernationResidents(in: machines.daemons.map(\.store), holdsMemory: holdsTabMemory) }
     func hibernationShownWorkspaces() -> Set<String> { windows.shownWorkspaceIDs }
+    func hibernationShownSpaces() -> Set<String> { Set(windows.shownSpaceIDs.map(\.rawValue)) }
     func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy { WorkspaceHibernationPlanner.Policy(settings?.snapshot.workspaceHibernation) }
     func hibernate(workspace id: String) { hibernateWorkspace(id) }
 }

@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { REST_GAP } from "../src/agent-session/acpmux/model";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -209,12 +210,9 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       };
       const firstFooter = footers[0]!;
       const firstFooterReply = reply("Not yet: the hosted test run");
-      const lastFooter = footers.at(-1)!;
       return {
         footerRoomAbove: rect(firstFooter).top - lastLineBottom(firstFooterReply),
         footerRoomBelow: rect(last).top - rect(firstFooter).bottom,
-        lastFooterRoomAbove: rect(lastFooter).top - lastLineBottom(lastReply),
-        lastFooterRoomBelow: rect(dock).top - rect(lastFooter).bottom,
         metaRowUnderBubble: Math.round(rect(lastActions).top - rect(last).bottom),
         metaRowHeight: Math.round(rect(lastActions).height),
         olderPromptToNext: Math.round(rect(firstContent).top - rect(first).bottom),
@@ -245,15 +243,14 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // footer's line to the next prompt.
     expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(12);
     expect(measured.footerToNextPrompt).toBeLessThanOrEqual(20);
-    // The last footer uses that same turn gap before the floating composer; there is no extra
-    // runway under every transcript.
-    expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(12);
-    expect(measured.lastFooterToComposer).toBeLessThanOrEqual(20);
-    // A footer's line is centred between the reply's last line and what follows it, the next prompt
-    // or the composer (Leo, 2026-10-31: "padding after == padding before that kinda thing all
-    // around"). Before: 7px over it and 16px under.
+    // A footer's line is centred between the reply's last line and the next prompt (Leo, 2026-10-31:
+    // "padding after == padding before that kinda thing all around"). Before: 7px over it and 16px
+    // under. The last footer instead rests the rest gap over the composer (below).
     expect(Math.abs(measured.footerRoomAbove - measured.footerRoomBelow)).toBeLessThanOrEqual(1.5);
-    expect(Math.abs(measured.lastFooterRoomAbove - measured.lastFooterRoomBelow)).toBeLessThanOrEqual(1.5);
+    // The last footer rests the rest gap over the floating composer (model.ts REST_GAP, about two
+    // and a half body lines, as Codex leaves; agent-pane-composer-rest-gap.test.ts holds it in every
+    // state).
+    expect(Math.abs(measured.lastFooterToComposer - REST_GAP)).toBeLessThanOrEqual(1);
     await page.close();
   });
 });

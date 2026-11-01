@@ -52,7 +52,6 @@ SINGLE_SIZE: dict[str, int] = {
     "ci-fast-guards.yml": 1,
     "ci-guard-attribution.yml": 1,
     "ci-guards.yml": 5,
-    "platform-dev-secrets.yml": 1,
     "ci-health-report.yml": 1,
     "ci-hosted-queue-rescue.yml": 1,
     "ci-queue-janitor.yml": 1,

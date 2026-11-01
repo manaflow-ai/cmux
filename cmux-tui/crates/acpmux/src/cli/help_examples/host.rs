@@ -60,6 +60,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
         ],
     ),
+    ("machine load", &[("Print this machine's load now as JSON", "acpmux machine load --json")]),
+    (
+        "machine notice",
+        &[(
+            "Add a muted line to every live chat here",
+            "acpmux machine notice --text \"Machine grew to 4 vCPU / 8 GiB\"",
+        )],
+    ),
     ("machine rm", &[("Remove the machine mini-3", "acpmux machine rm mini-3")]),
     (
         "machine ticket",
