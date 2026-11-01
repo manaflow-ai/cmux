@@ -225,6 +225,11 @@ type Props = NewTabScreenActions & {
   /// folder; no target for a saved environment, no project or a shell command). The pane warms
   /// that agent while the person types (newChatPrewarm.ts).
   onPromptTyped?(text: string, target?: { harness?: string; cwd?: string }): void;
+  /// A project on this Mac was picked on the page (its folder chip, a widget card, Choose Folder, a
+  /// new worktree): the click that picked it. The page hands it to the host on that click, so Cloud
+  /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
+  /// Return that sends keeps its own gesture for the start.
+  onProjectPicked?(cwd: string): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -1223,6 +1228,7 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
+    if (cwd) props.onProjectPicked?.(cwd);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
     // so Return sends instead of reopening the menu.
