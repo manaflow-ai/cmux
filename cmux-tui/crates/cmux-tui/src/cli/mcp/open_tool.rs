@@ -22,7 +22,7 @@ pub(super) fn descriptor() -> Value {
     json!({
         "name": NAME,
         "title": "Open a file, diff or page",
-        "description": "Open a file, a diff or a web page in a cmux viewer tab, where the person asked, in one call. kind: file (path), diff (path: a file or folder; none for the working tree's changes) or page (url). where: right (the column right of this chat, made when there is none), left, below, above (a new pane on that side of this chat's pane, or of pane), here (this chat's own pane), sticky (a column docked to edge, default right; an existing docked column takes it), pane (a tab in pane), workspace (a tab in that workspace, which stays in the background). The person's view stays unless focus is true.",
+        "description": "Open a file, a diff or a web page in a cmux viewer tab, where the person asked, in one call. kind: file (path), diff (path: a file or folder; none for the working tree's changes) or page (url). where: right (the column right of this chat, made when there is none), left, below, above (a new pane on that side of this chat's pane, or of pane), here (this chat's own pane), sticky (a column docked to edge, default right; an existing docked column takes it), pane (a tab in pane), workspace (a tab in that workspace, which stays in the background). The answer names the pane. Two to compare, both in view: the second with where: below and pane: the first answer's pane (one above the other in that column). The person's view stays unless focus is true.",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
@@ -108,6 +108,7 @@ impl<B: Backend> Server<B> {
             Ok(target) => target,
             Err(answer) => return answer,
         };
+        let pane = target.clone();
         // A page opens as a tab beside a tab (`tab new-browser` takes a tab target, not a
         // pane): the pane's shown tab.
         let target = match (kind, target) {
@@ -127,9 +128,19 @@ impl<B: Backend> Server<B> {
         if focus {
             run.insert("focus".into(), json!(true));
         }
-        let answer = self.call_action(tool, &run);
+        let mut answer = self.call_action(tool, &run);
         if answer.get("isError").and_then(Value::as_bool) == Some(true) {
             return self.undo_split(made, answer);
+        }
+        // The answer names the pane, so a second open can go beside it (`where: "below",
+        // pane`) with no layout read: "open a.txt and b.txt to compare" took Opus a split,
+        // a tab move and a close by hand (tests/tool-evals open-r16f).
+        if let Some(pane) = pane
+            && let Some(record) = answer.get_mut("structuredContent").and_then(Value::as_object_mut)
+        {
+            record.insert("pane".into(), json!(pane));
+            let text = serde_json::to_string(record).unwrap_or_default();
+            answer["content"] = json!([{"type": "text", "text": text}]);
         }
         answer
     }
