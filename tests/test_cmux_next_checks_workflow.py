@@ -826,7 +826,8 @@ class PathRoutingStructure(unittest.TestCase):
                         for part in alternatives
                     )
                     if event == "pull_request" and any(separate_pr_cascade(part) for part in alternatives):
-                        wanted = "glaeda-side-std-xcode-26.6"
+                        # This fixture has a current retry allocation only on attempt 1.
+                        wanted = "blacksmith-6vcpu-macos-26" if attempt == 1 else "glaeda-side-std-xcode-26.6"
                     else:
                         wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):

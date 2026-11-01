@@ -1458,8 +1458,8 @@ class CmuxNextWiring(unittest.TestCase):
                              "owned pools off": owned_off,
                              "no Mac work on the path route": no_mac_work}.items():
             self.assertFalse(evaluate(gate, context), why)
-        # Wherever a Mac job may take an owned label the placement runs, so its marker can upload:
-        # every context above that skips it routes every Mac job to the fallback.
+        # Fork/owner clauses stay ahead of every owned route. A same-repository PR
+        # without placement still waits on the owned pool rather than authorizing paid capacity.
         for name in JOBS:
             runs_on = jobs[name]["runs-on"]
             # A bot attempt 3 with no free Blacksmith slot (or, for a GUI job, no placement result)
@@ -1467,7 +1467,10 @@ class CmuxNextWiring(unittest.TestCase):
             for why, context in {"fork": self.context(fork=True),
                                  "another owner": other_owner, "owned pools off": owned_off}.items():
                 context["needs"] = {}  # the skipped placement has no outputs
-                self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
+                if name in GUI_JOBS and why == "owned pools off":
+                    self.assertEqual(evaluate(runs_on, context), SIDE, (name, why))
+                else:
+                    self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
             # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
             gate = jobs[name]["if"].replace("always() && ", "").replace("!cancelled() && ", "")
             self.assertTrue(evaluate(gate, self.context()))
