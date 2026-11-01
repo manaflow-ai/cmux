@@ -19,7 +19,8 @@ struct FilePreviewPDFZoomChromeView: View {
                 zoomButtons(includeDividers: false)
                 secondaryButtons(includeDividers: false)
                 refreshButton
-                if fileURL != nil {
+                if let fileURL {
+                    FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
                     shareButton
                 }
             } label: {
@@ -43,9 +44,15 @@ struct FilePreviewPDFZoomChromeView: View {
                 .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
                 .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
 
-                if fileURL != nil {
+                if let fileURL {
                     HStack(spacing: 0) {
                         refreshButton
+                    }
+                    .frame(width: 40, height: 40)
+                    .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))
+
+                    HStack(spacing: 0) {
+                        FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
                     }
                     .frame(width: 40, height: 40)
                     .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))

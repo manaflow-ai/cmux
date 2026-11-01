@@ -2959,6 +2959,31 @@ final class FilePreviewPDFChromeTests: XCTestCase {
         XCTAssertTrue(isView(shareChromeHit, inside: zoomChromeHost), debugFrames)
     }
 
+    func testPDFZoomChromeFitsItsHostWithOpenWithAndShareButtons() throws {
+        let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        container.layoutSubtreeIfNeeded()
+        let zoomChromeHost = try XCTUnwrap(Mirror(reflecting: container).descendant("zoomChromeHost") as? NSView)
+        let hostWidth = zoomChromeHost.frame.width
+        XCTAssertGreaterThan(hostWidth, 0)
+
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-pdf-chrome-fit.pdf")
+        for variant in FilePreviewPDFChromeStyleVariant.allCases where variant != .systemControlGroup {
+            let chrome = NSHostingView(rootView: FilePreviewPDFZoomChromeView(
+                chromeStyleVariant: variant,
+                fileURL: fileURL,
+                zoomOut: {},
+                actualSize: {},
+                zoomIn: {},
+                zoomToFit: {},
+                rotateLeft: {},
+                rotateRight: {},
+                refresh: {},
+                share: { _, _ in }
+            ))
+            XCTAssertLessThanOrEqual(chrome.fittingSize.width, hostWidth, "\(variant.rawValue) chrome overflows its host")
+        }
+    }
+
     func testThumbnailSidebarUsesFullWidthSingleColumnLayout() throws {
         let sidebar = FilePreviewPDFThumbnailSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
 
