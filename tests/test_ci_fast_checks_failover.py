@@ -155,6 +155,12 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertEqual(result.returncode, 127)
         self.assertEqual(receipt and receipt.get("exit_code"), 127)
 
+    def test_shell_comment_with_an_apostrophe_stays_on_the_normal_path(self) -> None:
+        result, receipt = self.run_fast_checks_script("printf ok # don't parse this comment")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(receipt and receipt.get("skipped_display"))
+        self.assertEqual(receipt and receipt.get("exit_code"), 0)
+
     def test_display_skip_rejects_a_source_mismatch(self) -> None:
         result, receipt = self.run_fast_checks_script(
             "cmux-ci run --class light --display --script scripts/ci/package-test-lane.sh",

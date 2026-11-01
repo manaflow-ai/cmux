@@ -348,7 +348,12 @@ jobs:
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
           command_text = os.environ['FAST_CHECKS_COMMAND']
-          command_words = shlex.split(command_text)
+          try:
+              command_words = shlex.split(command_text)
+          except ValueError:
+              # It is still a valid shell command when the unmatched quote is
+              # inside a comment; leave it on the normal execution path.
+              command_words = []
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
