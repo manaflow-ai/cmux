@@ -41,7 +41,7 @@
 {"file":"agent-session/acpmux/composerControls.css","kind":"height","property":"height","values":{"1px":1,"calc(23.5px * var(--cmux-interface-scale, 1))":1,"calc(15px * var(--cmux-interface-scale, 1))":1,"3px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"padding","values":{"0 8px 6px":1,"6px 10px 4px":1,"0 6px 0 8px":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"height","property":"height","values":{"46px":1,"calc(46px + var(--acpmux-strip-gap, 4px))":2,"22px":4,"1px":3,"12px":1,"16px":3,"6px":1}}
+{"file":"agent-session/acpmux/composerLocation.css","kind":"height","property":"height","values":{"46px":1,"calc(46px + var(--acpmux-strip-gap, 4px))":2,"22px":3,"1px":3,"12px":1,"16px":3,"6px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"height","property":"min-height","values":{"52px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"gap","values":{"1px":1,"6px":1,"3px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding","values":{"0 var(--acpmux-strip-inset, 3px)":1,"0 6px":2,"0 3px":1,"5px 4px":1,"4px 4px 2px":1,"0 5px":1,"0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck)":1,"0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset))":1,"6px 8px":1,"1px 4px":1}}

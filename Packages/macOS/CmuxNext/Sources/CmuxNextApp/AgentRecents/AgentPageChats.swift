@@ -3,6 +3,9 @@ import Foundation
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextPages
 import CmuxNextSidebar
 
 /// The New Tab page's chats. The cards read the app's one Chats feed (acpmux's device chat index,
@@ -30,6 +33,8 @@ final class AgentPageChats {
     var environments: (any AgentPaneEnvironmentStoring)?
     /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
+    /// The signed-in person's platform environment API, through the existing install mint and Rust transport.
+    var cloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
     var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
@@ -93,6 +98,7 @@ final class AgentPageChats {
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
         view.model.onSandboxRun = sandboxRun
+        view.model.onCloudEnvironment = cloudEnvironment
         if let run = handoffTurn {
             view.model.onCloudHandoffTurn = { @MainActor [weak view] (session: String) async -> [String: Any] in
                 await run(view, session)
@@ -119,6 +125,15 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        tabs.pageChats.cloudEnvironment = { [weak services] request in
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            return await request.run(
+                allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
+                connection: services.machines.local.connection, platform: ArtifactsPageProvider.apiBaseURL()) {
+                    let team = try await services.cloud.auth.accessTokenTeam(requested: nil)
+                    return (try await services.cloud.installIdentity.accessToken(team: team)).accessToken
+                }
+        }
         notices.start()
         let handoffs = HandoffNotices(services: services)
         tabs.pageChats.handoffNotices = handoffs
