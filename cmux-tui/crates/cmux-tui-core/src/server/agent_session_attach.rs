@@ -473,7 +473,9 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
             json!({"agent": agent()?, "key": text(&params.key)?, "sessionId": session}),
             CALL_TIMEOUT * 6,
         ),
-        "cancel" => (json!({"loginId": text(&params.login_id)?, "sessionId": session}), CALL_TIMEOUT),
+        "cancel" => {
+            (json!({"loginId": text(&params.login_id)?, "sessionId": session}), CALL_TIMEOUT)
+        }
         _ => return None,
     };
     Some((format!("_acpmux/agent_login/{}", params.op), body, timeout))
