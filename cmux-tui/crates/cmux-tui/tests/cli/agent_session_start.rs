@@ -8,6 +8,7 @@
 //! environment (`CMUX_AGENT_START_HOST`), which can only make the daemon
 //! stricter than what it detects.
 
+use std::os::unix::fs::DirBuilderExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc;
 
@@ -474,11 +475,12 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
 /// automatically". On the caller's own Cloud VM (the owner word; on a team VM
 /// the creator's) a new chat with no folder of the person's own, which the
 /// app sends as the workspace's first terminal folder (`$HOME` on a new
-/// machine), starts in the machine's work folder, and that work folder reads
-/// trusted with no question. A person's "Don't trust" still wins, and a
-/// machine that is not a Cloud VM keeps the home folder rule.
+/// machine), starts in its own folder `~/chats/<chat id>` (#30363), made for
+/// it, with no trust question; the machine's work folder still reads trusted.
+/// A person's "Don't trust" still wins, and a machine that is not a Cloud VM
+/// keeps the home folder rule.
 #[test]
-fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_trusted_work_folder() {
+fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_own_trusted_chat_folder() {
     let start_at_home = |daemon: &Daemon, surface: u64| {
         let home = daemon.dir.join("home");
         daemon.rpc(json!({"id": 40, "cmd": "agent-session-start", "surface": surface,
@@ -499,7 +501,9 @@ fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_trusted_work_folder() 
                                  "cwd": work.to_str().unwrap()}));
         assert_eq!(read["ok"], false, "{kind}: {read}");
         fs::remove_dir(&work).unwrap();
-        // The start at the home folder runs in the work folder (made for it), with no question.
+        // The start at the home folder runs in the chat's own folder (made for it), with no
+        // question.
+        let chat = vm.dir.join("home/chats").join(surface.to_string());
         let started = start_at_home(&vm, surface);
         if kind == "owner" {
             assert_eq!(started["ok"], true, "{kind}: {started}");
@@ -508,20 +512,20 @@ fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_trusted_work_folder() 
             // before acting (#28613), which the test agent has no mode for.
             assert_eq!(started["error_code"], "agent_session.not_asking", "{kind}: {started}");
         }
-        assert!(work.is_dir(), "{kind}: the work folder was not made");
+        assert!(chat.is_dir(), "{kind}: the chat folder was not made");
         // Another folder of that machine still asks.
         let surface = vm.own_agent_tab();
         let reply = vm.start_chat_as(surface, "owner");
         assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{kind}: {reply}");
     }
 
-    // The person's "Don't trust" for the work folder wins over the rule.
+    // The person's "Don't trust" for the chat's folder wins over the rule.
     let vm = Daemon::start_cloud("ownworknot", "owner");
-    let work = vm.dir.join("home/work");
-    fs::create_dir_all(&work).unwrap();
     let surface = vm.own_agent_tab();
+    let chat = vm.dir.join("home/chats").join(surface.to_string());
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(&chat).unwrap();
     let set = vm.rpc(json!({"id": 43, "cmd": "agent-session-trust", "surface": surface,
-                            "cwd": work.to_str().unwrap(), "level": "untrusted", "vm_kind": "owner"}));
+                            "cwd": chat.to_str().unwrap(), "level": "untrusted", "vm_kind": "owner"}));
     assert_eq!(set["ok"], true, "{set}");
     let reply = start_at_home(&vm, surface);
     assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
