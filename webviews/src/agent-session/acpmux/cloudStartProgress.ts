@@ -199,6 +199,17 @@ function operation(value: unknown): CloudStartupOperation | undefined {
 function setupStatus(value: unknown): CloudStartupSetup | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
+  // The platform endpoint reports phase timings under `steps.install`; hosts may forward that
+  // object as-is so the page does not need to know the rest of the environment response.
+  const steps = asRecord(record.steps);
+  const install = steps && (steps.install ?? steps.setup ?? steps.run);
+  if (install && asRecord(install)) {
+    const merged = { ...record };
+    delete merged.steps;
+    Object.assign(merged, asRecord(install));
+    if (record.status !== undefined) merged.status = record.status;
+    return setupStatus(merged);
+  }
   const raw = record.status ?? record.state;
   const status = raw === "ready" || raw === "building" || raw === "failed" ? raw : undefined;
   const base = operation({ ...record, state: status === "ready" ? "done" : status === "building" ? "running" : status === "failed" ? "failed" : record.state });
