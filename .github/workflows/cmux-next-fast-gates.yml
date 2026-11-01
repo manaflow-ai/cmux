@@ -42,7 +42,7 @@ on:
         required: true
         type: string
       runner:
-        description: Fleet or bounded Blacksmith Linux label for a rerun after a stalled fleet start
+        description: Fleet, light hosted Ubuntu, or bounded Blacksmith Linux label for a rerun after a stalled start
         required: false
         default: ''
         type: string
@@ -61,7 +61,10 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
+    # Resolve is a light read-only job: the fleet label is first, then the
+    # hosted Ubuntu exception, with Blacksmith as the bounded overflow. A
+    # rerun replaces the queued run in this PR-only concurrency group.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","ubuntu-24.04","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -176,7 +179,9 @@ jobs:
     needs: resolve
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
+    # The hosted exception is only for resolve/post. If a rerun uses it to
+    # move the light resolver, keep PR code on the measured Blacksmith size.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || inputs.runner == 'ubuntu-24.04' && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 10
     # The pull request's code runs here: no write permission of any kind.
     permissions:
@@ -269,7 +274,7 @@ jobs:
     name: panic ratchet (lowered baseline)
     needs: [resolve, fast-gates]
     if: ${{ !cancelled() && needs.fast-gates.outputs.ratchet == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.runner == 'ubuntu-24.04' && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -324,7 +329,9 @@ jobs:
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet]
     if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
+    # Status posting is a light report step and follows resolve onto hosted
+    # Ubuntu when the fleet rerun is unavailable.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","ubuntu-24.04","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 5
     permissions:
       statuses: write
