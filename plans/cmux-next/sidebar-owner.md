@@ -906,3 +906,9 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
   to 14 pt (~13 pt visible ring), centered within the same trailing cell. Blue dots, working spinners,
   other status glyphs, row spacing and the shared trailing column stay unchanged. The row-badge regression
   measures the error frame and its unchanged cell center (`SidebarRowCornerBadgeTests`).
+
+## Empty groups keep just their header (2026-11-01)
+
+Leo: "what do you feel about this placeholder situation? idk doesn't that plceholder text seem a bit wack?"
+
+An empty group now keeps only its header at rest. The header's existing + appears on hover or keyboard focus, and New Workspace in Group remains available through accessibility and the group menu. A workspace dragged into the empty group highlights its header; no permanent "No workspaces · drag one here" row is projected by either full layout or fast fold. This replaces the placeholder and always-visible row + from 0105692a41d / user 17912; creation and drop capabilities remain. `SidebarEmptyGroupTests` and `SidebarEmptyGroupAddButtonTests` cover layout, folding, drop targeting and creation. `SidebarEmptyGroupGalleryTests` compares the old placeholder, the chosen header-only design, and a permanent header +, each at rest, hover and drop in light/dark at 2x. Chosen: header-only, because it keeps group names easy to scan and reveals the action when needed. Design spec: leo-workspace `design/sidebar.md`.
