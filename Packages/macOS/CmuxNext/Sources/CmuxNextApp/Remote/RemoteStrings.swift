@@ -125,18 +125,12 @@ enum RemoteStrings {
         }
     }
 
-    /// A machine's failure in one sentence, never the daemon's raw text (Copy Error keeps it). User 2026-10-31 (msg 19277).
     static func plainFailure(_ raw: String, machine: String) -> String {
-        if raw.contains("in use by another cmux daemon") || raw.contains("already owned by another daemon") {
-            return String(format: String(localized: "remote.failure.sessionInUse", defaultValue: "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry.", table: "Remote", bundle: .module), machine)
+        switch RemoteFailureCause(raw) {
+        case .sessionInUse: String(format: String(localized: "remote.failure.sessionInUse", defaultValue: "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry.", table: "Remote", bundle: .module), machine)
+        case let .cause(cause): String(format: String(localized: "remote.failure.cause", defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine, cause)
+        case .unknown: String(format: String(localized: "remote.failure.unknown", defaultValue: "cmux on %@ stopped. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine)
         }
-        // The cause: the last `prefix: ` clause before any parenthesis or `; ` hint.
-        let head = raw.components(separatedBy: " (")[0].components(separatedBy: "; ")[0]
-        let cause = (head.components(separatedBy: ": ").last ?? "").trimmingCharacters(in: CharacterSet(charactersIn: " .;:\n"))
-        guard !cause.isEmpty, !cause.contains("/"), cause.count <= 120 else {
-            return String(format: String(localized: "remote.failure.unknown", defaultValue: "cmux on %@ stopped. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine)
-        }
-        return String(format: String(localized: "remote.failure.cause", defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine, cause)
     }
 
     /// The machine's raw failure (ssh's own words, or the install or link
