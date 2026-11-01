@@ -1056,10 +1056,10 @@ fn local_profile_ids(local: &Local, ids: &[String]) -> Vec<String> {
             if path.extension().and_then(|e| e.to_str()) != Some("toml") || !path.is_file() {
                 continue;
             }
-            if let Some(id) = path.file_stem().and_then(|s| s.to_str()) {
-                if crate::config::profiles::valid_id(id) {
-                    out.push(id.to_owned());
-                }
+            if let Some(id) = path.file_stem().and_then(|s| s.to_str())
+                && crate::config::profiles::valid_id(id)
+            {
+                out.push(id.to_owned());
             }
         }
     }
