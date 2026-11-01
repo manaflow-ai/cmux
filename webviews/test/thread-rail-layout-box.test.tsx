@@ -154,6 +154,8 @@ test("the rail's inset is the same at every pane width that leaves its gutter ro
   expect(new Set(insets)).toEqual(new Set([16]));
   // Only a gutter too short for the widest step shrinks it.
   expect(railPlacement(800).left).toBe(8);
+  // Session Info pushing the chat's column (a smaller text inset) never moves it: it reads the pane.
+  expect(railPlacement(1084, 32).left).toBe(railPlacement(1084).left);
 });
 
 test("the transcript's mask leaves the rail's lane in full ink", () => {
