@@ -1893,7 +1893,7 @@ async fn dispatch_request(
                 &origin, workspace, machine, &s.id, prompt_id, generation, attempt_id, &authorization,
             ).await.map_err(|e| RpcError::new(-32000, format!("Cloud turn authorization refused: {e}")))?;
             let (turn_id, queued, accepted, generation, attempt_id) = s
-                .prepare_turn(prompt_id, Some(generation), attempt_id)
+                .prepare_turn(prompt_id, generation, attempt_id, &conn.id)
                 .await
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             if accepted {
@@ -1909,7 +1909,11 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|id| !id.is_empty())
                 .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
-            Ok(json!({"abandoned": s.abandon_prepared(prompt_id)}))
+            let generation = params.get("generation").and_then(Value::as_u64)
+                .ok_or_else(|| RpcError::invalid_params("generation is required"))?;
+            let attempt_id = params.get("attempt_id").and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("attempt_id is required"))?;
+            Ok(json!({"abandoned": s.abandon_prepared(prompt_id, generation, attempt_id, &conn.id)}))
         }
         method::MUX_SET_TURN_CAP => {
             let s = hub.resolve(session_key(&params)?)?;
