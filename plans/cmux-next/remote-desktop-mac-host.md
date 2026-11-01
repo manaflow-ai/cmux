@@ -98,7 +98,36 @@ behavior change (`src/x11.rs`).
 See the PR description and the HTML report for the run that produced these numbers, including
 both hosts on the same display and the same viewer.
 
-## 7. Not done
+## 7. Mac Screen on cmux.rd/1: the network design
+
+Mac Screen (the device hub's host and viewer roles) moves from WebRTC to this engine. The
+network layer follows five rules, so that no transport product is a design decision:
+
+1. **Security is end to end, in the session.** The two devices run a Noise_XX handshake
+   (25519, ChaCha20-Poly1305, BLAKE2s; the `snow` library `cmux-remote` already uses). Each
+   side's ephemeral session key is signed by its device hub key; the other side checks it
+   against the `signingKey` the hub ticket carries for the peer. Every rd datagram is then
+   sealed with the session key, and one that fails to open is dropped before the engine sees
+   it. Relays are untrusted pipes: they see ciphertext and cannot read, change or speak as a
+   device.
+2. **Carriers are interchangeable.** The session needs one thing from the network: deliver a
+   datagram to the peer, best effort. Direct UDP (same network, IPv6, a punched IPv4 mapping),
+   the tailnet, and relays (TURN, an iroh relay, the Durable Object relay, a relay we host) are
+   implementations of that one interface. Adding or removing one changes nothing above it.
+3. **Measure, do not choose.** The path selector in `cmux-transport` decides at run time:
+   every known carrier is tried at once, probes inside the sealed session measure each path,
+   any live direct path beats every relay, and the lower smoothed RTT wins inside a class,
+   with hysteresis. Paths switch during a session without a reconnect.
+4. **Policy is data.** Which relays a device may use comes from the hub ticket (the user's
+   relays, and the cmux relay on a paid plan), as relay lists do today. The code prefers none.
+5. **Rate control and loss recovery stay end to end.** The engine's congestion control and FEC
+   adapt to whichever path is live, so no carrier must be video-grade for correctness; a
+   slower path only lowers the bitrate.
+
+The first carriers are those cmux already has: direct UDP with hole punching, the tailnet,
+and the TURN servers in the hub ticket. Candidates travel over the ticket's signaling socket.
+
+## 8. Not done
 
 - Display switching inside a session (the host streams the display it started with).
 - Audio, clipboard, cursor shape channel, HEVC negotiation.

@@ -137,7 +137,8 @@ import Testing
     /// frame was further from both the open and the closed dialog than they are from each other).
     /// The card's glass keeps the key-window look.
     @Test func aDialogCardKeepsTheKeyWindowGlass() throws {
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Close Workspace?", buttons: [.cancel(), .ok()]))
+        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Close Workspace?", buttons: [.cancel(), .ok()]),
+                                    activeLook: ActiveLookScope())
         func glass(in view: NSView) -> [GlassPanelView] {
             (view as? GlassPanelView).map { [$0] } ?? view.subviews.flatMap(glass(in:))
         }

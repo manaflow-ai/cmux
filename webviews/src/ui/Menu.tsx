@@ -221,6 +221,7 @@ export function MenuButton({
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
       data-field-trigger={fieldTrigger ? "" : undefined}
+      data-popup-open={context?.isOpen ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;

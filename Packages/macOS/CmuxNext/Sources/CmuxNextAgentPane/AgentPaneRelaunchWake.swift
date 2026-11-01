@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import os
 public import CmuxNextDesign
 public import CmuxNextWakeups
 public import Foundation
@@ -138,13 +139,23 @@ public final class AgentPaneRelaunchWake {
         }
     }
 
+    /// How long a quit asks each live page for its state. The page first
+    /// waits for its typed draft to reach acpmux, at most `draftSettleMs` of
+    /// schemas/agent-pane/wake-state.json (500 ms), then answers with every
+    /// chip's contents inline; this leaves 500 ms more for a large chip to
+    /// cross the bridge. The ask outlasts the quit's composer step limit: the
+    /// quit waits for that step past its limit, up to its deadline
+    /// (`QuitStepLimiter.finishOverruns`). A page that does not answer keeps
+    /// the state it was given, and the quit logs it.
+    public static let askLimit: Duration = .seconds(1)
+
     /// What every chat holds for the next launch, by tab: the last quit's states no page took (after
     /// the launch read), `held` (released pages' states, by tab) over them, then each page in `pages`. A page that has not taken its state yet (no `ready`, only a
     /// reconnect) keeps it unasked; every other page is asked at once, each within `limit`, and
     /// one that does not answer keeps the tab's held state or the one its `ready` took. Tabs
     /// `live` refuses (gone from every tree) keep nothing.
     public func collect(held: [String: AgentPaneWakeState], pages: [(key: String, view: AgentPaneView)],
-                        live: (String) -> Bool, limit: Duration = .seconds(1)) async -> [String: AgentPaneWakeState] {
+                        live: (String) -> Bool, limit: Duration = askLimit) async -> [String: AgentPaneWakeState] {
         let unclaimed = (await launch?.finished() ?? [:]).filter { !claimed.contains($0.key) }
         var states = unclaimed.merging(held) { _, held in held }
         let read = read
@@ -155,6 +166,10 @@ public final class AgentPaneRelaunchWake {
         for (page, ask) in asks {
             let model = page.view.model
             let answer = await ask?.value
+            if let ask, answer == nil, !ask.isCancelled {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.relaunch-wake")
+                    .error("chat \(page.key, privacy: .public) did not answer its quit ask within \(limit, privacy: .public); it keeps the state it was given")
+            }
             states[page.key] = answer ?? model.pendingWake ?? states[page.key] ?? model.handedWake
         }
         return states.filter { key, state in !state.isEmpty && live(key) }
