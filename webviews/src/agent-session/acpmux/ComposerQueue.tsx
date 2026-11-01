@@ -239,6 +239,9 @@ export function ComposerQueue({
   // Typed text of Saves that failed before acpmux had them while another editor was open (or a
   // sibling's recovery was just claimed): each waits, per row, for the editor to be free again.
   const recovered = useRef(new Map<string, { text: string; original: string; generation: number }>());
+  // Rows whose cancel and edit has not been answered: the composer gets the row's text once it
+  // is, so a Save of the row failing meanwhile waits for the answer instead of restoring too.
+  const takenBack = useRef(new Set<string>());
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const setEditing = (id: string | undefined) => {
@@ -425,8 +428,10 @@ export function ComposerQueue({
       const row = queueNow.current.find((entry) => entry.id === id && entry.author === undefined);
       if (row && leavingNow.current.has(id)) continue;
       recovered.current.delete(id);
-      if (!row) onLost?.(waiting.text, id);
-      else if (saveGeneration.current.get(id) === waiting.generation) {
+      // A row taken back with cancel and edit leaves with its own text in the composer.
+      if (!row) {
+        if (!takenBack.current.has(id)) onLost?.(waiting.text, id);
+      } else if (saveGeneration.current.get(id) === waiting.generation) {
         editingNow.current = id;
         draft.current = { id, original: waiting.original, text: waiting.text };
         setEditing(id);
@@ -640,14 +645,30 @@ export function ComposerQueue({
       const now = drawnRows.current.find((row) => row.id === entry.id);
       if (!now || theirs(now)) return;
       // Taking the row back hands the composer the text the row shows. A Save of this row still
-      // pending is superseded (its failure or answer is stale, and any text it left waiting is
-      // dropped), or its recovery would restore a second draft beside this one.
-      saveGeneration.current.set(entry.id, (saveGeneration.current.get(entry.id) ?? 0) + 1);
-      recovered.current.delete(entry.id);
-      // A Save that failed while the images were read may already have reopened its editor: that
-      // draft is superseded too, or the row's removal would hand it to the composer as well.
+      // pending is superseded once the take-back is accepted (its failure or answer is stale, and
+      // any text it left waiting is dropped), or its recovery would restore a second draft beside
+      // this one. A refused take-back leaves the row queued, and a failed Save restores its text
+      // into the row's editor as it would have.
+      takenBack.current.add(entry.id);
+      // A Save that failed while the images were read may already have reopened its editor: the
+      // row's removal must not hand that draft to the composer as well.
       if (draft.current?.id === entry.id) draft.current = undefined;
-      await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
+      act(entry.id, () =>
+        onCancelEdit(entry.id, entry.prompt, attachments).then(
+          (done) => {
+            takenBack.current.delete(entry.id);
+            if (done) {
+              saveGeneration.current.set(entry.id, (saveGeneration.current.get(entry.id) ?? 0) + 1);
+              recovered.current.delete(entry.id);
+            }
+            return done;
+          },
+          (error: unknown) => {
+            takenBack.current.delete(entry.id);
+            throw error;
+          },
+        ),
+      );
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
   const sideChat =
@@ -746,7 +767,7 @@ export function ComposerQueue({
         if (mayHaveReachedAcpmux(error) || !latest()) return;
         // Another edit is open (or a sibling's recovery just claimed the editor in this batch): its
         // draft is not ours to drop, so this text waits its turn and the row stays queued meanwhile.
-        if (editingNow.current !== undefined || leavingNow.current.has(entry.id)) {
+        if (editingNow.current !== undefined || leavingNow.current.has(entry.id) || takenBack.current.has(entry.id)) {
           recovered.current.set(entry.id, { text: next, original: entry.prompt, generation });
           return;
         }

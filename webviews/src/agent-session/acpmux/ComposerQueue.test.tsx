@@ -1042,7 +1042,14 @@ test("a failed save behind a pending delete hands its text to the composer once 
 // A Save is pending when the row is taken back with cancel and edit: the composer gets the text the row
 // shows, once. The Save's later failure is superseded: it must not restore its own draft beside it.
 // With `slowImages` the row has an image whose bytes are still being read when the Save fails.
-async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>, slowImages = false) {
+// `takeBack` is how the cancel and edit is answered: accepted at once, refused, or only after the
+// row has left the queue.
+async function cancelAndEditBehindPendingSave(
+  failWith: Record<string, unknown>,
+  slowImages = false,
+  takeBack: "accepted" | "refused" | "late" = "accepted",
+) {
+  let answer: (done: boolean) => void = () => undefined;
   const saves: { reject(error: Error): void }[] = [];
   const reads: ((url: string | undefined) => void)[] = [];
   const first = {
@@ -1063,7 +1070,8 @@ async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>,
         onRemove={async () => true}
         onCancelEdit={async (id, text) => {
           taken.push([id, text]);
-          return true;
+          if (takeBack === "late") return new Promise<boolean>((resolve) => (answer = resolve));
+          return takeBack === "accepted";
         }}
         onLost={(text, id) => lost.push([id, text])}
       />,
@@ -1090,14 +1098,30 @@ async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>,
     await act(async () => reads.forEach((finish) => finish("data:image/png;base64,QQ==")));
     await settle();
   }
-  await act(async () => draw([queue[1]!]));
+  // Accepted, the row leaves; refused, it stays and the Save's text is back in its editor.
+  if (takeBack !== "refused") await act(async () => draw([queue[1]!]));
+  await settle();
+  if (takeBack === "late") await act(async () => answer(true));
   await settle();
   await settle();
-  return { taken, lost };
+  const editor = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')?.value ?? null;
+  return { taken, lost, editor };
 }
 
 test("a save that fails after the row was taken back with cancel and edit restores no second draft", async () => {
   const run = await cancelAndEditBehindPendingSave({ code: "native.not_connected" });
+  expect(run.taken).toEqual([["p-1", "first"]]);
+  expect(run.lost).toEqual([]);
+});
+
+test("a refused cancel and edit leaves the failed save's text in the row's editor, not lost", async () => {
+  const run = await cancelAndEditBehindPendingSave({ code: "native.not_connected" }, false, "refused");
+  expect(run.editor).toBe("first, reworded");
+  expect(run.lost).toEqual([]);
+});
+
+test("a save that fails, with the row gone before the cancel and edit is answered, restores no second draft", async () => {
+  const run = await cancelAndEditBehindPendingSave({ code: "native.not_connected" }, false, "late");
   expect(run.taken).toEqual([["p-1", "first"]]);
   expect(run.lost).toEqual([]);
 });
