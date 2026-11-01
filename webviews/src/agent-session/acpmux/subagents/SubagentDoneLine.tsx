@@ -185,7 +185,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             )}
           </span>
         )}
-        <span className="cv-tool__trail cv-subagent-done__trail">
+        <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
           {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {/* The chevron only marks that the line opens; the line's button is the one control. Its
