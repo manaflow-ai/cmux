@@ -589,7 +589,7 @@ export function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
-  // A row's letter (`accelerator`, never drawn) picks it, as Claude Code desktop's R, F, A; never a
+  // A row's letter (`accelerator`, never drawn) picks it, as the title menu's R, F, A, D; never a
   // key that is text (menuLetters.ts: a field, an editor, an IME composition, the typeahead).
   const typing = useRef<MenuTyping>({ last: 0 });
   const shortcutRows = children ?? rows;
