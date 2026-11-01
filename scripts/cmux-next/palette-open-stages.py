@@ -227,6 +227,8 @@ def search_report(word):
     answer_rows = [int((i.get("end_fields") or {}).get("rows") or 0) for i in answered]
     print(f"  signposts: {len(parsed['intervals'])} paired, {parsed['unpaired']} unpaired (queries typed past), "
           f"{parsed['lost']} lost", flush=True)
+    diagnosis = acpmux_diagnosis(word)
+    print(f"  acpmux for {word!r}: {json.dumps(diagnosis)[:400]}", flush=True)
     if not keys:
         row("Search typed keys", "keys timed", "none", False)
         return {}
@@ -243,7 +245,50 @@ def search_report(word):
         f"p95 {table['key_rpc'].get('p95')} ms, {len(keys)} keys", True)
     if opts.seed_chats:
         row("Search chats answers", "acpmux answered typed queries", f"{len(answers)} answers", bool(answers))
-    return {"table": table, "samples": keys, "rows": rows, "answers": answers, "stalls": stalls}
+    return {"table": table, "samples": keys, "rows": rows, "answers": answers, "stalls": stalls, "acpmux": diagnosis}
+
+
+def acpmux_diagnosis(word):
+    """What the app's own acpmux holds for `word`, asked on its socket like the app (report only): its daemon's
+    ACPMUX_HOME, whether its index is ready, and the rows its window gives the query."""
+    import bench_memory as bm  # noqa: E402  (FakeChats.acpmux_socket: the bundle's daemon socket)
+    try:
+        sock_path = bm.FakeChats.acpmux_socket(APP)
+    except SystemExit as error:
+        return {"error": f"no acpmux daemon of this bundle: {error}"}
+    homes = [cmd for _, _, cmd in bm.process_table() if "/bin/acpmux daemon run" in cmd and cmd.startswith(APP)]
+    out = {"socket": sock_path, "daemons": len(homes)}
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(20)
+        conn.connect(sock_path)
+        request = {"jsonrpc": "2.0", "id": 7, "method": "_acpmux/chats_window",
+                   "params": {"window": "bench.diag", "gen": 1, "limit": 5, "topLevel": True, "query": word, "count": True}}
+        conn.sendall((json.dumps(request) + "\n").encode())
+        buf, deadline = b"", time.monotonic() + 20
+        while time.monotonic() < deadline and not ("answer" in out and "window_rows" in out):
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                try:
+                    message = json.loads(line)
+                except ValueError:
+                    continue
+                if message.get("id") == 7:
+                    out["answer"] = message.get("result") or message.get("error")
+                elif message.get("method") == "_acpmux/chats_window_changed":
+                    params = message.get("params") or {}
+                    out["window_rows"] = len(params.get("keys") or [])
+                    out["window_total"] = params.get("total")
+            if (out.get("answer") or {}).get("ready") is False and "window_rows" not in out:
+                break
+        conn.close()
+    except OSError as error:
+        out["error"] = str(error)
+    return out
 
 
 def seed_chats(count):
