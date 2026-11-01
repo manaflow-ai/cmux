@@ -43,6 +43,11 @@
 //! not opened since). A Chief's daemon run from the app's bundle stops the
 //! same way.
 //!
+//! A NIGHTLY or Release daemon whose chats a stop would lose (a memory store without agent
+//! hosts) is never stopped, as the app's version handoff never restarts one. An app moved and
+//! updated between two reads of its path is looked for by bundle id where it may have moved
+//! (its old folder, `/Applications`, `~/Applications`, Spotlight) before its agents end.
+//!
 //! Test seams, debug builds only: `ACPMUX_TEST_APP_ORPHAN_DELAY_MS` and
 //! `ACPMUX_TEST_APP_ORPHAN_RECHECK_MS` replace the two intervals.
 
@@ -169,7 +174,9 @@ pub(crate) fn decide(absent_since: Option<Instant>, now: Instant, timing: Timing
 /// end too (see the module doc); never for a daemon outside a cmux bundle. The bundle is read
 /// and the executable opened here, at once (a deleted bundle has no Info.plist to read later,
 /// and one deleted before the first poll would be missed): call it before the ready line.
-pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'static {
+/// `keeps_chats` is whether a restart keeps this daemon's chats (agent hosts on, or a store on
+/// disk); without it a NIGHTLY or Release daemon is never stopped (see [`App::watched`]).
+pub(crate) fn watch(keeps_chats: bool) -> impl std::future::Future<Output = bool> + Send + 'static {
     // One read of the executable's path, opened at once: a second read could name a rebuild
     // that replaced it in between, and the watch would hold that one.
     let facts = std::env::current_exe().ok().and_then(|exe| {
@@ -182,6 +189,13 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
         // Gone is read only after a failed Info.plist read: a bundle deleted between the open
         // and that read has an executable gone by then, so it is still watched.
         let app = App::of(&exe, || executable.gone())?;
+        if !app.watched(keeps_chats) {
+            tracing::info!(
+                bundle = %app.bundle.display(),
+                "daemon: never stops with its app gone: a memory store without agent hosts would lose its chats"
+            );
+            return None;
+        }
         Some((app, executable))
     });
     async move {
@@ -256,6 +270,54 @@ impl App {
         install != self.bundle && bundle_id(&install).as_deref() != Some(self.bundle_id.as_str())
     }
 
+    /// Whether the watch may stop this daemon. A DEV build's daemon always (a throwaway
+    /// build); any other channel's only when a restart keeps its chats (`keeps_chats`: agent
+    /// hosts on, or chats on disk). A memory store without agent hosts would lose every chat,
+    /// so the app's version handoff (`AcpmuxVersionHandoff`) never restarts one either.
+    pub(crate) fn watched(&self, keeps_chats: bool) -> bool {
+        keeps_chats || self.is_dev()
+    }
+
+    /// The bundle id installed where this app is now, or None when it is gone everywhere it
+    /// is looked for. First its install path; when that holds nothing, an app of the same
+    /// bundle id in `search` (folders whose `*.app` are read): an app moved and updated (or
+    /// updated and moved) between two reads of its path is installed at its new place, not
+    /// deleted, and its agents stay for that app to adopt. An app of unknown id is only read
+    /// at its install path.
+    pub(crate) fn installed(&self, search: &[PathBuf]) -> Option<String> {
+        if let Some(id) = bundle_id(&install_path(&self.bundle)) {
+            return Some(id);
+        }
+        if self.bundle_id.is_empty() {
+            return None;
+        }
+        let found = search.iter().any(|dir| {
+            std::fs::read_dir(dir).into_iter().flatten().flatten().any(|entry| {
+                let path = entry.path();
+                path.extension().is_some_and(|e| e == "app")
+                    && bundle_id(&path).as_deref() == Some(self.bundle_id.as_str())
+            })
+        });
+        found.then(|| self.bundle_id.clone())
+    }
+
+    /// Where [`App::installed`] looks for a moved app: the folder it was in, `/Applications`
+    /// and `~/Applications`, and on macOS every folder Spotlight knows an app of its bundle id
+    /// in (a few seconds at most).
+    fn search_folders(&self) -> Vec<PathBuf> {
+        let mut folders: Vec<PathBuf> =
+            install_path(&self.bundle).parent().into_iter().map(Path::to_path_buf).collect();
+        folders.push(PathBuf::from("/Applications"));
+        folders.extend(dirs::home_dir().map(|home| home.join("Applications")));
+        folders.extend(
+            spotlight_apps(&self.bundle_id)
+                .iter()
+                .filter_map(|app| app.parent().map(Path::to_path_buf)),
+        );
+        folders.dedup();
+        folders
+    }
+
     fn is_dev(&self) -> bool {
         is_dev_bundle(&self.bundle_id)
     }
@@ -325,6 +387,43 @@ impl Executable {
     }
 }
 
+/// The apps Spotlight has indexed with `bundle_id` (`mdfind`), given up after a few seconds.
+#[cfg(target_os = "macos")]
+fn spotlight_apps(bundle_id: &str) -> Vec<PathBuf> {
+    if bundle_id.is_empty() || bundle_id.contains('\'') {
+        return Vec::new();
+    }
+    let query = format!("kMDItemCFBundleIdentifier == '{bundle_id}'");
+    let Ok(mut child) = std::process::Command::new("/usr/bin/mdfind")
+        .arg(query)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        return Vec::new();
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if let Ok(Some(_)) = child.try_wait() {
+            let mut out = String::new();
+            if let Some(mut stdout) = child.stdout.take() {
+                let _ = std::io::Read::read_to_string(&mut stdout, &mut out);
+            }
+            return out.lines().filter(|line| !line.is_empty()).map(PathBuf::from).collect();
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    Vec::new()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn spotlight_apps(_bundle_id: &str) -> Vec<PathBuf> {
+    Vec::new()
+}
+
 /// The path an open file is linked at now.
 #[cfg(target_os = "macos")]
 fn fd_path(file: &std::fs::File) -> Option<PathBuf> {
@@ -392,8 +491,15 @@ async fn watch_app(mut app: App, executable: Executable) -> bool {
         match decide(absent_since, now, timing) {
             Decision::Exit => {
                 let deleted = executable.gone() || app.clone_orphaned();
-                let install = install_path(&app.bundle);
-                let installed = bundle_id(&install);
+                let installed = if deleted && !app.is_dev() {
+                    let app = app.clone();
+                    tokio::task::spawn_blocking(move || app.installed(&app.search_folders()))
+                        .await
+                        .ok()
+                        .flatten()
+                } else {
+                    bundle_id(&install_path(&app.bundle))
+                };
                 let end_agents = app.ends_agents(deleted, installed.as_deref());
                 tracing::info!(
                     bundle = %app.bundle.display(),
@@ -650,6 +756,85 @@ mod tests {
         std::fs::remove_dir_all(&moved).unwrap();
         assert!(app.ends_agents(true, bundle_id(&install_path(&app.bundle)).as_deref()), "deleted");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A NIGHTLY app in `<dir>/Downloads`, its executable held open as the daemon holds it.
+    #[cfg(unix)]
+    fn downloaded_nightly(dir: &Path) -> (PathBuf, Executable, App) {
+        let _ = std::fs::remove_dir_all(dir);
+        let bundle = dir.join("Downloads/cmux NIGHTLY.app");
+        std::fs::create_dir_all(bundle.join("Contents/MacOS")).unwrap();
+        std::fs::write(
+            bundle.join("Contents/Info.plist"),
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.cmuxterm.app.nightly</string></dict></plist>"#,
+        )
+        .unwrap();
+        std::fs::write(bundle.join("Contents/MacOS/acpmux"), b"build one").unwrap();
+        std::fs::create_dir_all(dir.join("Applications")).unwrap();
+        let executable = Executable::open(&bundle.join("Contents/MacOS/acpmux"));
+        let app = App::in_bundle(bundle.clone(), || executable.gone()).unwrap();
+        (bundle, executable, app)
+    }
+
+    #[cfg(unix)]
+    fn replace_binary(bundle: &Path) {
+        let next = bundle.join("Contents/MacOS/acpmux.next");
+        std::fs::write(&next, b"build two").unwrap();
+        std::fs::rename(&next, bundle.join("Contents/MacOS/acpmux")).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_app_moved_and_updated_between_two_reads_keeps_its_agents() {
+        let dir = std::env::temp_dir().join(format!("amx-orph-mvup-{}", std::process::id()));
+        let (old, executable, app) = downloaded_nightly(&dir);
+        let moved = dir.join("Applications/cmux NIGHTLY.app");
+        let search = [dir.join("Applications")];
+        // Moved, then updated where it moved, with no read of its path in between.
+        std::fs::rename(&old, &moved).unwrap();
+        replace_binary(&moved);
+        assert!(executable.gone());
+        assert_eq!(executable.current_path(), None, "unlinked: its new place can't be read");
+        assert_eq!(app.bundle, old, "never followed");
+        let installed = app.installed(&search);
+        assert_eq!(installed.as_deref(), Some("com.cmuxterm.app.nightly"));
+        assert!(!app.ends_agents(true, installed.as_deref()), "moved, then updated");
+        // Without the folder it moved to, it reads as deleted (the bug this guards).
+        assert!(app.ends_agents(true, app.installed(&[]).as_deref()));
+        // Deleted where it moved to: its agents end.
+        std::fs::remove_dir_all(&moved).unwrap();
+        assert!(app.ends_agents(true, app.installed(&search).as_deref()), "deleted");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_app_updated_then_moved_keeps_its_agents() {
+        let dir = std::env::temp_dir().join(format!("amx-orph-upmv-{}", std::process::id()));
+        let (old, executable, app) = downloaded_nightly(&dir);
+        replace_binary(&old);
+        assert!(executable.gone());
+        let moved = dir.join("Applications/cmux NIGHTLY.app");
+        std::fs::rename(&old, &moved).unwrap();
+        let installed = app.installed(&[dir.join("Applications")]);
+        assert!(!app.ends_agents(true, installed.as_deref()), "updated, then moved");
+        // Another channel's app there is not this one.
+        let other = App::new(old.clone(), "com.cmuxterm.app".into(), None).unwrap();
+        assert!(other.ends_agents(true, other.installed(&[dir.join("Applications")]).as_deref()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_memory_store_without_agent_hosts_never_stops_a_nightly_or_release_daemon() {
+        let at =
+            |id: &str| App::new(PathBuf::from("/Applications/cmux.app"), id.into(), None).unwrap();
+        for id in ["com.cmuxterm.app", "com.cmuxterm.app.nightly"] {
+            assert!(!at(id).watched(false), "{id}: its in-memory chats would be lost");
+            assert!(at(id).watched(true), "{id}: agent hosts or a store on disk keep them");
+        }
+        // A DEV build is throwaway: its daemon stops either way.
+        assert!(at("com.cmuxterm.app.debug.t").watched(false));
     }
 
     #[cfg(unix)]
