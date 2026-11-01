@@ -19,6 +19,7 @@ pub(crate) mod fanout;
 pub(crate) mod launch;
 mod ls;
 mod ls_pages;
+mod ls_tools;
 pub use ls::LsArgs;
 mod parent;
 mod send_async;

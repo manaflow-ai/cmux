@@ -10,15 +10,11 @@ import CmuxNextSidebar
 /// reports yet (just created for a window) shows.
 @MainActor
 enum WindowProfiles {
-    /// The home session's room rules, or nil in the fallback.
+    /// The home session's room rules, or nil in the fallback. O(1): the pins come as the store's own index.
     static func membership(_ machines: MachineRegistry) -> RoomMembership? {
         let personal = machines.local.store.personal
         guard personal.isLoaded else { return nil }
-        var membership = RoomMembership(follows: personal.follows)
-        for pin in personal.pins {
-            membership.pins[RoomMembership.Workspace(session: pin.sessionID, key: pin.workspaceKey.rawValue)] = pin.profile
-        }
-        return membership
+        return RoomMembership(follows: personal.follows, pins: personal.pinnedRooms)
     }
 
     /// `workspaceID` qualified by the session that owns it.

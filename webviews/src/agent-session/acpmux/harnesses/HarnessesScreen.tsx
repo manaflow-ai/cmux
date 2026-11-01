@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import { type HarnessHealth, needsLogin } from "../HarnessHealthNotice";
 import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
@@ -173,7 +173,7 @@ export function HarnessesScreen({
         ids.map((id) =>
           callNative("harness.health", { id, refresh: true })
             .then((reply) => {
-              if (remember(id, reply)?.auth !== "signedOut") mark(id, undefined);
+              if (!needsLogin(remember(id, reply)?.auth)) mark(id, undefined);
             })
             .catch(() => {
               remember(id, { health: { id, auth: "unknown" } });
