@@ -40,6 +40,8 @@ final class PendingWorkspaceRows {
     /// The workspaces whose slot `WindowManager.pendingPlacements` holds and has not sent (observed: a rows pass re-runs when one goes).
     private(set) var unsentSlots: Set<String> = []
 
+    /// A create's row in its final look (`SidebarMapping.creatingRow`) under its key: Cmd-N's, and an agent's chat open.
+    func add(creating id: String, window: String, machine: MachineID, name: String, opensPage: Bool, slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?) { add(.init(id: id, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: id, machine: machine, name: name, opensPage: opensPage), slot: slot, byDefault: byDefault), name: name) }
     func add(_ row: Row, name: String) {
         rows.append(row)
         names[row.id] = (row.machine, name)

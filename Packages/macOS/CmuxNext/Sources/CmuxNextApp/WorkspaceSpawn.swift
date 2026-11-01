@@ -62,10 +62,8 @@ struct WorkspaceSpawner {
         let named = renamed(name)
         if let windowID, let name {
             let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
-            let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: name, opensPage: opensPage)
             SidebarNewRowTimer.shared.began(key.rawValue)
-            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
-                                                  slot: spawn.slot, byDefault: row), name: name)
+            PendingWorkspaceRows.shared.add(creating: key.rawValue, window: windowID, machine: machine, name: name, opensPage: opensPage, slot: spawn.slot, byDefault: row)
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
@@ -79,7 +77,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
-                PendingWorkspaceRows.shared.remove(key.rawValue)
+                windows.forgetCreate(key.rawValue)
                 throw error
             }
         }
@@ -128,9 +126,7 @@ struct WorkspaceSpawner {
                 }
             } catch {
                 shown.abandon()
-                windows.pendingPlacements[key.rawValue] = nil
-                windows.pendingPlacementOrder.removeAll { $0 == key.rawValue }
-                PendingWorkspaceRows.shared.remove(key.rawValue)
+                windows.forgetCreate(key.rawValue)
                 throw error
             }
         }

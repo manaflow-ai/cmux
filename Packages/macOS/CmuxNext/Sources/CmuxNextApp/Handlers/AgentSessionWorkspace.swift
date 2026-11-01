@@ -95,16 +95,17 @@ enum AgentSessionWorkspace {
         let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
-        // No group: workspace and chat show now (P4) with Cmd-N's pending row at their slot in the window that lists them (never drawn elsewhere first).
-        let tabs = services.agentTabs, machine = MachineID(daemon.machineID), shownName = name ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }), window = group == nil && tabs.showsWorkspaceAtOnce(on: daemon) && AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) == nil ? windows.registry.value.mostRecentOpen() : nil
-        let instant = window.flatMap { window in PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: shownName, opensPage: true), slot: placed.slot, byDefault: placed.rule), name: shownName); return tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair) }
+        // No group: workspace and chat show now (P4) with Cmd-N's pending row at their slot, in a window whose space lists them (never drawn elsewhere first).
+        let tabs = services.agentTabs, machine = MachineID(daemon.machineID), shownName = name ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }), membership = WindowProfiles.membership(services.machines)
+        let window = (group == nil && tabs.showsWorkspaceAtOnce(on: daemon) && AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) == nil ? windows.registry.value.mostRecentOpen() : nil).flatMap { window in membership.flatMap { membership in daemon.store.registryID.map { membership.contains(.init(session: $0, key: key.rawValue), in: windows.controller(for: window)?.state.profileID ?? .defaultProfile) } } ?? true ? window : nil }
+        let instant = window.flatMap { window in PendingWorkspaceRows.shared.add(creating: key.rawValue, window: window, machine: machine, name: shownName, opensPage: true, slot: placed.slot, byDefault: placed.rule); return tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair) }
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
-                if let instant { do { _ = try await instant.confirm(DaemonConnection.lateReplyDeadline()) } catch { PendingWorkspaceRows.shared.remove(key.rawValue); throw error } }
+                if let instant { do { _ = try await instant.confirm(DaemonConnection.lateReplyDeadline()) } catch { windows.forgetCreate(key.rawValue); throw error } }
                 let tab = if let instant { tabs.resolve(instant.tabKey) } else {
                     try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
                         try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: tabs)
