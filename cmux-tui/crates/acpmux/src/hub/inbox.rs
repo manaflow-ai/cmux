@@ -24,8 +24,9 @@
 //!
 //! Nor does any of them, or a notice, go into a turn the person's own prompt started
 //! ([`persons_prompt`], `TurnInfo::persons`, set while the inbox is on: with `agentInbox` off,
-//! agents' sends steer in as they did before it, `tests/send_steer.rs`): it waits for that turn's end and goes in as a
-//! turn of its own after it, the same way (`steerOnly` refused with `personsTurn`). A notice
+//! agents' sends steer in as they did before it, `tests/send_steer.rs`): it waits for that
+//! turn's end and goes in as a turn of its own after it, the same way (`steerOnly` refused with
+//! `personsTurn`). A notice
 //! steered into the person's turn as it started, so it went in with the person's words, and
 //! other agents' steers went in at its next step; Leo, 2026-11-01: "why do the x messages from
 //! y sessions seem to always piggyback on my messages instead of going on their own".
