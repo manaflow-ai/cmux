@@ -127,12 +127,28 @@ button.cv-subagent > :last-child {
   flex: none;
   color: var(--cv-text-muted);
 }
-/* A running subagent's line with its stop button at the line's right end, after the time. */
+/* A running subagent's line with its stop button after the time. A line that opens keeps its chevron
+   last, at the line's end, so a running line's chevron sits on the same x as an ended line's; Stop
+   goes between the time and the chevron, as in the running tray (Leo, 2026-10-31: "and of course
+   align this right side's chevrons"). The time makes room for Stop (24px) and one gap. */
 .cv-subagent-stoppable {
+  --cv-subagent-inset: 14px;
+  --cv-subagent-gap: 10px;
   position: relative;
 }
-.cv-subagent-stoppable > .cv-subagent {
-  padding-right: 48px;
+.cv-subagent-stoppable > .cv-subagent > .cv-subagent__time {
+  margin-right: calc(24px + var(--cv-subagent-gap));
+}
+.cv-subagent-stoppable > button.cv-subagent + .cv-subagent__stop {
+  right: calc(var(--cv-subagent-inset) + 12px + var(--cv-subagent-gap));
+}
+/* The summary card's rows (summary.css): an 8px inset and gap, 40px tall. */
+.acpmux-summary-subagent-rows .cv-subagent-stoppable {
+  --cv-subagent-inset: 8px;
+  --cv-subagent-gap: 8px;
+}
+.acpmux-summary-subagent-rows .cv-subagent-stoppable > .cv-subagent__stop {
+  top: 8px;
 }
 .cv-subagent__stop {
   appearance: none;
