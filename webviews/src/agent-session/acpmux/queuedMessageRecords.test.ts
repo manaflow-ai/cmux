@@ -92,11 +92,14 @@ test("queuedMessage reads acpmux's own queued record shapes", () => {
 test("acpmux's list (mergeQueue) keeps the record's message, and its null fromAgent drops it", () => {
   const message = queuedMessage(provenanceRecord("p1", "Rebase first"))!;
   const current = [{ id: "p1", prompt: "Rebase first", message }];
-  // hub/composers.rs lists `fromAgent: null` for a provenance sender too; the record's message stays
-  // while the list does not say the prompt is the person's.
-  expect(mergeQueue(current, [{ promptId: "p1", prompt: "Rebase first", client: "acpmux" }])[0]?.message).toEqual(
-    message,
-  );
+  // acpmux names a provenance sender by its `fromName` (hub/turns.rs `agent_sender`), and the
+  // record's message (with its session) stays; so it does from an older acpmux that lists none.
+  for (const listed of [
+    { promptId: "p1", prompt: "Rebase first", client: "acpmux", fromAgent: "coord-deputy" },
+    { promptId: "p1", prompt: "Rebase first", client: "acpmux" },
+  ])
+    expect(mergeQueue(current, [listed])[0]?.message).toEqual(message);
+  // `fromAgent: null` is the person's prompt: an edit acpmux made that the pane missed.
   expect(
     mergeQueue(current, [{ promptId: "p1", prompt: "Rebase first", fromAgent: null }])[0]?.message,
   ).toBeUndefined();
@@ -147,13 +150,12 @@ test("a queued agent's message keeps its sender on every rebuild of its row, and
       ["p-bot", "builder"],
       ["p-dep", "coord-deputy"],
     ]);
-    // acpmux's own list, as hub/composers.rs lists it: a provenance sender lists `fromAgent: null`
-    // only once acpmux names it; this one lists none, so the record's message stays.
+    // acpmux's own list, as hub/views.rs lists it: a provenance sender by its `fromName`.
     daemon.touch(id, {
       queue: [
         { promptId: "p-req", prompt: "Lint is green", client: "acpmux", fromAgent: "linter" },
         { promptId: "p-bot", prompt: "Build is green", client: "acpmux", fromAgent: "builder" },
-        { promptId: "p-dep", prompt: "Rebase first", client: "acpmux" },
+        { promptId: "p-dep", prompt: "Rebase first", client: "acpmux", fromAgent: "coord-deputy" },
       ],
     });
     await until(() => view.shown.queue?.[0]?.id === "p-req" && view.shown.queue.length === 3);
