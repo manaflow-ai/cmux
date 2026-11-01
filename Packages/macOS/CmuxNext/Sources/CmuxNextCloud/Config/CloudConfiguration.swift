@@ -5,8 +5,9 @@ public import Foundation
 ///
 /// Values come from the bundle's `Info.plist` `LSEnvironment` (what
 /// `scripts/reload.sh` bakes into tagged builds), then the process
-/// environment. Release builds use production except the signed NEXT DEV
-/// channel, which uses the development Worker and staging sign-in. A Debug build built
+/// environment. Release builds use production except the cmux NEXT channels
+/// (signed NEXT DEV and NEXT nightly), which use NEXT Cloud: the development
+/// Worker, the app-server link and staging sign-in. A Debug build built
 /// without `--direct-backend` points at a loopback origin with no server;
 /// ``backend`` says so, so Cloud actions can explain how to fix the build
 /// instead of timing out.
@@ -37,18 +38,18 @@ public struct CloudConfiguration: Sendable, Equatable {
     public enum LinkSource: Sendable, Equatable {
         /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
         /// connect` process (frozen, contract 2.5). The default until the
-        /// first-party app packages ship in the bundle (cx-t2rz), except NEXT DEV.
+        /// first-party app packages ship in the bundle (cx-t2rz), except the NEXT channels.
         case legacy
         /// The Cloud app server (contract 2.1, 2.3): the machine list,
         /// create and the `cloud.machine.connect` carrier socket, all on the
         /// cmux-next API Worker through the host credential relay (cx-t2rz).
-        /// Signed NEXT DEV, or Debug builds with `CMUX_NEXT_CLOUD_LINK=app` (launch env) or
+        /// Signed NEXT DEV and NEXT nightly, or Debug builds with `CMUX_NEXT_CLOUD_LINK=app` (launch env) or
         /// `CMUX_CLOUD_LINK=app` (baked).
         case appServer
     }
 
-    /// Existing Stack token Keychain service (`<bundle id>.auth`). Signed NEXT
-    /// DEV scopes staging tokens separately so it never restores its old production session.
+    /// Existing Stack token Keychain service (`<bundle id>.auth`). The NEXT
+    /// channels scope staging tokens separately so they never restore an old production session.
     public var keychainService: String {
         guard let bundleID, !bundleID.isEmpty else { return "com.cmuxterm.app.auth" }
         let service = "\(bundleID).auth"
@@ -71,12 +72,26 @@ public struct CloudConfiguration: Sendable, Equatable {
         authStorageProject.map { "\(key).\($0)" } ?? key
     }
 
-    // The first signed DEV staging launch must not read production tokens or
-    // prime its cached user/team. A stable namespace preserves staging sign-in
-    // on subsequent launches and leaves the old production session untouched.
+    // The first NEXT Cloud launch must not read production tokens or prime
+    // its cached user/team. A stable namespace preserves staging sign-in on
+    // subsequent launches and leaves the old production session untouched.
     private var authStorageProject: String? {
-        !isDebugBuild && bundleID == "com.cmuxterm.app.debug.next" && !isProductionAuth
+        !isDebugBuild && Self.nextCloudChannel(bundleID) != nil && !isProductionAuth
             && stackProjectID == Self.developmentProjectID ? stackProjectID : nil
+    }
+
+    /// The cmux NEXT release channels, with their sign-in callback schemes. A
+    /// signed build with one of these bundle ids talks to NEXT Cloud (the
+    /// development Worker, which reaches cmux-platform's development
+    /// machines). Other ids, classic's and the NIGHTLY and Stable copies of a
+    /// NEXT build included, keep production.
+    static let nextCloudChannels: [String: String] = [
+        "com.cmuxterm.app.debug.next": "cmux-next-dev",
+        "com.cmuxterm.app.nightly.cmux-next": "cmux-next",
+    ]
+
+    static func nextCloudChannel(_ bundleID: String?) -> String? {
+        bundleID.flatMap { nextCloudChannels[$0] }
     }
 
     /// `<scheme>://auth-callback`. `resolve` accepts only a scheme that forms this URL;
@@ -102,14 +117,15 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// tagged build to another backend.
     public static func resolve(bundleID: String?, bundled: [String: String], process: [String: String],
                                isDebugBuild: Bool) -> CloudConfiguration {
-        // NEXT DEV is a signed Release compile, not a DEBUG build. Its Worker
-        // accepts staging Stack tokens. Keep this channel's endpoints fixed so
-        // inherited environment variables cannot redirect its credentials.
-        if !isDebugBuild, bundleID == "com.cmuxterm.app.debug.next" {
+        // NEXT DEV and NEXT nightly are signed Release compiles, not DEBUG
+        // builds. Their Worker accepts staging Stack tokens. Keep these
+        // channels' endpoints fixed so inherited environment variables cannot
+        // redirect their credentials.
+        if !isDebugBuild, let nextScheme = nextCloudChannel(bundleID) {
             return CloudConfiguration(
                 backend: .development(stagingOrigin), apiBaseURL: stagingOrigin, authWebOrigin: stagingOrigin,
                 stackBaseURL: stackOrigin, stackProjectID: developmentProjectID, stackPublishableClientKey: developmentClientKey,
-                isProductionAuth: false, callbackScheme: "cmux-next-dev", bundleID: bundleID, isDebugBuild: false,
+                isProductionAuth: false, callbackScheme: nextScheme, bundleID: bundleID, isDebugBuild: false,
                 linkSource: .appServer)
         }
         let value = { (key: String) -> String? in
@@ -150,12 +166,12 @@ public struct CloudConfiguration: Sendable, Equatable {
 
     /// This process's configuration.
     /// The API Worker (`/v1/read`, `/v1/ops`, `/v1/auth/*`): production
-    /// auth uses cloud-api.cmux.dev, signed NEXT DEV the development Worker,
+    /// auth uses cloud-api.cmux.dev, the signed NEXT channels the development Worker,
     /// and other development builds the staging Worker. The
     /// `CMUX_NEXT_FEED_API_URL` override is honored in debug builds only, so
     /// a release build never sends a credential to another origin.
     public func ownerAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if !isDebugBuild, bundleID == "com.cmuxterm.app.debug.next" { return Self.developmentWorkerOrigin }
+        if !isDebugBuild, Self.nextCloudChannel(bundleID) != nil { return Self.developmentWorkerOrigin }
         if isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
         // Both are constant https literals (CloudCrashLiteralTests parses them); /dev/null stands in.
         return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
