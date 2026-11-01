@@ -13,6 +13,8 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { PASTE_FILE_CHARS } from "../src/agent-session/acpmux/pastedText";
 
 await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -93,11 +95,23 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       return data;
     }, file);
 
+  /// The field is the composer's Markdown prompt (MarkdownField): a pasted or dropped image is a chip
+  /// at its place in the text (the default inline view), not in the strip under it. Its text is the
+  /// prompt's plain text, as the textarea's value was.
+  const INLINE_IMAGES = ".nt-box .nt-field [data-inline-attachment] img";
+  /// The editable element, where a paste on the field lands (the textarea was `.nt-field` itself).
+  const EDITABLE = ".nt-field .ProseMirror";
+  /// The words in the field, the chips aside (a ready image chip holds no text).
+  const fieldText = (page: Page) => page.locator(EDITABLE).evaluate((node) => node.textContent ?? "");
+  /// What shows staged in the New Tab box: chips in the text and in the strip.
+  const staged = (page: Page) =>
+    page.evaluate(() => document.querySelectorAll(".nt-box .acpmux-attachment, .nt-box .acpmux-md-inline-chip").length);
+
   test.each(engines.map(([name]) => name))(
     "%s: an image pasted on the New Tab field shows as a chip and goes with the first prompt",
     async (name) => {
       const page = await newTab(name);
-      const field = page.locator(".nt-field");
+      const field = page.locator(EDITABLE);
       await field.click();
       await page.keyboard.type("what is this");
       const data = await transfer(page);
@@ -106,14 +120,21 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
           node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
         data,
       );
-      // The chat composer's chip, in the New Tab composer.
-      await page.locator(".nt-box .acpmux-attachments .acpmux-attachment-image").waitFor();
-      expect(await field.inputValue()).toBe("what is this");
+      // The chat composer's chip, in the New Tab composer: at the caret, in the text.
+      await page.locator(INLINE_IMAGES).waitFor();
+      expect(await page.locator(INLINE_IMAGES).count()).toBe(1);
+      expect(await page.locator(".nt-box .acpmux-attachments .acpmux-attachment-image").count()).toBe(0);
+      expect(await fieldText(page)).toBe("what is this");
       await page.keyboard.press("Enter");
       // The page became the chat; its first message carries the text and the image.
-      await page.locator(".cv-user__bubble", { hasText: "what is this" }).waitFor({ timeout: 30_000 });
-      await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
-      expect(await page.locator(".cv-user__images img").first().getAttribute("src")).toStartWith("data:image/png");
+      const bubble = page.locator(".cv-user__bubble", { hasText: "what is this" });
+      await bubble.waitFor({ timeout: 30_000 });
+      // Placed attachments keep their position in the sent bubble; only attachment-only prompts
+      // use the legacy image band above it.
+      const image = bubble.locator(".cv-user__inline-image img");
+      await image.waitFor({ timeout: 30_000 });
+      expect(await image.getAttribute("src")).toStartWith("data:image/png");
+      expect(await page.locator(".cv-user__images img").count()).toBe(0);
       await page.close();
     },
   );
@@ -127,12 +148,15 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
         for (const type of ["dragenter", "dragover", "drop"])
           node.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
       }, data);
-      await page.locator(".nt-box .acpmux-attachment-image").waitFor();
+      await page.locator(INLINE_IMAGES).waitFor();
       // Removing it is the chip's own ×, as in a chat.
-      await page.locator(".nt-box .acpmux-attachment-remove").click();
-      expect(await page.locator(".nt-box .acpmux-attachment").count()).toBe(0);
+      await page.locator(".nt-box .nt-field .acpmux-attachment-remove").click();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".nt-box .acpmux-attachment, .nt-box .acpmux-md-inline-chip").length === 0,
+      );
+      expect(await staged(page)).toBe(0);
       // A pasted image and no text: Return starts the chat with the image.
-      const field = page.locator(".nt-field");
+      const field = page.locator(EDITABLE);
       await field.click();
       const pasted = await transfer(page);
       await field.evaluate(
@@ -140,12 +164,77 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
           node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
         pasted,
       );
-      await page.locator(".nt-box .acpmux-attachment-image").waitFor();
+      await page.locator(INLINE_IMAGES).waitFor();
       await page.keyboard.press("Enter");
       await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
       await page.close();
     },
   );
+
+  test.each(
+    engines.flatMap(
+      ([name]) =>
+        [
+          [name, "file"],
+          [name, "oversized text"],
+        ] as const,
+    ),
+  )("%s: an external %s drop lands at the pointer without replacing text selected elsewhere", async (name, kind) => {
+    const page = await newTab(name);
+    try {
+      const field = page.locator(EDITABLE);
+      await field.click();
+      await page.keyboard.type("before after");
+      const data =
+        kind === "file"
+          ? await transfer(page, "At-pointer.png")
+          : await page.evaluateHandle((length) => {
+              const data = new DataTransfer();
+              data.setData("text/plain", "x".repeat(length));
+              return data;
+            }, PASTE_FILE_CHARS + 1);
+      try {
+        await field.evaluate((node, data) => {
+          const text = node.querySelector("p")!.firstChild!;
+          const point = document.createRange();
+          point.setStart(text, "before ".length);
+          point.collapse(true);
+          const bounds = point.getBoundingClientRect();
+          const handle = node.closest<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!;
+          // Select "before" elsewhere: neither kind of drop may replace that text.
+          handle.writeText("before after", 0, "before".length);
+          node.dispatchEvent(
+            new DragEvent("drop", {
+              dataTransfer: data,
+              bubbles: true,
+              cancelable: true,
+              clientX: bounds.x,
+              clientY: bounds.y + bounds.height / 2,
+            }),
+          );
+        }, data);
+        const atom = page.locator(`${EDITABLE} [data-inline-attachment]`);
+        await atom.waitFor();
+        expect(await atom.count()).toBe(1);
+        expect(
+          await atom.evaluate((node) => {
+            const editor = node.closest(".ProseMirror")!;
+            const before = document.createRange();
+            before.selectNodeContents(editor);
+            before.setEndBefore(node);
+            const after = document.createRange();
+            after.selectNodeContents(editor);
+            after.setStartAfter(node);
+            return { before: before.toString(), after: after.toString() };
+          }),
+        ).toEqual({ before: "before ", after: "after" });
+      } finally {
+        await data.dispose();
+      }
+    } finally {
+      await page.close();
+    }
+  });
 
   // Austin 2026-10-21: a pasted image went only by its ×. Backspace with the caret at the field's
   // start takes back the last chip, one per press; Backspace in the text still edits the text.
@@ -153,7 +242,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     "%s: Backspace at the field's start removes the last pasted image, one per press",
     async (name) => {
       const page = await newTab(name);
-      const field = page.locator(".nt-field");
+      const field = page.locator(EDITABLE);
       await field.click();
       for (const file of ["One.png", "Two.png"]) {
         const data = await transfer(page, file);
@@ -163,23 +252,25 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
           data,
         );
       }
-      const images = page.locator(".nt-box .acpmux-attachment-image");
+      const images = page.locator(INLINE_IMAGES);
       await images.nth(1).waitFor();
       await page.keyboard.type("ab");
       // A frame after each press, so a chip removed by mistake is gone before the count.
       const frame = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
       await page.keyboard.press("Backspace");
       await frame();
-      expect(await field.inputValue()).toBe("a");
+      expect(await fieldText(page)).toBe("a");
       expect(await images.count()).toBe(2);
       await page.keyboard.press("Backspace");
       await frame();
-      expect(await field.inputValue()).toBe("");
+      expect(await fieldText(page)).toBe("");
       expect(await images.count()).toBe(2);
       await page.keyboard.press("Backspace");
-      await page.waitForFunction(() => document.querySelectorAll(".nt-box .acpmux-attachment-image").length === 1);
+      await page.waitForFunction((selector) => document.querySelectorAll(selector).length === 1, INLINE_IMAGES);
       await page.keyboard.press("Backspace");
-      await page.waitForFunction(() => document.querySelectorAll(".nt-box .acpmux-attachment").length === 0);
+      await page.waitForFunction(
+        () => document.querySelectorAll(".nt-box .acpmux-attachment, .nt-box .acpmux-md-inline-chip").length === 0,
+      );
       await page.close();
     },
   );
@@ -228,7 +319,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     "%s: with an image staged, Return on an address asks a chat instead of opening the page",
     async (name) => {
       const page = await newTab(name);
-      const field = page.locator(".nt-field");
+      const field = page.locator(EDITABLE);
       await field.click();
       await page.keyboard.type("example.com");
       const data = await transfer(page);
@@ -237,10 +328,11 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
           node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
         data,
       );
-      await page.locator(".nt-box .acpmux-attachment-image").waitFor();
+      await page.locator(INLINE_IMAGES).waitFor();
       await page.keyboard.press("Enter");
-      await page.locator(".cv-user__bubble", { hasText: "example.com" }).waitFor({ timeout: 30_000 });
-      await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
+      const bubble = page.locator(".cv-user__bubble", { hasText: "example.com" });
+      await bubble.waitFor({ timeout: 30_000 });
+      await bubble.locator(".cv-user__inline-image img").waitFor({ timeout: 30_000 });
       await page.close();
     },
   );

@@ -60,6 +60,16 @@ public final class OverlaySurfaceView: NSView {
 
     private var blending: NSVisualEffectView.BlendingMode { samplesBehindWindow ? .behindWindow : .withinWindow }
 
+    /// Draws the frosted blur where this Mac would draw Liquid Glass (Reduce Transparency still
+    /// draws the solid surface). Set it, with `samplesBehindWindow`, for a surface on a clear
+    /// window that floats over another window (the page overlay host over a Chromium page):
+    /// Liquid Glass there has nothing in its own window to refract, and its lens bends the clear
+    /// pixels into a dark, heavy 1 px outline (Lawrence 2026-10-31, the Import Cookies banner:
+    /// "border here looks bad"). The blur samples the page behind the window instead.
+    public var prefersBlurToLiquidGlass = false {
+        didSet { if prefersBlurToLiquidGlass != oldValue { refreshMaterial() } }
+    }
+
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
     /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
@@ -103,7 +113,8 @@ public final class OverlaySurfaceView: NSView {
 
     /// Re-reads the material from this Mac's settings (Reduce Transparency).
     public func refreshMaterial() {
-        let next = materialOverride ?? Self.systemMaterial(reduceTransparency)
+        var next = materialOverride ?? Self.systemMaterial(reduceTransparency)
+        if prefersBlurToLiquidGlass, materialOverride == nil, next == .liquidGlass { next = .vibrancy }
         guard next != material else { return }
         material = next
         rebuild()

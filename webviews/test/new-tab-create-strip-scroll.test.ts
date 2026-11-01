@@ -41,7 +41,7 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
         await page.addStyleTag({ content: utilities });
         await page.locator(".nt-field").waitFor();
         await page.evaluate(() => document.getElementById("root")!.classList.add("acpmux-shell"));
-        await page.locator(".nt-field").fill("project");
+        await page.locator(".nt-field .ProseMirror").fill("project");
         await page.locator(".nt-create-strip").waitFor();
         const ordinary = await page.locator(".nt-rows > .nt-row").count();
         expect(ordinary).toBeGreaterThan(3);
@@ -69,7 +69,7 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
             return {
               top: selected.top - list.top,
               bottom: list.bottom - selected.bottom,
-              focused: document.activeElement?.classList.contains("nt-field"),
+              focused: document.activeElement?.closest(".nt-field") !== null,
               pageScroll: document.querySelector(".nt-screen")!.scrollTop,
             };
           });
