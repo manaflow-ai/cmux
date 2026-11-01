@@ -6,7 +6,7 @@
 # (peer authentication of one connected socket, one held child, this process's
 # own children); a new `keep` row needs a review note in the commit.
 cmux-tui/crates/acpmux/src/adopt_live.rs	1	remove	cx-t2sqm.2 (OpenCode only; Claude and Codex use their recorded holders)
-cmux-tui/crates/acpmux/src/agent_host/tree.rs	1	remove	cx-t2sqm.3; also the idle census (hub/idle_census.rs, #26174) until harnesses report what runs under them
+cmux-tui/crates/acpmux/src/agent_host/tree.rs	7	remove	cx-t2sqm.3; also the idle census (hub/idle_census.rs, #26174) until harnesses report what runs under them: its ps listing, and each child's exact argv (KERN_PROCARGS2, /proc/<pid>/cmdline), executable (proc_pidpath, /proc/<pid>/exe) and folder (proc_pidinfo PROC_PIDVNODEPATHINFO, /proc/<pid>/cwd) to tell its MCP servers apart (#27558, #27925)
 cmux-tui/crates/acpmux/src/hub/pool/reaper.rs	1	remove	cx-t2sqm.3
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/session_cleanup.rs	2	remove	cx-t2sqm.4
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs	2	remove	cx-t2sqm.4
@@ -30,7 +30,7 @@ cmux-tui/crates/cmux-browser-host/src/egress_listeners.rs	5	keep	security egress
 cmux-tui/crates/cmux-browser-host/src/egress_holders.rs	4	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
 cmux-tui/crates/cmux-browser-host/src/egress_services.rs	5	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
 Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ProcessUsage.swift	7	remove	cx-t2sqm.11
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxServerPeer.swift	7	remove	cx-t2sqm.11
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxServerPeer.swift	6	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHostStop.swift	1	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxVersionHandoff.swift	1	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost/PeerProcess.swift	4	keep	peer authentication of one proxy connection (this app and its own children)

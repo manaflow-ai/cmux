@@ -5,6 +5,8 @@ import { base64 } from "./attachments";
 import { translate } from "./i18n";
 
 export type UploadResult = { paths: string[] } | { error: string } | undefined;
+/// How much of file `index` of an upload reached the host, 0 to 1 (its tile's progress ring).
+export type UploadProgressReport = (index: number, done: number) => void;
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
 const CHUNK_BYTES = 512 * 1024;
@@ -42,6 +44,23 @@ export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS): Call {
     });
 }
 
+/// `blob` as base64. The browser encodes it off the main thread (FileReader's data: URL): a 512 KiB
+/// chunk encoded here took a few ms of the main thread per chunk, between the person's keys, all
+/// through a 2 GB upload (agent-pane-attach-huge-files' typing p95 on the CI runner). Where there is
+/// no FileReader (a test host) it is encoded here.
+async function blobBase64(blob: Blob): Promise<string> {
+  if (typeof FileReader === "undefined") return base64(new Uint8Array(await blob.arrayBuffer()));
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error(translate("upload.notRead")));
+    reader.readAsDataURL(blob);
+  });
+  const data = url.slice(url.indexOf(",") + 1);
+  if (blob.size > 0 && !data) throw new Error(translate("upload.notRead"));
+  return data;
+}
+
 /// Thrown inside an upload the person cancelled; never a note.
 const CANCELLED = new Error("cancelled");
 
@@ -71,6 +90,7 @@ export async function uploadToMachine(
   files: File[],
   host: Call,
   cancelled: (index: number) => boolean = () => false,
+  progress?: UploadProgressReport,
 ): Promise<UploadResult> {
   const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
@@ -112,11 +132,12 @@ export async function uploadToMachine(
       for (let offset = 0; offset < file.size;) {
         if (cancelled(index)) throw CANCELLED;
         const end = Math.min(file.size, offset + chunkSize);
-        const bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
-        if (bytes.length !== end - offset) throw new Error(translate("upload.notRead"));
-        const answer = object(await call("chat.upload.chunk", { token, offset, data: base64(bytes) }));
+        const slice = file.slice(offset, end);
+        if (slice.size !== end - offset) throw new Error(translate("upload.notRead"));
+        const answer = object(await call("chat.upload.chunk", { token, offset, data: await blobBase64(slice) }));
         if (answer.offset !== end) throw new Error(translate("upload.notCompleted"));
         offset = end;
+        progress?.(index, end / file.size);
       }
       if (cancelled(index)) throw CANCELLED;
       const [path, extra] = uploadedPaths(await call("chat.upload.finish", { token }));

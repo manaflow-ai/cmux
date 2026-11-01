@@ -2,7 +2,7 @@
 """Checks the declared list of Swift test suites that need a display against the suites' own skip traits.
 
 A suite needs a display when it, or any test in it, carries an `.enabled(...)` or `.disabled(...)` trait whose
-comment names a display, a screen or a GUI host or session ("the drag tests need a display", "needs an awake
+condition reads `NSScreen` or whose comment names a display, a screen or a GUI host or session ("the drag tests need a display", "needs an awake
 display and animations on, ...", "run on a GUI host", "no GUI login session"). Those traits are the source of
 truth; `scripts/ci/display-suites.txt` declares the same suites so cmux-ci can read them at a step's ref and send
 a `package-test-lane.sh suite` step that names one to a display worker (the `gui-session-v1` label) without the
@@ -26,6 +26,10 @@ HEADER = ("# The suites that need a display (PACKAGE TARGET.SUITE): cmux-ci send
           "# keeps this list equal to those traits, and --fix rewrites it.\n")
 # A skip comment that asks for a display: the words the suites' traits use.
 DISPLAY = re.compile(r"\b(?:display|screen|GUI)\b", re.I)
+# A trait condition that reads the screen needs one too, comment or not: `.enabled(if: NSScreen.main != nil)` gives
+# no reason, so TitlebarDoubleClickTests was not listed and its `cmux-ci run --display` step went to a worker with
+# no screen (P0 display run 20b78078, 2026-10-31).
+SCREEN_CODE = re.compile(r"\bNSScreen\b")
 TRAIT = re.compile(r"\.(?:enabled|disabled)\(")
 # A type declaration; `class func` / `class var` (a class member) is no type.
 DECL = re.compile(r"\b(?:struct|class|enum|actor|extension)\s+(?!(?:func|var|let|subscript|init)\b)([A-Za-z_][A-Za-z0-9_]*)")
@@ -108,7 +112,8 @@ def suites_in(source: str) -> set[str]:
     found: set[str] = set()
     for trait in TRAIT.finditer(code):
         end = _close(code, trait.end())
-        if not any(a >= trait.end() and b <= end and DISPLAY.search(text) for a, b, text in literals):
+        if not (any(a >= trait.end() and b <= end and DISPLAY.search(text) for a, b, text in literals)
+                or SCREEN_CODE.search(code, trait.end(), end)):
             continue
         attribute = next(((a, b) for a, b in suites if a <= trait.start() < b), None)
         if attribute:

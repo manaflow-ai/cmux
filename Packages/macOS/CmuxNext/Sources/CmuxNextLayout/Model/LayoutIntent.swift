@@ -29,6 +29,8 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     case dropTab(TabID, DropTarget)
     /// Daemon `new-pane-right {pane, width}`.
     case newColumn(after: PaneID, width: Double)
+    /// Daemon `new-pane-right {pane, width, side: "left"}` (`column-left-v1`): New Column Left.
+    case newColumnLeft(of: PaneID, width: Double)
     /// Daemon `split {pane, dir}`.
     case split(PaneID, axis: SplitAxis)
     case selectScreen(ScreenID)

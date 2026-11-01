@@ -68,7 +68,7 @@ pub(crate) fn explain(
         .join(", ");
     let (instead, try_command) = match (name, long) {
         ("send", "prompt-file") => {
-            let rest = &words[at + 1..];
+            let rest = words.get(at + 1..).unwrap_or_default();
             let line = send_from_file(command, rest, program);
             let instead = "send reads its prompt from stdin when it has no prompt words or `-`";
             (instead.to_owned(), line)
@@ -97,11 +97,10 @@ fn send_from_file(send: &clap::Command, rest: &[String], program: &str) -> Optio
     let mut file = None;
     let mut positional = 0;
     let mut i = 0;
-    while i < rest.len() {
-        let word = &rest[i];
+    while let Some(word) = rest.get(i) {
         if word == "--" {
             positional += rest.len() - i - 1;
-            kept.extend(rest[i..].iter().cloned());
+            kept.extend(rest.get(i..).unwrap_or_default().iter().cloned());
             break;
         }
         if let Some(value) = word.strip_prefix("--prompt-file=") {

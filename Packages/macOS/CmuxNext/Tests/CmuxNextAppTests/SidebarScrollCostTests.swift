@@ -9,16 +9,39 @@ import Testing
 /// frame stays inside half a 60 Hz frame (8 ms of main thread) at 500 workspaces, and a scroll
 /// never lays the list out again. Prints one `SIDEBAR-SCROLL-BENCH` line per size
 /// (sidebar-scroll-perf-DESIGN.md).
-@MainActor @Suite(.serialized)
+///
+/// Each scroll pass turns back `scrollDepth` (1,800 pt, two screens) below the top, so no test's
+/// frame count grows with its list: the whole 500-workspace list was about 3,600 frames a measure
+/// and held the main actor past the swift-test stall watchdog (300 s with no test finished). The
+/// 500 workspaces are all built and laid out; only the scrolled range is bounded.
+/// `CMUX_SIDEBAR_SCROLL_BENCH=1`, like the other `*_BENCH` flags, scrolls the whole list. The time
+/// limit ends a test that still runs long (`SidebarScrollBench.run` stops on cancellation), so a
+/// slow runner gets a named red instead of a stalled run.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)))
 struct SidebarScrollCostTests {
+    nonisolated static let wholeBench = ProcessInfo.processInfo.environment["CMUX_SIDEBAR_SCROLL_BENCH"] == "1"
+    /// How far each scroll pass goes below the top: two screens of the 900 pt sidebar, or the whole list.
+    nonisolated static let scrollDepth: CGFloat? = wholeBench ? nil : 1_800
+
     static func measure(_ count: Int, pointer: Bool = false, ticks: Int = 0, moveToTopEvery: Int = 0) -> [SidebarScrollBench.Frame] {
         let bench = SidebarScrollBench(count: count, pointerOverList: pointer)
         defer { bench.close() }
         bench.ticksPerFrame = ticks
         bench.moveToTopEvery = moveToTopEvery
-        let frames = bench.run()
+        let frames = bench.run(depth: scrollDepth)
         print(SidebarScrollBench.summary(count, frames) + " | pointer=\(pointer) ticks=\(ticks) moveToTopEvery=\(moveToTopEvery)")
         return frames
+    }
+
+    /// The default scroll at 500 workspaces stays a few hundred frames, so the budget test holds the
+    /// main thread for seconds, not minutes. Over the whole list each pass was about 1,200 frames, the
+    /// budget test scrolled four such lists three passes each, and on a loaded CI Mac (about 50 ms a
+    /// frame) it held the main actor past the swift-test stall watchdog (300 s with no test finished)
+    /// with every other main-actor test queued behind it: five full runs in a row on 2026-10-29
+    /// (391 to 439 tests open when the watchdog killed the run).
+    @Test func aDefaultScrollAtFiveHundredWorkspacesStaysAFewHundredFrames() {
+        let frames = Self.measure(500)
+        #expect(frames.count <= 400, "a default scroll at 500 workspaces took \(frames.count) frames")
     }
 
     /// A scroll keeps few row views in the list: the visible rows, a short overscan and a pool of
@@ -27,7 +50,7 @@ struct SidebarScrollCostTests {
     @Test func aScrolledListHoldsAFewScreensOfRowViews() {
         let bench = SidebarScrollBench(count: 500)
         defer { bench.close() }
-        _ = bench.run(passes: 1)
+        _ = bench.run(passes: 1, depth: Self.scrollDepth)
         let held = bench.rowViewsInList, visible = bench.visibleRows
         print("SIDEBAR-SCROLL-VIEWS n=500 visible=\(visible) held=\(held)")
         #expect(held <= visible * 2, "the list holds \(held) row views for \(visible) visible rows")

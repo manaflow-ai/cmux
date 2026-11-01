@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // Leo, 2026-10-13 (coherence pass): "we ought to be unifying more font sizes". Every text the agent
 // composer draws, its footer and the menus it opens included, sits on the one type scale
 // (schemas/type-scale/type-scale.json): sizes 11, 12, 13, 15 and 20 px in two weights, 400 and 600. The

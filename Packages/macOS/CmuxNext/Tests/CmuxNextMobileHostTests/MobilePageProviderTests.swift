@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextMobile
 @testable import CmuxNextMobileHost
+import CmuxNextTestSupport
 import Foundation
 import CmuxNextPages
 import CmuxNextSettings
 import Testing
 
 /// Settings > Mobile's ops: only the person's gesture on the Settings page removes a phone.
-@MainActor @Suite struct MobilePageProviderTests {
+@MainActor @Suite(.closesItsWindows) struct MobilePageProviderTests {
     @Test func removeNeedsTheSettingsPageAndAGesture() async throws {
         let provider = MobilePageProvider(host: IPhoneHostService())
         let params: JSONValue = ["id": "phone-1"]

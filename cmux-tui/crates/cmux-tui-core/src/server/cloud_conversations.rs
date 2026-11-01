@@ -153,6 +153,9 @@ pub(super) struct InboxListParams {
     limit: Option<u32>,
     #[serde(default)]
     include_archived: bool,
+    /// The `next_cursor` of the page before (absent: the first page).
+    #[serde(default)]
+    cursor: Option<String>,
 }
 
 /// `cloud-conversation-snapshot`.
@@ -378,7 +381,11 @@ fn worker_user_id(project: &str, account: &str) -> String {
 }
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {
-    Ok(lease_user(mux, client)?.inbox_list(params.limit, params.include_archived)?)
+    Ok(lease_user(mux, client)?.inbox_list(
+        params.limit,
+        params.include_archived,
+        params.cursor.as_deref(),
+    )?)
 }
 
 /// `cloud-requests-list`: the person's open message requests (`home.requests.list`).

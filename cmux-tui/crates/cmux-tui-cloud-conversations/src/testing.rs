@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::{
-    CloudBackend, CloudEvent, CloudWire, ConnectError, HttpReply, RangeReply, TransportError,
-    WireRecv,
+    CloudBackend, CloudEvent, CloudWire, ConnectError, HttpReply, PutBody, RangeReply,
+    TransportError, WireRecv,
 };
 
 /// One request the daemon sent. `bearer` is empty when no Authorization
@@ -189,9 +189,10 @@ impl CloudBackend for FakeBackend {
         &self,
         url: &str,
         _headers: &[(String, String)],
-        body: Vec<u8>,
+        body: PutBody,
     ) -> Result<HttpReply, TransportError> {
-        self.put.lock().unwrap_or_else(PoisonError::into_inner).push((url.to_string(), body.len()));
+        let len = usize::try_from(body.len()).unwrap_or(usize::MAX);
+        self.put.lock().unwrap_or_else(PoisonError::into_inner).push((url.to_string(), len));
         self.scripted(&path_of(url))
     }
 

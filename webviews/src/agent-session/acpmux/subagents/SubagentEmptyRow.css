@@ -1,0 +1,15 @@
+.cv-subagent-empty {
+  color: var(--cv-text-muted);
+  font-family: var(--cv-font);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.cv-subagent-empty h3,
+.cv-subagent-empty p {
+  margin: 0;
+  font: inherit;
+}
+.cv-subagent-empty h3 {
+  color: var(--cv-text);
+  font-weight: 500;
+}

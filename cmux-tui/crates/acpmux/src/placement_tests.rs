@@ -226,3 +226,253 @@ fn a_reading_without_live_agents_leaves_the_lane_cap_out_never_counts_zero() {
     assert_eq!(host(&v, "light")["room"], 11.0, "{v:#}");
     assert_eq!(host(&v, "light")["live"], Value::Null, "{v:#}");
 }
+
+/// A machine whose registry entry carries a `hold` takes no new work, even when every other host
+/// is out of room; a hold whose `until` passed holds nothing, and one whose `until` cannot be
+/// read still holds.
+#[test]
+fn a_held_host_is_never_a_placement_candidate() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    for held in [
+        json!(true),
+        json!("lawrence is using it"),
+        json!({"owner": "lawrencecchen", "reason": "a teammate's", "until": "2999-01-01T00:00:00Z"}),
+        json!({"until": "not a time"}),
+    ] {
+        let mut reg = registry();
+        reg["machines"]["big"]["hold"] = held.clone();
+        let v = place(&both, Some(&reg), Work::Agent);
+        // small has no room (RAM 5 - 4 under one lane), so it takes the work anyway.
+        assert_eq!(v["pick"], "small", "{held}: {v}");
+        assert_eq!(v["overloaded"], true, "{held}: {v}");
+        let big = host(&v, "big");
+        assert_eq!(big["ok"], false);
+        assert!(big["refused"].as_str().unwrap().starts_with("held"), "{big}");
+        // Alone, the held host is still refused: a hold is not load.
+        let v = place(&both[..1], Some(&reg), Work::Build);
+        assert_eq!(v["pick"], Value::Null, "{held}: {v}");
+    }
+    let mut reg = registry();
+    reg["machines"]["big"]["hold"] = json!({"owner": "lawrencecchen", "reason": "a teammate's", "until": "2999-01-01T00:00:00Z"});
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(
+        host(&v, "big")["refused"],
+        "held for lawrencecchen until 2999-01-01T00:00:00Z: a teammate's"
+    );
+    // Lapsed, or `hold: false`: big is a candidate again.
+    for lapsed in [json!({"until": "2001-01-01T00:00:00Z"}), json!(false), Value::Null] {
+        reg["machines"]["big"]["hold"] = lapsed.clone();
+        assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big", "{lapsed}");
+    }
+    // By alias too, and at a chosen time.
+    reg["machines"]["big"]["hold"] = json!({"until": "2026-10-30T20:50:00Z"});
+    let hosts = lane_hosts_at(Some(&reg), 0).unwrap();
+    assert!(registry_lanes(&hosts, "big-box").unwrap()[HELD].is_string());
+    let after = crate::server::machine_health::rfc3339_ms("2026-10-30T20:50:01Z").unwrap();
+    let hosts = lane_hosts_at(Some(&reg), after).unwrap();
+    assert!(registry_lanes(&hosts, "big-box").unwrap().get(HELD).is_none());
+}
+
+/// A machine a person works at: `interactive: true`, or the registry's role for one (`leo-mac`,
+/// `attended`), by name or alias. Fleet hosts and unlisted machines are not.
+#[test]
+fn interactive_machines_come_from_the_registry() {
+    let reg = json!({"machines": {
+        "cosmic": {"aliases": ["mbp"], "roles": ["mac-build", "leo-mac"]},
+        "air": {"roles": ["attended", "leo-mac"]},
+        "desk": {"interactive": true},
+        "lane": {"roles": ["session-host", "codex-lanes"], "lanes": {}},
+        "quiet": {"interactive": false}}});
+    for name in ["cosmic", "MBP.local", "air", "desk"] {
+        assert!(interactive(Some(&reg), name), "{name}");
+    }
+    for name in ["lane", "quiet", "unlisted"] {
+        assert!(!interactive(Some(&reg), name), "{name}");
+    }
+    assert!(!interactive(None, "cosmic"), "no registry: nothing is interactive");
+}
+
+/// What `dispatch --host auto` leaves out (design/agent-dispatch.md): a person's machine, an
+/// interactive one or one with the `leo-apps` role, and a host whose lanes say `last_resort`,
+/// by name or alias.
+#[test]
+fn personal_and_last_resort_machines_come_from_the_registry() {
+    let reg = json!({"machines": {
+        "cosmic": {"aliases": ["mbp"], "roles": ["leo-mac"]},
+        "desk": {"interactive": true},
+        "apps": {"aliases": ["red"], "roles": ["leo-apps"], "lanes": {}},
+        "spare": {"aliases": ["sixteen"], "lanes": {"last_resort": true}},
+        "maybe": {"lanes": {"last_resort": "yes"}},
+        "lane": {"roles": ["session-host"], "lanes": {"last_resort": false}}}});
+    for name in ["cosmic", "MBP.local", "desk", "apps", "red"] {
+        assert!(personal(Some(&reg), name), "{name}");
+    }
+    for name in ["spare", "lane", "unlisted"] {
+        assert!(!personal(Some(&reg), name), "{name}");
+    }
+    assert!(!interactive(Some(&reg), "apps"), "leo-apps alone is not a machine a person works at");
+    for name in ["spare", "Sixteen.local"] {
+        assert!(last_resort(Some(&reg), name), "{name}");
+    }
+    for name in ["maybe", "lane", "cosmic", "unlisted"] {
+        assert!(!last_resort(Some(&reg), name), "{name}");
+    }
+    assert!(!personal(None, "cosmic") && !last_resort(None, "spare"));
+}
+
+/// A host a `reservations` entry names takes no new work while the entry is active (from `from`
+/// to `until`), by name or alias; an entry whose times cannot be read still holds it.
+#[test]
+fn a_reserved_host_is_never_a_placement_candidate() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    let at = |t: &str| crate::server::machine_health::rfc3339_ms(t).unwrap();
+    let mut reg = registry();
+    reg["reservations"] = json!([{"id": "lawrence-2026-10-29", "owner": "lawrencecchen",
+        "hosts": ["big-box"], "from": "2026-10-29T20:50:00Z", "until": "2026-10-30T20:50:00Z"}]);
+    let hosts = lane_hosts_at(Some(&reg), at("2026-10-30T00:00:00Z")).unwrap();
+    assert_eq!(
+        registry_lanes(&hosts, "big").unwrap()[HELD],
+        "reserved for lawrencecchen until 2026-10-30T20:50:00Z (lawrence-2026-10-29)"
+    );
+    for t in ["2026-10-29T20:00:00Z", "2026-10-30T21:00:00Z"] {
+        let hosts = lane_hosts_at(Some(&reg), at(t)).unwrap();
+        assert!(registry_lanes(&hosts, "big").unwrap().get(HELD).is_none(), "{t}");
+    }
+    // Live now: refused, never the overflow pick.
+    reg["reservations"][0]["until"] = json!("2999-01-01T00:00:00Z");
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v}");
+    assert!(host(&v, "big")["refused"].as_str().unwrap().starts_with("reserved for lawrencecchen"));
+    assert!(held(Some(&reg), "BIG-BOX.local").is_some());
+    assert!(held(Some(&reg), "small").is_none());
+    reg["reservations"][0]["until"] = json!("someday");
+    reg["reservations"][0]["from"] = json!("2001-01-01T00:00:00Z");
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "small");
+    reg["reservations"][0]["until"] = json!("2001-01-02T00:00:00Z");
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
+}
+
+/// A hold or a reservations list the registry cannot be read for fails closed: the machine (for
+/// reservations, every machine it might name) takes no new work.
+#[test]
+fn unreadable_holds_and_reservations_hold() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(30.0, 8, 1.0, 300.0, 0))];
+    for bad in [json!(" "), json!(3), json!(["x"])] {
+        let mut reg = registry();
+        reg["machines"]["big"]["hold"] = bad.clone();
+        let v = place(&both, Some(&reg), Work::Agent);
+        assert_eq!(v["pick"], "small", "{bad}: {v}");
+        assert!(host(&v, "big")["refused"].as_str().unwrap().contains("cannot be read"), "{bad}");
+    }
+    for bad in [
+        json!({"hosts": ["big"]}),
+        json!([{"id": "r", "hosts": "big"}]),
+        json!([{"id": "r"}]),
+        json!([{"id": "r", "hosts": ["small", 7]}]),
+    ] {
+        let mut reg = registry();
+        reg["reservations"] = bad.clone();
+        let v = place(&both, Some(&reg), Work::Agent);
+        assert_eq!(v["pick"], Value::Null, "{bad}: {v}");
+        assert!(held(Some(&reg), "big").unwrap().contains("cannot be read"), "{bad}");
+    }
+    let mut reg = registry();
+    reg["reservations"] = Value::Null;
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
+}
+
+/// The disk floor `session move --host auto` holds a host to: its `lanes.free_gb_floor`, by
+/// name or alias, else the default lane host's.
+#[test]
+fn disk_floor_comes_from_the_registry_lanes_entry() {
+    let reg = json!({"machines": {
+        "lane": {"aliases": ["l1"], "lanes": {"free_gb_floor": 40}},
+        "bare": {"lanes": {}},
+        "none": {}}});
+    assert_eq!(disk_floor(Some(&reg), "lane"), 40_000_000_000);
+    assert_eq!(disk_floor(Some(&reg), "L1.local"), 40_000_000_000);
+    let default = disk_floor(None, "x");
+    assert_eq!(default, 10_000_000_000);
+    for name in ["bare", "none", "unlisted"] {
+        assert_eq!(disk_floor(Some(&reg), name), default, "{name}");
+    }
+}
+
+/// A registry with a Freestyle lane VM, a GCP lane VM, an owned host and a placement_preference.
+fn tiered() -> Value {
+    let lanes = json!({"rank": 1, "build": false, "free_gb_floor": 20, "reserved_gb": 4,
+        "per_lane_gb": 4, "disk_per_lane_gb": 5, "max_lanes": 8});
+    json!({
+        "lane_place": {"placement_preference": ["freestyle", "gcp", "owned"]},
+        "machines": {
+            "fs-vm": {"agent_vm": true, "cloud": {"pool": true}, "lanes": lanes},
+            "gcp-vm": {"agent_vm": true, "gcp": {"zone": "z"}, "lanes": lanes},
+            "gcp-lane-2": {"agent_vm": true, "lanes": lanes},
+            "owned": {"lanes": lanes},
+            "other": {"lanes": lanes}
+        }
+    })
+}
+
+#[test]
+fn a_freestyle_vm_with_room_beats_a_less_loaded_gcp_vm() {
+    // fs-vm: room for 2 (RAM). gcp-vm: idle, room for 7. Freestyle's tier wins before load.
+    let cands = [
+        c("gcp-vm", health(60.0, 32, 0.0, 400.0, 0)),
+        c("fs-vm", health(12.0, 8, 4.0, 200.0, 3)),
+        c("other", health(60.0, 32, 0.0, 400.0, 0)),
+    ];
+    let v = place(&cands, Some(&tiered()), Work::Agent);
+    assert_eq!(v["pick"], "fs-vm", "{v:#}");
+    assert_eq!(v["tier"], json!({"index": 1, "of": "freestyle"}), "{v:#}");
+    assert!(
+        v["why"].as_str().unwrap().ends_with("tier 1 (freestyle, lane_place.placement_preference)"),
+        "{v:#}"
+    );
+    assert_eq!(host(&v, "gcp-vm")["tier"], json!({"index": 2, "of": "gcp"}), "{v:#}");
+    assert_eq!(host(&v, "other")["tier"], Value::Null, "{v:#}");
+
+    // A GCE lane VM named gcp-* with no gcp block is gcp too, and beats a host in no tier.
+    let cands = [
+        c("other", health(60.0, 32, 0.0, 400.0, 0)),
+        c("gcp-lane-2", health(12.0, 8, 4.0, 200.0, 3)),
+    ];
+    assert_eq!(place(&cands, Some(&tiered()), Work::Agent)["pick"], "gcp-lane-2");
+    // A host listed by its own name takes that tier.
+    let cands =
+        [c("other", health(60.0, 32, 0.0, 400.0, 0)), c("owned", health(12.0, 8, 4.0, 200.0, 3))];
+    let v = place(&cands, Some(&tiered()), Work::Agent);
+    assert_eq!((&v["pick"], &v["tier"]["index"]), (&json!("owned"), &json!(3)), "{v:#}");
+}
+
+#[test]
+fn a_full_freestyle_vm_loses_to_a_gcp_vm_with_room() {
+    // fs-vm is at its lane cap: no room, so no tier, and the gcp VM with room takes it.
+    let cands =
+        [c("fs-vm", health(60.0, 32, 0.0, 400.0, 8)), c("gcp-vm", health(12.0, 8, 4.0, 200.0, 3))];
+    let v = place(&cands, Some(&tiered()), Work::Agent);
+    assert_eq!(v["pick"], "gcp-vm", "{v:#}");
+    assert_eq!(v["overloaded"], false, "{v:#}");
+    assert_eq!(host(&v, "fs-vm")["tier"], Value::Null, "{v:#}");
+    assert_eq!(host(&v, "fs-vm")["refused"], "no room: lanes is the limit", "{v:#}");
+}
+
+#[test]
+fn no_or_a_malformed_placement_preference_keeps_the_most_room_first() {
+    let cands =
+        [c("fs-vm", health(12.0, 8, 4.0, 200.0, 3)), c("gcp-vm", health(60.0, 32, 0.0, 400.0, 0))];
+    let mut reg = tiered();
+    reg.as_object_mut().unwrap().remove("lane_place");
+    let v = place(&cands, Some(&reg), Work::Agent);
+    assert_eq!((&v["pick"], &v["tier"]), (&json!("gcp-vm"), &Value::Null), "{v:#}");
+    for bad in
+        [json!("freestyle"), json!(["freestyle", "freestyle"]), json!(["nowhere"]), json!([1])]
+    {
+        reg["lane_place"] = json!({"placement_preference": bad});
+        let v = place(&cands, Some(&reg), Work::Agent);
+        assert_eq!((&v["pick"], &v["tier"]), (&json!("gcp-vm"), &Value::Null), "{bad}: {v:#}");
+    }
+}

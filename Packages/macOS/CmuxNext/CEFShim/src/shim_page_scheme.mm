@@ -167,6 +167,21 @@ class PageFactory : public CefSchemeHandlerFactory {
       frame_url = frame->GetURL().ToString();
       if (CefRefPtr<CefFrame> parent = frame->GetParent()) parent_url = parent->GetURL().ToString();
     }
+    const std::string url = request->GetURL().ToString();
+    if (IsArtifactFrameURL(url)) {
+      if (domain_ != "cmux.agent" || request->GetMethod().ToString() != "GET" ||
+          request->GetResourceType() != RT_SUB_FRAME ||
+          ArtifactNavigationRefused(main_frame, frame_url, parent_url, url)) {
+        static char kBody[] = "Forbidden";
+        return Respond(403, "Forbidden", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
+      }
+      CefResponse::HeaderMap headers;
+      headers.emplace("Content-Security-Policy", kArtifactCSP);
+      headers.emplace("Cache-Control", "no-store");
+      headers.emplace("X-Content-Type-Options", "nosniff");
+      headers.emplace("Referrer-Policy", "no-referrer");
+      return Respond(200, "OK", "text/html", headers, kArtifactDocument, sizeof(kArtifactDocument) - 1);
+    }
     if (!PageRequestAllowed(main_frame, frame_url, parent_url, domain_)) {
       static char kBody[] = "Forbidden";
       return Respond(403, "Forbidden", "text/plain", Headers(), kBody, sizeof(kBody) - 1);

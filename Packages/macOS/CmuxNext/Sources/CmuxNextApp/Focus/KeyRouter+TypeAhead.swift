@@ -43,10 +43,13 @@ extension KeyRouter {
     }
 
     /// The target of a nil-targeted paste command in `window` instead of
-    /// AppKit's `found` (``PrimaryInputPasteRoute``); nil keeps `found`.
+    /// AppKit's `found` (``PrimaryInputPasteRoute``, then
+    /// ``ChromiumPasteAndMatchStyleRoute``); nil keeps `found`.
     func pasteTarget(for action: Selector, found: AnyObject?, in window: NSWindow?) -> AnyObject? {
-        guard PrimaryInputPasteRoute.actions.contains(action), let focused = focusedPrimaryInput(in: window) else { return nil }
-        return PrimaryInputPasteRoute().target(for: action, found: found, in: window, input: focused.input)
+        guard PrimaryInputPasteRoute.actions.contains(action) else { return nil }
+        if let focused = focusedPrimaryInput(in: window),
+           let primary = PrimaryInputPasteRoute().target(for: action, found: found, in: window, input: focused.input) { return primary }
+        return ChromiumPasteAndMatchStyleRoute().target(for: action, found: found, in: window)
     }
 
     /// Pages whose keys may wait for their document: agent pages (the new

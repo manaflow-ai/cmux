@@ -2,7 +2,10 @@
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
 //! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
 //! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
-//! are `acpmux_send`, `acpmux_ls`, `acpmux_last` and `acpmux_info`.
+//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the Labs-gated
+//! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
+//! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
+//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent.
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
@@ -28,22 +31,49 @@ pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
 /// The daemon's outbox (`server/outbox.rs`) goes on delivering after that, retrying a peer that
 /// is down and across a restart; nothing in this server waits on it.
 const STATUS_WAIT: Duration = Duration::from_secs(5);
+/// What every chat with this server is told about background work: the Codex steer (its
+/// unified exec background terminals end when the agent hibernates, and only the whole feature
+/// can be turned off), and Claude Code's, behind the PreToolUse hook (`bg_hook.rs`).
+const BG_STEER: &str = "Long-running commands (a dev server, a watcher, a long build or test \
+run): start them with bg_start, not as a background shell or terminal of your own. This chat's \
+agent hibernates after 2 idle minutes and its own background shells end with it; a bg_start task \
+keeps running, and bg_list and bg_output read it later by its id.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 
+#[path = "acpmux_mcp_bg.rs"]
+mod bg;
+#[path = "acpmux_mcp_send.rs"]
+mod send;
+
 fn tools() -> Value {
-    json!([
+    let mut all = base_tools();
+    if let Some(list) = all.as_array_mut() {
+        list.extend(bg::tools());
+    }
+    all
+}
+
+fn base_tools() -> Value {
+    let mut all = json!([
         {
-            "name": "send",
-            "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn.",
+            "name": "inbox_read",
+            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours and need none: a notice lists threads with new messages at your next tool step; act on one when it bears on your work, answer it with inbox_reply, or leave it for later. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"thread": {"type": "string", "description": "A threadId, as the notice or the list names it."}}
+            }
+        },
+        {
+            "name": "inbox_reply",
+            "description": "Answer in an inbox thread: the message goes to the thread's newest sender, into their inbox under the same thread, and takes no turn of theirs.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
-                    "text": {"type": "string", "description": "The message, self-contained."},
-                    "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."}
+                    "thread": {"type": "string", "description": "The threadId."},
+                    "text": {"type": "string", "description": "The answer, self-contained."}
                 },
-                "required": ["to", "text"]
+                "required": ["thread", "text"]
             }
         },
         {
@@ -76,8 +106,46 @@ fn tools() -> Value {
                 "properties": {"name": {"type": "string", "description": "The session's name, id, or host/name."}},
                 "required": ["name"]
             }
+        },
+        {
+            "name": "team_send",
+            "description": "Send an information message to a teammate's agent or a team role. Addresses are team-scoped (for example @lawrence/coordinator or @team/reviewer). The receipt includes the hub's resolution and whether the message may start work; a normal message never starts work automatically.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "A team address such as @member/agent or @team/role."},
+                    "body": {"type": "string", "description": "The information to deliver."}
+                },
+                "required": ["to", "body"]
+            }
+        },
+        {
+            "name": "team_inbox",
+            "description": "List durable messages addressed to this agent's team address. Messages are information by default and are delivered when the agent reaches its next turn boundary.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "unreadOnly": {"type": "boolean", "description": "Only messages that have not been read or acknowledged (default true)."},
+                    "before": {"type": "integer", "minimum": 0, "description": "Continue from a previous response's next cursor."}
+                }
+            }
+        },
+        {
+            "name": "team_ack",
+            "description": "Acknowledge a team message after reading it. The acknowledgement is recorded by the team hub.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "The hub message id from team_inbox."}
+                },
+                "required": ["id"]
+            }
         }
-    ])
+    ]);
+    if let Some(list) = all.as_array_mut() {
+        list.insert(0, send::tool());
+    }
+    all
 }
 
 /// Runs the server on stdin and stdout.
@@ -86,8 +154,18 @@ pub async fn run() -> Result<()> {
         SERVER_NAME,
         SESSION_ENV,
         tools(),
-        None,
-        |daemon, _session, params| async move { call(&daemon, &params).await },
+        Some(BG_STEER.to_owned()),
+        |daemon, session, params| async move {
+            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            if bg::TOOLS.contains(&name) {
+                return bg::call(&daemon, &session, name, &args).await;
+            }
+            if matches!(name, "inbox_read" | "inbox_reply") {
+                return inbox_tool(&daemon, &session, name, &args).await;
+            }
+            call(&daemon, &params).await
+        },
     )
     .await
 }
@@ -110,7 +188,10 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
         return error_result("arguments must be an object".to_owned());
     }
     match params["name"].as_str().unwrap_or_default() {
-        "send" => send(daemon, &args).await,
+        "send" => send::send(daemon, &args).await,
+        "team_send" => team_send(daemon, &args).await,
+        "team_inbox" => team_inbox(daemon, &args).await,
+        "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
@@ -145,74 +226,103 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
                 Err(e) => refusal(e),
             }
         }
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
 
-/// `send`: what `acpmux send --no-wait` does (`cli/run/send_async.rs`): the message goes to this
-/// daemon's outbox (`_acpmux/send_queue`), which delivers it as this session (its caller token)
-/// and retries a slow target or a peer that is down. It answers with the delivery once it
-/// settles, or after [`STATUS_WAIT`] with the message on its way.
-async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
-    let (Some(to), Some(text)) = (arg(args, "to"), args.get("text").and_then(Value::as_str)) else {
-        return error_result("to and text are required".to_owned());
+/// Send a team-scoped message through the daemon's hub client. The daemon owns the
+/// caller token and Labs gate, so this MCP surface cannot bypass either one.
+async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
+    let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
+        return error_result("to and body are required".to_owned());
     };
-    if text.trim().is_empty() {
-        return error_result("text is empty".to_owned());
+    if body.trim().is_empty() {
+        return error_result("body is empty".to_owned());
     }
-    let steer = args.get("steer").and_then(Value::as_bool).unwrap_or(true);
-    let key = match crate::cli::orchestrate::expand_session_key(to) {
-        Ok(key) => key,
-        Err(e) => return refusal(e),
+    match daemon.request(method::MUX_TEAM_SEND, json!({"to": to, "body": body})).await {
+        Ok(result) => ok(team_result_text(&result), result),
+        Err(e) => refusal(e),
+    }
+}
+
+/// Read the durable team inbox. `unreadOnly` defaults to true so an agent does not
+/// repeatedly receive old information unless it explicitly asks for all messages.
+async fn team_inbox(daemon: &Arc<Client>, args: &Value) -> Value {
+    let unread_only = args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
+    let mut params = json!({"unreadOnly": unread_only});
+    if let Some(before) = args.get("before").and_then(Value::as_u64) {
+        params["before"] = json!(before);
+    }
+    match daemon.request(method::MUX_TEAM_INBOX, params).await {
+        Ok(result) => ok(team_result_text(&result), result),
+        Err(e) => refusal(e),
+    }
+}
+
+async fn team_ack(daemon: &Arc<Client>, args: &Value) -> Value {
+    let Some(id) = arg(args, "id") else {
+        return error_result("id is required".to_owned());
     };
-    let prompt = PromptId::new(None);
-    let request = prompt.params(&key, text, steer, None);
-    let queued = match daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await {
-        Ok(queued) => queued,
-        Err(e) => return refusal(e),
-    };
-    let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let wait = json!({"deliveryId": delivery, "waitMs": STATUS_WAIT.as_millis() as u64});
-    let status = daemon.request(method::MUX_SEND_STATUS, wait).await.unwrap_or(queued);
-    let state = status.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
-    // A refusal the target gave at once (its folder's trust, a paused agent pair) is this
-    // send's error, as `acpmux send --no-wait` says it.
-    if matches!(state.as_str(), "failed" | "held") {
-        let error = status.get("error").and_then(Value::as_str).unwrap_or("delivery failed");
-        return error_result(format!("Not sent to {to} (delivery {delivery}): {error}"));
+    match daemon.request(method::MUX_TEAM_ACK, json!({"id": id})).await {
+        Ok(result) => ok(team_result_text(&result), result),
+        Err(e) => refusal(e),
     }
-    let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
-    let prompt_id = prompt.id.clone();
-    let session_id = accepted.get("sessionId").cloned().unwrap_or_else(|| json!(key));
-    let mut structured = json!({"deliveryId": delivery, "target": key, "sessionId": session_id,
-        "promptId": prompt_id, "status": state, "accepted": accepted});
-    if state != "delivered" {
-        structured["delivery"] = json!("sending");
-        return ok(
-            format!(
-                "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
-delivering it, retrying while the target is slow or its peer is down. Do not send it again; info \
-{to} shows it once it arrives."
-            ),
-            structured,
-        );
-    }
-    let steered = accepted.get("steer") == Some(&json!(true));
-    let waits = accepted.get("queued") == Some(&json!(true));
-    let (how_id, how) = if steered {
-        ("next_step", "steered into its running turn: it reads it at its next tool step")
-    } else if waits {
-        ("queued", "queued behind its running turn: it reads it when that turn ends")
+}
+
+fn team_result_text(result: &Value) -> String {
+    if result.is_string() {
+        result.as_str().unwrap_or_default().to_owned()
     } else {
-        ("started", "it started a turn with it")
+        serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string())
+    }
+}
+
+/// `inbox_read` and `inbox_reply`, for this server's own chat (`hub/inbox.rs`).
+async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
+    if session.is_empty() {
+        return error_result("this server runs in no acpmux chat".to_owned());
+    }
+    let thread = arg(args, "thread");
+    let reply = match (name, thread) {
+        ("inbox_reply", Some(thread)) => {
+            let Some(text) =
+                args.get("text").and_then(Value::as_str).filter(|t| !t.trim().is_empty())
+            else {
+                return error_result("thread and text are required".to_owned());
+            };
+            let params = json!({"sessionId": session, "threadId": thread, "text": text});
+            daemon.request(method::MUX_INBOX_REPLY, params).await
+        }
+        ("inbox_reply", None) => return error_result("thread and text are required".to_owned()),
+        (_, Some(thread)) => {
+            let params = json!({"sessionId": session, "threadId": thread, "markRead": true});
+            daemon.request(method::MUX_INBOX_THREAD, params).await
+        }
+        (_, None) => daemon.request(method::MUX_INBOX_THREADS, json!({"sessionId": session})).await,
     };
-    structured["delivery"] = json!(how_id);
-    ok(format!("Sent to {to}: {how} (promptId {prompt_id})."), structured)
+    match reply {
+        Ok(v) => ok(crate::cli::session_inbox::describe(&v), v),
+        Err(e) => refusal(e),
+    }
+}
+
+/// `send`'s `class` (`prompt_class.rs`), checked here too, so a wrong one is this call's error and
+/// not a failed delivery.
+fn send_class(args: &Value) -> Result<Option<String>, String> {
+    match args.get("class") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(c)) if crate::prompt_class::PromptClass::parse(c).is_some() => {
+            Ok(Some(c.clone()))
+        }
+        Some(_) => Err(format!("class must be one of {}", crate::prompt_class::VALUES)),
+    }
 }
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
-    let all = match daemon.request(method::MUX_SESSIONS, json!({})).await {
+    let all = match daemon.whole_list(method::MUX_SESSIONS, json!({})).await {
         Ok(v) => v,
         Err(e) => return refusal(e),
     };

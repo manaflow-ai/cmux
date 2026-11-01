@@ -41,6 +41,8 @@ public struct CmuxMobileMetrics: Sendable {
     public var composerMinHeight: CGFloat = 96
     public var composerSideMargin: CGFloat = 12
     public var smallCircle: CGFloat = 36
+    /// A mini working spinner's backing disc, kept clear of a control's main symbol.
+    public var workingIndicatorBadge: CGFloat = 16
     public var ctaLargeHeight: CGFloat = 52
     /// The welcome's sign-in rows: their minimum height (they grow with
     /// Dynamic Type) and the gap between them.

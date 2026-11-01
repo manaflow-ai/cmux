@@ -78,6 +78,44 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
     }
   });
 
+  // Leo 2026-10-31: "WE DON'T NEED A FADE IN ANIMATION UNLESS IT'S THE WORST CASE". A page that lands
+  // well above the reader, as prefetching makes the normal case, draws in place with no fade.
+  test("an older page that lands ahead of the reader draws in place without a fade", async () => {
+    const { port } = vite.httpServer!.address() as { port: number };
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__debug" in window);
+      await page.evaluate(`window.__debug.seedRows(9000)`);
+      await page.waitForFunction(
+        () => Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")) >= 9000,
+      );
+      await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1e9, bubbles: true }));
+        // Ten viewports below the first loaded row: the page arrives long before the reader gets there.
+        scroller.scrollTop = 7000;
+        for (let frame = 0; frame < 24; frame++) await window.cmuxPaintFrame();
+      });
+      await page.evaluate(async () => {
+        (window as unknown as { __showOlder(shown: boolean): void }).__showOlder(true);
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.scrollTop = 0;
+        for (let frame = 0; frame < 24; frame++) await window.cmuxPaintFrame();
+      });
+      const prefetched = page.locator('[data-row-id="prefetched-older"]');
+      expect(await prefetched.count()).toBe(1);
+      expect(await prefetched.evaluate((row) => row.classList.contains("acpmux-row--older"))).toBe(false);
+      expect(await prefetched.getAttribute("data-older-shown")).toBeNull();
+      expect(await prefetched.evaluate((row) => getComputedStyle(row).opacity)).toBe("1");
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const way of ["jump", "revisit"] as const)
     test(`${way}: cached rows paint immediately at the target`, async () => {
       const { port } = vite.httpServer!.address() as { port: number };
@@ -154,12 +192,15 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                 }
               },
               (paint) => {
-                if (frames === 8 && phase === "prime") {
+                // At least, not exactly: a frame's read can land after the next frame's callbacks
+                // on a busy runner, and an exact count passed unseen left the run in its first phase
+                // with no samples (frames 0, run 40753431130).
+                if (frames >= 8 && phase === "prime") {
                   phase = "away";
                   scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -50000, bubbles: true }));
                   scroller.scrollTop = Math.max(0, end() - 50000);
                 }
-                if (frames === 32 && phase === "away") {
+                if (frames >= 32 && phase === "away") {
                   phase = "return";
                   started = paint;
                   if (way === "jump") document.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!.click();

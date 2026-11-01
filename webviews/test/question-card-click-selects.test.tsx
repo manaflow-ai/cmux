@@ -38,33 +38,6 @@ afterEach(async () => {
   saved.clear();
 });
 
-/// The card acpmux raises before a sub-session starts in a folder nobody trusted (hub/trust_wait.rs).
-const folderTrust: AgentQuestion = {
-  id: "perm_trust_1",
-  source: {
-    harness: "acp",
-    session: "sess_claude_1",
-    permission: "perm_trust_1",
-    agentName: "cmux",
-    answerOption: "trust",
-    rejectOption: "not_now",
-  },
-  items: [
-    {
-      id: "q0",
-      header: "Folder trust",
-      prompt: "update-toggle wants to work in /private/tmp/claude-sr2/lanes. Do you trust this folder?",
-      options: [
-        { id: "trust", label: "Trust folder", detail: "cmux stops asking about this folder." },
-        { id: "not_now", label: "Not now", detail: "The sub-session does not start." },
-      ],
-      multiSelect: false,
-      allowsOther: false,
-    },
-  ],
-  state: { kind: "pending" },
-};
-
 const PROMPT = "Which auth should the app use?";
 /// A Claude Code AskUserQuestion with one single-choice question.
 const askSingle: AgentQuestion = {
@@ -148,29 +121,29 @@ async function press(target: Element, key: string, init: KeyboardEventInit = {})
   });
 }
 
-test("one click on a folder trust option selects it; Submit sends it", async () => {
-  const { container, replies } = await renderCard(folderTrust);
+test("one click on an option selects it; Submit sends it", async () => {
+  const { container, replies } = await renderCard(askSingle);
   expect(submit(container).disabled).toBe(true);
 
-  await click(row(container, "Trust folder"));
+  await click(row(container, "API keys"));
   expect(replies).toEqual([]);
-  expect(checked(container)).toEqual(["Trust folder"]);
+  expect(checked(container)).toEqual(["API keys"]);
   expect(submit(container).disabled).toBe(false);
 
   // A second pick changes the choice, still without sending.
-  await click(row(container, "Not now"));
-  await click(row(container, "Trust folder"));
+  await click(row(container, "OAuth"));
+  await click(row(container, "API keys"));
   expect(replies).toEqual([]);
 
   await click(submit(container));
-  expect(replies).toEqual([{ session: "sess_claude_1", permissionId: "perm_trust_1", optionId: "trust" }]);
+  expect(replies[0]?.answers).toEqual({ [PROMPT]: "API keys" });
 });
 
 test("Skip declines after a pick, so it is never redundant", async () => {
-  const { container, replies } = await renderCard(folderTrust);
-  await click(row(container, "Trust folder"));
+  const { container, replies } = await renderCard(askSingle);
+  await click(row(container, "API keys"));
   await click(container.querySelector<HTMLElement>(".acpmux-question-skip")!);
-  expect(replies).toEqual([{ session: "sess_claude_1", permissionId: "perm_trust_1", optionId: "not_now" }]);
+  expect(replies).toEqual([{ session: "sess_claude_1", permissionId: "perm_toolu_single", optionId: "reject_once" }]);
 });
 
 test("one click on an AskUserQuestion option selects it; ⌘↩ sends it", async () => {
@@ -235,9 +208,10 @@ test("Enter sends the highlighted row", async () => {
 });
 
 test("a double-click on a single-choice option sends it once", async () => {
-  const { container, replies } = await renderCard(folderTrust);
-  await doubleClick(row(container, "Trust folder"));
-  expect(replies).toEqual([{ session: "sess_claude_1", permissionId: "perm_trust_1", optionId: "trust" }]);
+  const { container, replies } = await renderCard(askSingle);
+  await doubleClick(row(container, "API keys"));
+  expect(replies.length).toBe(1);
+  expect(replies[0]?.answers).toEqual({ [PROMPT]: "API keys" });
 });
 
 test("multi-select is unchanged: clicks toggle, a double-click sends nothing, Submit sends the set", async () => {

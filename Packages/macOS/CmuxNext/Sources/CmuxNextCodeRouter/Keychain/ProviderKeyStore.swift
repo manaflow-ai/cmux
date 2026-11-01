@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Security
 
@@ -43,7 +44,7 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
         query[kSecReturnAttributes as String] = true
         query[kSecUseAuthenticationContext as String] = NoPromptContext.make()
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+        guard LoginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess,
               let items = result as? [[String: Any]] else { return [] }
         return Set(items.compactMap { ($0[kSecAttrAccount as String] as? String).flatMap(AIProvider.init(rawValue:)) })
     }
@@ -68,7 +69,8 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // No UI: an item another signature of this bundle id made is refused, never prompted for.
+        let status = LoginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw ProviderKeyStoreError(status: status) }
         return String(data: data, encoding: .utf8)

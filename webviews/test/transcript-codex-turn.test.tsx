@@ -41,14 +41,14 @@ const words = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-test("folded thoughts use the shared trailing chevron grid", async () => {
+test("folded thoughts use the shared inline disclosure gap", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
-  expect(
-    /\.cv-thought\.is-toggle \{\s*display: grid;\s*grid-template-columns: auto minmax\(0, 1fr\) auto auto;/.test(css),
-  ).toBe(true);
-  expect(css).toMatch(/\.cv-tool__chevron \{\s*grid-column: 4;\s*justify-self: end;/);
+  expect(css).toMatch(/--cv-disclosure-gap: var\(--ds-space-1, 4px\)/);
+  expect(css).toMatch(
+    /\.cv-tool__chevron \{[\s\S]*margin-inline-start: calc\(var\(--cv-disclosure-gap\) - var\(--cv-tool-gap\)\)/,
+  );
 });
 
 test("a finished run that is one group folds to its closed line", () => {

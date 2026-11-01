@@ -19,7 +19,9 @@
 //! - **Outcome ledger.** A finished subagent (not one the person stopped)
 //!   waits until a Chief post names it as a word. A turn that saw its report
 //!   and ended without naming it leaves a check; one `[untold]` retry note,
-//!   then it is dropped. The host never posts on the Chief's behalf here.
+//!   then it is dropped. One Chief sends back to work (`subagent_resumed`:
+//!   a tell, restart or resume) leaves at once: its next report is the one
+//!   to tell. The host never posts on the Chief's behalf here.
 //!
 //! - **Ask ledger.** One person message often holds several asks. A turn
 //!   records the asks it took (`asks_taken`), each with an owner: a subagent
@@ -45,7 +47,7 @@
 //! {id, stopped}`, `asks_taken {message, asks: [{ask, owner?, reason?}]}`,
 //! `spawn_requested {message, tasks: [{ask, task}]}`, `spawn_started {key,
 //! id}`, `schedule_set {id, cron | at_ms, prompt, expires_ms?}`,
-//! `schedule_removed {id}`, `check_due`. Intents: `schedule {at_ms, key}`, `notice {text, key}`
+//! `schedule_removed {id}`, `subagent_resumed {id}`, `check_due`. Intents: `schedule {at_ms, key}`, `notice {text, key}`
 //! (a note that starts a turn), `post {text, reply_to, key}`, `spawn {task,
 //! message, key}`, `ack {message, key}`.
 
@@ -271,6 +273,9 @@ enum Event {
     ScheduleRemoved {
         id: String,
     },
+    SubagentResumed {
+        id: String,
+    },
     CheckDue,
 }
 
@@ -486,6 +491,8 @@ pub fn ledger_apply(state_json: &str, event_json: &str, ctx_json: &str) -> Resul
             });
             schedule_next(&s, &mut intents);
         }
+        // Chief sent it back to work: its next report is the one to tell.
+        Event::SubagentResumed { id } => s.untold.retain(|u| u.id != id),
         Event::ScheduleRemoved { id } => {
             s.schedules.retain(|j| j.id != id);
             schedule_next(&s, &mut intents);

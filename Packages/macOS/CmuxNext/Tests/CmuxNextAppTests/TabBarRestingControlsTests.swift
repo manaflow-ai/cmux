@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// The tab bar's trailing end. Leo (2026-10-19) had its controls show muted at rest; Lawrence
@@ -10,7 +11,7 @@ import Testing
 /// chevron gone from the bar ("i dont like the down arrow"), its action kept in "…"'s menu. The
 /// controls keep their room, so nothing moves when they appear. Leo (2026-10-26): the pane’s ⋮
 /// fades in place; its normal hover fade must never slide the glyph sideways.
-@MainActor @Suite(.serialized) struct TabBarRestingControlsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabBarRestingControlsTests {
     private static func strip() -> (TabStripView, NSWindow) {
         let model = TabStripModel(tabs: (0..<4).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 40), styleMask: [.borderless],
@@ -26,7 +27,7 @@ import Testing
     @Test func theStripsPlusHidesAtRestAndShowsOnHover() throws {
         DesignSettings.shared.plusButton = .hover
         let (strip, window) = Self.strip()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
         #expect(TabTunables.restingControlOpacity.value == 0, "tab bar controls hide at rest by default")
         #expect(!reveal.isRevealed)
@@ -36,6 +37,32 @@ import Testing
         #expect(reveal.isRevealed)
         reveal.setPointerInside(false)
         #expect(reveal.restAlpha == 0)
+    }
+
+    /// The pane-type chooser (#27004) sits beside the plus, so it hides, shows and stays for its menu with
+    /// it: a hover-only plus never leaves the chevron alone next to an empty slot.
+    @Test func thePaneTypeChooserFadesWithThePlus() throws {
+        DesignSettings.shared.plusButton = .hover
+        defer { DesignSettings.shared.plusButton = .hover }
+        let (strip, window) = Self.strip()
+        defer { window.closeAfterTest() }
+        strip.showsNewTabMenuButton = true
+        let chooser = strip.newTabMenuButton
+        #expect(!chooser.isHidden)
+        let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
+        #expect(HoverReveal.owner(of: chooser) === reveal, "the chooser fades with the plus")
+        #expect(chooser.alphaValue == strip.newTabButton.alphaValue, "chooser at rest: \(chooser.alphaValue)")
+        reveal.setPointerInside(true)
+        #expect(chooser.alphaValue == 1)
+        reveal.setPointerInside(false)
+        let hold = reveal.hold() // an open strip menu, the chooser's own included
+        #expect(chooser.alphaValue == 1, "the chooser stays shown while its menu is open")
+        hold.release()
+        #expect(chooser.alphaValue == reveal.restAlpha)
+        DesignSettings.shared.plusButton = .always
+        strip.reveal.applyPlusButtonMode()
+        #expect(HoverReveal.owner(of: chooser) == nil)
+        #expect(chooser.alphaValue == 1, "always keeps the chooser fully shown, like the plus")
     }
 
     @Test func aRevealsRestAlphaIsWhatItsViewsShowAtRest() {

@@ -1,17 +1,19 @@
 import type { Env } from "../../env.ts"
 import { redactReason } from "../../cloud-redact.ts"
-import { DriverError, type CloudProvider, type CloudProviderCapabilities, type CreateOptions, type EdgeTlsRule, type VmResources, type VmTag } from "../contract.ts"
+import { ClientIdentityLeft, DriverError, type ClientSessionGrant, type CloudProvider, type CloudProviderCapabilities, type CreateOptions, type EdgeTlsRule, type VmResources, type VmTag } from "../contract.ts"
 import { createBody } from "./cloud-body.ts"
 import { freestyleExecStdin } from "./exec.ts"
 import type { CloudProviderWiring } from "../index.ts"
 
 /** Freestyle sizes from the snapshot at create (resize is a separate, grow-only call); everything else it has. */
-export const FREESTYLE_CLOUD_CAPABILITIES: CloudProviderCapabilities = { sizing: false, resize: true, snapshot: true, guestExec: true, edgeTls: true }
+export const FREESTYLE_CLOUD_CAPABILITIES: CloudProviderCapabilities = { sizing: false, resize: true, snapshot: true, guestExec: true, edgeTls: true, clientSession: true }
 
 /** One page of a list (Freestyle's limit). */
 const LIST_PAGE = 100
 
 const REQUEST_TIMEOUT_MS = 20_000
+/** The provider's SSH proxy (freestyle.sh/docs/vms/ssh): `ssh <vm>+<user>@host`, the client session token as the password. */
+export const FREESTYLE_SSH_HOST = "beta-ssh.freestyle.sh"
 const CREATE_TIMEOUT_MS = 120_000
 
 /** Freestyle REST (the same v5 calls TeamVmDO's driver measured). Errors carry only the step, status and provider code. */
@@ -46,11 +48,17 @@ export class FreestyleCloudProvider implements CloudProvider {
     }
   }
 
-  private fail(status: number, json: Record<string, unknown>, what: string): never {
-    const final = status === 400 || status === 401 || status === 403 || status === 422
+  /**
+   * `vmCall`: the call addresses one VM by id (pause, start, resize, write file, snapshot), so a 404
+   * means that VM is gone: a final `vm_missing`, never a retryable `unavailable` that keeps a deleted
+   * machine looking live (cmux-platform#176). Other calls' 404s (a TLS rule, an identity) keep their meaning.
+   */
+  private fail(status: number, json: Record<string, unknown>, what: string, vmCall = false): never {
+    const missing = vmCall && status === 404
+    const final = missing || status === 400 || status === 401 || status === 403 || status === 422
     const code = typeof json.code === "string" ? json.code.slice(0, 40) : ""
     const reason = status === 0 && typeof json.reason === "string" ? ` (${json.reason})` : ""
-    throw new DriverError(final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}${reason}`, final)
+    throw new DriverError(missing ? "cloud.provider.vm_missing" : final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}${reason}`, final)
   }
 
   private vm(json: Record<string, unknown>) {
@@ -92,7 +100,7 @@ export class FreestyleCloudProvider implements CloudProvider {
       status = 0
     }
     // Never echo the body (it holds the bind token): only the step and status.
-    if (status < 200 || status >= 300) this.fail(status, {}, "write bind file")
+    if (status < 200 || status >= 300) this.fail(status, {}, "write bind file", true)
   }
 
   async list(filter: string, offset: number) {
@@ -117,6 +125,62 @@ export class FreestyleCloudProvider implements CloudProvider {
     this.fail(r.status, {}, "replace TLS rule")
   }
 
+  /**
+   * A client session (freestyle.sh/docs/vms/client-sessions): an identity granted only VM `id` as
+   * `linuxUser` (never unrestricted), and one token that expires at `expiresAt`. An identity this VM
+   * and user had before is reused; one the provider no longer has (404) is replaced. A new identity
+   * whose grant or token fails is deleted again. No error carries an answer body (it holds the token).
+   */
+  async clientSession(id: string, linuxUser: string, expiresAt: number, identity: string | null): Promise<ClientSessionGrant> {
+    const mint = async (handle: string) => {
+      const r = await this.call("POST", `/v5/identities/${encodeURIComponent(handle)}/tokens`, { expiresAt: new Date(expiresAt).toISOString() })
+      const token = r.status === 200 && typeof r.json.token === "string" && r.json.token.length > 0 ? r.json.token : null
+      // The token must expire when asked (to the second): one without an expiry, or a later one, is no session.
+      const at = typeof r.json.expiresAt === "string" ? Date.parse(r.json.expiresAt) : NaN
+      const onTime = Number.isFinite(at) && Math.abs(at - expiresAt) <= 1000
+      return { status: token ? 200 : r.status, token, onTime }
+    }
+    const late = () => new DriverError("cloud.provider.unavailable", "mint client token: the expiry is not the one asked for", false)
+    const grant = (handle: string, token: string): ClientSessionGrant => ({
+      identity: handle,
+      token,
+      expiresAt,
+      vmId: id,
+      linuxUser,
+      apiBaseUrl: this.baseUrl.replace(/\/+$/, ""),
+      ssh: { host: FREESTYLE_SSH_HOST, user: `${id}+${linuxUser}` }
+    })
+    if (identity) {
+      const reused = await mint(identity)
+      // A token with the wrong expiry exists on this identity: the identity goes, with every token on it.
+      if (reused.token && !reused.onTime) throw new ClientIdentityLeft(identity, late())
+      if (reused.token) return grant(identity, reused.token)
+      if (reused.status !== 404) this.fail(reused.status, {}, "mint client token")
+    }
+    const made = await this.call("POST", "/v5/identities", {})
+    if (made.status !== 200 || typeof made.json.id !== "string" || made.json.id.length === 0) this.fail(made.status, made.json, "create identity")
+    const handle = made.json.id as string
+    try {
+      const g = await this.call("POST", `/v5/identities/${encodeURIComponent(handle)}/permissions/vm`, { vmId: id, allowedLinuxUsers: [linuxUser] })
+      if (g.status < 200 || g.status >= 300) this.fail(g.status, g.json, "grant VM")
+      const t = await mint(handle)
+      if (!t.token) this.fail(t.status, {}, "mint client token")
+      if (!t.onTime) throw late()
+      return grant(handle, t.token)
+    } catch (e) {
+      // Nothing half-made survives: an identity without its grant or token is deleted again, and
+      // one whose delete fails goes back to the caller to retire, so it is never forgotten.
+      if (await this.dropClientIdentity(handle).then(() => true, () => false)) throw e
+      throw new ClientIdentityLeft(handle, e instanceof DriverError ? e : new DriverError("cloud.provider.unavailable", "client session", false))
+    }
+  }
+
+  async dropClientIdentity(identity: string) {
+    const r = await this.call("DELETE", `/v5/identities/${encodeURIComponent(identity)}`)
+    if (r.status === 404 || (r.status >= 200 && r.status < 300)) return
+    this.fail(r.status, r.json, "delete identity")
+  }
+
   execStdin = (id: string, command: string, stdin: Uint8Array | null, timeoutMs: number) => freestyleExecStdin(this.fetchFn, this.baseUrl, this.apiKey, id, command, stdin, timeoutMs)
   async delete(id: string) {
     const r = await this.call("DELETE", `/v5/vms/${encodeURIComponent(id)}`)
@@ -127,13 +191,13 @@ export class FreestyleCloudProvider implements CloudProvider {
   async pause(id: string) {
     const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
     if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "pause VM")
+    this.fail(r.status, r.json, "pause VM", true)
   }
 
   async start(id: string) {
     const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/start`)
     if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "start VM")
+    this.fail(r.status, r.json, "start VM", true)
   }
 
   async state(id: string) {
@@ -156,7 +220,7 @@ export class FreestyleCloudProvider implements CloudProvider {
     // A lost answer: the snapshot under the slug, if any, is the answer.
     const found = await this.findSnapshot(slug)
     if (found && found.sourceVmId === vmId) return { id: found.id }
-    this.fail(r.status, r.json, "create snapshot")
+    this.fail(r.status, r.json, "create snapshot", true)
   }
 
   async deleteSnapshot(id: string) {
@@ -168,7 +232,7 @@ export class FreestyleCloudProvider implements CloudProvider {
   async resize(id: string, size: VmResources) {
     const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/resize`, { cpu: size.cpu, memory: size.memory, storage: size.storage })
     if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "resize VM")
+    this.fail(r.status, r.json, "resize VM", true)
   }
 
   async resources(id: string) {

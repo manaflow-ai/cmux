@@ -15,6 +15,7 @@ use crate::workspace_registry::{
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
     ResourceTopologySnapshot,
 };
+use cmux_json::JsonSet as _;
 
 /// The public value of one live screen: identity, order, focus and layout.
 pub(crate) fn public_screen_value(
@@ -105,16 +106,19 @@ fn public_viewport_node(
             });
             // `dock-columns-v1`: omitted while the column scrolls.
             if let Some(dock) = column.dock {
-                value["dock"] = serde_json::to_value(dock)?;
+                value.set("dock", serde_json::to_value(dock)?);
             }
             // `rows-v1`: omitted for a column with one row. Row 2..n's
             // `row_id` is its compat chain split in `root`.
             if column.rows.len() >= 2 {
-                value["rows"] = column
-                    .rows
-                    .iter()
-                    .map(|row| json!({"row_id": row.id, "height": row.height}))
-                    .collect();
+                value.set(
+                    "rows",
+                    column
+                        .rows
+                        .iter()
+                        .map(|row| json!({"row_id": row.id, "height": row.height}))
+                        .collect(),
+                );
             }
             Ok(value)
         })
@@ -143,7 +147,7 @@ fn public_layout_node(
                 "tab_ids": tabs.iter().map(|tab| &tab.public_id).collect::<Vec<_>>(),
             });
             if let Some(active_tab) = &pane_record.active_tab {
-                leaf["active_tab_id"] = json!(active_tab);
+                leaf.set("active_tab_id", json!(active_tab));
             }
             Ok(leaf)
         }

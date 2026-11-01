@@ -18,6 +18,7 @@ first-party-apps/codemirror/web/THIRD_PARTY_NOTICES.txt
 mux/packages/brain/conformance/chief-cases.json
 plans/cmux-next/coordination/INDEX.md
 web/data/next-docs/cli-reference.generated.json
+web/data/next-docs/palette-reference.generated.json
 web/data/next-docs/settings-reference.generated.json
 web/services/vms/hygiene/script.generated.ts
 webviews/src/diff/generated/protocol.ts
