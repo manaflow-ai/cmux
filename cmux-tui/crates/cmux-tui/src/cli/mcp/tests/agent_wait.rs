@@ -133,6 +133,86 @@ fn agents_wait_unknown_chat_still_reports_selector_not_found() {
     assert!(result.to_string().contains("selector.not_found"), "{result}");
 }
 
+/// A visible conversation tab has `agent_session` but may have no `agent_state`.
+/// That missing UI field cannot complete an acpmux turn early.
+#[test]
+fn agents_wait_visible_chat_tab_stays_busy_until_the_acpmux_turn_ends() {
+    const CHAT: &str = "d9914a5a-b950-44b1-b7c2-048a7feb2570";
+    const TAB: &str = "tab_d9914a5ab95044b1b7c2048a7feb2570";
+    let snapshot = |running: bool| json!({
+        "workspaces": [{"id": WORKSPACE}],
+        "chats": [{"chat": CHAT, "running": running,
+                   "status": if running { "running" } else { "ready" },
+                   "queued": 0, "pending_permissions": 0}],
+    });
+    let topology = json!({"topology": {
+        "windows": [{"tabs": [{"id": TAB, "kind": "conversation", "agent_session": CHAT}]}]
+    }});
+    for target in [CHAT, TAB] {
+        let fake = Fake::live(Some(snapshot(true)), None)
+            .then(Duration::ZERO, Change::Topology(topology.clone()))
+            .then(Duration::from_millis(450), Change::Daemon(snapshot(false)));
+        let mut server = Server::new(fake, None);
+        let started = Instant::now();
+        let result = call(&mut server, "agents_wait", json!({
+            "until": "idle", "target": target, "timeout_seconds": 3
+        }));
+        assert_eq!(result["isError"], false, "{target}: {result}");
+        let receipt = &result["structuredContent"];
+        assert_eq!(receipt["matched"], true, "{target}: {result}");
+        assert_eq!(receipt["match"]["state"], "idle", "{target}: {result}");
+        assert_eq!(receipt["match"]["target"], target, "{target}: {result}");
+        assert_eq!(receipt["match"]["chat"], CHAT, "{target}: {result}");
+        assert!(
+            started.elapsed() >= Duration::from_millis(350),
+            "GUI-only tab state answered before the acpmux turn ended: {target}: {result}"
+        );
+        assert!(
+            sent_of(&server, "chat").iter().any(|request| request["target"] == CHAT),
+            "the wait never checked acpmux for {target}"
+        );
+    }
+}
+
+/// `acp:<uuid>` is an accepted public session selector, matching agents chat state.
+#[test]
+fn agents_wait_accepts_an_acp_prefixed_chat_id() {
+    const CHAT: &str = "1f5f31bf-a8a5-4cb8-aa9f-a63180bb2d90";
+    let mut server = Server::new(Fake::live(Some(json!({
+        "workspaces": [{"id": WORKSPACE}],
+        "chats": [{"chat": CHAT, "status": "ready", "running": false,
+                   "queued": 0, "pending_permissions": 0}],
+    })), None), None);
+    let target = format!("acp:{CHAT}");
+    let result = call(&mut server, "agents_wait", json!({
+        "until": "idle", "target": target, "timeout_seconds": 1
+    }));
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["matched"], true, "{result}");
+    assert_eq!(result["structuredContent"]["match"]["chat"], CHAT, "{result}");
+    assert_eq!(result["structuredContent"]["match"]["target"], target, "{result}");
+    assert!(
+        sent_of(&server, "chat").iter().any(|request| request["target"] == CHAT),
+        "acp: prefix should be removed before the scoped acpmux read"
+    );
+}
+
+#[test]
+fn agents_wait_disconnected_chat_is_a_stopped_state() {
+    const CHAT: &str = "987c255f-8ae7-4d71-8a39-3dcaff2a4003";
+    let mut server = Server::new(Fake::live(Some(json!({
+        "workspaces": [{"id": WORKSPACE}],
+        "chats": [{"chat": CHAT, "status": "disconnected", "running": false,
+                   "queued": 0, "pending_permissions": 0}],
+    })), None), None);
+    let result = call(&mut server, "agents_wait", json!({
+        "until": "idle", "target": CHAT, "timeout_seconds": 1
+    }));
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["matched"], true, "{result}");
+    assert_eq!(result["structuredContent"]["match"]["state"], "disconnected", "{result}");
+}
+
 #[test]
 fn agents_wait_returns_at_once_when_the_condition_already_holds() {
     let mut server = Server::new(Fake::live(Some(daemon("idle")), None), None);
