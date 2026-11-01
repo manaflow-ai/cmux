@@ -96,7 +96,8 @@ async function staleFolder(ctx: PlayContext) {
   await frames(ctx);
   if (notice(ctx)) throw new Error(`a stale folder reply shows a failure notice: ${notice(ctx)!.textContent}`);
   if (ctx.document.querySelector(".cv-user__bubble")) throw new Error("the stale reply started a chat");
-  if (field(ctx)?.value !== DRAFT) throw new Error(`the draft is gone after a stale folder reply (${field(ctx)?.value})`);
+  if (field(ctx)?.value !== DRAFT)
+    throw new Error(`the draft is gone after a stale folder reply (${field(ctx)?.value})`);
   // Not stuck asking: the next Return starts the chat.
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"), { capMs: 10_000 });
