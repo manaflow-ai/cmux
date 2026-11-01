@@ -78,6 +78,15 @@ test("no pane sheet hides the transcript or the chat header while changes are op
   }
 });
 
+test("the changes view's file tree gives way by the panel's own width, not only the window's", () => {
+  // Beside the transcript the panel can be ~320px of a 640px pane; a 250px tree there leaves no room for the diff.
+  const styles = sheet("styles.css");
+  const panel = rulesFor(styles, ".acpmux-diff-panel").find((rule) => /position:absolute/.test(rule.body));
+  expect(panel?.body.replace(/\s+/g, "")).toMatch(/container:acpmux-diff-panel\/inline-size/);
+  const tree = rulesFor(styles, ".acpmux-diff-tree").filter((rule) => /display:none/.test(rule.body));
+  expect(tree.some((rule) => rule.atRules.includes("@container acpmux-diff-panel (max-width:620px)"))).toBe(true);
+});
+
 const notARepository = () =>
   new NativeError({
     code: "operation.failed",
