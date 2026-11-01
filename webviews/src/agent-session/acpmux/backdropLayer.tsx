@@ -69,8 +69,9 @@ export function useComposerListBox(): HTMLElement | null {
 
 /**
  * Draws a composer list in its layer over the box. Outside a composer (no anchor) it draws in place.
- * Layout is read as the list opens and again only when the box or the layer's parent changes size
- * (the draft grows, the pane resizes) or a scroller between them moves the box: no frame loop.
+ * Layout is read as the list opens and again only when the box, a box between it and the layer's
+ * host, or the layer's parent changes size (the draft grows, a notice shows over the box, the pane
+ * resizes) or a scroller between them moves the box: no frame loop.
  */
 export function ComposerListLayer({ children }: { children: ReactNode }) {
   const { box, inert } = use(ListAnchor);
@@ -108,6 +109,13 @@ export function ComposerListLayer({ children }: { children: ReactNode }) {
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(place);
     observer?.observe(box);
     if (parent) observer?.observe(parent);
+    // A notice over the box (New Tab's sign-in note, a start error, cloud status) moves it down and
+    // resizes neither it nor the layer's parent: it grows a box between them (`.nt-composer`). So
+    // each one from the box up to the layer's host is watched too, a short fixed chain.
+    for (let node = box.parentElement; node && node !== parent; node = node.parentElement) {
+      observer?.observe(node);
+      if (node === host) break;
+    }
     window.addEventListener("resize", place);
     window.addEventListener("scroll", onScroll, true);
     return () => {

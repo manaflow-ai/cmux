@@ -137,6 +137,41 @@ await requireBrowserLane("composer-lists-out-of-glass.browser.test.ts", async ()
       await page.close();
     });
 
+  // A notice over New Tab's box (the sign-in note, a start error, cloud status) pushes the box down
+  // and resizes neither the box nor the layer's parent, only `.nt-composer` between them.
+  test("the New Tab list moves with its box when a notice shows over the box", async () => {
+    const page = await opened("new-tab");
+    const gap = () =>
+      page.evaluate(() => {
+        const menu = document.querySelector("#acpmux-slash-menu")!.getBoundingClientRect();
+        const box = document.querySelector(".nt-box")!.getBoundingClientRect();
+        return { gap: box.top - menu.bottom, boxTop: box.top };
+      });
+    const before = await gap();
+    await page.evaluate(() => {
+      const notice = document.createElement("p");
+      notice.className = "acpmux-switch-notice";
+      notice.style.height = "48px";
+      notice.textContent = "A notice over the box";
+      const composer = document.querySelector(".nt-composer")!;
+      composer.insertBefore(notice, composer.querySelector(".nt-box"));
+    });
+    await page.waitForFunction(
+      (top) => document.querySelector(".nt-box")!.getBoundingClientRect().top !== top,
+      before.boxTop,
+    );
+    await page.waitForFunction(() => {
+      const menu = document.querySelector("#acpmux-slash-menu")!.getBoundingClientRect();
+      const box = document.querySelector(".nt-box")!.getBoundingClientRect();
+      return Math.abs(box.top - menu.bottom - 6) <= 1;
+    });
+    const after = await gap();
+    console.log(`composer-lists-out-of-glass: notice ${JSON.stringify({ before, after })}`);
+    expect(after.boxTop).not.toBe(before.boxTop);
+    expect(Math.abs(after.gap - 6)).toBeLessThanOrEqual(1);
+    await page.close();
+  });
+
   test("a press on a slash row picks it and the prompt keeps the keyboard", async () => {
     const page = await opened("slash");
     const row = page.locator("#acpmux-slash-menu [role=option]").nth(1);
