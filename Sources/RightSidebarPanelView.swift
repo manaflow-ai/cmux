@@ -30,7 +30,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .gitGraph, .herd, .sessions, .feed, .dock, .machines, .customSidebar:
             return false
         }
     }
@@ -452,6 +452,10 @@ struct RightSidebarPanelView: View {
                     onOpenFilePreview: onOpenFilePreview,
                     presentation: .files
                 )
+            case .gitGraph:
+                Color.clear
+            case .herd:
+                Color.clear
             case .find:
                 FileExplorerPanelView(
                     store: fileExplorerStore,

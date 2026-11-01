@@ -128,7 +128,7 @@ client events add what the user saw: failures, latency, and the path taken.
 | `cmux_activation_milestone_reached` | First time per install | `milestone` (`first_launch`, `first_workspace`, `first_split`, `first_browser_pane`, `first_agent_session`, `first_sign_in`, `first_upgrade_click`, `first_cloud_enable`, `first_cloud_machine`, `first_cloud_workspace`, `first_paid_plan`), `is_new_install`, `days_since_install` |
 | `cmux_agent_session_started` | An agent's SessionStart hook. A session that outlived a relaunch is not started again. | `agent` (`claude_code`, `codex`, `opencode`, `gemini`, `cursor`, `pi`, `other`) |
 | `cmux_agent_session_ended` | The SessionEnd hook of a session counted as started | `agent` |
-| `cmux_feature_used` | First use per UTC day | `feature` (`command_palette`, `files_explorer`, `find`, `vault`, `feed`, `dock`, `cloud_sidebar`, `custom_sidebar`, `devices`, `cmux_ssh`, `browser_pane`, `split`) |
+| `cmux_feature_used` | First use per UTC day | `feature` (`command_palette`, `files_explorer`, `git_graph`, `herd`, `find`, `vault`, `feed`, `dock`, `cloud_sidebar`, `custom_sidebar`, `devices`, `cmux_ssh`, `browser_pane`, `split`) |
 | `cmux_app_updated` | A launch runs a different version than the previous one | `direction` (`upgrade`, `downgrade`), `from_version`, `to_version` |
 | `cmux_daily_active` | Existing: once per UTC day | existing properties plus the shared properties above |
 

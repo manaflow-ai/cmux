@@ -782,7 +782,11 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
+            rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(
+                mode: toolPanel.mode,
+                sourcePanelID: toolPanel.sourcePanelID,
+                rootDirectory: toolPanel.rootDirectory
+            )
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .customSidebar:
@@ -2377,7 +2381,9 @@ extension Workspace {
                   let toolPanel = newRightSidebarToolSurface(
                     inPane: paneId,
                     mode: mode,
-                    focus: false
+                    focus: false,
+                    sourcePanelID: snapshot.rightSidebarTool?.sourcePanelID,
+                    rootDirectory: usesRemoteDirectoryProvenance ? nil : snapshot.rightSidebarTool?.rootDirectory
                   ) else {
                 return nil
             }
@@ -10974,6 +10980,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     ) -> RightSidebarToolPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
+        if mode == .files {
+            return openOrFocusFileBrowserSurface(inPane: paneId, focus: focus)
+        }
+        if mode == .gitGraph {
+            return openOrFocusGitGraphSurface(inPane: paneId, focus: focus)
+        }
         for (existingId, panel) in panels {
             guard let toolPanel = panel as? RightSidebarToolPanel,
                   toolPanel.mode == mode else {
@@ -10992,7 +11004,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         inPane paneId: PaneID,
         mode: RightSidebarMode,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        sourcePanelID: UUID? = nil,
+        rootDirectory: String? = nil
     ) -> RightSidebarToolPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
@@ -11000,7 +11014,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
+        let toolPanel = RightSidebarToolPanel(
+            workspace: self,
+            mode: mode,
+            sourcePanelID: sourcePanelID,
+            rootDirectory: rootDirectory
+        )
         panels[toolPanel.id] = toolPanel
         panelTitles[toolPanel.id] = toolPanel.displayTitle
 
@@ -15449,6 +15468,12 @@ extension Workspace: BonsplitDelegate {
                 }
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
+            case .newFileBrowser:
+                _ = openOrFocusFileBrowserSurface(inPane: pane, focus: true)
+            case .newGitGraph:
+                _ = openOrFocusGitGraphSurface(inPane: pane, focus: true)
+            case .newHerd:
+                _ = openOrFocusHerdSurface(inPane: pane, focus: true)
             case .copyWorkingDirectory, .copyProjectRoot, .copyScreen:
                 if let copyAction = builtInAction.terminalCopyAction {
                     // Target the tab selected in the pane whose button was
