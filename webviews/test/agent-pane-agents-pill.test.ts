@@ -36,18 +36,12 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   const spawned = (id: string, name: string, parent: string | null = null): Step => [
     "in",
     "subagent_spawned",
-    update(
-      { sessionUpdate: "subagent_spawned" },
-      { subagents: [{ id, parent, name, state: "running" }] },
-    ),
+    update({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id, parent, name, state: "running" }] }),
   ];
   const finished = (id: string, name: string): Step => [
     "in",
     "subagent_state_update",
-    update(
-      { sessionUpdate: "subagent_state_update" },
-      { subagents: [{ id, parent: null, name, state: "completed" }] },
-    ),
+    update({ sessionUpdate: "subagent_state_update" }, { subagents: [{ id, parent: null, name, state: "completed" }] }),
   ];
   const reading: Step = [
     "in",
@@ -73,10 +67,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
       sessionUpdate: "agent_message_chunk",
       content: {
         type: "text",
-        text: Array.from(
-          { length: 40 },
-          (_, index) => `Paragraph ${index + 1} while the agents work.`,
-        ).join("\n\n"),
+        text: Array.from({ length: 40 }, (_, index) => `Paragraph ${index + 1} while the agents work.`).join("\n\n"),
       },
     }),
   ];
@@ -98,12 +89,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     reading,
   ];
   // The turn ended (cancelled, or the daemon reconnected) with an agent never reported done.
-  const stuck: Step[] = [
-    ...start,
-    spawned("a1", "Reviewer"),
-    reading,
-    ["mux", "turn_result", { status: "cancelled" }],
-  ];
+  const stuck: Step[] = [...start, spawned("a1", "Reviewer"), reading, ["mux", "turn_result", { status: "cancelled" }]];
   // Reviewer spawned an agent of its own after Tester started.
   const nested: Step[] = [
     ...start,
@@ -142,16 +128,10 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
         };
       case "_acpmux/watch":
         return {
-          sessions: [
-            session(BUSY),
-            session(QUIET),
-            { ...session(STUCK), status: "idle" },
-            session(NESTED),
-          ],
+          sessions: [session(BUSY), session(QUIET), { ...session(STUCK), status: "idle" }, session(NESTED)],
         };
       case "_acpmux/attach": {
-        const id =
-          typeof params.sessionId === "string" && chats[params.sessionId] ? params.sessionId : BUSY;
+        const id = typeof params.sessionId === "string" && chats[params.sessionId] ? params.sessionId : BUSY;
         return { session: session(id), lastSeq: chats[id]!.length, events: chats[id] };
       }
       case "_acpmux/events":
@@ -169,8 +149,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   let liveSeq = busy.length;
   const push = (step: Step) => {
     const event = record(BUSY, step, ++liveSeq);
-    for (const ws of sockets)
-      ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+    for (const ws of sockets) ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
   };
   const url = (session: string) => {
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -200,9 +179,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined })
-          ? undefined
-          : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
         open(ws) {
@@ -258,14 +235,11 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // Reviewer and Tester run; the Linter ended and stays as a finished card under them
     // (49acdd1d589d keeps finished cards mounted in the tray).
     const running = tray(page).locator("li:not([data-finished])");
-    expect(await running.locator(".acpmux-summary-agent__name").allTextContents()).toEqual([
-      "Reviewer",
-      "Tester",
-    ]);
+    expect(await running.locator(".acpmux-summary-agent__name").allTextContents()).toEqual(["Reviewer", "Tester"]);
     expect(await running.locator(".acpmux-agent-line__time").count()).toBe(2);
-    expect(
-      await tray(page).locator("li[data-finished] .acpmux-summary-agent__name").allTextContents(),
-    ).toEqual(["Linter"]);
+    expect(await tray(page).locator("li[data-finished] .acpmux-summary-agent__name").allTextContents()).toEqual([
+      "Linter",
+    ]);
     expect(await page.locator(".cv-subagents").count()).toBe(0);
     expect(await page.locator(".cv-subagent").count()).toBe(0);
     expect(await pill(page).count()).toBe(0);
@@ -281,9 +255,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await running.first().waitFor({ state: "detached", timeout: 5_000 });
     expect(await running.count()).toBe(0);
     expect(
-      (
-        await tray(page).locator("li[data-finished] .acpmux-summary-agent__name").allTextContents()
-      ).sort(),
+      (await tray(page).locator("li[data-finished] .acpmux-summary-agent__name").allTextContents()).sort(),
     ).toEqual(["Linter", "Reviewer", "Tester"]);
     // Each leaves one line where it ended, at the transcript's end.
     await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).waitFor({ timeout: 5_000 });
@@ -302,11 +274,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // tray keeps it only as a stopped card (49acdd1d589d keeps ended cards).
     const stale = await open(STUCK, "Review the branch with a few agents", true);
     expect(await tray(stale).locator("li:not([data-finished])").count()).toBe(0);
-    expect(
-      await tray(stale)
-        .locator('li[data-finished] .acpmux-agent-line[data-status="stopped"]')
-        .count(),
-    ).toBe(1);
+    expect(await tray(stale).locator('li[data-finished] .acpmux-agent-line[data-status="stopped"]').count()).toBe(1);
     await stale.close();
   });
 
