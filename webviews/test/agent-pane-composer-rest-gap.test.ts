@@ -16,8 +16,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
-/// The chosen rest gap (model.ts REST_GAP once it lands).
-const REST_GAP = 48;
+import { REST_GAP } from "../src/agent-session/acpmux/model";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
