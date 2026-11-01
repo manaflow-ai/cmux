@@ -1953,6 +1953,71 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn a_file_that_grows_after_the_size_sum_is_refused() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-grows-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let limit = 1024 * 1024;
+        std::fs::write(dir.join("grows.bin"), b"x").unwrap();
+        let grown = dir.join("grows.bin");
+        let error = archive_within_then(&dir, MAX_SYNC_BYTES, limit, || {
+            std::fs::write(&grown, vec![1_u8; limit as usize + 1]).unwrap();
+        })
+        .unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sparse_file_bsdtar_packs_is_counted_at_its_full_size() {
+        // bsdtar (macOS's tar) stores holes as a map, so its stream is tiny
+        // while the guest writes the file out in full. `pack` is called
+        // directly, as if the file turned sparse after the size sum.
+        if std::process::Command::new("bsdtar")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipped: no bsdtar on this host");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-vm-run-sync-bsdtar-sparse-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = std::fs::File::create(dir.join("sparse.img")).unwrap();
+        file.set_len(256 * 1024 * 1024).unwrap();
+        drop(file);
+        let files = vec![PathBuf::from("sparse.img")];
+        let error = pack_with("bsdtar", &dir, &files, MAX_SYNC_BYTES, 1024 * 1024).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_read_error_from_tar_is_not_the_end_of_the_stream() {
+        struct Fails(bool);
+        impl std::io::Read for Fails {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if std::mem::replace(&mut self.0, true) {
+                    return Err(std::io::Error::other("pipe read failed"));
+                }
+                buffer[..4].copy_from_slice(b"tar!");
+                Ok(4)
+            }
+        }
+        let mut sink = Vec::new();
+        assert!(pump(&mut Fails(false), &mut sink, 1024).is_err());
+        assert_eq!(sink, b"tar!");
+        let mut sink = Vec::new();
+        assert!(!pump(&mut &b"tar!"[..], &mut sink, 1024).unwrap());
+        assert!(pump(&mut &b"tar!"[..], &mut Vec::new(), 3).unwrap());
+    }
+
     // GNU stat, as on the guest.
     #[cfg(target_os = "linux")]
     #[test]
