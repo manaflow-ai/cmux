@@ -58,7 +58,11 @@ const frames = async (ctx: PlayContext, count = 4) => {
 
 /// The page's own Return, after the mock's handshake installed the chat's actions.
 /// `ctx.waitFor` that says which wait did not hold.
-async function waitFor(ctx: PlayContext, what: string, condition: () => unknown) {
+async function waitFor(
+  ctx: PlayContext,
+  what: string,
+  condition: () => boolean | Element | null | undefined,
+) {
   try {
     await ctx.waitFor(condition, { capMs: 10_000 });
   } catch {
