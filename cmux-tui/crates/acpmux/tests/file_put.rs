@@ -367,6 +367,8 @@ async fn a_file_sent_while_the_peers_link_reconnects_waits_for_it_and_lands() {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(1500)).await;
         up.send_replace(true);
+        // Kept until the relay's pipes go: a dropped sender would end them.
+        up.closed().await;
     });
     let mut ca = client(&a, Origin::Local);
     let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "clip.mp4", b"video bytes")).await;
