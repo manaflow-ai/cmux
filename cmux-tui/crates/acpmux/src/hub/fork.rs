@@ -56,6 +56,7 @@ impl Hub {
         session_env: std::collections::BTreeMap<String, String>,
         workspace_id: Option<String>,
         through: Option<u64>,
+        start_later: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
         let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
@@ -216,16 +217,29 @@ impl Hub {
             Made::Copy(copy) => (json!({}), Some(copy.clone())),
             Made::ClaudeResume | Made::Fresh => (json!({}), None),
         };
-        let fork_seq = cut.unwrap_or_else(|| session.seq.load(Ordering::SeqCst));
+        // A fork through a turn copies through its `turn_result`, before which the log holds
+        // nothing back. A fork of now copies the tool output the log holds back too
+        // (`store/deferred.rs`), read with the seq it copies through.
+        let (fork_seq, held_output) = match cut {
+            Some(cut) => (cut, Vec::new()),
+            None => {
+                let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+                let held = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).pending();
+                (session.seq.load(Ordering::SeqCst), held)
+            }
+        };
+        let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
         let meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
+            name_given,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
+            launch_digest: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
@@ -233,6 +247,7 @@ impl Hub {
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
+            retired_agent_session_ids: Vec::new(),
             // The id was produced by this fork's actual harness, not by the parent's creation
             // family (which can be stale after a profile switch).
             agent_session_family: new_sid
@@ -290,6 +305,7 @@ impl Hub {
             unread: false,
             claude_unstored: false,
             hibernated_ms: 0,
+            moved_to: None,
             claude_profile: None,
             last_turn: None,
             harness_failures: Default::default(),
@@ -336,6 +352,7 @@ impl Hub {
             // The person's setting for the chat it came from, not for the fork.
             turn_cap_ms: None,
             turn_cap_noticed: None,
+            delegator: None,
         };
         let new = self.make_session(meta);
         match made {
@@ -344,7 +361,7 @@ impl Hub {
             Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
             Made::Copy(_) | Made::Agent(..) => {}
         }
-        if let Err(e) = self.store.save(&new.meta()) {
+        if let Err(e) = self.write_meta(&new) {
             // Never published: no session owns the conversation this fork copied or its agent
             // made, so remove it rather than leave a discoverable orphan (an inline /btw's fork
             // asks about a chat that must not outlive the question).
@@ -427,6 +444,10 @@ impl Hub {
                 true
             });
         }
+        for output in held_output {
+            let at = Some(now_ms());
+            let _ = self.append_at(&new, "in", "tool_call_update", output, None, at);
+        }
         // The fork's copy of the running turn ends now: its tool calls still running did not
         // finish here, and the turn is cancelled, so the fork is idle and its partial reply
         // reads as cut off. The chat's own turn goes on.
@@ -457,13 +478,24 @@ impl Hub {
         self.append(&new, "mux", "forked", forked);
         self.append(session, "mux", "fork_child", json!({"childId": id}));
         // The forked agent session lives in the parent's process. Load it in
-        // its own process so one session keeps one child.
-        match self.child_for(&new).await {
-            Ok(_) => {}
-            Err(e) => tracing::warn!(session = %new.id, "fork child start failed: {e}"),
-        }
+        // its own process so one session keeps one child. Fork Conversation
+        // (`start_later`) answers first: the fork's model, effort, env and
+        // history are all in its meta and log by now, a harness start takes
+        // seconds, and the fork's first prompt waits for this start (`child_for`
+        // holds the spawn lock). A start that fails says why at that prompt.
         self.save_meta(&new);
         creation_guard.disarm();
+        if start_later {
+            let hub = self.clone();
+            let fork = new.clone();
+            tokio::spawn(async move {
+                if let Err(e) = hub.child_for(&fork).await {
+                    tracing::warn!(session = %fork.id, "fork child start failed: {e}");
+                }
+            });
+        } else if let Err(e) = self.child_for(&new).await {
+            tracing::warn!(session = %new.id, "fork child start failed: {e}");
+        }
         Ok(new)
     }
 }

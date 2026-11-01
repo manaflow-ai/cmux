@@ -140,7 +140,7 @@ enum ChiefInspectorHandlers {
 
     /// The screen of `pane` when it is in the home workspace, else nil.
     private static func homeScreen(of pane: PaneModel, context: AppActionContext) -> ScreenModel? {
-        for workspace in context.daemon.store.workspaces where workspace.kind == "home" {
+        for workspace in context.daemon.store.workspaces where workspace.isAnyHome {
             if let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }) { return screen }
         }
         return nil
@@ -162,7 +162,7 @@ enum ChiefInspectorHandlers {
         guard invocation.target == nil || scope.pane != nil else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         // The home workspace (kind "home") holds only the Chief conversation
         // that the Home page shows: the column goes into a user workspace.
-        let user = { (w: WorkspaceModel) in w.kind != "home" && w.screens.first?.panes.last != nil }
+        let user = { (w: WorkspaceModel) in !w.isAnyHome && w.screens.first?.panes.last != nil }
         let workspace = scope.workspace.flatMap { user($0) ? $0 : nil }
             ?? context.daemon.store.workspaces.first(where: user)
         guard let pane = workspace?.screens.first?.panes.last else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
@@ -201,10 +201,9 @@ enum ChiefInspectorHandlers {
             throw ActionWorkFailure(MiscHandlerStrings.noBrowser)
         }
         let surface = try await browserTabs.open(choice, in: anchor, url: url.absoluteString, profile: nil)
-        let spawn = context.services.newColumnWidth(nextTo: anchor)
+        let width = context.services.newColumnWidth(nextTo: anchor)
         do {
-            _ = try await connection.moveTabToColumn(surface, target: .pane(handle), afterColumn: nil, width: spawn.width)
-            spawn.commit()
+            _ = try await connection.moveTabToColumn(surface, target: .pane(handle), afterColumn: nil, width: width)
         } catch DaemonError.missingCapabilities {
             try await connection.split(handle, direction: .right, movingTab: surface)
         }

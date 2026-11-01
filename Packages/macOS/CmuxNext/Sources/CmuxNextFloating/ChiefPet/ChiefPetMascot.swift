@@ -24,6 +24,9 @@ public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
 
     public var image: NSImage? { Bundle.module.image(forResource: resource) }
 
+    /// An animated character's sheet (`ChiefMascot<Name>Sheet.png` with its `.json`); nil for a still one.
+    var sprite: ChiefPetSprite? { ChiefPetSprite.bundled(resource) }
+
     /// The character as a Chief avatar: whole, centered on a transparent square with room
     /// around it (`…Avatar.png`), so a round avatar (the Home header and list, New Message)
     /// shows all of it and no disc behind it.

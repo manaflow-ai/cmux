@@ -3,7 +3,7 @@
 //! GUI test jobs run tagged apps with the user's real credentials. With
 //! `ACPMUX_AGENT_LAUNCH=deny` (or `CMUX_AGENTS_DISABLED=1`) in the daemon's
 //! environment, acpmux starts no agent process at all: the spawn points
-//! (`ChildAgent::spawn_with`, `agent_host::link::spawn_within`) refuse, model
+//! (`ChildAgent::spawn_with`, `agent_host::link::spawn`) refuse, model
 //! probes and pool prewarms skip, and `session/new` fails with
 //! [`rpc_error`], which says why and is not retryable.
 //!

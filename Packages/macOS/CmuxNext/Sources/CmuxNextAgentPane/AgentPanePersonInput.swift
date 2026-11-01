@@ -36,8 +36,9 @@ enum AgentPanePersonInput {
     /// Records the gesture of a native choice (a menu item, a shortcut, a drop) only when the event
     /// in dispatch is the person's: a posted click or key, or a scripted run, grants nothing.
     /// `answer`: the native permission shortcut, which may answer a prompt as a click does.
-    @MainActor static func record(_ gestures: AgentPaneUserGestures, if byPerson: Bool = true, answer: Bool = false) {
-        if byPerson, currentIsPerson { gestures.record(click: answer) }
+    @MainActor static func record(_ gestures: AgentPaneUserGestures, if byPerson: Bool = true, answer: Bool = false,
+                                 event: NSEvent? = NSApp.currentEvent) {
+        if byPerson, let event, isPerson(event) { gestures.record(click: answer) }
     }
 
     static func executablePath(_ pid: pid_t) -> String? {

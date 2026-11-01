@@ -12,7 +12,7 @@ import type { ToolFailure } from "./toolFailure";
 export function failureWord(t: Translate, failure: ToolFailure): string {
   switch (failure.kind) {
     case "hook":
-      return t("tools.blocked");
+      return t("tools.blockedByHook");
     case "denied":
       return t("tools.denied");
     case "timeout":
@@ -24,19 +24,18 @@ export function failureWord(t: Translate, failure: ToolFailure): string {
   }
 }
 
-/// The hook that refused the call, before its reason ("PreToolUse"), in the quiet mono of a name.
-function HookName({ failure }: { failure: ToolFailure }) {
-  return failure.hook ? <code className="cv-tool-error__hook">{failure.hook}</code> : null;
-}
+/// A cause drawn on or under the row: never a hook's, whose row says "blocked by hook" and whose
+/// words are the opened call's output, as Claude Code desktop draws a blocked call (Leo,
+/// 2026-10-31: "WHY IS THERE PRETOOLUSE").
+const drawnCause = (failure: ToolFailure | undefined) => (failure?.kind === "hook" ? undefined : failure?.cause);
 
 /// The cause on the row itself (the `inline` arm): after the call's words, cut with them.
 export function InlineFailureCause({ failure }: { failure: ToolFailure | undefined }) {
-  if (!failure?.cause) return null;
+  if (!failure || !drawnCause(failure)) return null;
   if (experimentArm(toolErrorLook) !== "inline") return null;
   return (
     <span className="cv-tool-error__inline" data-find-skip>
       {" · "}
-      <HookName failure={failure} />
       {failure.cause}
     </span>
   );
@@ -45,13 +44,12 @@ export function InlineFailureCause({ failure }: { failure: ToolFailure | undefin
 /// The cause under the row: one dim line (`line`), or a small card with Copy error (`card`).
 export function ToolFailureCause({ failure }: { failure: ToolFailure | undefined }) {
   // A call that did not fail reads no experiment (a localStorage read) on each render.
-  if (!failure?.cause) return null;
+  if (!failure || !drawnCause(failure)) return null;
   const arm = experimentArm(toolErrorLook);
   if (arm === "inline") return null;
   if (arm === "card") return <FailureCard failure={failure} />;
   return (
     <div className="cv-tool-error" data-failure-kind={failure.kind} data-find-skip>
-      <HookName failure={failure} />
       {failure.cause}
     </div>
   );
@@ -61,10 +59,7 @@ function FailureCard({ failure }: { failure: ToolFailure }) {
   const t = useT();
   return (
     <div className="cv-tool-error-card" data-failure-kind={failure.kind} data-find-skip>
-      <span className="cv-tool-error-card__cause">
-        <HookName failure={failure} />
-        {failure.cause}
-      </span>
+      <span className="cv-tool-error-card__cause">{failure.cause}</span>
       {failure.detail && (
         <CopyButton
           text={failure.detail}

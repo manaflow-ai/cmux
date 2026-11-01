@@ -113,6 +113,7 @@ describe("runMachineStep", () => {
     expect(await runMachineStep(fakePort({ ok: false, refusal: "not_running" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.not_running" })
     expect(await runMachineStep(fakePort({ ok: false, refusal: "provider_failed" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.unavailable" })
     expect(await runMachineStep(fakePort({ ok: false, refusal: "forbidden" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.forbidden" })
+    expect(await runMachineStep(fakePort({ ok: false, refusal: "output_limit" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.output_limit" })
   })
 })
 

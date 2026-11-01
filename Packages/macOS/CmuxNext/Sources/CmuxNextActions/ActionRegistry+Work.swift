@@ -20,6 +20,9 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// (`screenshot.unavailable`), with `message` as its reason. Nil for the
     /// default mapping (``refusal``, a timeout, or `daemon_error`).
     public var code: String?
+    /// The person already saw why it failed (the daemon service showed a pane-still-opening refusal when the command
+    /// ended), so no reporter (the registry, a handler's own report) shows a second notice: once, never zero times or twice.
+    public var shown = false
 
     public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message
@@ -71,6 +74,15 @@ extension ActionRegistry {
     /// Reports a task a handler started. Ignored unless a caller is capturing.
     public func track(_ task: ActionWork) {
         if capturedWork != nil { capturedWork?.append(task) }
+    }
+
+    /// Reports `task` to a capturing caller (a CLI or MCP run awaits it, ``track(_:)``); a menu or
+    /// keyboard run nobody waits on shows its failure as a refusal (``refuse(_:quiet:)``) instead of
+    /// dropping it (Archive Chief on an unreachable Chief did nothing).
+    public func trackOrRefuse(_ task: ActionWork) {
+        if isCapturingWork { return track(task) }
+        // task-owner: one-shot; ends with `task`, and holds the registry weakly.
+        Task { @MainActor [weak self] in if let failure = await task.value { self?.refuse(failure.message) } }
     }
 
     /// Reports a task that produces the action's value (a screenshot's

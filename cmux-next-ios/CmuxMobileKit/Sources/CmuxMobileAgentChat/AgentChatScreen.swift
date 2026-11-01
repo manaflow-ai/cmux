@@ -94,6 +94,25 @@ public final class AgentChatSurface {
     }
     /// Mirrors the composer's focus (the composer's `@FocusState` follows it).
     public var composerFocused = false
+
+    /// Edit and Resend from a user bubble: the message goes into the composer to edit and
+    /// is sent from there. Returns false, changing nothing, while the composer holds a
+    /// draft (the bubble asks before replacing it).
+    func editAndResend(_ turn: AgentTurn, store: AgentChatStore) -> Bool {
+        guard let prompt = store.editAndResend(turn, draft: text) else { return false }
+        loadForEditing(prompt, permissionPending: store.pendingPermission != nil)
+        return true
+    }
+
+    /// Puts a message in the composer, focused. With permission choices up, the composer
+    /// takes their place as a follow-up, as for a draft typed before the permission arrived,
+    /// never as "Reply instead", which would answer the request (an open "Reply instead" ends).
+    func loadForEditing(_ prompt: String, permissionPending: Bool) {
+        text = prompt
+        replyInsteadOfPermission = false
+        if permissionPending { permissionDeferred = true }
+        composerFocused = true
+    }
     /// Screen y of the top of the floating bottom stack (tab mode), so the
     /// transcript's bottom margin follows the composer and the keyboard.
     public internal(set) var bottomStackTop: CGFloat?
@@ -102,6 +121,10 @@ public final class AgentChatSurface {
     /// it from the keyboard layout guide in the keyboard's own animation.
     public internal(set) var stackHeight: CGFloat?
     public internal(set) var stackMaxY: CGFloat?
+    /// Window y the bottom stack may not rise above: under the transcript's header and,
+    /// for the pushed chat, inside the dock's host. The transcript sets it as it lays
+    /// out; the composer's slash-command list scrolls inside the room below it.
+    var stackCeiling: CGFloat?
     /// The live transcript's scroll view (jump to bottom, demos).
     @ObservationIgnored weak var scroller: (any ChatTranscriptScrolling)?
     /// The bottom stack's height as drawn, once per frame while it animates
@@ -142,7 +165,7 @@ public final class AgentChatSurface {
         following = true
         if let scroller {
             scroller.scrollTranscript(toTop: false, animated: animated)
-        } else if animated {
+        } else if animated, !UIAccessibility.isReduceMotionEnabled {
             withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) }
         } else {
             position.scrollTo(edge: .bottom)
@@ -260,7 +283,6 @@ public struct AgentChatScreen: View {
             .background(Color.cmuxMobileBackground)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
-            .toolbar(.hidden, for: .tabBar)
     }
 
     // MARK: Toolbar
@@ -552,8 +574,13 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
+    /// The composer's top in the stack: what the stack shows over it (an error, plan
+    /// progress, queued prompts) and their spacing.
+    @State private var composerOffset: CGFloat = 0
+    nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
+    @State private var retryCount = 0
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -570,19 +597,43 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    Button {
-                        withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
-                    } label: {
-                        Label(error, systemImage: "exclamationmark.circle")
+                    if store.canRetryPrompt {
+                        HStack(spacing: 8) {
+                            Button {
+                                withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                            } label: {
+                                Label(error, systemImage: "exclamationmark.circle")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Dismiss")
+                            Button("Retry", systemImage: "arrow.clockwise") {
+                                retryCount += 1
+                            }
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
+                            .buttonStyle(.plain)
+                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .glassEffect(.regular, in: .capsule)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                    } else {
+                        Button {
+                            withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                        } label: {
+                            Label(error, systemImage: "exclamationmark.circle")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                        }
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular, in: .capsule)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                        .accessibilityHint("Dismiss")
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular, in: .capsule)
-                    .transition(.opacity.combined(with: .offset(y: 8)))
-                    .accessibilityHint("Dismiss")
                 }
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
@@ -609,10 +660,16 @@ public struct AgentChatBottomStack: View {
                     ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty,
                                  expandOnAppear: surface.replyInsteadOfPermission,
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
-                                 denyingPermission: replying)
+                                 denyingPermission: replying,
+                                 suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
+                                 retryCount: retryCount)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
+                            if composerOffset != offset { composerOffset = offset }
+                        }
                         .transition(.opacity)
                 }
             }
+            .coordinateSpace(.named(Self.stackSpace))
             // The transcript's bottom margin follows this top. The jump
             // button is not in this stack: counting it moved the margin,
             // which moved the distance, which toggled the button (a layout
@@ -705,12 +762,14 @@ struct TurnView: View {
     let store: AgentChatStore
     let isLast: Bool
     var surface: AgentChatSurface?
+    /// Edit and Resend while the composer holds a draft: confirming replacing it.
+    @State private var confirmingReplace = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
             // place; only what arrives live animates in.
-            UserBubble(turn: turn, isLast: isLast) { store.send(prompt: $0) }
+            UserBubble(turn: turn, isLast: isLast) { editAndResend() }
                 .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
@@ -743,13 +802,36 @@ struct TurnView: View {
                     }
                 case .completed:
                     AnswerActionRow(turn: turn, isLast: isLast, retryWith: RetryModelChoice(store: store, turn: turn)) {
-                        store.send(prompt: turn.prompt)
+                        store.retry(turn)
                     }
                 case .running:
                     EmptyView()
                 }
             }
         }
+        // Edit and Resend while a draft is in the composer: the draft is replaced only on a
+        // choice here, and can be copied first.
+        .confirmationDialog("Replace your draft?", isPresented: $confirmingReplace, titleVisibility: .visible) {
+            Button("Copy Draft and Replace") {
+                UIPasteboard.general.string = surface?.text
+                editInComposer()
+            }
+            Button("Replace Draft", role: .destructive) { editInComposer() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Edit and Resend puts this message in the composer.")
+        }
+    }
+
+    /// Edit and Resend: the message goes into the composer to edit, and is sent from there.
+    /// A draft in the composer is never replaced without asking.
+    private func editAndResend() {
+        guard let surface else { return }
+        if !surface.editAndResend(turn, store: store) { confirmingReplace = true }
+    }
+
+    private func editInComposer() {
+        surface?.loadForEditing(turn.prompt, permissionPending: store.pendingPermission != nil)
     }
 
     @ViewBuilder
@@ -849,7 +931,7 @@ struct StreamingMarkdown: View {
 struct UserBubble: View {
     let turn: AgentTurn
     let isLast: Bool
-    let resend: (String) -> Void
+    let editAndResend: () -> Void
     @State private var selecting = false
 
     var body: some View {
@@ -869,7 +951,7 @@ struct UserBubble: View {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = turn.prompt }
                         Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
-                            Button("Edit and Resend", systemImage: "pencil") { resend(turn.prompt) }
+                            Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
                         }
                         ShareLink(item: turn.prompt) { Label("Share", systemImage: "square.and.arrow.up") }
                     }

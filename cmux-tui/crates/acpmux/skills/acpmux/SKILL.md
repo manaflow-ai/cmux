@@ -123,14 +123,21 @@ acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt s
 acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; any size and number (large ones are uploaded in chunks first)
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
-acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
+acpmux ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
+acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--host HOST]   # a filter hides nothing
+acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
+acpmux session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
+acpmux ls 'review-*' --fields name,status          # name globs (`host/glob` for one peer); --fields takes dotted paths
+acpmux send --tag area=X [--dry-run] "…"           # a --no-wait message to every live session with the tag, one line each
 acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
 acpmux session cancel NAME                         # stop the running turn; the session stays
 acpmux session restart NAME                        # restart its agent process after the turn, same conversation
 acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
+acpmux session queue list|remove|clear NAME        # its queued prompts; clear --from-agents drops agents' messages only
 acpmux session kill --purge NAME                   # delete (only sessions you created)
+acpmux session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only if idle and unchanged; else exit 6, nothing stopped
 ```
 
 `send` on a busy or blocked session never refuses: the prompt queues and the
@@ -149,7 +156,7 @@ may create that group); it does not move focus. Use a human label only, never a
 `grp_…`, `ws_…` or other object id. Omit it unless the person asked for this
 sidebar placement. To recover from an unwanted placement, inspect
 `cmux --json workspace group list`, then move/delete the affected workspace or
-group with `cmux workspace group …`; rerunning without `--group` is safe.
+group with the other `workspace group` commands; rerunning without `--group` is safe.
 
 A child of another harness under your own chat (a Codex child of a Claude chat): it lists
 under your chat, and your sub-session tools read, message and stop it.
@@ -218,8 +225,10 @@ resolve): your policy answers those, and `ask` sends them to a person.
 ## 6. Other machines
 
 A session on a peer is named `HOST/NAME` (`big-red/review-42`), and every command takes that
-form. Say and pass that name: never ask the person for a session id, and never use a bare id
-from another machine (an id names a session only on the machine that runs it).
+form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
+host or its peers has it; when several do, the command refuses and prints the exact
+`HOST/NAME` command for each, so pick one and run it. Say and pass `HOST/NAME`: never ask the
+person for a session id.
 
 ```bash
 acpmux host status                               # each host: reachable, round trip, disk, load, build
@@ -244,11 +253,14 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 - **Where files live.** A remote session reads and writes the peer's disk. `--cwd` and
   `--worktree` are paths there, and its worktrees go to `~/.cmux/worktrees/<project>/<name>`
   on that machine. Nothing it writes appears here unless it pushes it (git) or you fetch it.
-- **Moving a session.** `acpmux session export HOST/NAME` fetches the bundle to
-  `~/.acpmux/bundles/`, and `acpmux session import DIR` restores it on this machine. No command
-  moves a session from one peer to another yet. To continue the work on another machine, start
-  a session there with `--host` and a `--prompt-file` that says where the work stands (branch,
-  PR, next step).
+- **Moving a session.** `acpmux session move SESSION... --host PEER` (or `--host auto`, the
+  placement's pick, never a reserved host; `--all-idle` for every idle chat here) moves chats from
+  this machine to an ssh peer with their history, queue and draft. A chat's worktree branch is
+  pushed and checked out there as a fresh worktree; uncommitted changes refuse the move unless
+  `--leave-dirty`. A running turn refuses it unless `--interrupt`. `--dry-run` says where each
+  would go. The copy left here never runs again and `resolve` points at the new one.
+  `acpmux session export HOST/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
+  `acpmux session import DIR` restores a copy on this machine.
 - **What the host allows.** Some machines are not for builds or long jobs. When the task or the
   session's first message names what a host must not run, honour it, and pick another host
   from `host status`.
@@ -276,7 +288,8 @@ read-tool payloads in event output.
 
 Exit codes: 0 ok · 1 runtime or agent error · 2 usage, or a permission is
 waiting (`wait`) · 3 timeout · 4 no such session · 5 every permission in the
-turn was denied · 130 interrupted.
+turn was denied · 6 `session stop --if-idle` refused (`busy` or
+`revision_moved`; `error.data.revision` is the current `lastSeq`) · 130 interrupted.
 
 ## 8. Rules
 

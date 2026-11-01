@@ -28,11 +28,13 @@ struct RapidWorkspaceCreateTests {
     private static func name(_ press: Int) -> String { String(format: "race-%02d", press) }
 
     /// Polls until `done` holds or `limit` passes (a poll, as in `FirstLaunchTests`).
-    static func wait(within limit: Duration, until done: () -> Bool) async {
+    @discardableResult
+    static func wait(within limit: Duration, until done: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + limit
         while !done(), ContinuousClock.now < deadline, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        return done()
     }
 
     /// The app on a fresh same-tree daemon, with the launch window showing its first workspace.

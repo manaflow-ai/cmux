@@ -5,6 +5,7 @@ import CmuxNextControl
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextLayout
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -28,7 +29,7 @@ struct PlacementWriteOrderTests {
         let savedDocument = SidebarDocStore.current
         SidebarDocStore.current = nil
         defer { SidebarDocStore.current = savedDocument }
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", PlacementStaleRowsGalleryTests.daemonScript, mixed ? "1" : "0", mode])
+        let bridge = DaemonBridge.fakePython(["-c", PlacementStaleRowsGalleryTests.daemonScript, mixed ? "1" : "0", mode])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-placement-order-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {

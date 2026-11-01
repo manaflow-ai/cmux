@@ -432,7 +432,7 @@
 }
 
 .theme-token:not(:disabled) {
-  cursor: pointer;
+  cursor: default;
 }
 
 .theme-token:not(:disabled):hover {
@@ -519,7 +519,7 @@
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
-  cursor: pointer;
+  cursor: default;
 }
 
 .token-tuner-contrast {
@@ -751,6 +751,7 @@
 }
 
 .theme-count {
+  font-variant-numeric: tabular-nums;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
   margin-top: 4px;
@@ -872,6 +873,10 @@
     overflow-x: auto;
   }
 
+  /* One scrolling row of categories: the sections' runs join it and their headers step aside. */
+  .sidebar-section { display: contents; }
+  .sidebar-section-title { display: none; }
+
   .section-link {
     flex: none;
     width: auto;
@@ -969,7 +974,7 @@
   font: inherit;
   position: relative;
   text-align: center;
-  cursor: pointer;
+  cursor: default;
   transition: border-color var(--motion-hover) var(--motion-ease);
 }
 
