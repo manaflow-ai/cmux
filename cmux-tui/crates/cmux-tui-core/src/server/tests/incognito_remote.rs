@@ -341,3 +341,51 @@ fn a_remote_devices_resource_replies_leave_out_incognito_workspaces() {
     assert!(!text.contains("private-space"), "{text}");
     mux.shutdown();
 }
+
+#[test]
+fn a_remote_device_never_lists_an_incognito_workspaces_notification_or_pins_it() {
+    let mux = test_mux();
+    let app = app(&mux);
+    let private = create(&mux, &app, "private-space", true);
+    let normal = create(&mux, &app, "normal-space", false);
+    for (workspace, title, key) in
+        [(&private, "secret-note", "n-private"), (&normal, "shown-note", "n-normal")]
+    {
+        let made = v2(
+            &mux,
+            &app,
+            "notification.create",
+            json!({"title": title, "body": "", "workspace_id": workspace}),
+            key,
+        );
+        assert_eq!(made["ok"], true, "{made}");
+    }
+    let local = line(&mux, &app, json!({"id": "n", "cmd": "list-notifications"}));
+    assert!(local.to_string().contains("secret-note"), "the app lists it: {local}");
+
+    let phone = phone(&mux);
+    let remote = line(&mux, &phone, json!({"id": "n", "cmd": "list-notifications"}));
+    assert_eq!(remote["ok"], true, "{remote}");
+    let text = remote.to_string();
+    assert!(text.contains("shown-note"), "{text}");
+    assert!(!text.contains("secret-note"), "an incognito notification reached the phone: {text}");
+
+    // Pinning the incognito workspace through the sidebar layout is refused,
+    // and the layout is unchanged.
+    // A ref value is `<session>:ws_...`, opaque to the store.
+    let qualified = format!("main:{private}");
+    let pin = v2(
+        &mux,
+        &phone,
+        "sidebar_layout.update",
+        json!({"op": {"kind": "item.add", "section": "sec_bottom", "index": 0,
+                      "item": {"id": "itm_private",
+                               "ref": {"kind": "workspace", "value": qualified}}}}),
+        "pin",
+    );
+    assert_eq!(pin["ok"], false, "{pin}");
+    assert!(!pin.to_string().contains("private-space"), "{pin}");
+    let layout = v2(&mux, &app, "sidebar_layout.get", json!({}), "layout");
+    assert!(!layout.to_string().contains("itm_private"), "the phone pinned it: {layout}");
+    mux.shutdown();
+}
