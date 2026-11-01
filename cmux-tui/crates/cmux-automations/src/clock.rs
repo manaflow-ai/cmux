@@ -1,7 +1,8 @@
 //! Wall-clock conversion in the machine's local zone or UTC.
 //!
-//! Local time goes through the C library (`localtime_r`, `mktime`), so
-//! daylight saving follows the OS's own zone database. Named IANA zones run
+//! Local time goes through the C library (`localtime_r`, `mktime`; the CRT's
+//! `_localtime64_s`, `_mktime64` on Windows), so daylight saving follows the
+//! OS's own zone database. Named IANA zones run
 //! on cmux Cloud (SchedulerDO); a local runner keeps to the zone the Mac is
 //! in, as Claude Code Desktop does.
 
@@ -40,11 +41,94 @@ impl Civil {
     }
 }
 
+#[cfg(unix)]
 unsafe extern "C" {
     fn tzset();
 }
 
+// The CRT's 64-bit `mktime` and `timegm` (libc declares neither for Windows).
+#[cfg(windows)]
+unsafe extern "C" {
+    #[link_name = "_mktime64"]
+    fn mktime64(tm: *mut libc::tm) -> i64;
+    #[link_name = "_mkgmtime64"]
+    fn mkgmtime64(tm: *mut libc::tm) -> i64;
+}
+
 static TZSET: Once = Once::new();
+
+/// Read the zone settings (`TZ`, the system zone) once, before the first
+/// local conversion.
+fn tzset_once() {
+    // SAFETY: tzset takes no arguments; `Once` runs it a single time.
+    #[cfg(unix)]
+    TZSET.call_once(|| unsafe { tzset() });
+    // SAFETY: as above (libc links it to the CRT's `_tzset`).
+    #[cfg(windows)]
+    TZSET.call_once(|| unsafe { libc::tzset() });
+}
+
+/// `t` broken down in `zone` (both calls only write into `tm`).
+#[cfg(unix)]
+fn break_down(zone: Zone, t: i64, tm: &mut libc::tm) {
+    let time = t as libc::time_t;
+    match zone {
+        Zone::Local => {
+            tzset_once();
+            // SAFETY: `time` and `tm` are valid for the call.
+            unsafe { libc::localtime_r(&time, tm) };
+        }
+        // SAFETY: as above.
+        Zone::Utc => unsafe {
+            libc::gmtime_r(&time, tm);
+        },
+    }
+}
+
+/// `t` broken down in `zone` (both calls only write into `tm`).
+#[cfg(windows)]
+fn break_down(zone: Zone, t: i64, tm: &mut libc::tm) {
+    let time = t as libc::time_t;
+    match zone {
+        Zone::Local => {
+            tzset_once();
+            // SAFETY: `time` and `tm` are valid for the call.
+            unsafe { libc::localtime_s(tm, &time) };
+        }
+        // SAFETY: as above.
+        Zone::Utc => unsafe {
+            libc::gmtime_s(tm, &time);
+        },
+    }
+}
+
+/// Seconds since the epoch of `tm` in `zone`; out-of-range fields carry over.
+#[cfg(unix)]
+fn seconds_of(zone: Zone, tm: &mut libc::tm) -> i64 {
+    match zone {
+        Zone::Local => {
+            tzset_once();
+            // SAFETY: `tm` is valid; mktime normalizes it in place.
+            (unsafe { libc::mktime(tm) }) as i64
+        }
+        // SAFETY: as above.
+        Zone::Utc => (unsafe { libc::timegm(tm) }) as i64,
+    }
+}
+
+/// Seconds since the epoch of `tm` in `zone`; out-of-range fields carry over.
+#[cfg(windows)]
+fn seconds_of(zone: Zone, tm: &mut libc::tm) -> i64 {
+    match zone {
+        Zone::Local => {
+            tzset_once();
+            // SAFETY: `tm` is valid; _mktime64 normalizes it in place.
+            unsafe { mktime64(tm) }
+        }
+        // SAFETY: as above.
+        Zone::Utc => unsafe { mkgmtime64(tm) },
+    }
+}
 
 impl Zone {
     /// `local` (also empty) or `UTC`; any other name is refused with the reason.
@@ -68,18 +152,9 @@ impl Zone {
 
     /// The wall-clock minute at `t` (seconds since the epoch).
     pub fn civil(self, t: i64) -> Civil {
-        // SAFETY: `tm` is plain data; both calls only write into it.
+        // SAFETY: `tm` is plain data; all zeros is a valid value.
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        let time = t as libc::time_t;
-        match self {
-            Zone::Local => {
-                TZSET.call_once(|| unsafe { tzset() });
-                unsafe { libc::localtime_r(&time, &mut tm) };
-            }
-            Zone::Utc => {
-                unsafe { libc::gmtime_r(&time, &mut tm) };
-            }
-        }
+        break_down(self, t, &mut tm);
         Civil {
             year: tm.tm_year + 1900,
             month: (tm.tm_mon + 1) as u32,
@@ -104,12 +179,6 @@ impl Zone {
         tm.tm_min = minute as libc::c_int;
         tm.tm_sec = 0;
         tm.tm_isdst = -1;
-        match self {
-            Zone::Local => {
-                TZSET.call_once(|| unsafe { tzset() });
-                (unsafe { libc::mktime(&mut tm) }) as i64
-            }
-            Zone::Utc => (unsafe { libc::timegm(&mut tm) }) as i64,
-        }
+        seconds_of(self, &mut tm)
     }
 }
