@@ -69,9 +69,25 @@ class Pure(unittest.TestCase):
     def test_plan_has_every_action_and_same_pairs(self):
         seq = ext_fuzz.plan(1, 3000)
         names = {i["a"] for i in seq}
-        self.assertEqual(names, set(ext_fuzz.ACTIONS))
+        # The full set: every action but the quit set's own (kept out so old seeds keep their plans).
+        self.assertEqual(names, {a for a in ext_fuzz.ACTIONS if ext_fuzz.WEIGHTS.get(a, 0) > 0})
+        self.assertEqual(set(ext_fuzz.ACTIONS) - names, {a for a in ext_fuzz.ACTIONS if ext_fuzz.ACTIONS[a].get("ends")})
         pairs = sum(1 for a, b in zip(seq, seq[1:]) if a["t"] == "pair" and a["a"] == b["a"] and ext_fuzz.ACTIONS[a["a"]].get("creates"))
         self.assertGreater(pairs, 50)
+
+    def test_quit_set_plays_every_quit_kind_and_each_ends_its_burst(self):
+        """QUIT P0: the quit set plays each quit kind and kill -9, and each one ends its burst, often right after a
+        create, a resize or typed text (a kill during them)."""
+        seq = ext_fuzz.plan(3, 2000, actions="quit")
+        ends = {a for a in ext_fuzz.ACTIONS if ext_fuzz.ACTIONS[a].get("ends")}
+        self.assertEqual(ends & {i["a"] for i in seq}, ends)
+        during = 0
+        for burst in ext_fuzz.bursts(seq):
+            for item in burst[:-1]:
+                self.assertNotIn(item["a"], ends, "a quit or kill in the middle of a burst")
+            if burst[-1]["a"] in ends and len(burst) > 1:
+                during += 1
+        self.assertGreater(during, 20, "quits and kills that follow another action at once")
 
     def test_alone_action_ends_the_burst_before_it(self):
         seq = [{"a": "new_terminal", "t": "now"}, {"a": "close_all", "t": "slow"}]
