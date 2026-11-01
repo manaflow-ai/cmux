@@ -13,6 +13,9 @@ use sha2::Digest;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(test)]
+mod trigger_chat_tests;
+
 const MAX: usize = 4096;
 const MAX_PROMPT: usize = 64 * 1024;
 

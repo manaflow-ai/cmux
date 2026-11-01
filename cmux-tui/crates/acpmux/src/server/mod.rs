@@ -1693,6 +1693,9 @@ async fn serve_connection_from(
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
+            Message::Notification { method: m, params: _ } if conn.is_trigger() => {
+                tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
+            }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
@@ -1729,7 +1732,9 @@ async fn serve_connection_from(
             }
             // An answer to a request this daemon sent the client (`client_request.rs`).
             Message::Response { id, result, error } => {
-                conn.settle_client_request(&id, result, error);
+                if !conn.is_trigger() {
+                    conn.settle_client_request(&id, result, error);
+                }
             }
         }
     }
