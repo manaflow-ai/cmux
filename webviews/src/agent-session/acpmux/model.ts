@@ -404,6 +404,9 @@ export type AcpmuxRow = {
   /// conversation/toolRunSummary.ts).
   /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
+  /// A run of one-line rows carrying messages between agents, folded under one line
+  /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
+  messageRun?: AcpmuxMessageRun;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
@@ -933,6 +936,9 @@ export type AcpmuxSnapshot = {
   /// The rows of the steers the agent has not read yet (direct.ts `waitingSteers`), oldest first, only
   /// while two or more wait: the transcript draws other sessions' among them as one card.
   waitingSteers?: readonly string[];
+  /// While two or more steers wait: the row of the person's newest one, the only one that offers
+  /// Send now (direct.ts `newestOwnSteer`, conversation/PendingSteer.tsx).
+  newestOwnSteer?: string;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -1373,6 +1379,7 @@ export const isStatusRow = (row: AcpmuxRow | undefined) =>
     row.kind === "policyUnenforced" ||
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
+    row.kind === MESSAGE_RUN ||
     (row.kind === "user" && (row.incoming?.kind === "message" || row.incoming?.kind === "notice")) ||
     (row.kind === "activity" && isToolRun(row)));
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
@@ -1441,12 +1448,27 @@ export const QUEUED_MESSAGE = "queuedMessage";
 /// The row kind of the one group of messages that wait for the agent (conversation/pendingMessages.ts).
 export const PENDING_MESSAGES = "pendingMessages";
 export const LANE_NOTICE_BATCH = "laneNoticeBatch";
+/// The row kind of a run of one-line rows that carries messages between agents, folded under one
+/// line (conversation/messageRuns.ts, MessageRunLine.tsx).
+export const MESSAGE_RUN = "messageRun";
+/// What a message run's line says (conversation/messageRuns.ts): the messages sent and received, the
+/// other calls (counted as a tool run counts them), failures, whether one still runs, and the ids of
+/// the rows it folds (Find and links open it for one).
+export type AcpmuxMessageRun = {
+  sent: number;
+  received: number;
+  work: AcpmuxActivity[];
+  failed: number;
+  running: boolean;
+  rows: string[];
+};
 /// A one-line activity row drawn on the tool rows' line: another agent's message, a task's notice and
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report
 /// batch's head (LaneNoticeBatch.tsx) and the waiting messages' head (PendingMessagesCard.tsx).
 /// App.tsx marks it `acpmux-row--line` and joins it to the step rows beside it.
 export const isLineRow = (row: AcpmuxRow) =>
   row.kind === LANE_NOTICE_BATCH ||
+  row.kind === MESSAGE_RUN ||
   row.kind === PENDING_MESSAGES ||
   (row.kind === "user" &&
     !row.received &&
@@ -1852,6 +1874,8 @@ function measuredRowHeight(
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
   // On the grid every activity line is the footer slot's one line, live or not (fallbackRowHeight).
   if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  // A message run's line (conversation/messageRuns.ts): its rows, when open, are rows of their own.
+  if (row.kind === MESSAGE_RUN) return finish(lineRow());
   // A task notification from another agent is a tool row's line (conversation/IncomingMessageCard.tsx)
   // in the one-line rows' frame (lineRow).
   // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its head is a

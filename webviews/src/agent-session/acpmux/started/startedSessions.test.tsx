@@ -227,7 +227,7 @@ describe("name chips", () => {
       <>{renderInline("`Triage the failing tests` and twin-2", { started: { mentions, open: () => undefined } })}</>,
     );
     expect(html.match(/acpmux-started-chip/g)?.length).toBe(1);
-    expect(html).toContain('>twin-2</button>');
+    expect(html).toContain(">twin-2</button>");
   });
 
   test("a title standing in for a missing one (first prompt, New chat) is never a mention", () => {
@@ -275,9 +275,9 @@ describe("name chips", () => {
       <>{renderInline("Running: Triage the failing tests, `sess-2` and [it](cmux://session/sess-1).", { started })}</>,
     );
     expect(html.match(/acpmux-started-chip/g)?.length).toBe(3);
-    expect(html).toContain('>Triage the failing tests</button>');
-    expect(html).toContain('>sess-2</button>');
-    expect(html).toContain('>it</button>');
+    expect(html).toContain(">Triage the failing tests</button>");
+    expect(html).toContain(">sess-2</button>");
+    expect(html).toContain(">it</button>");
     // Without started chats a reply draws as before.
     expect(renderToStaticMarkup(<>{renderInline("Triage the failing tests")}</>)).not.toContain("acpmux-started");
   });

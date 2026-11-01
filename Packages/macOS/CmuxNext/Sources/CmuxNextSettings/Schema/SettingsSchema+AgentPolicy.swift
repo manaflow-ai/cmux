@@ -269,6 +269,7 @@ extension SettingsSchema {
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
+        "app.touchBar": .userOnly, // Touch Bar visibility is a personal hardware preference.
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,

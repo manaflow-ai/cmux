@@ -31,7 +31,6 @@ const selectorRoles: Record<string, string> = {
   ".acpmux-permission-card-leading": "icon",
   ".acpmux-session-info-section__icon": "icon",
   ".cv-tool__chevron": "chevron",
-  ".acpmux-running-tray__finished svg": "chevron",
   ".acpmux-running-tray__status": "chevron",
 };
 const point = (selector: string, metric: GridMetric, role?: string): GridPoint => ({
@@ -355,9 +354,6 @@ export const gridScenes: GridScene[] = [
     left("header: lead", ".acpmux-running-tray__head .acpmux-lineage__icon", "cx", token("tray-lead-center")),
     left("header: text", ".acpmux-running-tray__title", "text", token("tray-text")),
     mid(".acpmux-running-tray__title", ".acpmux-running-tray__head .acpmux-lineage__icon"),
-    left("footer: text", ".acpmux-running-tray__finished .acpmux-summary-text", "text", token("tray-text")),
-    trail(".acpmux-running-tray__finished svg", token("tray-trail-center")),
-    mid(".acpmux-running-tray__finished .acpmux-summary-text", ".acpmux-running-tray__finished svg"),
   ]),
   stack(
     "stack.queued",

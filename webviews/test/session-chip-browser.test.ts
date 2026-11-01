@@ -76,8 +76,6 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       const line = document.querySelector<HTMLElement>(row.line)!;
       const icon = document.querySelector<Element>(row.icon)!;
       const label = chip.querySelector(".cv-agent-tag__label")!;
-      // Any glyph drawn in the chip (the ↗ it once carried): there is none.
-      const cue = chip.querySelector<SVGElement>("svg");
       const c = chip.getBoundingClientRect();
       const i = icon.getBoundingClientRect();
       const l = label.getBoundingClientRect();

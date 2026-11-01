@@ -81,6 +81,7 @@ final class CloudService {
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
+    @ObservationIgnored private let refreshGate = CloudRefreshGate()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
@@ -412,6 +413,7 @@ final class CloudService {
     }
 
     func stop() {
+        refreshGate.cancel()
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
         observers.removeAll(); changes.stop()
@@ -475,11 +477,22 @@ final class CloudService {
     /// one signed in when it lands, changes nothing: it can neither bring back
     /// a signed-out account's machines, nor undo a create or delete it did not
     /// see, nor mark the store loaded with an older answer than the latest.
-    /// True only when this call's own list landed: a failed, skipped or superseded call is false,
+    /// True only when this call's batch landed for the same account: a failed or skipped call is false,
     /// whatever the store held before it.
     @discardableResult
     func refresh() async -> Bool {
         guard auth.isSignedIn, unavailableReason == nil else { return false }
+        let account = listAccount
+        let refreshed = await refreshGate.run { [weak self] in
+            guard let self else { return false }
+            return await self.performRefresh()
+        }
+        return refreshed && auth.isSignedIn && unavailableReason == nil && account == listAccount && hasLoadedCurrentMachines
+    }
+
+    /// The gate starts each batch in current auth/policy state, including follow-ups.
+    private func performRefresh() async -> Bool {
+        guard auth.isSignedIn, unavailableReason == nil, !Task.isCancelled else { return false }
         changes.start()
         lastRefresh = .now
         listGeneration += 1
@@ -499,7 +512,7 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             machines.cloudLimits = limits
             planSizes = CloudWorkspaceSetupWizard.SizeOption.options(limits: limits, machines: list)
             if let limits { planObserved(limits.planId) }
@@ -513,7 +526,7 @@ final class CloudService {
             await startHubForSSHRoutes()
             return true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
             return false
