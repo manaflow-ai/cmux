@@ -310,8 +310,11 @@ for (const [id, name, family] of [
   ["claude-sr", "Claude (sr)", "claude"],
 ])
   test(`a started chat forks to the launch profile ${id} from its Account route`, async () => {
+    // A Codex chat: a Claude profile is no target of a Claude chat's own family (continueTargets).
+    // Claude Code is in the catalog, so the profile is a route of the Claude tab, never a tab.
     const catalog = [
       { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6", name: "GPT-6" }] },
+      { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
       { id: id!, name: name!, family: family!, models: [{ id: "opus", name: "Opus" }] },
     ] as Snapshot["catalog"];
     const { forked, switched } = await mount(1, { ready: true }, "codex", catalog);
