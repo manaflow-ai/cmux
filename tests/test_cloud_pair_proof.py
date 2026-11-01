@@ -20,6 +20,27 @@ def manifest():
 
 
 class ManifestTests(unittest.TestCase):
+    def test_public_evidence_contains_only_salted_hashes(self):
+        values = manifest()
+        evidence = proof.public_evidence(values, "proof-unique", "run-salt")
+        rendered = json.dumps(evidence)
+        for value in values.values():
+            self.assertNotIn(value, rendered)
+        self.assertNotIn("proof-unique", rendered)
+        allowed = {"schema", "hash", "owner_and_project_match", "history_copied_from_assistant",
+                   "reply_copied_from_assistant", "notification_tap", "notification_transport",
+                   "apns_delivery_proven"}
+        self.assertTrue(all(key.endswith("_sha256") or key in allowed for key in evidence))
+
+    def test_cloud_ui_captures_are_removed_before_public_zip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            screens = Path(directory, "screens")
+            screens.mkdir()
+            for name in ("phone-cloud-history.png", "phone-cloud-reply.png", "phone-cloud-notification-tap.png"):
+                Path(screens, name).write_bytes(b"private")
+            proof.remove_private_cloud_captures(directory)
+            self.assertEqual(list(screens.iterdir()), [])
+
     def test_runner_input_cannot_enter_the_artifact_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(proof.ProofFailure):

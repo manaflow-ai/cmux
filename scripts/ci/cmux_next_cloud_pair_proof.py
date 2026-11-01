@@ -7,6 +7,7 @@ history reply. prompt and expected_reply are synthetic templates containing
 Only UI actions send the prompt and copy the assistant's resulting answer.
 Simulator push injection proves routing only, never APNs delivery.
 """
+import hashlib
 import json
 import os
 import re
@@ -19,6 +20,40 @@ from pathlib import Path
 
 class ProofFailure(RuntimeError):
     """Messages name the failed check, never runner inputs or credentials."""
+
+
+def public_hash(value, salt):
+    """Hash a proof value with a per-run salt before it can enter evidence."""
+    return hashlib.sha256((salt + "\0" + value).encode("utf-8")).hexdigest()
+
+
+def public_evidence(proof, expected_reply, salt):
+    """Return export-safe proof facts; raw manifest/chat values never leave this function."""
+    return {
+        "schema": "cmux-cloud-ui-proof-public-v2",
+        "hash": "sha256(salt || NUL || value)",
+        "machine_id_sha256": public_hash(proof["machine_id"], salt),
+        "team_id_sha256": public_hash(proof["team_id"], salt),
+        "session_id_sha256": public_hash(proof["session_id"], salt),
+        "owner_user_id_sha256": public_hash(proof["owner_user_id"], salt),
+        "stack_project_id_sha256": public_hash(proof["stack_project_id"], salt),
+        "machine_name_sha256": public_hash(proof["machine_name"], salt),
+        "session_name_sha256": public_hash(proof["session_name"], salt),
+        "history_reply_sha256": public_hash(proof["history_reply"], salt),
+        "reply_sha256": public_hash(expected_reply.strip(), salt),
+        "owner_and_project_match": True,
+        "history_copied_from_assistant": True,
+        "reply_copied_from_assistant": True,
+        "notification_tap": True,
+        "notification_transport": "simulator injection; routing proof only",
+        "apns_delivery_proven": False,
+    }
+
+
+def remove_private_cloud_captures(out):
+    """Keep Cloud UI screenshots runner-private; the public zip carries only the receipt."""
+    for name in ("phone-cloud-history.png", "phone-cloud-reply.png", "phone-cloud-notification-tap.png"):
+        Path(out, "screens", name).unlink(missing_ok=True)
 
 
 FIELDS = frozenset(("owner_user_id", "stack_project_id", "machine_id", "team_id",
@@ -299,9 +334,7 @@ def run_cloud_leg(proof, *, root, mac_env, email, rpc, phone_log, simctl, udid, 
         shot("phone-cloud-notification-tap")
     finally:
         push_file.unlink(missing_ok=True)
-    evidence = {"machine_id": proof["machine_id"], "team_id": proof["team_id"], "session_id": proof["session_id"],
-                "owner_and_project_match": True, "history_copied_from_assistant": True,
-                "reply_copied_from_assistant": expected.strip(), "notification_tap": True,
-                "notification_transport": "simulator injection; routing proof only", "apns_delivery_proven": False}
+    evidence = public_evidence(proof, expected, nonce)
     Path(out, "cloud-ui-proof.json").write_text(json.dumps(evidence, indent=2) + "\n")
+    remove_private_cloud_captures(out)
     note("- Cloud: real paired history, unique UI send and assistant reply readback passed; cold notification tap passed (simulator routing only, no APNs receipt)")
