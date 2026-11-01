@@ -1065,5 +1065,34 @@ class BunTestReds(unittest.TestCase):
         self.assertFalse(reds.classify_web([head_shard], [head_shard]).own)
 
 
+
+class ClassifyAny(unittest.TestCase):
+    """base_red_excuse.py's window: a failing test is the base's when any one of the base logs fails it."""
+
+    def test_a_test_red_on_any_base_is_shared_and_names_that_base(self):
+        head = log(failed("a()"), failed("b()"), SUMMARY)
+        verdict = reds.classify_any(head, [("run 2", log(failed("a()"), SUMMARY)),
+                                           ("run 1", log(failed("b()"), SUMMARY))], "cmux-next swift test")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ["a() (run 2)", "b() (run 1)"])
+
+    def test_a_test_red_on_no_base_is_the_heads(self):
+        head = log(failed("a()"), failed("c()"), SUMMARY)
+        verdict = reds.classify_any(head, [("run 2", log(failed("a()"), SUMMARY)),
+                                           ("run 1", log(failed("b()"), SUMMARY))])
+        self.assertTrue(verdict.own)
+        self.assertIn("c()", verdict.reasons[0])
+        self.assertIn("run 2, run 1", verdict.reasons[0])
+
+    def test_one_base_is_classify(self):
+        head = log(failed("a()"), SUMMARY)
+        base = log(failed("b()"), SUMMARY)
+        self.assertEqual(reds.classify_any(head, [("run 1", base)]).reasons, reds.classify(head, base, "", "run 1").reasons)
+
+    def test_a_crash_is_the_heads_whatever_any_base_shows(self):
+        crashed = log(failed("a()"), ABORT)
+        verdict = reds.classify_any(crashed, [("run 2", log(SUMMARY)), ("run 1", crashed)], "cmux-next swift test")
+        self.assertTrue(verdict.own)
+
 if __name__ == "__main__":
     unittest.main()

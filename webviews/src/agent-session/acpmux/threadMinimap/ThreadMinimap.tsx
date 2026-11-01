@@ -295,7 +295,6 @@ export function ThreadMinimap({
   /// scrolls under a still pointer, the hovered row is the one now under it.
   const pointerY = useRef<number | undefined>(undefined);
   const swallowClick = useRef(false);
-  const windowHeight = globalThis.innerHeight || viewportHeight;
   /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
   /// frame or two late (React schedules a scroll's render), so the band of lit rows read it here
   /// instead and follows the reader on the scroll's own frame.
@@ -317,6 +316,11 @@ export function ThreadMinimap({
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight, loadedStart);
   const boxHeight = railBox?.height ?? viewportHeight;
   const boxFoot = railBox?.foot ?? foot;
+  /// The window the rail's 92% cap reads. Without one (no layout), the rail's own box stands in, not
+  /// `viewportHeight`: that is the view less the room under the last row (the stack plus the rest
+  /// gap, #30297), so a composer that grows would shorten the rail (Leo, 2026-11-01: "the left side
+  /// scroll rail needs to not really get affected by most other layout things").
+  const windowHeight = globalThis.innerHeight || boxHeight;
   /// Every prompt the chat has, held or not yet: the rail's box is this many prompts tall from the first
   /// frame (Leo, 2026-11-01: "i also want the left scroll rail to be starting off to its max height if
   /// there truly are that many prompts in the chat and also for it to shift less on load").
