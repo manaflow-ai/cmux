@@ -99,10 +99,20 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 with self.subTest(attempt=attempt, configured=configured):
                     label = select(node, {"github.repository_owner": "manaflow-ai",
                                           "github.run_attempt": attempt,
+                                          "github.ref": "refs/heads/main",
                                           "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured})
                     self.assertTrue(label.startswith("glaeda-nightly-"), label)
                     self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
                                      else "glaeda-nightly-std-xcode-26.6")
+        # Main uses the shared nightly slot; its admission hook does not
+        # accept RC or branch dogfood refs. Preserve their existing route.
+        for ref in ("refs/heads/rc/1.0", "refs/heads/lane/dogfood"):
+            for event in ("push", "workflow_dispatch"):
+                with self.subTest(ref=ref, event=event):
+                    self.assertEqual(select(node, {"github.repository_owner": "manaflow-ai",
+                                                  "github.ref": ref, "github.event_name": event,
+                                                  "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}),
+                                     "blacksmith-2vcpu-ubuntu-2404")
         self.assertNotIn("secrets.", body)
         self.assertNotRegex(body, r"(?m)^    environment:")
 
