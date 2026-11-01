@@ -121,6 +121,7 @@ import { composerPlusRegistry, type ComposerPlusExtension } from "./composerPlus
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
+import type { RepickMachine } from "./cloudRepick";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -350,6 +351,8 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   /// A new chat's machine was picked where no folder of it is known: the chat starts there.
   onComputer?(computer: string): void;
+  /// A Cloud chat whose first send has not run: another Cloud machine picked moves it there (see ComposerContext).
+  onRepick?(machine: RepickMachine): Promise<boolean>;
   projectChoices?: Project[];
   /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
   machineFolders?: Project[];
@@ -450,6 +453,7 @@ export function Composer({
   localPaths,
   onProject,
   onComputer,
+  onRepick,
   projectChoices,
   machineFolders,
   onBrowseProject,
@@ -2087,6 +2091,7 @@ export function Composer({
       {...(runMode ? { runMode } : {})}
       environments={environments}
       {...(onComputer ? { onComputer } : {})}
+      {...(onRepick ? { onRepick } : {})}
       onProject={
         onProject &&
         ((cwd, peer) => {
