@@ -169,6 +169,8 @@ export class SettingsStore {
   private appearanceSeen = new Map<string, TargetState>();
   /** How many appearance steps are running (`trackAppearance`); inner ones record nothing. */
   private tracking = 0;
+  /** Undo, Redo or a restore writing its states (`applyAppearance`). */
+  private applying = 0;
 
   constructor(
     private readonly client: SettingsClient,
@@ -197,7 +199,12 @@ export class SettingsStore {
         new Map((await this.native("cmux.settings.theme.colors")).themes.map((theme) => [theme.name, theme])),
     });
     // Any cache change (a read, an optimistic write, a rollback) is a new page state.
-    this.unsubscribers.push(this.queryClient.getQueryCache().subscribe(() => this.emit()));
+    this.unsubscribers.push(
+      this.queryClient.getQueryCache().subscribe(() => {
+        this.pruneStaleAppearanceSteps();
+        this.emit();
+      }),
+    );
   }
 
   /** Subscribes to changes and the connection, then reads everything once. */
@@ -784,9 +791,9 @@ export class SettingsStore {
     } finally {
       this.tracking -= 1;
     }
-    const after = read();
-    this.noteSeen(after);
-    const changes = diff(before, after);
+    const changes = diff(before, read());
+    // Only what the step changed: a target it merely read may have been changed by another writer.
+    this.noteSeen(changes.map((change) => change.after));
     if (changes.length > 0)
       this.appearance.record({ label: options.label ?? changeLabel(this.getSnapshot(), changes[0]!.after), changes });
     return result;
@@ -800,6 +807,14 @@ export class SettingsStore {
 
   private noteSeen(states: readonly TargetState[]): void {
     for (const state of states) this.appearanceSeen.set(targetId(state), state);
+  }
+
+  /** Drops the Undo and Redo steps another writer made stale (#29881), so the next valid step is
+   * offered. Not while the page's own step is landing: its targets show in-between states then. */
+  private pruneStaleAppearanceSteps(): void {
+    if (this.tracking > 0 || this.applying > 0) return;
+    while (this.appearance.nextUndo && !this.appearanceUndoStep()) this.appearance.discard("undo");
+    while (this.appearance.nextRedo && !this.appearanceRedoStep()) this.appearance.discard("redo");
   }
 
   /** The step Undo would take back, while its targets still show what it left; null otherwise. */
@@ -917,6 +932,15 @@ export class SettingsStore {
 
   /** Writes each state (outside the undo stack): a set, a reset or a theme level. */
   private async applyAppearance(states: readonly TargetState[]): Promise<boolean> {
+    this.applying += 1;
+    try {
+      return await this.applyAppearanceStates(states);
+    } finally {
+      this.applying -= 1;
+    }
+  }
+
+  private async applyAppearanceStates(states: readonly TargetState[]): Promise<boolean> {
     let ok = true;
     let themes = false;
     for (const state of states) {
@@ -937,8 +961,11 @@ export class SettingsStore {
     return ok;
   }
 
-  resetAll(): Promise<WriteResult> {
-    return this.write({ kind: "resetAll" });
+  async resetAll(): Promise<WriteResult> {
+    const result = await this.write({ kind: "resetAll" });
+    // The page's own change: Restore How It Was may put these keys back.
+    if (result.ok) this.noteSeen(captureAppearance(this.getSnapshot()));
+    return result;
   }
 
   /** The host holds one live preview at a time, whatever its key: its latest owner. */

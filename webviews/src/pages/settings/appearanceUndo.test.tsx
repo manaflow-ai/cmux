@@ -147,22 +147,33 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
 
   // https://github.com/manaflow-ai/cmux/issues/29881: a step recorded earlier must never write over
   // a newer value another writer (the CLI, an agent, another window, a hand edit) put there.
-  test("Undo after another writer changed the same key writes nothing and drops the step", async () => {
+  test("Undo after another writer changed the same key drops that step and offers the one below", async () => {
     page = await renderPage({ path: "/settings/appearance", mock: { values: { "appearance.background": "none" } } });
     await run(() => page!.store.set("appearance.backgroundOpacity", 0.9));
     await run(() => page!.store.set("appearance.background", "daily"));
     await run(() => page!.provider.externalSet("appearance.background", "aivazovsky-ship-stormy-seas"));
-    const writes = ops(page.provider, "cmux.settings.set").length + ops(page.provider, "cmux.settings.reset").length;
+    // The Background step is stale and gone; the Opacity step below it is still the page's own.
+    expect(undoButton().disabled).toBe(false);
+    expect(undoButton().getAttribute("aria-label")).toBe("Undo: Opacity → 90 %");
+    const resets = ops(page.provider, "cmux.settings.reset").length;
+    await click(undoButton());
+    expect(ops(page.provider, "cmux.settings.reset").slice(resets)).toEqual([{ key: "appearance.backgroundOpacity" }]);
+    const rows = page.store.getSnapshot().rows;
+    expect(rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
+    expect(rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
     expect(undoButton().disabled).toBe(true);
+  });
+
+  test("Undo of a step another writer made stale writes nothing", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.background", "daily"));
+    await run(() => page!.provider.externalSet("appearance.background", "aivazovsky-ship-stormy-seas"));
+    const writes = ops(page.provider, "cmux.settings.set").length + ops(page.provider, "cmux.settings.reset").length;
     expect(await run(() => page!.store.undoAppearance())).toBe(false);
     expect(ops(page.provider, "cmux.settings.set").length + ops(page.provider, "cmux.settings.reset").length).toBe(
       writes,
     );
     expect(page.store.getSnapshot().rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
-    expect(page.store.appearance.canRedo).toBe(false);
-    // The step below it is still the page's own and still current: it stays undoable.
-    expect(page.store.appearance.nextUndo?.label).toBe("Opacity → 90 %");
-    expect(page.store.appearanceUndoStep()).toBe(page.store.appearance.nextUndo);
   });
 
   test("Redo after another writer changed the key writes nothing and drops the step", async () => {
@@ -185,6 +196,20 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
     expect(rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
     expect(page.store.appearanceChangedSinceOpened()).toBe(false);
+  });
+
+  test("Restore How It Was leaves a key the page only read, after another writer changed it", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: { values: { "appearance.backgroundOpacity": 0.5, "appearance.backgroundBlur": "frosted" } },
+    });
+    await run(() => page!.provider.externalSet("appearance.backgroundBlur", "glass"));
+    // Opacity's step reads its linked Material too, but does not change it.
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.7));
+    await run(() => page!.store.restoreAppearanceOpened());
+    const rows = page.store.getSnapshot().rows;
+    expect(rows.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+    expect(rows.get("appearance.backgroundBlur")?.value).toBe("glass");
   });
 
   test("other parts of Appearance record their own steps through trackAppearance", async () => {
