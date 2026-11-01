@@ -153,7 +153,9 @@ extension ScreenContentView {
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
             // On the pixel grid, each edge rounded on its own: two edges a whole number of pixels
             // apart (a pane and the divider beside it, both on the one spring) stay that far apart.
-            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+            // SCRATCH FAULT (never merge, test/animation-pixel-scratch-halfpx): half a device pixel off the grid while the frame springs.
+            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane) + (frame.rect != frame.targetRect ? 0.5 / scale : 0),
+                                                               dy: -rowOffset(of: pane))
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
