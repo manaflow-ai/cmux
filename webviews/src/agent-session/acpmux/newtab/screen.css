@@ -491,6 +491,8 @@
 @keyframes nt-player-level{0%,100%{transform:scaleY(.4)}25%{transform:scaleY(.95)}50%{transform:scaleY(.55)}75%{transform:scaleY(.85)}}
 .nt-player-track{height:3px;border-radius:0;background:color-mix(in srgb,var(--agent-text) 12%,transparent);overflow:hidden}
 .nt-player-played{height:100%;width:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transform-origin:left center;transition:transform 1s linear} /* motion-allow: playback progress */
+/* The bar fills from the inline start: right to left under RTL. */
+.nt-player-played:dir(rtl){transform-origin:right center}
 .nt-player-controls{display:flex;align-items:center;gap:10px;margin-left:-4px}
 .nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;
   background:transparent;color:var(--agent-text)}
