@@ -7382,6 +7382,18 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.</string>
+			<key>pfm_name</key>
+			<string>home.feedInChief</string>
+			<key>pfm_title</key>
+			<string>Show the Feed in Chief</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.</string>
 			<key>pfm_name</key>
@@ -7552,7 +7564,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.</string>
 			<key>pfm_name</key>

@@ -1801,7 +1801,7 @@
       "type" : "boolean"
     },
     "chief.autoRouteSubagents" : {
-      "default" : true,
+      "default" : false,
       "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
       "title" : "Route Subagents to the Best Agent",
       "type" : "boolean"
@@ -2586,6 +2586,12 @@
       ],
       "title" : "Character",
       "type" : "string"
+    },
+    "home.feedInChief" : {
+      "default" : true,
+      "description" : "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
+      "title" : "Show the Feed in Chief",
+      "type" : "boolean"
     },
     "home.server" : {
       "default" : "hosted",
