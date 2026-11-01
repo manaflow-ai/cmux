@@ -1944,7 +1944,7 @@ const RowFrame = React.memo(function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
-  /// The row came in on a page of older history and has never mounted: its first copy fades once.
+  /// The row came in on a late page of older history and has never mounted: its first copy fades once.
   older: OlderRowFade | undefined;
   onOlderShown: (id: string) => void;
   active: boolean;
@@ -2153,7 +2153,18 @@ const SCROLL_LEAD_STEPS = 2;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
-/// Rows from a page of older history fade on their first mounted copy, including warm copies
+/// Viewports from the top of the loaded rows within which a page of older history came late: the
+/// reader reached rows that were not loaded yet, so the page fades in. Pages ask well ahead
+/// (OLDER_AHEAD_VIEWPORTS), so a page normally lands farther away and draws in place.
+const OLDER_LATE_VIEWPORTS = 1;
+/// Whether the reader's view is at the top of the loaded rows, read before a page lands above them.
+/// A hidden or unplaced scroller draws in place (WebKit would play a hidden page's fade on return).
+function readerAtLoadedTop(node: HTMLElement | null): boolean {
+  if (!node || node.clientHeight === 0) return false;
+  return node.scrollTop - scrollOrigin(node) < node.clientHeight * OLDER_LATE_VIEWPORTS;
+}
+
+/// Rows from a page of older history that came late (readerAtLoadedTop) fade on their first mounted copy, including warm copies
 /// outside the view. Eligibility is consumed before paint; an intersection only releases the
 /// observation and never starts a second fade. Opacity only, so nothing measured moves.
 class OlderRowFade {
@@ -2829,15 +2840,20 @@ export function VirtualTranscript({
     while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
     rowsChange.current = { base: previous, rows, from };
     // A page of older history lands above the first row that was already there (a date divider
-    // moves up to the page's first turn, so the first known row, not the first row): those rows fade
-    // in as they are first seen, and never take a live row's entrance.
+    // moves up to the page's first turn, so the first known row, not the first row): those rows never
+    // take a live row's entrance. They draw in place, as if they had always been there, unless the
+    // page came late: the reader already reached the top of the loaded rows, and only then do they
+    // fade in as they are first seen (Leo 2026-10-31: no fade unless it's the worst case).
     const oldFirst = rows.findIndex((row) => knownRows.current!.has(row.id));
     const arrived: AcpmuxRow[] = [];
+    let olderLate: boolean | undefined;
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
       if (knownRows.current.has(row.id)) continue;
-      if (index < oldFirst) olderRows.current.add(row.id);
-      else arrived.push(row);
+      if (index < oldFirst) {
+        olderLate ??= readerAtLoadedTop(ref.current);
+        if (olderLate) olderRows.current.add(row.id);
+      } else arrived.push(row);
       knownRows.current.add(row.id);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
