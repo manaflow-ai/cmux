@@ -311,7 +311,12 @@ class Main(unittest.TestCase):
         env = {"RUNNER_POOLS": runner_pools.render(value)}
         switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
         self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
-        self.assertEqual(switch.writes, [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404")])
+        # RUNNER_POOLS records the move for the queue janitor (route_moves.py), then LINUX_RUNNER moves.
+        [(name, raw), mirrored] = switch.writes
+        self.assertEqual(name, "RUNNER_POOLS")
+        self.assertEqual(json.loads(raw)["_moved"], [{"variable": "LINUX_RUNNER", "from": "blacksmith-32vcpu-ubuntu-2404",
+                                                      "to": "blacksmith-4vcpu-ubuntu-2404", "at": runner_pools.iso(NOW)}])
+        self.assertEqual(mirrored, ("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404"))
 
     def test_linux_runner_is_left_to_the_overflow_switch_and_to_a_deliberate_value(self) -> None:
         value = {"linux": "blacksmith-32vcpu-ubuntu-2404"}
@@ -415,7 +420,11 @@ class Main(unittest.TestCase):
         switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
                               "CI_CLOUD_OVERFLOW_SAVED": MACOS_ONLY_RECORD})
         self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
-        self.assertEqual(switch.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
+        [(name, raw), mirrored] = switch.writes
+        self.assertEqual((name, mirrored), ("RUNNER_POOLS", ("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")))
+        # The janitor learns that LINUX_RUNNER left 32 vCPU, so the jobs it left there are re-run.
+        self.assertEqual([(m["variable"], m["from"], m["to"]) for m in json.loads(raw)["_moved"]],
+                         [("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")])
 
     def test_the_repo_variable_check_hands_in_what_the_mirror_check_reads(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-repo-variables.yml").read_text())
