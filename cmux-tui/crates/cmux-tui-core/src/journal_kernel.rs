@@ -639,12 +639,24 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
 }
 
 /// Appends one tailer batch read after `last_sequence` to the live ring.
+/// The batch itself was bounded while it was read, so it may start past
+/// `last_sequence + 1` (a batch over the byte cap kept only its newest
+/// records): the ring then drops every older record first. The ring must
+/// stay contiguous, because `read_after` finds a sequence by its position;
+/// a reader behind the batch's first record then gets a `Gap` and pages
+/// from SQLite, instead of silently skipping the records the batch shed.
 fn publish_journal_batch(
     state: &mut JournalFanoutState,
     appended: VecDeque<Arc<JournalDocument>>,
     last_sequence: u64,
 ) {
-    let _ = last_sequence;
+    if appended
+        .front()
+        .is_some_and(|first| first.record.sequence != last_sequence.saturating_add(1))
+    {
+        state.records.clear();
+        state.record_bytes = 0;
+    }
     for record in appended {
         push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);
     }
