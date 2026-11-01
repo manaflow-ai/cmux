@@ -155,8 +155,8 @@ import Testing
 
     @Test func everySettingIdIsAMascot() {
         // HomeChiefPetSetting.mascots (CmuxNextSettings) lists the same ids.
-        // The picker's order: Series 1 without the orbs, Mochi, Series 2, then the orbs (Leo 2026-11-01).
-        #expect(ChiefPetMascot.allCases.map(\.rawValue) == ["fox", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "mochi",
+        // The picker's order: Series 1 without the orbs, the animated sets, Series 2, then the orbs (Leo 2026-11-01).
+        #expect(ChiefPetMascot.allCases.map(\.rawValue) == ["fox", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "mochi", "captain", "sprout", "bolt",
                                                             "fox-arctic", "machine-violet", "machine-gold", "moon-rose", "orb", "orb-spark", "orb-hood"])
         #expect(ChiefPetMascot.foxArctic.resource == "ChiefMascotFoxArctic")
     }

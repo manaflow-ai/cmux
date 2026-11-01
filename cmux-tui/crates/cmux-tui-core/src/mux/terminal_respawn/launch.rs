@@ -58,8 +58,11 @@ impl Mux {
         registry: &WorkspaceRegistry,
         plan: &RespawnPlan,
     ) -> Option<TerminalReplay> {
-        // terminal.persistence.mode memory: no earlier screen comes from disk.
-        if self.output_store.memory_only() {
+        // terminal.persistence.mode memory, or an incognito terminal: no
+        // earlier screen comes from disk.
+        if self.output_store.memory_only()
+            || self.output_store.is_private_in(registry, &plan.public_id)
+        {
             return None;
         }
         let public_id = plan.public_id.as_str();
@@ -120,6 +123,10 @@ impl Mux {
         let env = record.map(|record| usable_env(&record.env)).unwrap_or_default();
         let (mut options, creation_cell_pixels) =
             self.terminal_spawn_options(cwd, None, size, &env);
+        // An incognito terminal's new shell keeps no history either.
+        if self.output_store.is_private(self, &plan.public_id) {
+            crate::shell_integration::keep_no_history(&mut options.extra_env);
+        }
         let shell = respawn_shell(record);
         let integrated = crate::shell_integration::integrate_default_shell(
             vec![shell],

@@ -160,10 +160,10 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
 }
+/* Its check sits on the menu's state column (ui/popupSurface.css, "EVERY MENU ON ONE GRID"). */
 .acpmux-task-menu .ui-menu-check {
   display: inline-flex;
   justify-content: center;
-  width: 14px;
   flex: none;
 }
 

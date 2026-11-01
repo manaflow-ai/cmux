@@ -231,6 +231,7 @@
   grid-column: 2;
   grid-row: 1;
   align-self: center;
+  /* menu-gutter-allow: the model picker's trailing check, in the number key's column (design/model-picker.md) */
   width: 16px;
   margin: 0;
   padding: 0;

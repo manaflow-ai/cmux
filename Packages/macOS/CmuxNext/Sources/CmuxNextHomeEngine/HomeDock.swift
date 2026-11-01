@@ -60,8 +60,8 @@ public final class HomeDock {
     /// ever (``placeholderCheckedKey``), so a shell the person opens there later, works in and
     /// leaves at `~` is never closed on a reconnect or a later launch.
     private var placeholderChecked = false
-    /// The allow-tabs step waiting for the dock's resource ids (``allowTabsWhenIdentified``).
-    private var allowTabsWait: Task<Void, Never>?
+    /// The allow-tabs step waiting for the dock's resource ids (``allowTabsWhenIdentified``); read by tests.
+    private(set) var allowTabsWait: Task<Void, Never>?
     private let defaults: UserDefaults
     /// Set once the first launch with `pinned-dock-alone-v1` looked for the placeholder shell.
     static let placeholderCheckedKey = "cmuxNext.home.placeholderShellChecked"
@@ -237,6 +237,8 @@ public final class HomeDock {
                 guard let placed = workspace().flatMap(Self.pageTab(in:)) else { return false }
                 return placed.screen.resourceID != nil && placed.pane.resourceID != nil ? true : nil
             }
+            // `self?.shown` holds this HomeDock across the await on purpose: a window Home makes a HomeDock per connect
+            // (`WindowHomes.ensureDock`) and keeps none, so the wait is what keeps it until the ids come or the page goes.
             guard await self?.shown(identified) == true, !Task.isCancelled, let self else { return }
             allowTabsWait = nil // the step below must not cancel the task it runs in
             let step = await allowTabsLogged(store: store, workspace: workspace, fresh: fresh, allow: allow)
