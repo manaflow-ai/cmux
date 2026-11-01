@@ -4061,6 +4061,8 @@ jobs:
       # A drained (or draining) owned Mac for the release signing jobs (sign-nightly-identity-legacy), as the JSON runs-on
       # array scripts/ci/signing_runner.py prints, or empty, under the same marker and `attempt` rules as `owned`.
       sign_owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
+      # The shared pool label from sign_owned. Publication controls use this pool route so they never pin one runner.
+      sign_owned_pool: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned_pool || '' }}
       attempt: ${{ github.run_attempt }}
     steps:
       - name: Checkout publication tooling at the workflow commit
@@ -6210,7 +6212,7 @@ jobs:
     concurrency:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
-    needs: [decide, build-nightly-app, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, resolve-nightly-cmux-tui-client, recover-nightly-next-notarization, verify-recovered-nightly-next, signer-dmg, route-visual-gate-nightly, visual-gate-nightly-verdict, await-nightly-tree-marker]
+    needs: [decide, build-nightly-app, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, resolve-nightly-cmux-tui-client, recover-nightly-next-notarization, verify-recovered-nightly-next, signer-dmg, route-visual-gate-nightly, visual-gate-nightly-verdict, await-nightly-tree-marker, pick-nightly-sign-runner]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
       source: ${{ steps.source.outputs.source }}
@@ -6242,7 +6244,7 @@ jobs:
     # failing verdict, or mode `invalid`. A recovered build was judged when it was continued.
     if: "always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && needs.visual-gate-nightly-verdict.outputs.blocks != 'true' && needs.route-visual-gate-nightly.outputs.mode != 'invalid') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 120
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
@@ -6257,9 +6259,6 @@ jobs:
       # Publication tooling from this workflow's own commit (see the step below).
       PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
-      # This run's build when Apple accepted it, else an earlier nightly-next
-      # build that recover-nightly-next-notarization continued; every later
-      # step takes the build number and commit from here.
       - name: Select the build to publish
         id: source
         env:
@@ -6331,6 +6330,40 @@ jobs:
       # verify_remote_daemon_release.py, fetch-release-notes-span.sh,
       # release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
       - *checkout-publication-tooling-a
+
+      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
+      - &hold-the-whole-mac
+        name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+      # This run's build when Apple accepted it, else an earlier nightly-next
+      # build that recover-nightly-next-notarization continued; every later
+      # step takes the build number and commit from here.
+      - &claim-publication-mac
+        name: Claim the whole Mac for signing
+        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 
       # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
       # its own actor, so a limit that every workflow's github.token shares does not refuse it.
@@ -6727,13 +6760,13 @@ jobs:
   # so no run's uploads are ever replaced, and they may wait out GitHub's rate limits as long as
   # they need. publish-nightly-next-github-names then writes the mutable state.
   publish-nightly-next-github:
-    needs: [decide, resolve-nightly-cmux-tui-client, publish-nightly]
-    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated'"
+    needs: [decide, resolve-nightly-cmux-tui-client, publish-nightly, pick-nightly-sign-runner]
+    if: "always() && !cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated'"
     # Nothing on the feed's path needs this job, so a failure shows red and holds nothing.
     environment: ${{ needs.decide.outputs.environment }}
     permissions:
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 150
     outputs:
       release_id: ${{ steps.publish_assets.outputs.release_id }}
@@ -6754,6 +6787,10 @@ jobs:
           ref: ${{ needs.publish-nightly.outputs.build_sha }}
 
       - *checkout-publication-tooling-a
+
+      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
+      - *hold-the-whole-mac
+      - *claim-publication-mac
 
       - *gh-app-token-write
 
@@ -6847,15 +6884,15 @@ jobs:
   # only a waiting writer with a newer run's, which writes the newer state; uploads never wait
   # here (publish-nightly-next-github has no group).
   publish-nightly-next-github-names:
-    needs: [decide, publish-nightly, publish-nightly-next-github]
-    if: "!cancelled() && needs.publish-nightly-next-github.result == 'success' && needs.publish-nightly-next-github.outputs.newest == 'true'"
+    needs: [decide, publish-nightly, publish-nightly-next-github, pick-nightly-sign-runner]
+    if: "always() && !cancelled() && needs.publish-nightly-next-github.result == 'success' && needs.publish-nightly-next-github.outputs.newest == 'true'"
     environment: ${{ needs.decide.outputs.environment }}
     concurrency:
       group: nightly-next-github-names
       cancel-in-progress: false
     permissions:
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     env:
       NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
@@ -6866,6 +6903,10 @@ jobs:
       PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
       - *checkout-publication-tooling-a
+
+      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
+      - *hold-the-whole-mac
+      - *claim-publication-mac
 
       - *gh-app-token-write
 
@@ -7148,32 +7189,7 @@ jobs:
     steps: &sign-nightly-identity-legacy-steps
       # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
       # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
-      - &hold-the-whole-mac
-        name: Hold the whole Mac before any credential
-        id: claim-gate
-        shell: bash
-        run: |
-          owned=""
-          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
-          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-          if [ -n "$owned" ]; then
-            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            echo "claim=owned" >> "$GITHUB_OUTPUT"
-          fi
+      - *hold-the-whole-mac
 
       - *checkout-default
 
@@ -7816,8 +7832,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # The build ref may predate the hook list.
-      - name: Claim the whole Mac for signing
-        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
+      - *claim-publication-mac
 
       - *gh-app-token-read
 
