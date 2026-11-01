@@ -133,10 +133,16 @@ mod agent_inventory;
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
-    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
     AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    start_link_share_bridge,
+};
+#[cfg(unix)]
+pub(crate) use agent_session_attach::{
+    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -189,6 +195,7 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
 mod new_screen;
 mod personal;
 mod raw_tab;
@@ -472,6 +479,8 @@ pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
 /// (`{reason, at_ms}`). Viewing the tab keeps it; the agent's clear, a browser
 /// tab's navigation to another page, or the tab's close clears it.
 pub const TAB_ATTENTION_CAPABILITY: &str = "tab-attention-v1";
+/// Persisted request identities and compare-and-clear for tab attention.
+pub const TAB_ATTENTION_REQUEST_ID_CAPABILITY: &str = "tab-attention-request-id-v1";
 /// A workspace's description: `description` on `workspace.update` (null
 /// clears it) and the workspace snapshot's `extra.description` while set.
 pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
@@ -2628,10 +2637,14 @@ use connection_scheduler::{
 mod bounded_outbound;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, claim_watched_connection,
+    claim_watched_terminal_connection, write_line_outbound_item,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
+use bounded_outbound::{
+    ControlOutbound, MAX_TERMINAL_CONNECTIONS, claim_terminal_connection,
+    websocket_server_frame_header,
+};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;
@@ -2651,6 +2664,7 @@ pub use listen::{
     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
 mod restoring;
+mod terminal_sessions;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 pub use restoring::RestoringServer;

@@ -13,6 +13,7 @@ impl Mux {
 
     pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
+        self.journal_maintenance_control.note_change();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
@@ -228,6 +229,14 @@ impl Mux {
     /// Registry mutex contention, see [`crate::diagnostics::LockStats`].
     pub fn registry_lock_stats(&self) -> crate::diagnostics::LockStatsSnapshot {
         self.workspace_registry.stats().snapshot()
+    }
+
+    /// The registry and state locks by site (`server-stats` `locks`).
+    pub fn lock_detail_stats(&self) -> crate::diagnostics::LocksSnapshot {
+        crate::diagnostics::LocksSnapshot {
+            registry: self.workspace_registry.stats().detail(),
+            state: self.state.stats().detail(),
+        }
     }
 
     /// Journal writer metrics, `None` for ephemeral sessions without a

@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDesign
 @testable import CmuxNextHome
 import CmuxHomeCore
+import CmuxNextTestSupport
 @testable import MessagesLabSidebar
 import Testing
 
@@ -17,7 +19,7 @@ import Testing
 ///
 /// The clicks run as AppKit runs them: a left mouse-down on the list's document view at the
 /// item's place, with its mouse-up queued for the list's press-and-drag loop.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomeOpenFocusesComposerTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows) struct HomeOpenFocusesComposerTests {
     struct Harness {
         let services: AppServices
         let window: NSWindow
@@ -96,7 +98,14 @@ import Testing
         var keyboardInBox: Bool { box != nil && window.firstResponder === box }
         var keyboardOnList: Bool { window.firstResponder === document }
 
-        func close() { window.orderOut(nil) }
+        /// Closes the window and the Chief Settings popover's panel, which the Home makes up front
+        /// and only ever hides (its owner keeps it for the next open).
+        func close() {
+            if let host = page.host, let popup = Mirror(reflecting: host).descendant("settings", "popup") as? NativePopupHost {
+                popup.closePanel()
+            }
+            window.close()
+        }
     }
 
     static let rows = ["conv_open_focus_a", "conv_open_focus_b", "conv_open_focus_c"]
@@ -131,11 +140,14 @@ import Testing
         page.layoutSubtreeIfNeeded()
         page.show(ConversationID(rows[0]))
         let h = Harness(services: services, window: window, page: page)
+        var completed = false
+        defer { if !completed { h.close() } }
         await wait { h.box != nil }
         let hasBox = h.box != nil
         try #require(hasBox, "Home's message box never appeared")
         let listed = page.list.itemFramesInWindow.count == entries.count
         try #require(listed, "the list does not show the test items")
+        completed = true
         return h
     }
 

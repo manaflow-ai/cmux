@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// it faster". The press that focuses the omnibar shows its whole result on the next frame, as in
 /// Chrome: the editing look with no fade left to run, the caret or selection, and no relayout of
 /// the bar (the bookmark star stays until the user types, so the field keeps its width).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct OmnibarMouseDownLatencyTests {
     private func bar(star: BookmarkStarState = .off) -> (AddressBarView, NSWindow) {
         let bar = AddressBarView()
@@ -40,6 +41,7 @@ struct OmnibarMouseDownLatencyTests {
 
     @Test func theFocusingPressShowsTheEditingLookAtOnce() throws {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         try press(bar, in: window)
         #expect(bar.isEditing)
         #expect(bar.pill.state == .editing)
@@ -50,6 +52,7 @@ struct OmnibarMouseDownLatencyTests {
 
     @Test func blurShowsTheRestingLookAtOnce() throws {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         try press(bar, in: window)
         blur(bar, in: window)
         #expect(bar.pill.state == .idle)
@@ -59,12 +62,14 @@ struct OmnibarMouseDownLatencyTests {
 
     @Test func theFocusingPressSelectsTheWholeAddress() throws {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         try press(bar, in: window)
         #expect(bar.debugAllSelected)
     }
 
     @Test func theFocusingPressKeepsTheStarAndTheFieldWidth() throws {
         let (bar, window) = bar(star: .off)
+        defer { window.closeAfterTest() }
         #expect(!bar.starButton.isHidden)
         let width = bar.field.frame.width
         try press(bar, in: window)
@@ -76,6 +81,7 @@ struct OmnibarMouseDownLatencyTests {
 
     @Test func typingHidesTheStarAndBlurShowsItAgain() throws {
         let (bar, window) = bar(star: .on)
+        defer { window.closeAfterTest() }
         bar.debugType("swift")
         bar.layoutSubtreeIfNeeded()
         #expect(bar.starButton.isHidden)
@@ -89,6 +95,7 @@ struct OmnibarMouseDownLatencyTests {
     /// far inside one frame. Median of 25 presses from rest, so one slow host tick does not fail it.
     @Test func thePressPathStaysInsideAFrame() throws {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         var samples: [Double] = []
         for _ in 0..<25 {
             blur(bar, in: window)

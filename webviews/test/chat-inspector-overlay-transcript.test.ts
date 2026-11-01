@@ -1,13 +1,10 @@
 // The transcript never draws under the open Inspector (inspector/ChatInspector.tsx, inspector.css;
 // Leo 2026-10-21: his message's bubble sat on Background tasks, and a message's Retry and Edit sat on
-// "5 finished"). The panel used to lie over the chat at the pane's right edge while the rows kept the
-// column's centered inset, so on a pane narrower than the column plus the panel a prompt's bubble,
-// which sits at its row's right end, and the row's actions drew under the panel. The panel floats
-// outside the chat's layout (Leo, 2026-10-24: "making it not a part of the true agent pane area except
-// in the case when both would fit if only the agent pane shifted left"): where both fit that way, the
-// chat's column moves left and every row ends left of the panel; with Settings Push always, the chat
-// narrows beside it and every row ends the page edge (18px) clear of it. Closed, the rows take the
-// column's centered place again.
+// "5 finished"). The panel floats outside the chat's layout and never moves it (Leo, 2026-10-29: "it's
+// not supposed to be a fucking sidebar that pushes the fucking layout"): where the right gutter holds
+// it, every row ends left of the panel; with Settings Push always, the chat narrows beside it and every
+// row ends the page edge (18px) clear of it. Where the gutter cannot hold it, it floats over the chat
+// (chat-inspector-placement.test.ts). Closed, the rows take the column's centered place again.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Real Chromium and WebKit (the app's engine); CI fails the file when it
@@ -65,8 +62,8 @@ await requireBrowserLane("chat-inspector-overlay-transcript.test.ts", async () =
 
   for (const name of browsers.keys())
     for (const { width, placement, clear } of [
-      // 1200px: a 225px gutter lacks 111px of the 320px panel and its margins, which the left one has.
-      { width: 1200, placement: "overlay", clear: 0 },
+      // 1600px: the 400px gutter holds the 320px panel and its margins.
+      { width: 1600, placement: "overlay", clear: 0 },
       // 900px: the 720px column centered leaves 90px each side, less than the 320px panel.
       { width: 900, placement: "push", clear: 18 },
     ] as const)
@@ -98,7 +95,7 @@ await requireBrowserLane("chat-inspector-overlay-transcript.test.ts", async () =
           await page
             .locator(`aside.acpmux-chat-inspector[data-placement="${placement}"][data-presence="shown"]`)
             .waitFor({ timeout: 10_000 });
-          // The rows take their new place once the chat's shift or width has settled.
+          // The rows take their new place once the chat's width has settled (Push always).
           await page.evaluate(async () => {
             await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
             await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
@@ -113,7 +110,7 @@ await requireBrowserLane("chat-inspector-overlay-transcript.test.ts", async () =
           expect({ panelLeft: left, under }).toEqual({ panelLeft: left, under: [] });
 
           // Closed, the rows return to the column's centered place: where they drew before it opened, with
-          // nothing of the shift or the push kept.
+          // nothing of the push kept.
           await toggle.click();
           await panel.waitFor({ state: "detached", timeout: 5_000 });
           await page.evaluate(async () => {
@@ -122,7 +119,9 @@ await requireBrowserLane("chat-inspector-overlay-transcript.test.ts", async () =
           });
           const closed = await rowEdges(page);
           expect(closed.rows).toEqual(before.rows);
-          expect(Math.max(...closed.rows)).toBeGreaterThan(left + (placement === "push" ? 100 : 0));
+          // Floating, the rows never moved; pushed, they were narrowed and now reach past the panel's edge.
+          if (placement === "push") expect(Math.max(...closed.rows)).toBeGreaterThan(left + 100);
+          else expect(open.rows).toEqual(before.rows);
         } finally {
           await page.close();
         }

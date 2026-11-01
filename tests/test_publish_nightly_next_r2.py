@@ -254,5 +254,63 @@ class UploadTests(unittest.TestCase):
             self.assertEqual(sorted(seen), sorted(f.name for f in files))
 
 
+
+class ReadbackTests(unittest.TestCase):
+    """upload_one reads the object back from R2 and compares its bytes' SHA-256 with the local
+    file's, not only the length, and still needs the public base to serve it at that length."""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        for patcher in (mock.patch.dict(os.environ, ENV), mock.patch.object(r2, "guard_key", lambda key: None),
+                        mock.patch.object(r2, "_sleep", lambda seconds: None)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.path = Path(self.dir.name) / "cmux-nightly-next-macos-arm64-200.dmg"
+        self.path.write_bytes(b"the built dmg")
+        self.calls: list[list[str]] = []
+
+    def upload_storing(self, stored: bytes, public: int | None = None) -> str:
+        def fake_run(args, *rest, **kwargs):
+            self.calls.append(args)
+            if "--download-to" in args:
+                Path(args[args.index("--download-to") + 1]).write_bytes(stored)
+            return subprocess.CompletedProcess(args, 0)
+
+        served = len(stored) if public is None else public
+        with mock.patch.object(r2.subprocess, "run", fake_run), \
+                mock.patch.object(r2, "public_length", lambda url, attempts=5: served):
+            return r2.upload_one(self.path)
+
+    def test_the_same_bytes_pass_and_name_their_digest(self) -> None:
+        line = self.upload_storing(b"the built dmg")
+        self.assertIn(hashlib.sha256(b"the built dmg").hexdigest(), line)
+        readback = self.calls[-1]
+        self.assertEqual(readback[readback.index("--key") + 1], "nightly-next/next/cmux-nightly-next-macos-arm64-200.dmg")
+
+    def test_other_bytes_of_the_same_length_fail(self) -> None:
+        stale = b"a stale dmg!!"
+        self.assertEqual(len(stale), self.path.stat().st_size)
+        with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+            self.upload_storing(stale)
+
+    def test_a_short_object_fails(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.upload_storing(b"the built")
+
+    def test_a_public_base_serving_another_length_fails(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "serves"):
+            self.upload_storing(b"the built dmg", public=3)
+
+    def test_a_failed_readback_fails(self) -> None:
+        def fake_run(args, *rest, **kwargs):
+            if "--download-to" in args:
+                raise subprocess.CalledProcessError(1, args)
+            return subprocess.CompletedProcess(args, 0)
+
+        with mock.patch.object(r2.subprocess, "run", fake_run), self.assertRaises(subprocess.CalledProcessError):
+            r2.upload_one(self.path)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

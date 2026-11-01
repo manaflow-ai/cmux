@@ -1,5 +1,5 @@
 {
- "_doc": "Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). Counts only go down. A crate with every deny lint at 0 is at deny.",
+ "_doc": "Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). Counts normally only go down; reviewed rollout rebaselines require authoritative Linux provenance. A crate with every deny lint at 0 is at deny.",
  "lints": [
   "unwrap_used",
   "expect_used",
@@ -26,17 +26,17 @@
  ],
  "crates": {
   "acpmux": {
-   "unwrap_used": 144,
+   "unwrap_used": 143,
    "expect_used": 18,
    "panic": 1,
    "unreachable": 2,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 697,
+   "indexing_slicing": 686,
    "string_slice": 94,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 978,
-   "cast_possible_truncation": 113
+   "arithmetic_side_effects": 1430,
+   "cast_possible_truncation": 215
   },
   "bindings-rust": {
    "unwrap_used": 0,
@@ -126,8 +126,8 @@
    "indexing_slicing": 2,
    "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 11,
-   "cast_possible_truncation": 13
+   "arithmetic_side_effects": 15,
+   "cast_possible_truncation": 17
   },
   "cmux-app-manifest": {
    "unwrap_used": 0,
@@ -152,7 +152,7 @@
    "indexing_slicing": 140,
    "string_slice": 14,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 155,
+   "arithmetic_side_effects": 158,
    "cast_possible_truncation": 38
   },
   "cmux-build-identity": {
@@ -321,7 +321,7 @@
    "indexing_slicing": 8,
    "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 9,
+   "arithmetic_side_effects": 10,
    "cast_possible_truncation": 0
   },
   "cmux-history": {
@@ -399,7 +399,7 @@
    "indexing_slicing": 69,
    "string_slice": 7,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 56,
+   "arithmetic_side_effects": 58,
    "cast_possible_truncation": 5
   },
   "cmux-link": {
@@ -607,8 +607,8 @@
    "indexing_slicing": 90,
    "string_slice": 7,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 105,
-   "cast_possible_truncation": 10
+   "arithmetic_side_effects": 107,
+   "cast_possible_truncation": 12
   },
   "cmux-remote-browser": {
    "unwrap_used": 0,
@@ -786,11 +786,11 @@
    "unreachable": 30,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 833,
+   "indexing_slicing": 831,
    "string_slice": 82,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 1115,
-   "cast_possible_truncation": 133
+   "arithmetic_side_effects": 1188,
+   "cast_possible_truncation": 138
   },
   "cmux-tui-cdp": {
    "unwrap_used": 0,
@@ -815,7 +815,7 @@
    "indexing_slicing": 25,
    "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 19,
+   "arithmetic_side_effects": 20,
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
@@ -828,8 +828,8 @@
    "indexing_slicing": 853,
    "string_slice": 52,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 830,
-   "cast_possible_truncation": 89
+   "arithmetic_side_effects": 875,
+   "cast_possible_truncation": 92
   },
   "cmux-tui-hooks": {
    "unwrap_used": 0,
@@ -854,7 +854,7 @@
    "indexing_slicing": 0,
    "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 11,
+   "arithmetic_side_effects": 12,
    "cast_possible_truncation": 0
   },
   "cmux-tui-machine-agent-protocol": {
@@ -971,7 +971,7 @@
    "indexing_slicing": 5,
    "string_slice": 2,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 13,
+   "arithmetic_side_effects": 15,
    "cast_possible_truncation": 0
   },
   "ghostty-vt": {

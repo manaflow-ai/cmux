@@ -87,6 +87,22 @@ import CmuxMobileAgentChat
         #expect(sessions.store(for: summary) !== first)
     }
 
+    /// Sign-out: no chat stays loaded (notification previews save the loaded ones), and the next
+    /// read builds a fresh store.
+    @Test func signOutForgetsEveryChat() {
+        let sessions = AgentSessionDirectory()
+        let summary = AgentSessionSummary(id: "t-claude", name: "s", harness: "claude", agentName: "Claude",
+                                          cwd: "~", workspaceTitle: "w", macName: "m", branch: nil, status: .idle, macID: "mac-1")
+        let first = sessions.store(for: summary)
+        let notified = SourceChanges()
+        withObservationTracking { _ = sessions.existingStore(id: "t-claude", macID: "mac-1") } onChange: { notified.count += 1 }
+        sessions.removeAll()
+        #expect(notified.count == 1)
+        #expect(sessions.loadedStores.isEmpty)
+        #expect(sessions.existingStore(id: "t-claude", macID: "mac-1") == nil)
+        #expect(sessions.store(for: summary) !== first)
+    }
+
     /// Review m1: a page that used the focus request before the screen's
     /// `opened()` is not re-armed by it.
     @Test func openedConsumesWithoutReArmingFocus() {

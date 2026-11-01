@@ -880,7 +880,6 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Sidebar | `sidebar.sections.showHidden` | Show Hidden Sections |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.spaces.hide` | Hide Spaces |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.spaces.show` | Show Spaces |  | b. standard | its section, catalog order |
-| Sidebar | `sidebar.workspaceTabs.toggle` | Show Tabs Under Workspaces |  | b. standard | its section, catalog order |
 | Sidebar | `switchRightSidebarToDock` | Show Dock |  | b. standard | its section, catalog order |
 | Sidebar | `switchRightSidebarToFeed` | Show Feed in Right Sidebar |  | b. standard | its section, catalog order |
 | Sidebar | `switchRightSidebarToFiles` | Show Files |  | b. standard | its section, catalog order |

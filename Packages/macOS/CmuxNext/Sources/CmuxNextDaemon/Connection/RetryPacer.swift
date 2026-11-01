@@ -48,6 +48,11 @@ public struct RetryPacer: Sendable {
     /// The socket whose refusals spent the timed retries
     /// (``waitForPeerAfterFailure(wake:clock:)``); nil until one refused.
     private var budgetSocket: RetryWake.Identity?
+    /// The last attempt was refused at the daemon's connection limit (``refusedBusy()``).
+    private var busyRefusal = false
+    /// The longest spacing after a busy refusal: the daemon is up and frees a slot
+    /// as soon as one of its connections ends.
+    public static let busyRetryCap: Duration = .seconds(1)
 
     public init(_ policy: RetryPolicy) {
         self.policy = policy
@@ -57,6 +62,10 @@ public struct RetryPacer: Sendable {
     /// The timed-retry budget is spent: wait for an event only.
     public var isExhausted: Bool { failures >= policy.timedRetries }
 
+    /// The next wait arms no timer: the budget is spent and the last attempt was not a busy
+    /// refusal (``refusedBusy()``), whose daemon is alive and keeps a timed retry.
+    public var waitsForEventOnly: Bool { isExhausted && !busyRefusal }
+
     /// A socket change may wake the next wait: false in a crash loop.
     public var wakesOnSocket: Bool { socketFailures < policy.socketRetries }
 
@@ -65,12 +74,18 @@ public struct RetryPacer: Sendable {
         socketFailures = 0
         wokeBySocket = false
         budgetSocket = nil
+        busyRefusal = false
         backoff.reset()
     }
 
     /// Notes one failure and returns the spacing before the next attempt,
     /// or nil when the budget is spent (wait for an event only).
     public mutating func failed() -> Duration? {
+        if busyRefusal {
+            busyRefusal = false
+            wokeBySocket = false
+            return min(backoff.next(), Self.busyRetryCap)
+        }
         failures += 1
         if wokeBySocket { socketFailures += 1 }
         wokeBySocket = false
@@ -108,6 +123,15 @@ public struct RetryPacer: Sendable {
             wokeBySocket = true
         }
         return failed()
+    }
+
+    /// The attempt was refused at the daemon's connection limit (`server.busy`): the
+    /// daemon is alive and answering, so the failure spends no timed retry and the next
+    /// spacing is at most ``busyRetryCap``. Past the budget the loop would wait for an
+    /// event only, and a busy daemon behind the same socket fires none: the app stayed
+    /// "not connected" (every split snapped back) while CLI clients took each freed slot.
+    public mutating func refusedBusy() {
+        busyRefusal = true
     }
 
     /// Notes what woke the wait before the next attempt.

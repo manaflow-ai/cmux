@@ -60,5 +60,22 @@ expect refused $K Suite restore_from=$sha restore=Sources/
 expect refused $K Suite restore_from=$sha restore=$'Sources/A.swift\n../evil'
 expect refused $K $'Suite\nOther'
 
+# config= and enable= (a Release benchmark such as MainTurnMeterBench, 2026-10-29).
+M=Packages/macOS/CmuxNext
+expect guard $M MainTurnMeterBench config=release
+expect guard $M MainTurnMeterBench config=debug
+expect guard $M MainTurnMeterBench enable=CMUX_MAIN_TURN_BENCH
+expect guard $M MainTurnMeterBench config=release enable=CMUX_MAIN_TURN_BENCH source=$sha
+expect refused $M Suite config=fast
+expect refused $M Suite config=Release
+expect refused $M Suite config=
+expect refused $M Suite config=release config=release
+expect refused $M Suite enable=CMUX_CI_TOKEN
+expect refused $M Suite enable=MAIN_TURN_BENCH
+expect refused $M Suite enable=cmux_main_turn_bench
+expect refused $M Suite enable=CMUX_MAIN_TURN_BENCH=0
+expect refused $M Suite enable=CMUX__BENCH
+expect refused $M Suite enable=CMUX_A_BENCH enable=CMUX_B_BENCH
+
 [[ $fail -eq 0 ]] && echo "swift-test-bench args: ok"
 exit $fail

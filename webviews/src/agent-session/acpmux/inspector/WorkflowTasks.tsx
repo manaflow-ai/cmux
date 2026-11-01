@@ -2,8 +2,10 @@
 // ones first, then the finished ones, each read from the subagent fold (summary/foldWorkflows.ts).
 // A workflow shows its name, how long it has run and Stop; a line of its agents' counts and tokens;
 // its description; then its phases, each with its counts and a dot per agent, which opens into
-// the phase's agents (model, a check and how long it took, or Queued). "Up next" names the phases
-// no agent has started. A running agent is a spinner, never a pulsing dot.
+// the phase's agents (model, a check and how long it took, or Queued). A phase no agent has started
+// is a row like the others, in its pending state, with no label saying it comes next (Leo,
+// 2026-10-29: "I fucking hate it when you guys narrate so much bullshit"). A running agent is a
+// spinner, never a pulsing dot.
 import { useState } from "react";
 import { compactTokens } from "../conversation/CompactionNote";
 import { Spinner } from "../conversation/icons";
@@ -12,7 +14,7 @@ import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/SubagentGroup";
-import { modelName, phaseAgents, tally, upNext, type Tally } from "../summary/foldWorkflows";
+import { modelName, phaseAgents, phaseState, tally, workflowDetailRequest, type Tally } from "../summary/foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "../summary/workflow";
 import { StopButton } from "./TasksSection";
 import "./inspector.css";
@@ -125,9 +127,6 @@ function WorkflowTask({
         t("subagents.pill", { n: counts.total }),
         ...tokens,
       ];
-  const next = running ? upNext(workflow) : [];
-  // A running workflow lists the phases its agents started; the rest are Up next.
-  const listed = running ? workflow.phases.filter((phase) => !next.includes(phase)) : workflow.phases;
   return (
     <section className="acpmux-workflow-task" data-state={workflow.state} aria-label={workflow.title}>
       <div className="acpmux-workflow-task__head">
@@ -141,9 +140,9 @@ function WorkflowTask({
           {workflow.description}
         </p>
       )}
-      {listed.length > 0 && (
+      {workflow.phases.length > 0 && (
         <ul className="acpmux-chat-inspector-list acpmux-workflow-task__phases">
-          {listed.map((phase) => (
+          {workflow.phases.map((phase) => (
             <WorkflowPhaseRow
               key={phase.id}
               workflow={workflow}
@@ -156,11 +155,6 @@ function WorkflowTask({
             />
           ))}
         </ul>
-      )}
-      {next.length > 0 && (
-        <p className="acpmux-workflow-task__next">
-          {t("workflow.upNext", { phases: next.map((phase) => phase.name).join(", ") })}
-        </p>
       )}
     </section>
   );
@@ -195,13 +189,28 @@ function WorkflowPhaseRow({
   const counts = tally(agents);
   // A running workflow's phase that has agents running opens on its own, so live work is in view.
   const [open, setOpen] = useState(running && counts.running > 0);
+  // A pending phase (no agent, or only queued ones) is listed before it starts, so it mounts
+  // closed. When one of its agents starts it opens by the same rule, as if it had mounted then.
+  const startedNow = phaseState(agents) !== "pending";
+  const [started, setStarted] = useState(startedNow);
+  if (started !== startedNow) {
+    setStarted(startedNow);
+    if (startedNow) setOpen(running && counts.running > 0);
+  }
   const label = running ? countLine(t, counts).join(" · ") : counts.total > 0 ? `${counts.done}/${counts.total}` : "";
   return (
     <li className="acpmux-workflow-phase" data-state={phase.state}>
-      <button type="button" className="acpmux-workflow-phase__head" aria-expanded={open} onClick={() => setOpen(!open)}>
+      {/* A phase with no agents yet has nothing to open: no chevron and no click. */}
+      <button
+        type="button"
+        className="acpmux-workflow-phase__head"
+        aria-expanded={agents.length > 0 ? open : undefined}
+        disabled={agents.length === 0}
+        onClick={() => setOpen(!open)}
+      >
         <span className="acpmux-workflow-phase__name">{phase.name || t("workflow.unassigned")}</span>
         <span className="acpmux-chat-inspector-task__time">{label}</span>
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+        {agents.length > 0 && <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />}
       </button>
       {/* A dot per agent says at a glance what the counts beside the name say in words. */}
       <span className="acpmux-workflow-dots" aria-hidden="true">
@@ -214,6 +223,7 @@ function WorkflowPhaseRow({
           {agents.map((agent) => (
             <WorkflowAgentRow
               key={agent.id}
+              workflow={workflow}
               agent={agent}
               now={now}
               onOpenSubagent={onOpenSubagent}
@@ -230,11 +240,14 @@ function WorkflowPhaseRow({
 /// A live workflow agent's state, model, elapsed time and latest action/message. Rows open through
 /// the workflow bridge when one is supplied; without it they remain inert.
 export function WorkflowAgentRow({
+  workflow,
   agent,
   now,
   onOpenWorkflowAgent,
   variant = "detail",
 }: {
+  /// The parent workflow supplies the session and run that identify this agent's transcript.
+  workflow: WorkflowSummary;
   /// The folded workflow agent to render.
   agent: WorkflowAgent;
   /// The shared current time used for running elapsed durations.
@@ -261,6 +274,7 @@ export function WorkflowAgentRow({
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the
   // workflow bridge is supplied, keep this row inert rather than sending the wrong id to the
   // ordinary subagent opener.
+  const openable = Boolean(onOpenWorkflowAgent && workflowDetailRequest(workflow, agent));
   const className = `acpmux-workflow-agent__button acpmux-workflow-agent__button--${variant}`;
   const content = (
     <>
@@ -292,12 +306,12 @@ export function WorkflowAgentRow({
   );
   return (
     <li className="acpmux-chat-inspector-task acpmux-workflow-agent" data-state={agent.state}>
-      {onOpenWorkflowAgent ? (
+      {openable ? (
         <button
           type="button"
           className={className}
           aria-label={accessibleLabel}
-          onClick={() => onOpenWorkflowAgent(agent)}
+          onClick={() => onOpenWorkflowAgent?.(agent)}
         >
           {content}
         </button>

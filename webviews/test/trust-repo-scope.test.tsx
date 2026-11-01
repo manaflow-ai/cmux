@@ -140,16 +140,21 @@ test("Only this folder records the folder, and Not now the repository", async ()
 });
 
 const noop = () => undefined;
-const render = (ask: Parameters<typeof TrustAsk>[0]["ask"], onTrustRepo: () => void = noop) =>
+const render = (
+  ask: Parameters<typeof TrustAsk>[0]["ask"],
+  onTrustRepo: () => void = noop,
+  { onTrust = noop, answers = true }: { onTrust?: () => void; answers?: boolean } = {},
+) =>
   act(async () =>
     root.render(
       <TrustAsk
         ask={ask}
         agent="Claude Code"
-        onTrust={noop}
+        onTrust={onTrust}
         onTrustRepo={onTrustRepo}
         onDistrust={noop}
         onUndo={noop}
+        answers={answers}
       />,
     ),
   );
@@ -179,7 +184,7 @@ test("the repository's own folder has no separate Only this folder; a plain fold
   expect(buttons()).toEqual(["Trust folder", "Not now"]);
 });
 
-test("a worktree answered by its repository says so, with Undo", async () => {
+test("a worktree answered by its repository keeps Trust and Undo after Not now", async () => {
   await render({
     cwd: worktree,
     repo: { root: repoRoot, worktree: true },
@@ -189,16 +194,65 @@ test("a worktree answered by its repository says so, with Undo", async () => {
   });
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trusted via repo atlas-web");
   expect(buttons()).toEqual(["Undo"]);
-  await render({
-    cwd: worktree,
-    repo: { root: repoRoot, worktree: true },
-    via: repoRoot,
-    state: "decided",
-    level: "untrusted",
-  });
+  let trustRepo = 0;
+  await render(
+    {
+      cwd: worktree,
+      repo: { root: repoRoot, worktree: true },
+      via: repoRoot,
+      state: "decided",
+      level: "untrusted",
+    },
+    () => (trustRepo += 1),
+  );
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe(
     "Not trusted: Claude Code won't run in the atlas-web repo",
   );
+  expect(buttons()).toEqual(["Trust repo", "Undo"]);
+  await act(async () => (host.querySelector(".acpmux-trust-ask-primary") as HTMLButtonElement).click());
+  expect(trustRepo).toBe(1);
+});
+
+test("after Not now, Trust records where that answer lives: the repository only when it holds it", async () => {
+  // acpmux reads the folder's own answer, then its worktree's, then its repository's (trust.rs):
+  // Trust repo would leave a folder's or worktree's own Not now in force.
+  const counts = { repo: 0, folder: 0 };
+  const handlers = [() => (counts.repo += 1), { onTrust: () => (counts.folder += 1) }] as const;
+  const inWorktree = `${worktree}/packages/api`;
+  await render(
+    { cwd: inWorktree, repo: { root: repoRoot, worktree: true }, via: worktree, state: "decided", level: "untrusted" },
+    ...handlers,
+  );
+  expect(buttons()).toEqual(["Trust folder", "Undo"]);
+  await act(async () => (host.querySelector(".acpmux-trust-ask-primary") as HTMLButtonElement).click());
+  await render(
+    { cwd: worktree, repo: { root: repoRoot, worktree: true }, state: "decided", level: "untrusted" },
+    ...handlers,
+  );
+  expect(buttons()).toEqual(["Trust folder", "Undo"]);
+  await act(async () => (host.querySelector(".acpmux-trust-ask-primary") as HTMLButtonElement).click());
+  expect(counts).toEqual({ repo: 0, folder: 2 });
+});
+
+test("a chat whose host keeps its answer offers no Trust after Not now", async () => {
+  await render(
+    { cwd: worktree, repo: { root: repoRoot, worktree: true }, via: repoRoot, state: "decided", level: "untrusted" },
+    noop,
+    { answers: false },
+  );
+  // Undo would send an answer the host rejects, and that failure would offer Trust: neither works.
+  expect(buttons()).toEqual([]);
+});
+
+test("a chat whose host keeps its answer offers no Trust or Not now when an answer failed", async () => {
+  for (const ask of [
+    { cwd: worktree, repo: { root: repoRoot, worktree: true }, state: "failed" as const },
+    { cwd: "/Users/you/Downloads/thing", state: "failed" as const },
+    { cwd: worktree, repo: { root: repoRoot, worktree: true }, state: "ask" as const },
+  ]) {
+    await render(ask, noop, { answers: false });
+    expect(buttons()).toEqual([]);
+  }
 });
 
 test("the Access grant names where the answer lives: the repository, not the chat's private folder", () => {

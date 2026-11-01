@@ -40,7 +40,7 @@ public struct TabHoverCardGallery {
                                                                          processCount: 1, sharedWithTabs: 0, available: true)],
                                                  total: usage, processCount: 1))
             }
-            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+            return (name, HoverCardGalleryHost(body: card, cornerRadius: Metrics.tabCornerRadius) { [weak card] in card?.applyColors() })
         }
     }
 
