@@ -4134,7 +4134,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
         splitDividerColor: NSColor? = nil,
-        tabTitleFontSize: CGFloat = 11
+        tabTitleFontSize: CGFloat = 11,
+        tabBarLayout: SurfaceTabBarLayoutSettings = SurfaceTabBarLayoutSettings()
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
@@ -4154,8 +4155,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             increaseContrast: DisplayAccessibilityOptions.current.increaseContrast
         )
         return BonsplitConfiguration.Appearance(
-            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
+            tabBarHeight: tabBarLayout.height,
+            tabMaxWidth: tabBarLayout.maxTabWidth,
             tabTitleFontSize: tabTitleFontSize,
+            tabWidthMode: tabBarLayout.widthMode.bonsplitTabWidthMode,
             dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
@@ -4165,7 +4168,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
     }
 
-    func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
+    func applyGhosttyChrome(
+        from config: GhosttyConfig,
+        reason: String = "unspecified",
+        tabBarLayout: SurfaceTabBarLayoutSettings = SurfaceTabBarLayoutSettings()
+    ) {
         let sharesWindowBackdrop = Self.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -4192,7 +4199,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
         let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
+        let nextTabBarHeight = tabBarLayout.height
+        let nextTabMaxWidth = tabBarLayout.maxTabWidth
+        let nextTabWidthMode = tabBarLayout.widthMode.bonsplitTabWidthMode
+        let tabBarHeightChanged = abs(currentAppearance.tabBarHeight - nextTabBarHeight) > 0.0001
+        let tabMaxWidthChanged = abs(currentAppearance.tabMaxWidth - nextTabMaxWidth) > 0.0001
+        let tabWidthModeChanged = currentAppearance.tabWidthMode != nextTabWidthMode
         let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged
+            && !tabBarHeightChanged && !tabMaxWidthChanged && !tabWidthModeChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -4218,6 +4232,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if fontSizeChanged {
             bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
+        }
+        if tabBarHeightChanged {
+            bonsplitController.configuration.appearance.tabBarHeight = nextTabBarHeight
+        }
+        if tabMaxWidthChanged {
+            bonsplitController.configuration.appearance.tabMaxWidth = nextTabMaxWidth
+        }
+        if tabWidthModeChanged {
+            bonsplitController.configuration.appearance.tabWidthMode = nextTabWidthMode
         }
 
         if GhosttyApp.shared.backgroundLogEnabled {
