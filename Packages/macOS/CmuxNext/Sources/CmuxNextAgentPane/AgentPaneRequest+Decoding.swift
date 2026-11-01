@@ -138,7 +138,7 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.setAttachmentView":
-            // The composer's Inline or Strip choice; the page writes only this key with it.
+            // The composer's Inline, Strip or Inline and Strip choice; the page writes only this key with it.
             if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
             } else {

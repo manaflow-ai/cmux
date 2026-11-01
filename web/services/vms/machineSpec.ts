@@ -1,7 +1,7 @@
 /**
  * Paid plans include up to 5 active machines per seat, and those machines
- * share one vCPU and memory pool: Pro, Team (per paid seat), and Founder's
- * Edition get 20 vCPUs and 40 GB RAM, Max gets 80 vCPUs and 160 GB RAM. Disk
+ * share one vCPU and memory pool: Pro, Team (per paid seat), and legacy
+ * lifetime grants get 20 vCPUs and 40 GB RAM; Max gets 80 vCPUs and 160 GB RAM. Disk
  * stays a per-machine limit. Only provisioning and running machines draw from
  * the pool. This module is dependency-free so provider sizing does not import
  * the billing graph.
@@ -17,7 +17,7 @@ export type VmComputeResources = {
   readonly memoryMb: number;
 };
 
-/** One paid seat's pool on Pro, Team, and Founder's Edition. */
+/** One paid seat's pool on Pro, Team, and legacy lifetime grants. */
 export const PLAN_RESOURCE_POOL: VmComputeResources = { vcpus: 20, memoryMb: 40 * 1024 };
 /** The Max pool. */
 export const MAX_PLAN_RESOURCE_POOL: VmComputeResources = { vcpus: 80, memoryMb: 160 * 1024 };

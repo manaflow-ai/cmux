@@ -6,6 +6,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -22,6 +24,10 @@ const keys = [
   "localStorage",
   "customElements",
   "MutationObserver",
+  "getSelection",
+  "KeyboardEvent",
+  "InputEvent",
+  "FocusEvent",
 ] as const;
 const added: string[] = [];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -44,14 +50,16 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
     customElements: window.customElements,
-    MutationObserver: window.MutationObserver,
+    KeyboardEvent: window.KeyboardEvent,
+    InputEvent: window.InputEvent,
+    FocusEvent: window.FocusEvent,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   // Pierre's registered elements (App's diff view) read their own DOM constructors at import time.
   for (const key of Object.getOwnPropertyNames(window))
@@ -162,12 +170,15 @@ test("New chat sends what the field holds, and a second click opens nothing more
   try {
     await render(root);
     // A prompt typed before the click goes with the chat, as Return would send it.
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+    for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const handle = field.acpmuxMarkdownField!;
     await act(async () => {
-      setValue.call(field, "fix the flaky upload test");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      handle.focus();
+      handle.type("fix the flaky upload test");
     });
+    expect(handle.value()).toBe("fix the flaky upload test");
     await act(async () => button("chat").click());
     expect(calls.filter((call) => call.method === "chat.send")).toEqual([
       { method: "chat.send", params: { text: "fix the flaky upload test" } },

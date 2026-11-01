@@ -18,7 +18,7 @@ import Testing
     }
 
     @Test func runningTurnsAsTheSpinner() {
-        #expect(Self.plan(.working).animation == .spin)
+        #expect(Self.plan(.working) == StatusIndicatorPlan.working(tint: .spinner))
     }
 
     @Test func noMarkBlinks() {

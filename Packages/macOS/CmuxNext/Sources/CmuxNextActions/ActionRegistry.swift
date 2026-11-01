@@ -110,7 +110,7 @@ public final class ActionRegistry {
     /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
-    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?, _ machineID: String?) -> Void)?
     /// Live previews by action (`ActionRegistry+Preview`) and the one on screen.
     @ObservationIgnored var previews: [ActionID: ActionPreview] = [:]
     @ObservationIgnored var activePreview: ActivePreview?

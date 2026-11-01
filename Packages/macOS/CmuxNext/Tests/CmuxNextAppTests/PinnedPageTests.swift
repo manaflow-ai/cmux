@@ -245,8 +245,11 @@ struct PinnedPageTests {
         try #require(condition(), "timed out: \(report())", sourceLocation: sourceLocation)
     }
 
-    /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
-    static func withApp(_ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+    /// The app's services on a fresh same-tree daemon, ready once the launch's restore is over and
+    /// its first terminal shows.
+    /// `heldKeyReplay`: where a creation hold's keys run again (the app's own unless a test passes another).
+    static func withApp(heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp?.sendEvent(event) },
+                        _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pinned-\(UUID().uuidString.prefix(8))")
         var reaped = false
@@ -257,7 +260,7 @@ struct PinnedPageTests {
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         let owner = AppTestDaemonOwner(launcher)
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]), heldKeyReplay: heldKeyReplay)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
@@ -275,6 +278,12 @@ struct PinnedPageTests {
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
+            // The launch is over: restore installed the saved windows (or gave up). The panes show
+            // before that, and a restore that lands mid-body installs the saved registry over what
+            // the body made: a workspace just moved to a new window lost that window (base8 at
+            // 61ad0ed216f, MoveToNewWindowTests), and a save asked for then was still blocked
+            // (SavedWindowsLaunchTests).
+            try await until({ !services.windows.registry.isLaunching || services.windows.restoreGaveUp }, within: .seconds(90))
             // Actions reach tabs through the window's panes, which attach after the daemon's.
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))

@@ -242,13 +242,14 @@ public nonisolated enum SidebarTunables {
         help: "Prototype for hiding and showing the sidebar: slide keeps the panel opaque; slide and fade fades its content with the same width motion.",
         default: .slide, code: "SidebarTunables.collapseMotion")
 
-    // @intent no reflow per frame (GPU audit 2026-10-21, offender #1): the slide used to lay out
-    // every pane, terminal and page at a new width on every frame. On by default; off restores that.
+    // @intent Leo 2026-10-31: the sidebar toggle must not snap after it settles.
+    // Holding a wider content frame needs a second resize at landing; keep that optimization
+    // available for comparison, but normally let content follow the sidebar edge.
     /// Whether the content beside the sidebar keeps one width through a show or hide slide.
     public static let slideHoldsContent = Tunable<Bool>.toggle(
         "sidebar.slideHoldsContent", .sidebar, "Hold content size in sidebar slide",
-        help: "While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width and ride the moving edge, clipped at the far one; they lay out once when the slide lands. Off: every pane resizes on every frame.",
-        default: true, code: "SidebarTunables.slideHoldsContent")
+        help: "While the sidebar slides open or closed, the panes beside it take their final width when the slide starts and stay still, pinned to the far edge, while the sidebar slides over the near one. Off: every pane resizes on every frame.",
+        default: false, code: "SidebarTunables.slideHoldsContent")
 
     /// The transition used when a workspace row receives its generated or
     /// agent-derived title after creation. Crossfade is the shipped default (#21242).
