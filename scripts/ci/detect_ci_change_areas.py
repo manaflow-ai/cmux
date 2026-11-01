@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import os
 import re
 import subprocess
@@ -1011,6 +1012,44 @@ def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:
         return ()
 
 
+# The web bundles' inputs outside webviews/ (the settings schema, the What's New
+# highlights, the model catalog, the string catalogs gen-strings.mjs reads, the
+# font the gallery frame imports...) run the web checks too, derived by
+# web-bundle-key.py from what webviews sources import (`--routed`), not listed
+# here by hand: #31238 changed only schemas/settings/settings-schema.json, Swift
+# and a catalog, skipped every web check, and turned the webview suite red on
+# base. The key script sits beside this one (ci.yml copies it into the trusted
+# router's root) and reads the pull request's tree as data.
+WEB_BUNDLE_KEY = Path(__file__).resolve().parents[1] / "cmux-next" / "web-bundle-key.py"
+
+
+@lru_cache(maxsize=None)
+def web_bundle_input_matcher(root: str):
+    """A predicate for paths web-bundle-key.py routes the web checks on, for the
+    tree at `root`. Without the derivation (no key script, no git tree) the
+    key's declared inputs; without the script, None."""
+    try:
+        spec = importlib.util.spec_from_file_location("cmux_web_bundle_key", WEB_BUNDLE_KEY)
+        if spec is None or spec.loader is None:
+            return None
+        key = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(key)
+    except (OSError, SyntaxError, ImportError) as error:
+        print(f"web bundle inputs unavailable ({error}); web routes on its own list only.", file=sys.stderr)
+        return None
+    try:
+        return key.pathspec_matcher(key.routed_inputs(root))
+    except (Exception, SystemExit) as error:  # noqa: BLE001  (fall back, never fail the router)
+        print(f"web bundle inputs not derived ({error}); using the key's declared inputs.", file=sys.stderr)
+        return key.pathspec_matcher(key.INPUTS)
+
+
+def is_web_bundle_input(path: str) -> bool:
+    root = os.environ.get(HEAD_TEST_REFERENCE_ROOT_ENV) or "."
+    matcher = web_bundle_input_matcher(str(Path(root).resolve()))
+    return matcher is not None and matcher(path)
+
+
 def is_web_change(path: str) -> bool:
     # The diff-sidecar validation lives in ci-web.yml even for native-only
     # inputs. Mark those inputs web-routed explicitly so ordinary macOS changes
@@ -1028,6 +1067,8 @@ def is_web_change(path: str) -> bool:
     ):
         return True
     if path == "CHANGELOG.md":
+        return True
+    if is_web_bundle_input(path):
         return True
     return path in {
         "package.json",

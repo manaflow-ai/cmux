@@ -68,9 +68,45 @@ enum AgentShareStrings {
         }
     }
 
+    /// The owner's consent sheet for a link a run they did not start asks for (#30263).
+    static func consentTitle(_ chat: String) -> String {
+        String(format: String(localized: "agentShare.consent.title", defaultValue: "Share “%@” with a guest?", table: "AgentShare", bundle: .module), chat)
+    }
+
+    static var consentDetail: String {
+        String(localized: "agentShare.consent.detail", defaultValue: "An agent or script asked for a guest link to this chat. Anyone with the link sees the chat as you do, including command output and the agent’s reasoning.", table: "AgentShare", bundle: .module)
+    }
+
+    /// How long the link lasts and how many times it works, in the sheet's words.
+    static func consentTerms(ttlSecs: UInt64, uses: UInt32) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = [.day, .hour, .minute]
+        formatter.maximumUnitCount = 2
+        let lasts = formatter.string(from: TimeInterval(ttlSecs)) ?? "\(ttlSecs)s"
+        if uses == 1 {
+            return String(format: String(localized: "agentShare.consent.termsOnce", defaultValue: "The link lasts %@ and works once.", table: "AgentShare", bundle: .module), lasts)
+        }
+        return String(format: String(localized: "agentShare.consent.terms", defaultValue: "The link lasts %1$@ and works %2$lld times.", table: "AgentShare", bundle: .module), lasts, Int64(uses))
+    }
+
+    static var consentAllow: String {
+        String(localized: "agentShare.consent.allow", defaultValue: "Make Link", table: "AgentShare", bundle: .module)
+    }
+
+    static var consentDecline: String {
+        String(localized: "agentShare.consent.decline", defaultValue: "Don’t Share", table: "AgentShare", bundle: .module)
+    }
+
+    static var declined: String {
+        String(localized: "agentShare.declined", defaultValue: "The chat’s owner didn’t allow a guest link, so none was made.", table: "AgentShare", bundle: .module)
+    }
+
     /// A share verb's failure for its caller: the daemon's `share.*` code (the CLI and MCP see it as
     /// the error code) with a sentence a person can act on.
     static func failure(_ error: any Error) -> ActionWorkFailure {
+        // The owner said no, or did not answer: nothing was made, so a retry asks again.
+        if error is AgentShareDeclined { return ActionWorkFailure(code: "share.declined", reason: declined) }
         // No answer in time: the daemon may still make (or provision) the share, so the caller is
         // told the run may have applied and must not simply retry.
         if case DaemonError.timedOut = error {

@@ -22,7 +22,8 @@ fn a_turn_a_note_woke_runs_again_after_a_host_restart() {
     let mut h = Harness::new(default_script());
     h.agents.hold(true);
     h.connect();
-    h.tx.send(Input::PeerChiefNote { text: NOTE.into() }).unwrap();
+    h.tx.send(Input::PeerChiefNote { text: NOTE.into() })
+        .unwrap();
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
         h.step();
     }

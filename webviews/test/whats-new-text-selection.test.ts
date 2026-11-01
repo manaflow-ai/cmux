@@ -111,7 +111,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      async function open(kind: "ready" | "updated", width?: number): Promise<Page> {
+      async function open(kind: "ready" | "updated", width?: number, highlights: typeof data = data): Promise<Page> {
         const page = await browser.newPage({ viewport: { width: 420, height: 400 } });
         await page.setContent(
           `<!doctype html><html style="--page-text:#ddd;--page-text-2:#aaa;--page-text-3:#888"><head><style>${css}</style></head><body><div id="root"${width ? ` style="width:${width}px"` : ""}></div></body></html>`,
@@ -121,7 +121,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         page.on("pageerror", (error) => errors.push(error.stack ?? String(error)));
         await page.addScriptTag({ content: script });
         if (errors.length > 0) throw new Error(`the bundle threw as it loaded: ${errors.join("; ")}`);
-        await page.evaluate(([k, d]) => (window as any).mount(k, d), [kind, data] as const);
+        await page.evaluate(([k, d]) => (window as any).mount(k, d), [kind, highlights] as const);
         return page;
       }
 
@@ -171,14 +171,35 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       });
 
       // The top change wraps instead of being cut with an ellipsis (u4466, design #2 "Readable"), so
-      // it reads and selects whole; a short one keeps one line in a sidebar-wide card.
-      test("in a sidebar-wide card the top change keeps one line when it fits", async () => {
-        const page = await open("updated", 244);
-        const metrics = await page.locator(".wn-card-note").evaluate((note) => ({
+      // it reads and selects whole; a short one keeps one line in a sidebar-wide card. The fixture's
+      // own top change ("Sidebar: workspace groups at a glance") is about as wide as the card's
+      // 220px text column at 12px, so whether it wraps depends on the font (it wraps in DejaVu Sans,
+      // CI's fallback): these cases use a top change that clearly fits and one that clearly does not.
+      const topChange = (title: string, category = "improved") => ({
+        ...data,
+        items: [{ id: "top", title, summary: null, category }],
+        moreCount: 0,
+      });
+      const noteLines = (page: Page) =>
+        page.locator(".wn-card-note").evaluate((note) => ({
           height: note.getBoundingClientRect().height,
           line: parseFloat(getComputedStyle(note).lineHeight),
         }));
+
+      test("in a sidebar-wide card the top change keeps one line when it fits", async () => {
+        const page = await open("updated", 244, topChange("Tables scroll"));
+        expect(await page.locator(".wn-card-note").innerText()).toContain("tables scroll");
+        const metrics = await noteLines(page);
         expect(metrics.height).toBeLessThan(metrics.line * 1.5 + 4);
+        await page.close();
+      });
+
+      test("in a sidebar-wide card a top change too wide for one line wraps to two, never cut on one", async () => {
+        const page = await open("updated", 244, topChange("Workspace groups keep their pins across windows", "new"));
+        expect(await page.locator(".wn-card-note").innerText()).toContain("keep their pins across windows");
+        const metrics = await noteLines(page);
+        expect(metrics.height).toBeGreaterThan(metrics.line * 1.5);
+        expect(metrics.height).toBeLessThan(metrics.line * 2.5 + 4);
         await page.close();
       });
 

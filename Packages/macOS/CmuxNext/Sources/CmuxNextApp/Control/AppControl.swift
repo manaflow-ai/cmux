@@ -86,6 +86,8 @@ final class AppControl {
         service.router.register(FeedControl.methods(services: services))
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
+        // `video.frames`: a video's numbers and frames for the agent tools `video_info` and `video_frames`.
+        service.router.register(VideoControl().methods())
         // `agent.acpmux`: the acpmux this app's chat tabs use (`cmux agents chat new`, #23026).
         let build = services.environment.build
         service.router.register([.agentAcpmux {
@@ -124,7 +126,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }] + services.daemon.creationHold.methods)
+        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.

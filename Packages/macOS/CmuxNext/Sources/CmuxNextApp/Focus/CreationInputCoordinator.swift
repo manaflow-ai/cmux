@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextTerminal
@@ -48,6 +49,7 @@ final class CreationInputCoordinator {
     /// script or agent run without `focus`), which leaves the keys where they are.
     func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
+        defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order
         return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: machine ?? router?.focus(for: window).0?.content?.daemon.machineID)
     }
 
@@ -103,6 +105,47 @@ final class CreationInputCoordinator {
         }
     }
 
+    /// A person's close of `tabs` waits for an answer (the close warning's read): when it takes the focused live terminal (never a cancelled stand-in), or comes while that terminal's close still reads (two quick Cmd-Ws), keys typed meanwhile are the close's (P0 close-then-type).
+    func beginClose(of tabs: [TabModel], in window: NSWindow?) -> CreationInputBuffer.Ticket? {
+        let live = tabs.filter(\.isLiveTerminal).map(\.id)
+        guard let window, ActionRunScope.viewChangeAllowed(), let controller = router?.focus(for: window).0, let focused = controller.focus.state.terminalTab, !live.isEmpty,
+              live.contains(focused) || buffers[window.windowNumber]?.isClosing(tab: focused) == true else { return nil }
+        return buffer(in: window).openClose(closing: live.contains(focused) ? [focused] + live.filter { $0 != focused } : live, machine: controller.content?.daemon.machineID)
+    }
+
+    /// Keys of closes that ended while a close's question was up, by window: they wait for its answer with its own keys.
+    private var asking: [Int: [NSEvent]] = [:]
+
+    /// The close asks the person: its keys wait for the answer outside the hold (the question takes its own keys).
+    func parkClose(_ ticket: CreationInputBuffer.Ticket?, in window: NSWindow?) -> CreationInputBuffer.ParkedClose? {
+        guard let window else { return nil }
+        if asking[window.windowNumber] == nil { asking[window.windowNumber] = [] }
+        guard let ticket, let parked = buffers[window.windowNumber]?.parkClose(ticket) else { return .init(events: [], closing: "", machine: nil) }
+        scheduleFlush(in: window)
+        return parked
+    }
+
+    /// The close ran: its keys (`parked` first) go to the terminal focused now, once it has the keyboard. The person
+    /// cancelled it (`stays`): its parked keys go to the terminal that stays now, by that terminal, wherever the focus is.
+    /// A close that ends while another close's question is up waits for that answer; a gone window takes its keys with it.
+    func endClose(_ ticket: CreationInputBuffer.Ticket?, parked: CreationInputBuffer.ParkedClose? = nil, stays: Bool = false, in window: NSWindow?) {
+        guard let window else { return }
+        let number = window.windowNumber
+        if parked == nil, asking[number] != nil {
+            if let ticket, let more = buffers[number]?.parkClose(ticket) { asking[number]?.append(contentsOf: more.events); scheduleFlush(in: window) }
+            return
+        }
+        let parked = parked.map { CreationInputBuffer.ParkedClose(events: $0.events + (asking.removeValue(forKey: number) ?? []), closing: $0.closing, machine: $0.machine) }
+        if stays, let parked, !parked.closing.isEmpty, !parked.events.isEmpty {
+            let lane = CreationInputBuffer.HeldLane(tab: parked.closing, machine: parked.machine)
+            return _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: lane), from: buffers[number] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
+        }
+        let controller = router?.focus(for: window).0
+        guard let ticket = ticket ?? parked.flatMap({ $0.events.isEmpty ? nil : buffer(in: window).openClose(closing: [$0.closing], machine: $0.machine) }) else { return }
+        buffers[number]?.settleClose(ticket, parked: parked, keysTo: controller?.focus.state.terminalTab, machine: controller?.content?.daemon.machineID)
+        resolve(ticket, landed: controller != nil, in: window)
+    }
+
     /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
     private static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
         guard KeyRouter.isChord(event.modifierFlags) else { return false }
@@ -128,6 +171,9 @@ final class CreationInputCoordinator {
             scheduleFlush(in: shell)
             return false
         }
+        // A close key while a close of the focused terminal still reads (two quick Cmd-Ws): it acts now, and the held keys
+        // keep waiting (flushed, they ran into the closing terminal).
+        if closes, let tab = controller?.focus.state.terminalTab, buffer.isClosing(tab: tab) { return false }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
         guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
