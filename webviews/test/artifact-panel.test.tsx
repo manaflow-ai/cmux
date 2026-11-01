@@ -322,6 +322,7 @@ test("the preview's Pin control follows its parent state, and galleries stay opt
         <ArtifactPanel
           artifact={artifact}
           pinned={pinned}
+          sourceTitle="Chat A"
           onPinChange={allowPin ? (value) => changes.push(value) : undefined}
           onClose={() => {}}
         />,
@@ -334,10 +335,12 @@ test("the preview's Pin control follows its parent state, and galleries stay opt
   expect(changes).toEqual([true]);
   draw(true);
   expect(button("Unpin")?.getAttribute("aria-pressed")).toBe("true");
+  expect(host.querySelector(".acpmux-artifact-source")?.textContent).toBe("Pinned · Chat A");
   act(() => button("Unpin")!.click());
   expect(changes).toEqual([true, false]);
 
   draw(false, false);
+  expect(host.querySelector(".acpmux-artifact-source")).toBeNull();
   expect(button("Pin")).toBeUndefined();
   expect(button("Unpin")).toBeUndefined();
 });
