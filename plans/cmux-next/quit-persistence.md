@@ -90,6 +90,12 @@ Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start
   call is the version handoff (`AcpmuxVersionHandoff.swift:67`). **End Sessions and End
   Everything do not end agents** (slice A4 `endAgents` is planned:
   `plans/cmux-next/durable-sessions.md:217-228`).
+  Since perfx/quit-helpers (2026-11-01) the daemon follows its app (`ACPMUX_OWNER_APP_PID`,
+  acpmux `daemon/owner_exit.rs`, a kernel exit watch): after the app exits it stops 2 s after its
+  last client left, only when no agent, agent host, turn, pending permission or task keeps it
+  (`Hub::in_use`), and asks again every 60 s while one does. Keep Sessions Running keeps working
+  agents; an idle daemon no longer outlives the quit. The daemon's `cmux-browser-host` exits at
+  once when the app's provider leaves and no session uses it.
 - **Terminal end mechanism (End choices).** `shutdown-daemon end_terminals`
   (`CmuxNextDaemon/Connection/DaemonConnection+Commands.swift:318-324`) makes each host send
   SIGHUP to the terminal process groups, wait for a bounded grace, then send SIGKILL
