@@ -40,9 +40,9 @@ pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod first_work_tests;
+mod fork;
 #[cfg(test)]
 mod host_notice_tests;
-mod fork;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
