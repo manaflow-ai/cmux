@@ -1415,7 +1415,7 @@ impl Brain {
 
     /// The engine of a subagent that starts on `harness`: the next turn's
     /// model and effort when it is that turn's harness.
-    fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
+    pub(super) fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
         let next = self.next_engine().0;
         let same = next.harness == harness;
         let family = self.family_of(harness);
