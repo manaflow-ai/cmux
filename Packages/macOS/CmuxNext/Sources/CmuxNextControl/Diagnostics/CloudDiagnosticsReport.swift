@@ -96,6 +96,7 @@ public struct CloudDiagnosticsReport {
             "workspace_revision": .number(Double(identity.workspaceRevision)),
             "lifecycle_ready": .bool(identity.lifecycleReady),
             "launch_snapshot_path": jsonText(identity.launchSnapshotPath),
+            "cli_path": jsonText(identity.cliPath),
         ]
     }
 
