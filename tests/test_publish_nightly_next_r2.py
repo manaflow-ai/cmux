@@ -107,6 +107,9 @@ class FeedWriteCase(unittest.TestCase):
         self.path = Path(self.dir.name) / "appcast-arm64.xml"
         self.path.write_text(feed((200, f"{BASE}/cmux-nightly-next-macos-arm64-200.dmg", 5)), encoding="utf-8")
         self.output = Path(self.dir.name) / "out"
+        compiled = mock.patch.object(r2, "compiled_artifact_source", return_value=None)
+        compiled.start()
+        self.addCleanup(compiled.stop)
         self.calls: list[list[str]] = []
         for name in ("guard_key",):
             p = mock.patch.object(r2, name, lambda key: None)
@@ -210,6 +213,16 @@ class WriteFeedTests(FeedWriteCase):
         self.assertEqual(self.calls, [])
         self.assertIn("feed_written=false", self.output.read_text())
 
+    def test_markerless_recovered_feed_can_migrate_from_its_exact_compile_receipt(self) -> None:
+        live_source, candidate = "a" * 40, "b" * 40
+        with mock.patch.object(r2, "signed_notes_source", return_value=None), \
+                mock.patch.object(r2, "compiled_artifact_source", return_value=live_source) as compiled, \
+                mock.patch.object(r2, "source_order", return_value=True) as order:
+            self.assertEqual(self.run_with([feed((100, "x", 1)).encode()], [0], source_sha=candidate), 0)
+        compiled.assert_called_once_with(100)
+        order.assert_called_once_with(live_source, candidate)
+        self.assertIn("feed_written=true", self.output.read_text())
+
     def test_markerless_live_feed_without_verified_notes_refuses_upload(self) -> None:
         with mock.patch.object(r2, "signed_notes_source", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "no verified signed notes head"):
@@ -230,6 +243,22 @@ class WriteFeedTests(FeedWriteCase):
         self.assertEqual(self.run_with([None], [0], source_sha=source), 0)
         self.assertEqual(r2.item_source(self.path.read_bytes(), 200), source)
 
+    def test_source_marker_survives_the_real_dev_ring_item_merger(self) -> None:
+        spec = importlib.util.spec_from_file_location("ring", ROOT / "scripts/ci/nightly_next_ring.py")
+        ring = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ring)
+        source = "a" * 40
+        marked = r2.add_source(feed((200, BASE + "/cmux-nightly-next-macos-arm64-200.dmg", 1)).encode(), source).decode()
+        fresh = feed((300, BASE + "/cmux-nightly-next-macos-arm64-300.dmg", 1))
+        merged, _ = ring.legacy(fresh, marked, "on", lambda build: "pass" if build == "200" else "pending")
+        ET.fromstring(merged)  # copied items must carry their own prefix binding
+        self.assertEqual(r2.item_source(merged.encode(), 200), source)
+        self.path.write_text(merged)
+        guard_spec = importlib.util.spec_from_file_location("guard", ROOT / "scripts/ci/nightly-next-guard.py")
+        guard = importlib.util.module_from_spec(guard_spec)
+        guard_spec.loader.exec_module(guard)
+        guard.check_appcast(self.path)
+
     def test_the_delta_revision_needs_the_live_feed_on_this_build(self) -> None:
         self.assertEqual(self.run_with([feed((300, "x", 1)).encode()], [], same_build=True), 0)
         self.assertEqual(self.run_with([feed((100, "x", 1)).encode()], [], same_build=True), 0)
@@ -244,6 +273,93 @@ class WriteFeedTests(FeedWriteCase):
         self.assertEqual(r2.item_source(self.path.read_bytes(), 200), second)
         parsed = ET.fromstring(self.path.read_bytes())
         self.assertEqual(parsed.find(".//{https://cmux.com/xml-namespaces/cmux}sourceCommit").text, second)
+
+    def test_root_bound_delta_and_old_feed_markers_survive_item_merges(self) -> None:
+        source = "a" * 40
+        url = BASE + "/cmux-nightly-next-macos-arm64-200.dmg"
+        root_bound = feed((200, url, 1), source={200: source})
+        self.path.write_text(root_bound)
+        self.assertEqual(self.run_with([root_bound.encode()], [0], same_build=True), 0)
+        spec = importlib.util.spec_from_file_location("ring", ROOT / "scripts/ci/nightly_next_ring.py")
+        ring = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ring)
+        fresh = feed((300, BASE + "/cmux-nightly-next-macos-arm64-300.dmg", 1))
+        for current in (root_bound, self.path.read_text()):
+            merged, _ = ring.legacy(fresh, current, "on", lambda build: "pass" if build == "200" else "pending")
+            ET.fromstring(merged)
+            self.assertEqual(r2.item_source(merged.encode(), 200), source)
+
+
+class CompiledSourceMigrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.source = "a" * 40
+        self.control = "b" * 40  # workflow head differs from the compiled source
+        self.run = {"id": 123, "run_attempt": 1, "repository": {"id": 9, "full_name": "manaflow-ai/cmux"},
+                    "head_repository": {"full_name": "manaflow-ai/cmux"}, "head_sha": self.control,
+                    "head_branch": "nightly-next", "path": ".github/workflows/nightly.yml", "event": "push"}
+        self.jobs = {"total_count": 1, "jobs": [{"name": "build-nightly-app", "run_attempt": 1,
+                     "conclusion": "success", "started_at": "2026-10-31T00:01:00Z", "completed_at": "2026-10-31T00:03:00Z"}]}
+        self.artifacts = {"total_count": 1, "artifacts": [{"id": 20, "name": "nightly-next-dsyms-" + self.source,
+                          "expired": False, "digest": "sha256:" + "c" * 64, "created_at": "2026-10-31T00:02:00Z",
+                          "workflow_run": {"id": 123, "head_sha": self.control, "head_branch": "nightly-next",
+                                           "repository_id": 9, "head_repository_id": 9}}]}
+
+    def read(self, run=None, jobs=None, artifacts=None):
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "NIGHTLY_NEXT_PROVENANCE_TOKEN": "test"}), \
+                mock.patch.object(r2, "provenance_json", side_effect=[run or self.run, jobs or self.jobs,
+                                                                     artifacts or self.artifacts]) as read:
+            source = r2.compiled_artifact_source(12301)
+        self.assertEqual([call.args[0] for call in read.call_args_list], [
+            "repos/manaflow-ai/cmux/actions/runs/123/attempts/1",
+            "repos/manaflow-ai/cmux/actions/runs/123/attempts/1/jobs?per_page=100",
+            "repos/manaflow-ai/cmux/actions/runs/123/artifacts?per_page=100"])
+        return source
+
+    def test_recovered_build_uses_original_producer_receipt_not_workflow_head(self) -> None:
+        # A later signing/publication attempt retains the compiler's original
+        # daemon_build output, rather than renumbering it to the current run.
+        with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "999", "GITHUB_RUN_ATTEMPT": "3"}):
+            self.assertEqual(self.read(), self.source)
+        self.run["event"] = "workflow_dispatch"
+        self.assertEqual(self.read(), self.source)
+
+    def test_wrong_run_workflow_branch_or_repository_is_refused(self) -> None:
+        for key, value in (("id", 124), ("run_attempt", 2), ("path", "other.yml"), ("head_branch", "feature"),
+                           ("event", "pull_request"), ("repository", {"id": 10, "full_name": "fork/cmux"}),
+                           ("head_repository", {"full_name": "fork/cmux"})):
+            with self.subTest(key=key):
+                with self.assertRaises(RuntimeError):
+                    self.read(run={**self.run, key: value})
+
+    def test_missing_failed_or_wrong_attempt_producer_is_refused(self) -> None:
+        for jobs in ([], [{**self.jobs["jobs"][0], "conclusion": "failure"}],
+                     [{**self.jobs["jobs"][0], "run_attempt": 2}]):
+            with self.subTest(jobs=jobs):
+                with self.assertRaises(RuntimeError):
+                    self.read(jobs={"total_count": len(jobs), "jobs": jobs})
+
+    def test_missing_expired_ambiguous_or_outside_window_receipt_is_refused(self) -> None:
+        artifact = self.artifacts["artifacts"][0]
+        for artifacts in ([], [artifact, artifact], [{**artifact, "expired": True}],
+                          [{**artifact, "created_at": "2026-10-31T00:04:00Z"}],
+                          [{**artifact, "workflow_run": {**artifact["workflow_run"], "head_repository_id": 10}}]):
+            with self.subTest(artifacts=artifacts):
+                with self.assertRaises(RuntimeError):
+                    self.read(artifacts={"total_count": len(artifacts), "artifacts": artifacts})
+
+    def test_truncated_metadata_is_refused(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.read(jobs={**self.jobs, "total_count": 101})
+        with self.assertRaises(RuntimeError):
+            self.read(artifacts={**self.artifacts, "total_count": 101})
+
+    def test_migration_read_never_waits_for_a_rate_limit_reset(self) -> None:
+        limited = r2.urllib.error.HTTPError("https://api.github.com", 429, "limited", {"Retry-After": "3600"}, None)
+        with mock.patch.object(r2.urllib.request, "urlopen", side_effect=limited) as opened:
+            with self.assertRaisesRegex(RuntimeError, "compiled-source provenance"):
+                r2.provenance_json("repos/manaflow-ai/cmux/actions/runs/123", "test")
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(opened.call_args.kwargs["timeout"], 15)
 
 
 class PublicationBoundaryTests(unittest.TestCase):

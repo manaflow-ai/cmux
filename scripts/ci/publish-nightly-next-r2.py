@@ -61,7 +61,7 @@ CONFLICT = 3
 KEEP_BUILDS = 2
 ITEM = re.compile(rb"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 ITEM_VERSION = re.compile(rb"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
-ITEM_SOURCE = re.compile(rb"<cmux:sourceCommit>\s*([0-9a-f]{7,40})\s*</cmux:sourceCommit>", re.I)
+ITEM_SOURCE = re.compile(rb"<cmux:sourceCommit(?:\s+[^>]*)?>\s*([0-9a-f]{7,40})\s*</cmux:sourceCommit>", re.I)
 ITEM_CHANNEL = re.compile(rb"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
 NIGHTLY_CHANNELS = (None, b"cmux-next")  # what a Nightly-ring app is offered (untagged or cmux-next)
 _sleep = time.sleep
@@ -251,7 +251,8 @@ def add_source(xml: bytes, source_sha: str) -> bytes:
         raise ValueError(f"feed must have exactly one newest item for source {source_sha}")
     match, _ = matches[0]
     item = match.group(0)
-    source_line = f"            <cmux:sourceCommit>{source_sha}</cmux:sourceCommit>\n".encode()
+    source_line = ('            <cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">'
+                   f"{source_sha}</cmux:sourceCommit>\n").encode()
     if ITEM_SOURCE.search(item):
         item = ITEM_SOURCE.sub(source_line.strip(), item, count=1)
     else:
@@ -326,6 +327,69 @@ def signed_notes_source(build: int) -> str | None:
         if not re.fullmatch(r"[0-9a-f]{40}", source):
             raise RuntimeError(f"signed notes for live build {build} have no full source head")
         return source
+
+
+def provenance_json(path: str, token: str) -> dict:
+    """One bounded authenticated read; migration never waits on a quota reset."""
+    request = urllib.request.Request("https://api.github.com/" + path, headers={
+        "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
+        "User-Agent": "cmux-nightly-next-source/1",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.load(response)
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        raise RuntimeError(f"could not read compiled-source provenance: {type(error).__name__}") from error
+
+
+def compiled_artifact_source(build: int) -> str | None:
+    """Migrate markerless recovered feeds using their original compiler receipt.
+
+    As in resume-unsigned-nightly.py, the dSYM artifact name records the resolved
+    source; the workflow head may be ahead of it. Only authenticated metadata
+    from that build's successful protected producer attempt is accepted.
+    """
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("NIGHTLY_NEXT_PROVENANCE_TOKEN", "")
+    encoded = str(build)
+    if repository != "manaflow-ai/cmux" or not token or len(encoded) <= 2 or int(encoded[-2:]) < 1:
+        return None
+    run_id, attempt = int(encoded[:-2]), int(encoded[-2:])
+    prefix = f"repos/{repository}/actions/runs/{run_id}"
+    run = provenance_json(f"{prefix}/attempts/{attempt}", token)
+    job_list = provenance_json(f"{prefix}/attempts/{attempt}/jobs?per_page=100", token)
+    artifact_list = provenance_json(f"{prefix}/artifacts?per_page=100", token)
+    if job_list.get("total_count", 101) > 100 or artifact_list.get("total_count", 101) > 100:
+        raise RuntimeError("compiled-source lookup exceeds its bounded metadata page")
+    identity = run.get("repository", {})
+    if not (run.get("id") == run_id and run.get("run_attempt") == attempt and
+            identity.get("full_name") == repository and isinstance(identity.get("id"), int) and
+            run.get("head_repository", {}).get("full_name") == repository and
+            run.get("path") == ".github/workflows/nightly.yml" and
+            run.get("head_branch") == "nightly-next" and run.get("event") in {"push", "workflow_dispatch"}):
+        raise RuntimeError("compiled-source run is not the exact protected nightly producer")
+    jobs = [job for job in job_list.get("jobs", []) if job.get("name") == "build-nightly-app" and
+            job.get("run_attempt") == attempt and job.get("conclusion") == "success"]
+    if len(jobs) != 1 or not jobs[0].get("started_at") or not jobs[0].get("completed_at"):
+        raise RuntimeError("compiled-source build has no unique successful producer attempt")
+    job = jobs[0]
+    sources = []
+    for artifact in artifact_list.get("artifacts", []):
+        name = re.fullmatch(r"nightly-next-dsyms-([0-9a-f]{40})", artifact.get("name", ""))
+        if not name or artifact.get("expired") is not False or not (
+                job["started_at"] <= artifact.get("created_at", "") <= job["completed_at"]):
+            continue
+        origin = artifact.get("workflow_run", {})
+        if not (origin.get("id") == run_id and origin.get("head_sha") == run.get("head_sha") and
+                origin.get("head_branch") == "nightly-next" and
+                origin.get("repository_id") == origin.get("head_repository_id") == identity["id"] and
+                isinstance(artifact.get("id"), int) and artifact["id"] > 0 and
+                re.fullmatch(r"sha256:[0-9a-f]{64}", artifact.get("digest", ""))):
+            raise RuntimeError("compiled-source artifact identity does not match its producer")
+        sources.append(name.group(1))
+    if len(sources) != 1:
+        raise RuntimeError("compiled-source build has no unique unexpired source receipt")
+    return sources[0]
 
 
 def nightly_item(item: bytes) -> bool:
@@ -409,7 +473,7 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
         if live is not None:
             theirs = newest_build(live)
             if not same_build and theirs == ours and source_sha:
-                live_source = item_source(live, theirs) or signed_notes_source(theirs)
+                live_source = item_source(live, theirs) or signed_notes_source(theirs) or compiled_artifact_source(theirs)
                 if live_source == source_sha.lower():
                     # The CAS may have succeeded before a later handoff failed.
                     # Retry metadata publication from the bytes already accepted.
@@ -429,11 +493,11 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
             if source_sha and not same_build:
                 live_source = item_source(live, theirs)
                 if live_source is None:
-                    live_source = signed_notes_source(theirs)
+                    live_source = signed_notes_source(theirs) or compiled_artifact_source(theirs)
                 if live_source is None:
                     raise RuntimeError(
                         f"{feed.name}: live build {theirs} has no source metadata and no verified signed "
-                        "notes head; refusing an unsafe overwrite"
+                        "notes head or compiled-source receipt; refusing an unsafe overwrite"
                     )
                 if not source_order(live_source, source_sha.lower()):
                     print(f"{feed.name}: live source {live_source} is newer than candidate source {source_sha}; left it as is")
@@ -445,8 +509,8 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
             merged = keep_earlier_builds(original, live)
             # Delta artifacts predate the source marker added by the initial CAS.
             # Keep the live item's provenance when revising that exact build.
-            if same_build and item_source(merged, ours) is None:
-                live_source = item_source(live, ours)
+            if same_build:
+                live_source = item_source(live, ours) or item_source(merged, ours)
                 if live_source:
                     merged = add_source(merged, live_source)
             if merged != original:
