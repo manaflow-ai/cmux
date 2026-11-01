@@ -143,6 +143,12 @@ nonisolated enum AcpmuxPaneMethods {
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).
         "_acpmux/set_tools",
+        // A Cloud chat's sign-in on its own machine (cloudAgentLogin.ts, CloudSignIn.tsx): acpmux runs
+        // the agent's own login there (start, then finish with Claude's pasted code or after Codex's
+        // approval; cancel stops it), or saves an API key there. Never this Mac's login. Finish and
+        // the key name their chat, whose agent acpmux restarts signed in.
+        "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
+        "_acpmux/agent_login/cancel",
     ]
 
     /// Notifications (no `id`).
@@ -242,6 +248,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
+        "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -322,6 +329,10 @@ nonisolated enum AcpmuxPaneMethods {
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
         "_acpmux/app_reply": .always,
+        // Saving an API key on the chat's machine: the card's Save click. The login's start, finish
+        // and cancel take none: start opens the provider's page with the click's gesture
+        // (`browser.openIn`), and finish's Continue keeps its gesture for the failed prompt's resend.
+        "_acpmux/agent_login/api_key": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).

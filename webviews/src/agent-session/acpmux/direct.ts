@@ -473,6 +473,8 @@ const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
 const SUBSESSION_KIND = "subsession";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
+/// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
+const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -7058,6 +7060,31 @@ export class AcpmuxDirectClient {
   }
   /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
+  /// Whether this acpmux runs an agent's own login on its machine (`agent_login`, named in
+  /// `initialize`'s `_meta.acpmux.capabilities` or `features`): a Cloud chat's sign-in card.
+  get supportsAgentLogin(): boolean {
+    return AGENT_LOGIN_CAPABILITIES.some((id) => this.capabilities?.has(id) || this.features.has(id));
+  }
+  /// Starts `agent`'s own login on this acpmux's machine (`_acpmux/agent_login/start`): the page to
+  /// open, Codex's device code, and whether the page gives a code to paste back (Claude).
+  agentLoginStart(agent: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/start", { agent });
+  }
+  /// Finishes login `loginId` (`_acpmux/agent_login/finish`) with Claude's pasted `code`, or waits
+  /// for Codex's approval; acpmux restarts chat `sessionId`'s agent signed in. The wire log keeps
+  /// no code (wire.ts).
+  agentLoginFinish(loginId: string, sessionId: string, code?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/finish", { loginId, sessionId, ...(code ? { code } : {}) });
+  }
+  /// Saves an API key for `agent` on the machine (`_acpmux/agent_login/api_key`) and restarts chat
+  /// `sessionId`'s agent on it. The wire log keeps no key (wire.ts).
+  agentLoginApiKey(agent: string, sessionId: string, key: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/api_key", { agent, key, sessionId });
+  }
+  /// Stops login `loginId` (`_acpmux/agent_login/cancel`).
+  agentLoginCancel(loginId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/cancel", { loginId });
+  }
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
     try {
