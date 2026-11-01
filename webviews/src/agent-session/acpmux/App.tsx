@@ -485,7 +485,14 @@ import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabR
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
-import { cloudPageRefusal, cloudStartFolder, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
+import {
+  cloudPageRefusal,
+  cloudStartFolder,
+  cloudStartToasted,
+  newTabProjectPick,
+  oneCloudStart,
+  type CloudStart,
+} from "./cloudRun";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
@@ -7484,14 +7491,16 @@ function AcpmuxPane() {
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
   /// before the host said what this tab already sent (`sandbox.checked`): a run it holds takes the
   /// chat view, so a send picked before that could only be refused, its prompt with it.
-  const sandboxOffered =
-    sandbox.checked &&
+  /// Everything but the host's check: the New Tab page's project pick goes to the host under this,
+  /// so a pick made before `sandbox.checked` still goes with a Cloud start (newTabProjectPick).
+  const sandboxOfferable =
     freshChat &&
     !snapshot.sessionId &&
     !snapshot.summary?.sessionId &&
     snapshot.switching === undefined &&
     sessionSelection?.state !== "pending" &&
     surface !== "quick";
+  const sandboxOffered = sandbox.checked && sandboxOfferable;
   /// The tab's Sandboxed result (sandboxRun.ts SandboxTab): its run (running, receipt, or an answer
   /// that may hide a live Run) or a refusal before any Run.
   const sandboxView = sandbox.view();
@@ -12787,15 +12796,10 @@ function AcpmuxPane() {
                   // send copies it: cloud.startChat copies only the pane's own folders, and a recent project
                   // this page lists was none until the person sent in it here (#29294). Not on Return: the
                   // grant spends a gesture, and the Return's is the start's. Only a folder Cloud would copy
-                  // (never home or above it, cloudStartFolder), and only while Cloud is offered; a home or
-                  // root answer asks nothing here (the local start still asks on Return).
-                  {...(sandboxOffered
-                    ? {
-                        onProjectPicked: (cwd: string) => {
-                          if ("cwd" in cloudStartFolder(cwd)) void pickFolder(callNative, cwd, () => undefined);
-                        },
-                      }
-                    : {})}
+                  // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
+                  // host's sandbox check still out included (newTabProjectPick); a home or root answer
+                  // asks nothing here (the local start still asks on Return).
+                  {...newTabProjectPick(callNative, sandboxOfferable)}
                   {...(!handshaken ? { startPending: true } : {})}
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
