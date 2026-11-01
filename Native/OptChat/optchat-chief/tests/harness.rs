@@ -386,6 +386,10 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
             &std::fs::read_to_string(paths.session.join(".claude").join(name)).unwrap(),
         )
         .unwrap();
+        // If cmux MCP is disabled or an older acpmux cannot fold servers,
+        // the standalone server must not expose bg_* or team_* to the turn.
+        let deny = settings["permissions"]["deny"].as_array().unwrap();
+        assert!(deny.iter().any(|v| v == "mcp__acpmux"), "{name}: {deny:?}");
         let allow = settings["permissions"]["allow"].as_array().unwrap();
         for tool in optchat_chief::approval::turn_allowed_tools() {
             assert!(allow.iter().any(|v| v == tool), "{name}: {tool}");
