@@ -1407,8 +1407,8 @@ for (const options of [{status: 401}, {remaining: '1'}, {remaining: undefined, r
   {reset: ''}, {reset: 'NaN'}, {reset: 'Infinity'}, {reset: '5000'}, {method: 'POST'}, {method: 'PATCH'}]) {
   refused.push(await run(options));
 }
-console.log(JSON.stringify({recovered, refused, exhausted: await run({alwaysFails: true}),
-  clockSkew: await run({reset: '999'})}));
+  console.log(JSON.stringify({recovered, refused, exhausted: await run({alwaysFails: true}),
+  clockSkew: await run({reset: '999'}), capped: await run({reset: '1300'})}));
 """
     result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
                             env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
@@ -1420,6 +1420,16 @@ console.log(JSON.stringify({recovered, refused, exhausted: await run({alwaysFail
     assert out["exhausted"]["calls"] == 2 and out["exhausted"]["failed"], out
     assert out["exhausted"]["waits"] == [842000], out
     assert out["clockSkew"]["waits"] == [1000], out
+    # A reset beyond the three-minute bound fails over to the caller's
+    # alternate read route instead of sleeping until the hourly reset.
+    assert out["capped"]["calls"] == 1 and out["capped"]["failed"] and not out["capped"]["waits"], out
+
+
+def test_promotion_decision_uses_the_quota_isolated_read_token_when_available() -> None:
+    assert "Mint the quota-isolated read token" in WORKFLOW
+    assert "github-token: ${{ steps.read-token.outputs.token || github.token }}" in WORKFLOW
+    assert "permission-actions: read" in WORKFLOW
+    assert "permission-contents: read" in WORKFLOW
 
 
 def main() -> None:
