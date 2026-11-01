@@ -42,6 +42,12 @@ mod names;
 mod place;
 mod pull;
 mod remote;
+mod seed_pull;
+
+/// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
+pub(super) use seed_pull::{
+    SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
+};
 mod skips;
 
 use std::collections::{BTreeMap, BTreeSet};

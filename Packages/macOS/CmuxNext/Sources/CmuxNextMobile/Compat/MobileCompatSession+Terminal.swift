@@ -120,11 +120,11 @@ extension MobileCompatSession {
         guard let surfaceID = request.string("surface_id") else {
             throw MobileRPCError("terminal_id_required", "surface_id is required")
         }
-        if cached, let location = locations[surfaceID.uppercased()] {
+        if cached, let location = locations[surfaceID.uppercased()], !hides(location.workspace) {
             return (surfaceID, location, nil)
         }
         let tree = try await backend.tree()
-        guard let location = MobileWorkspaceRows.locate(surfaceID: surfaceID, in: tree) else {
+        guard let location = MobileWorkspaceRows.locate(surfaceID: surfaceID, in: tree, hides: hides) else {
             locations[surfaceID.uppercased()] = nil
             throw MobileRPCError.notFound("no terminal \(surfaceID)")
         }

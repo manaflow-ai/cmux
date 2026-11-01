@@ -48,7 +48,7 @@ final class AppBrowserPasskeyHost: BrowserPasskeyHost, Sendable {
         let body = String(format: String(localized: "browserPasskey.banner.body", defaultValue: "%@: click to show the page and use Touch ID.",
                                          table: "NotificationsPanel", bundle: .module), request.site)
         services.notifications.desktop.post(id: Self.bannerPrefix + request.id, title: title, body: body, surface: nil,
-                                            workspace: nil, defaultSound: true)
+                                            workspace: nil, defaultSound: true, incognito: services.locateTabOnAnyMachine(request.tabID) == nil || services.cache.browserTabs.isIncognitoTab(request.tabID))
     }
 
     func withdraw(_ id: String) async {
