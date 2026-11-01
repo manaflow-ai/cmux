@@ -22,6 +22,7 @@ export type LaneNoticeThread = {
   readonly label?: string;
   readonly promptIds?: readonly string[];
   readonly fromSession?: string;
+  readonly fromHarness?: string;
   readonly count?: number;
 };
 

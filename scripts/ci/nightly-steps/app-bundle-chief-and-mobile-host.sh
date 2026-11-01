@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # nightly.yml build-nightly-app: "Bundle the OptChat Chief and the iPhone host". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The Chief and the iPhone host built beside the Release build. Their Xcode
+# phases found no CMUX_NEXT_*_BIN and bundled nothing; this joins each
+# background build (a failed one fails here) and runs the same phase
+# script on the built app, with the variables Xcode gave it, so the copy,
+# its checks and Resources/bin are what the phase made before.
 set -euo pipefail
 state="$RUNNER_TEMP/nightly-helper-builds"
 if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then archs="arm64"; else archs="arm64 x86_64"; fi

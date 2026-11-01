@@ -13,7 +13,9 @@ import os
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
 /// relay already holds a set that trusts to the person's fresh gesture), and who is in the chat
 /// (`_acpmux/typing` and `_acpmux/view` out, `_acpmux/presence` back, `agent-session-presence-v1`;
-/// an observer never types), and the person's model, mode and option picks (`session/set_model`,
+/// an observer never types), a Cloud chat's own sign-in (`_acpmux/agent_login/*`, through the
+/// daemon's `agent-session-login`, `agent-session-login-v1`; never on an observation), and the
+/// person's model, mode and option picks (`session/set_model`,
 /// `session/set_mode`, `session/set_config_option`, through the daemon's `agent-session-set-*`,
 /// `agent-session-settings-v1`; the host already checked their gesture and full-access rule).
 /// Every other method, and any frame that names another session, is answered
@@ -28,11 +30,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public static let unsupportedCode = -32601
     public static let unsupported = "remote.unsupported"
     public static let readOnly = "agent_session.read_only"
+    /// A sign-in step acpmux refused (its reason in `data.reason`).
+    public static let loginRefused = "agent_login.refused"
 
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
     public typealias Start = @Sendable (_ cwd: String?, _ harness: String?, _ model: String?) async throws
-        -> (client: any AgentSessionRemoteClient, session: String)
+        -> (client: any AgentSessionRemoteClient, session: String, surface: UInt64)
     /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
     /// the person's answer recorded there (`acp.trust.set`).
     public typealias Trust = @Sendable (_ cwd: String, _ level: String?, _ homeChosen: Bool) async throws -> Data
@@ -43,6 +47,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// (`agent-session-start-owner-cloud-v1`). Read at each `initialize`; the page then lets a
     /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
     public typealias OwnerCloud = @Sendable () async -> Bool
+    /// A one-shot Cloud repository request on the tab's owning daemon connection.
+    public typealias CloudRepository = @Sendable (String, [String: any Sendable], Duration?) async throws -> Data
+    public typealias CloudRepositoryStart = @Sendable (UInt64, String, [String: any Sendable], Duration?) async throws -> Data
 
     /// `agent-session-start-owner-cloud-v1`: on a Cloud VM, `vm_kind: "owner"` starts any agent (the
     /// person's own disposable VM is the boundary). Only a Cloud VM's daemon serves it, so it is no
@@ -67,6 +74,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         var client: (any AgentSessionRemoteClient)?
         /// The session the tab shows (its store record, or the one this wire started).
         var session: String?
+        var surface: UInt64?
         /// A `session/new` is starting the chat (one at a time).
         var starting = false
     }
@@ -75,6 +83,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private let start: Start?
     private let trust: Trust?
     private let ownerCloud: OwnerCloud?
+    private let cloudRepositoryRequest: CloudRepository?
+    private let cloudRepositoryStart: CloudRepositoryStart?
     private let host: String?
     /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
     /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
@@ -83,23 +93,29 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
-                trust: Trust? = nil, ownerCloud: OwnerCloud? = nil) {
+                trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
+                cloudRepositoryStart: CloudRepositoryStart? = nil) {
         start = nil
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
         self.ownerCloud = ownerCloud
+        self.cloudRepositoryRequest = cloudRepository
+        self.cloudRepositoryStart = cloudRepositoryStart
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
-                ownerCloud: OwnerCloud? = nil) {
+                ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
+                cloudRepositoryStart: CloudRepositoryStart? = nil) {
         self.start = start
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
         self.ownerCloud = ownerCloud
+        self.cloudRepositoryRequest = cloudRepository
+        self.cloudRepositoryStart = cloudRepositoryStart
         state = Mutex(State())
     }
 
@@ -123,13 +139,16 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // `acp.trust.set` listed: the person answers the folder question here (acpmux never
             // lists it, so a remote browser's page still cannot).
             let extensions = trust == nil ? [] : ["acp.trust.set"]
-            guard let ownerCloud else {
+            let client = state.withLock { $0.client }
+            guard ownerCloud != nil || client != nil else {
                 return reply(id, Self.initialized(extensions: extensions, ownerCloud: false))
             }
-            // task-owner: one owner-answer read per initialize; its reply ends it
-            Task { [weak self] in
-                let owned = await ownerCloud()
-                self?.reply(id, Self.initialized(extensions: extensions, ownerCloud: owned))
+            // task-owner: one owner-answer and sign-in read per initialize; its reply ends it
+            Task { [weak self, ownerCloud] in
+                let owned = await ownerCloud?() ?? false
+                // `agent_login`: the daemon relays the chat's own sign-in (the card's offer).
+                let login = await client?.servesLogin() ?? false
+                self?.reply(id, Self.initialized(extensions: extensions, ownerCloud: owned, login: login))
             }
         case "_acpmux/status":
             reply(id, ["peers": [Any]()])
@@ -228,6 +247,31 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 case .config(let config, let value): return try await client.setConfig(id: config, value: value)
                 }
             }
+        case "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
+             "_acpmux/agent_login/cancel":
+            // A Cloud chat's own sign-in on its machine (the failed turn's card): the host already
+            // checked the person's click for a start or a key. The daemon pins the chat's session.
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard let (op, fields) = Self.login(method, params, names: names) else { return refuse(id, method) }
+            guard let client = state.withLock({ $0.client }) else { return refuse(id, method) }
+            // task-owner: one sign-in step per frame; its reply ends it
+            Task { [weak self] in
+                do {
+                    let answer = try await client.login(op, fields)
+                    let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any]
+                    guard let refused = object?["refused"] as? [String: Any] else {
+                        self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: answer, as: UTF8.self) + "}" })
+                        return
+                    }
+                    // acpmux's reason, as a JSON-RPC error the card words (`data.reason`).
+                    let reason = refused["reason"] as? String ?? "failed"
+                    self?.fail(id, code: Self.loginRefused, message: "sign-in refused: \(reason)", data: ["reason": reason])
+                } catch let error as AgentSessionRemoteError {
+                    self?.fail(id, code: error.code, message: error.message)
+                } catch {
+                    self?.fail(id, code: Self.unsupported, message: String(describing: error))
+                }
+            }
         case "_acpmux/permission_respond":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
@@ -264,6 +308,45 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
         }
         return try await client.media(path: path)
+    }
+
+    /// A login frame as the daemon's `agent-session-login` step: its `op` and fields; nil when a
+    /// field is missing or not text, or a frame that names a chat names another than this one.
+    static func login(_ method: String, _ params: [String: Any], names: (Any?) -> Bool) -> (String, [String: String])? {
+        let text = { (key: String) in (params[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        // Every step the page sends names this chat; the daemon pins it again on that machine.
+        guard names(params["sessionId"]) else { return nil }
+        switch method {
+        case "_acpmux/agent_login/start":
+            guard let agent = text("agent") else { return nil }
+            return ("start", ["agent": agent])
+        case "_acpmux/agent_login/finish":
+            guard let login = text("loginId") else { return nil }
+            var fields = ["login_id": login]
+            if params["code"] != nil {
+                guard let code = text("code") else { return nil }
+                fields["code"] = code
+            }
+            return ("finish", fields)
+        case "_acpmux/agent_login/api_key":
+            guard let agent = text("agent"), let key = text("key") else { return nil }
+            return ("api_key", ["agent": agent, "key": key])
+        case "_acpmux/agent_login/cancel":
+            guard let login = text("loginId") else { return nil }
+            return ("cancel", ["login_id": login])
+        default:
+            return nil
+        }
+    }
+
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
+        if let cloudRepositoryRequest {
+            return try await cloudRepositoryRequest(method, params, timeout)
+        }
+        guard let cloudRepositoryStart, let surface = state.withLock({ $0.surface }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no Cloud repository route")
+        }
+        return try await cloudRepositoryStart(surface, method, params, timeout)
     }
 
     /// What a setting frame asks for; nil when a value is missing or not text.
@@ -304,12 +387,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         // task-owner: the one start of this wire's chat; its reply ends it
         Task { [weak self] in
             do {
-                let (client, session) = try await start(cwd, harness, model)
+                let (client, session, surface) = try await start(cwd, harness, model)
                 guard let self else { await client.close(); return }
                 let open = state.withLock { state -> Bool in
                     state.starting = false
                     guard !state.closed else { return false }
-                    (state.client, state.session) = (client, session)
+                    (state.client, state.session, state.surface) = (client, session, surface)
                     return true
                 }
                 // The page reconnects with a new wire, which finds the started chat.
@@ -503,10 +586,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         emit(#"{"jsonrpc":"2.0","id":\#(id),"error":"# + String(decoding: Self.json(error), as: UTF8.self) + "}")
     }
 
-    /// The `initialize` answer: always `origin: "remote"`; `ownerCloud` only on the person's own Cloud VM.
-    static func initialized(extensions: [String], ownerCloud: Bool) -> [String: Any] {
+    /// The `initialize` answer: always `origin: "remote"`; `ownerCloud` only on the person's own Cloud VM;
+    /// the `agent_login` feature where that machine's daemon relays the chat's own sign-in.
+    static func initialized(extensions: [String], ownerCloud: Bool, login: Bool = false) -> [String: Any] {
         var acpmux: [String: Any] = ["origin": "remote", "extensions": extensions]
         if ownerCloud { acpmux["ownerCloud"] = true }
+        // A feature, not `capabilities`: a remote chat names no acpmux capability list, and the page
+        // reads an absent list as "try the method" (turnRetry.ts).
+        if login { acpmux["features"] = ["agent_login"] }
         return ["protocolVersion": 1, "agentCapabilities": [String: Any](), "_meta": ["acpmux": acpmux]]
     }
 

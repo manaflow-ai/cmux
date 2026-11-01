@@ -528,6 +528,15 @@ class GalleryHealth(unittest.TestCase):
         within = health(fresh=[("a.b#c", "play: waitFor did not hold within 3000 ms")])
         self.assertFalse(reds.gallery_classify(within, health(fresh=[("a.b#c", WAIT)])).own)
 
+    def test_a_state_past_its_shift_baseline_is_red_and_the_base_can_share_it(self):
+        shifted = [{"state": "agent-pane.tool-expand#bottom", "score": 0.02, "baseline": 0, "moves": []}]
+        head = health(shifted=shifted)
+        self.assertTrue(reds.gallery_classify(head, health()).own)
+        self.assertFalse(reds.gallery_classify(head, health(shifted=shifted)).own)
+        self.assertEqual(reds.gallery_entries(head), ["agent-pane.tool-expand"])
+        # A base checker from before the shift gate wrote no `shifted` list: it still reads as whole.
+        self.assertIsNone(reds.gallery_classify(health(), health()))
+
     def test_a_crashed_render_is_never_the_bases(self):
         crashed = health(fresh=[("a.b#c", "did not render: page.goto: Target crashed")])
         verdict = reds.gallery_classify(crashed, crashed)

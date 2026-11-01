@@ -11,7 +11,8 @@ public import Foundation
 /// finds the scene changes; this only decodes, with the composer's decoder settings
 /// (``AgentPaneVideoInfo``): only the frames asked for, never the whole file, and a reference
 /// movie's media in other files is refused.
-public nonisolated enum AgentVideoFrames {
+public nonisolated struct AgentVideoFrames {
+    public nonisolated init() {}
     /// How a frame comes back: a JPEG (``AgentPaneVideoInfo/jpeg(_:)``), or `side` by `side`
     /// 8-bit grey pixels, the samples the server compares to find scene changes.
     public enum Format: String, Sendable {
