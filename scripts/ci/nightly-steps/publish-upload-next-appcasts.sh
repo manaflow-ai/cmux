@@ -3,11 +3,13 @@
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
 set -euo pipefail
 # Compare-and-swap: written only while the live feed's newest build is below this
-# one (If-Match on the bytes read), so a slower older run never moves it back.
+# one (If-Match on the bytes read), and only when this source descends from the
+# live source. Build numbers are run ids, so they cannot establish source order.
+: "${SOURCE_SHA:?the publication source SHA is required}"
 for appcast in $NIGHTLY_FEEDS; do
   python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
   python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" write-feed --feed "nightly-out/$appcast" \
-    --github-output "$GITHUB_OUTPUT"
+    --source-sha "$SOURCE_SHA" --github-output "$GITHUB_OUTPUT"
 done
 # Release push, only when a feed was actually written (write-feed
 # records feed_written=true): the presence worker re-reads the public

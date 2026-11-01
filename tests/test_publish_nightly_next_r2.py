@@ -32,13 +32,17 @@ ENV = {
 }
 
 
-def feed(*items: tuple, channel: dict | None = None) -> str:
+def feed(*items: tuple, channel: dict | None = None, source: dict | None = None) -> str:
     channel = channel or {}
+    source = source or {}
     body = "".join(
         f'<item><sparkle:version>{build}</sparkle:version>'
         + (f"<sparkle:channel>{channel[build]}</sparkle:channel>" if build in channel else "")
+        + (f"<cmux:sourceCommit>{source[build]}</cmux:sourceCommit>" if build in source else "")
         + f'<enclosure url="{url}" length="{length}" sparkle:edSignature="sig"/></item>' for build, url, length in items)
-    return ('<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+    namespace = ' xmlns:cmux="https://cmux.com/xml-namespaces/cmux"' if source else ""
+    return ('<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"'
+            f'{namespace}>'
             f"<channel>{body}</channel></rss>")
 
 
@@ -105,7 +109,8 @@ class FeedWriteCase(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def run_with(self, lives: list[bytes | None], codes: list[int], same_build: bool = False) -> int:
+    def run_with(self, lives: list[bytes | None], codes: list[int], same_build: bool = False,
+                 source_sha: str | None = None) -> int:
         lives_iter, codes_iter = iter(lives), iter(codes)
 
         def fake_run(args, *rest, **kwargs):
@@ -114,7 +119,7 @@ class FeedWriteCase(unittest.TestCase):
 
         with mock.patch.object(r2, "read_live", lambda key: next(lives_iter)), \
                 mock.patch.object(r2.subprocess, "run", fake_run):
-            return r2.write_feed(self.path, str(self.output), same_build)
+            return r2.write_feed(self.path, str(self.output), same_build, source_sha=source_sha)
 
 
 class WriteFeedTests(FeedWriteCase):
@@ -150,6 +155,45 @@ class WriteFeedTests(FeedWriteCase):
 
     def test_an_upload_failure_fails(self) -> None:
         self.assertEqual(self.run_with([feed((100, "x", 1)).encode()], [1]), 1)
+
+    def test_an_older_source_cannot_win_with_a_larger_run_build(self) -> None:
+        source_a, source_b = "a" * 40, "b" * 40
+        self.path.write_text(feed((300, "x", 1), source={300: source_a}), encoding="utf-8")
+        live = feed((200, "x", 1), source={200: source_b}).encode()
+        with mock.patch.object(r2, "source_order", return_value=False):
+            self.assertEqual(self.run_with([live], [], source_sha=source_a), 0)
+        self.assertEqual(self.calls, [])
+        self.assertIn("feed_written=false", self.output.read_text())
+
+    def test_markerless_live_feed_uses_the_exact_verified_notes_build(self) -> None:
+        source_a, source_b = "a" * 40, "b" * 40
+        self.path.write_text(feed((300, "x", 1)), encoding="utf-8")
+        live = feed((200, "x", 1)).encode()
+        with mock.patch.object(r2, "signed_notes_source", return_value=source_b), \
+                mock.patch.object(r2, "source_order", return_value=False):
+            self.assertEqual(self.run_with([live], [], source_sha=source_a), 0)
+        self.assertEqual(self.calls, [])
+        self.assertIn("feed_written=false", self.output.read_text())
+
+    def test_markerless_live_feed_without_verified_notes_refuses_upload(self) -> None:
+        with mock.patch.object(r2, "signed_notes_source", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "no verified signed notes head"):
+                self.run_with([feed((100, "x", 1)).encode()], [], source_sha="a" * 40)
+        self.assertEqual(self.calls, [])
+
+    def test_cas_retry_rechecks_source_even_when_racing_build_number_is_lower(self) -> None:
+        old, new, candidate = "a" * 40, "b" * 40, "c" * 40
+        first = feed((100, "x", 1), source={100: old}).encode()
+        second = feed((180, "x", 1), source={180: new}).encode()
+        with mock.patch.object(r2, "source_order", side_effect=[True, False]) as order:
+            self.assertEqual(self.run_with([first, second], [r2.CONFLICT], source_sha=candidate), 0)
+        self.assertEqual(order.call_args_list, [mock.call(old, candidate), mock.call(new, candidate)])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_source_is_written_into_first_publication(self) -> None:
+        source = "a" * 40
+        self.assertEqual(self.run_with([None], [0], source_sha=source), 0)
+        self.assertEqual(r2.item_source(self.path.read_bytes(), 200), source)
 
     def test_the_delta_revision_needs_the_live_feed_on_this_build(self) -> None:
         self.assertEqual(self.run_with([feed((300, "x", 1)).encode()], [], same_build=True), 0)
