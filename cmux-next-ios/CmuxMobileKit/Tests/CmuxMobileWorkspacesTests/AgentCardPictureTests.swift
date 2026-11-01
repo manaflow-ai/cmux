@@ -77,6 +77,45 @@ import CmuxTabsKit
         #expect(red > 5000, "the card shows the 200x150 thumbnail, not its placeholder: \(red) red pixels")
     }
 
+    /// Review of #27664 (follow-up P2): the rasterizer drew a card only when every thumbnail it
+    /// shows was in the cache at once. A thumbnail evicted while the card waited for another one
+    /// to decode again was decoded again too (and, past the bound, the two evicted each other on
+    /// every frame). The rasterizer holds the card's thumbnails it already has while it waits and
+    /// draws: the evicted one is decoded once, and the card is drawn with both images.
+    @Test func anEvictedThumbnailIsDecodedOnceThenTheCardIsDrawn() async throws {
+        let png = try Self.redPNG()
+        var turn = AgentTurn(id: "t-held", prompt: "Look at these", promptAt: Date(timeIntervalSince1970: 0))
+        turn.attachments = [AgentAttachment(id: "held-a", kind: .image, name: "a.png", data: png),
+                            AgentAttachment(id: "held-b", kind: .image, name: "b.png", data: png)]
+        turn.status = .completed
+        let feed = AgentCardFeed(store: AgentChatStore(source: Silent()))
+        var key = Self.key(feed, turns: [turn])
+        for _ in 0 ..< 200 where !key.isDrawable {
+            try await Task.sleep(for: .milliseconds(10))
+            key = Self.key(feed, turns: [turn])
+        }
+        try #require(key.isDrawable, "the thumbnails are decoded")
+        let cache = SentAttachmentThumbnails.shared
+        cache.evict(attachmentID: "held-a")
+        let rasterizer = AgentCardRasterizer()
+        rasterizer.want(feed, key)
+        rasterizer.setIdle(true)
+        defer { rasterizer.setIdle(false) }
+        let decodes = cache.decodes
+        // The card waits for its first image to decode again; meanwhile the cache lets the second go.
+        rasterizer.frame()
+        cache.evict(attachmentID: "held-b")
+        for _ in 0 ..< 300 where feed.raster?.key != key {
+            try await Task.sleep(for: .milliseconds(10))
+            rasterizer.frame()
+        }
+        let picture = try #require(feed.raster, "the card is drawn")
+        #expect(picture.key == key)
+        #expect(cache.decodes - decodes == 1, "only the evicted image is decoded again: \(cache.decodes - decodes) decodes")
+        let red = try Self.redPixels(picture.image)
+        #expect(red > 12_000, "both 96x96 thumbnails are drawn, not placeholders: \(red) red pixels")
+    }
+
     /// Blocker 4: a card drawn while its edit's diff was still computing showed the loading
     /// snippet, and its key did not change when the diff landed, so the picture kept it. The
     /// key follows the chat's diffs: once they land, the picture is stale and drawn again.

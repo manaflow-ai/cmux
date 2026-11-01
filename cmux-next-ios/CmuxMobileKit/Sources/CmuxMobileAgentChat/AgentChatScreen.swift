@@ -939,6 +939,34 @@ extension SentAttachments {
         let scale = min(1, side / min(size.width, size.height))
         return CGSize(width: size.width * scale, height: size.height * scale)
     }
+
+    /// The most a thumbnail keeps of its long side, in multiples of `side`. Its bubble fills a 4:3
+    /// or square frame (`scaledToFill`) and shows only the image's middle, which a 2:1 crop holds
+    /// whole: a 1290 x 20000 scrolling screenshot keeps 600 x 1200 px (2.9 MB), not 600 x 9300 (22 MB).
+    nonisolated static let longSideLimit: CGFloat = 2
+
+    /// `size` cut to its middle `longSideLimit * side` along its long side.
+    nonisolated static func crop(_ size: CGSize, side: CGFloat) -> CGSize {
+        let limit = side * longSideLimit
+        return CGSize(width: min(size.width, limit), height: min(size.height, limit))
+    }
+
+    /// The thumbnail of `image` its bubble draws: its short side scaled to `side`, then its long
+    /// side cut to the middle the bubble shows. Runs off the main thread.
+    nonisolated static func thumbnail(of image: UIImage, side: CGFloat) -> UIImage {
+        let size = fill(image.size, side: side)
+        let crop = crop(size, side: side)
+        let scaled = image.preparingThumbnail(of: size)
+        guard crop.width < size.width - 0.5 || crop.height < size.height - 0.5 else { return scaled ?? image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        // 4 bytes per pixel, as the cache's cost counts them (not an extended-range 8).
+        format.preferredRange = .standard
+        // The scaled image (or, when it could not be made, the image scaled as it draws), centered.
+        let frame = CGRect(x: (crop.width - size.width) / 2, y: (crop.height - size.height) / 2, width: size.width, height: size.height)
+        return UIGraphicsImageRenderer(size: crop, format: format).image { _ in (scaled ?? image).draw(in: frame) }
+    }
 }
 
 /// Reads the bytes of an attachment a recorded prompt names (`AgentSessionSource.attachmentData`).

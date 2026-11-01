@@ -60,10 +60,11 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     private(set) var contentHeight: CGFloat = 0
     /// Space under the last row.
     var trailingGap: CGFloat = 24 { didSet { if trailingGap != oldValue { markDirty(max(items.count - 1, 0)) } } }
-    /// Whether a cell's measurement can be the row's height now: false while a disclosure change
-    /// waits for the list's reload (a SwiftUI row reads its disclosures itself, so its cell may
-    /// already draw the new state while its layout item is still the old one's).
-    var measuresSettle: () -> Bool = { true }
+    /// Whether a cell's measurement of this row can be its height now: false while a disclosure
+    /// change that moves this row's disclosures waits for the list's reload (a SwiftUI row reads
+    /// its disclosures itself, so its cell may already draw the new state while its layout item is
+    /// still the old one's). Other rows' measurements, a streaming answer's growth, are kept.
+    var measuresSettle: (Item) -> Bool = { _ in true }
     /// The reader follows the newest row: a row above that changes height does not move
     /// what they see (the controller keeps the bottom in place instead).
     var followsBottom: () -> Bool = { true }
@@ -244,7 +245,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         // is laid out as drawn, and not kept: the cell's reconfigure, or its content's own change,
         // sizes it again.
         guard let shown = (preferred as? ChatRowAttributes)?.shown, shown.revision == item.revision, shown.fold == item.fold,
-              measuresSettle() else {
+              measuresSettle(item) else {
             return abs(preferred.size.height - heights[row]) > 0.25
         }
         measured[item.id, default: RowHeights()].record(Measured(revision: item.revision, fold: item.fold, width: width,
@@ -475,7 +476,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         lookup.showAll = { [weak self] id in self?.showAll(id) }
         collectionView.prefetchDataSource = self
         layout.followsBottom = { [weak surface] in surface?.following ?? true }
-        layout.measuresSettle = { [weak self] in !(self?.disclosuresPending ?? false) }
+        layout.measuresSettle = { [weak self] item in self?.measureSettles(item) ?? true }
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
         collectionView.selfSizingInvalidation = .enabledIncludingConstraints
@@ -819,6 +820,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// A disclosure changed since the last reload.
     var disclosuresPending: Bool { surface.disclosures.revision != shownDisclosures }
 
+    /// Whether a measurement of `item`'s row is of the state its item records
+    /// (`ChatTranscriptLayout.measuresSettle`): with no disclosure change pending, or one that
+    /// leaves this row's disclosures (`ChatRowLookup.fold`) as its item has them.
+    private func measureSettles(_ item: ChatTranscriptLayout.Item) -> Bool {
+        guard disclosuresPending, let row = rows[item.id] else { return true }
+        return lookup.fold(row) == item.fold
+    }
+
     // MARK: Inspection (tests)
 
     /// Row `id`'s cell, when it is on screen.
@@ -1032,7 +1041,11 @@ final class ChatRowLookup {
     func reuseKey(_ id: String) -> String { rows[id]?.hostedReuseKey ?? "other" }
 
     func configureNative(_ cell: ChatNativeRowCell, id: String) {
+        // A reused cell measures nothing for this row until it draws it.
+        cell.shown = nil
         guard let row = rows[id], let native = layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: expanded(id)) else { return }
+        // The layout's width is the cell's less its 20 pt margins (`environmentChanged`).
+        cell.layoutWidth = (layouts.environment?.width ?? -40) + 40
         shownNative[id] = true
         shownPool[id] = "N:" + row.nativeReuseKey
         #if DEBUG
@@ -1048,6 +1061,7 @@ final class ChatRowLookup {
         actions.showAll = { showAll(id) }
         ChatNativeRowActions.configure(&actions, row: row, context: context)
         if case .editedFiles(let changes) = row.kind { viewedShown[id] = actions.viewed }
+        cell.shown = layout?.shownState(of: id)
         cell.apply(native, actions: actions)
         cell.setFindMarked(id == findMarked)
         #if DEBUG
