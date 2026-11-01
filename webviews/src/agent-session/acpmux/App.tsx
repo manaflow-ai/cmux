@@ -286,7 +286,7 @@ import { noteReaderScroll, releaseReaderScroll, useHeldWhileScrolling } from "./
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
-  openSubagentPane,
+  showSubagent as showSubagentIn,
   revealedSubagent,
   subagentTabTitle,
   useAutoOpenSubagents,
@@ -7582,20 +7582,21 @@ function AcpmuxPane() {
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
-  /// this pane when this is a subagent's pane or the host opens none.
-  const showSubagent = useCallback((id: string, focus = true) => {
-    if (subagentPane.current) return setSubagentView(id);
-    // Its tab takes the subagent's own name (its task; the Agent tool's description), never the chat's bare name.
-    const title = subagentTitleRef.current(id);
-    // The pane the app opens is a new tab on this chat's own session (subagentPanes.ts). Hand the
-    // chat over first, as openOwnTab does before `chat.openTab`, so that tab draws it from the
-    // host's kept tail (tailCache.ts) before its own attach answers, instead of opening blank.
-    directClient.current?.handOverCurrentTail();
-    void openSubagentPane(callNative, id, focus, title).then((opened) => {
-      if (!opened && focus) setSubagentView(id);
-    });
-  }, []);
+  const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
+  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
+  /// summary card's switch is on, else in this pane (subagents/subagentPanes.ts).
+  const showSubagent = useCallback(
+    (id: string, focus = true) =>
+      void showSubagentIn(callNative, id, focus, {
+        panes: autoOpenSubagents,
+        inSubagentPane: subagentPane.current,
+        here: setSubagentView,
+        title: subagentTitleRef.current(id),
+        // Seed a new pane from this chat's kept tail before its own attach answers.
+        beforeOpen: () => directClient.current?.handOverCurrentTail(),
+      }),
+    [autoOpenSubagents],
+  );
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
@@ -7624,7 +7625,6 @@ function AcpmuxPane() {
     },
     [workflows, showSubagent],
   );
-  const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
     quick || subagentPane.current ? undefined : shownSessionId,
     snapshot.rows,
@@ -8258,7 +8258,6 @@ function AcpmuxPane() {
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
           <SubagentTray
             key={shownSessionId}
-            chat={shownSessionId}
             items={trayList}
             finished={trayFinished}
             working={snapshot.isWorking}
@@ -11875,6 +11874,9 @@ function AcpmuxPane() {
             <SwitchNotice
               switching={snapshot.switching}
               onRetry={() => void callNative("chat.harness.retry")}
+              // The refused prompt is back in the composer; a chat on another machine starts only
+              // with a send, so the share's retry sends it again (as Trust's answer does).
+              onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
               onAction={(action) => {
                 // A fresh chat on another machine has no summary yet: its connection's origin, or a
                 // folder list its host marked as that machine's, says where it runs.
