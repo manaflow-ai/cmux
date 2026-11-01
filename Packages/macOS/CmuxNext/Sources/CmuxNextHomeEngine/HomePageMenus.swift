@@ -24,6 +24,13 @@ public enum HomePageMenus {
                 _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
             })
         }
+        // Conversations deleted from the list come back from here (and the palette, `cmux home show-hidden`).
+        if let title = registry.descriptor(for: "home.showHiddenConversations")?.title {
+            menu.addItem(.separator())
+            menu.addItem(HomeMenuTarget.item(title: title, symbol: "eye") {
+                _ = registry.perform("home.showHiddenConversations", invocation: ActionInvocation(origin: .user))
+            })
+        }
         if let teams = teamMenu(registry: registry) {
             menu.addItem(.separator())
             menu.addItem(teams)

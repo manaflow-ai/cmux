@@ -44,13 +44,19 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
     "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
     "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
-    "signer-dmg", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
-    "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
+    "signer-dmg", "route-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
     "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
-    "publish-nightly-identity-legacy", "nightly-identity-legacy-published", "republish-nightly-deltas",
+    "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
-    "report-nightly-failure", "close-nightly-failure-issue",
 })
+
+# Secret-free late bookkeeping and advisory verdicts have no fresh fleet lease.
+# Only these centrally declared light jobs may bootstrap on hosted Linux.
+PUBLICATION_POOL_JOBS = (
+    "visual-gate-nightly-verdict", "report-visual-gate-nightly",
+    "nightly-identity-legacy-published", "report-nightly-failure",
+    "close-nightly-failure-issue",
+)
 
 SINGLE_HOST = re.compile(r"cmux22|glaeda-runner-[a-z0-9][a-z0-9-]*", re.IGNORECASE)
 OLD_NIGHTLY_RUNNER = re.compile(r"CI_NIGHTLY_(?:NEXT_)?TRUSTED_(?:POOL|RUNNER)")
@@ -315,6 +321,18 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                          "these jobs left Blacksmith-only routing (or are gone): drop them from the debt list")
         self.assertIn("decide", jobs)
         self.assertNotIn("decide", BLACKSMITH_LINUX_ONLY_DEBT)
+
+    def test_publication_controls_use_declared_light_routing_without_stale_dependencies(self) -> None:
+        import json
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
+        for name in PUBLICATION_POOL_JOBS:
+            with self.subTest(job=name):
+                self.assertIn(f"nightly.yml#{name}", declared)
+                self.assertNotIn("pick-nightly-build-runner", jobs[name]["needs"])
+                self.assertNotIn("needs.pick-nightly-build-runner.outputs.", jobs[name]["runs-on"])
+                self.assertNotIn("environment", jobs[name])
 
     def test_no_job_takes_a_mac_only_while_the_overflow_switch_is_on(self) -> None:
         """The overflow switch never sends a job to a macOS label it would not take otherwise.

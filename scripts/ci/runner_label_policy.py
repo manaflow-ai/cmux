@@ -21,8 +21,8 @@ two cannot drift apart.
 
 from __future__ import annotations
 
-import re
 import json
+import re
 from functools import cache
 from pathlib import Path
 
@@ -336,7 +336,6 @@ NO_HOSTED_MAC_VARIABLES = frozenset({
     "LINUX_RUNNER",
     "RUNNER_POOLS",
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
-    "RUNNER_POOLS",
 })
 HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
 
@@ -357,19 +356,38 @@ def runner_pools_reason(value: str) -> str | None:
         return "is not valid JSON, so its runner labels cannot be checked"
     if not isinstance(pools, dict):
         return "is not a JSON object of runner pool labels"
+
+    def check(pool: object, value: object) -> str | None:
+        if isinstance(value, str):
+            if not value.strip():
+                return None
+            original = value.strip()
+            if HOSTED_MAC_LABEL.fullmatch(original.lower()):
+                return f"pool `{pool}` names a GitHub-hosted Mac `{original}`"
+            reason = forbidden_reason(original)
+            return f"pool `{pool}` {reason}" if reason is not None else None
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key == "_dead":
+                    continue
+                reason = check(pool, child)
+                if reason is not None:
+                    return reason
+            return None
+        if isinstance(value, list):
+            for child in value:
+                reason = check(pool, child)
+                if reason is not None:
+                    return reason
+            return None
+        return f"pool `{pool}` is not a string runner label"
+
     for pool, label in pools.items():
-        if str(pool).startswith("_"):
+        if pool == "_dead":
             continue
-        if not isinstance(label, str):
-            return f"pool `{pool}` is not a string runner label"
-        if not label.strip():
-            continue
-        original = label.strip()
-        if HOSTED_MAC_LABEL.fullmatch(original.lower()):
-            return f"pool `{pool}` names a GitHub-hosted Mac `{original}`"
-        reason = forbidden_reason(original)
+        reason = check(pool, label)
         if reason is not None:
-            return f"pool `{pool}` {reason}"
+            return reason
     return None
 
 
