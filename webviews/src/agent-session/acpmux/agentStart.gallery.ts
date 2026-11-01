@@ -54,6 +54,12 @@ const toReply: Play = async (ctx) => {
     observer.observe({ type: "layout-shift", buffered: false });
   const line = () => doc.querySelector(".acpmux-thinking .cv-worked")?.getBoundingClientRect().top;
   const bubble = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
+  // The header's controls, by class or label, so a shift there names what came or went.
+  const headerControls = () =>
+    [...doc.querySelectorAll(".acpmux-handoff-header-tools button, .acpmux-handoff-header-tools [role=button]")]
+      .map((element) => element.getAttribute("aria-label") || element.className.toString())
+      .join(" | ");
+  const headerAtSend = headerControls();
   // The line's top on every frame and mutation from the send until the first output.
   const tops: number[] = [];
   const track = () => {
@@ -81,6 +87,9 @@ const toReply: Play = async (ctx) => {
     problems.push(
       `${shifts.length} layout shift(s) while the agent started, CLS ${shifts.reduce((sum, shift) => sum + shift.value, 0).toFixed(4)} (${shifts.map((shift) => shift.from).join(", ")})`,
     );
+  const headerAtReply = headerControls();
+  if (problems.length && headerAtSend !== headerAtReply)
+    problems.push(`header controls at send: ${headerAtSend}; at the reply: ${headerAtReply}`);
   if (problems.length) throw new Error(problems.join("; "));
 };
 
