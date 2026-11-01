@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Smoke-test cancellation and descendant cleanup for the Bun code-mode MCP."""
+"""Exercise the real Bun/bwrap runner's deadline and lifecycle cleanup."""
 
 import json
 import os
 import select
 import shutil
+import signal
 import socket
 import subprocess
 import tempfile
-import threading
 import time
 import unittest
 from pathlib import Path
@@ -16,84 +16,181 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MCP = ROOT / "cmux-tui/bindings/typescript/code-mode/mcp.mjs"
+RUNNER = ROOT / "scripts/cmux-next/cmux-code-mode-runner"
+# MCP buffers console output until execution finishes. A catalog-allowed socket
+# request proves the script reached its body before we cancel or close the server.
+SPIN = r'''
+import { createConnection } from "node:net";
+await new Promise((resolve, reject) => {
+  const socket = createConnection(process.env.CMUX_TUI_SOCKET);
+  socket.on("error", reject);
+  socket.on("connect", () => socket.write(JSON.stringify({
+    protocol: "cmux.protocol/2", type: "request", id: "ready",
+    operation: "workspace.list", params: {}
+  }) + "\n"));
+  socket.once("data", () => { socket.destroy(); resolve(); });
+});
+console.log("READY");
+for (;;) {}
+'''
 
 
+# CI installs these dependencies; missing dependencies there must fail, not skip.
+@unittest.skipUnless(
+    (shutil.which("bun") and shutil.which("bwrap"))
+    or os.environ.get("GITHUB_ACTIONS") == "true",
+    "bun and bwrap are required",
+)
 class CodeModeCancellationTests(unittest.TestCase):
-    # CI installs bun and bwrap for this test (cmux-tui-sdks.yml, code-mode): a skip there would pass unrun.
-    @unittest.skipUnless(
-        (shutil.which("bun") and shutil.which("bwrap")) or os.environ.get("GITHUB_ACTIONS") == "true",
-        "bun and bwrap are required",
-    )
-    def test_cancel_returns_and_leaves_no_descendants(self):
-        with tempfile.TemporaryDirectory(prefix="cmux-code-mode-test-") as temp:
-            socket_path = Path(temp) / "target.sock"
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(str(socket_path))
-            server.listen()
-            stop = threading.Event()
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="cmux-code-mode-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(self.server.close)
+        self.socket_path = self.directory / "target.sock"
+        self.server.bind(str(self.socket_path))
+        self.server.listen()
+        self.server.settimeout(8)
+        self.process = None
+        self.owned = {}
+        self.addCleanup(self.cleanup_processes)
+        # A test belongs to its fake owner, never to the agent running the test.
+        self.env = {
+            key: value for key, value in os.environ.items()
+            if not key.startswith(("ACPMUX_", "CMUX_CLOUD_", "CMUX_CODE_MODE_"))
+        }
+        self.env.update(CMUX_TUI_SOCKET=str(self.socket_path), TMPDIR=self.temp.name)
 
-            def accept_connections():
-                server.settimeout(0.1)
-                while not stop.is_set():
-                    try:
-                        connection, _ = server.accept()
-                    except socket.timeout:
-                        continue
-                    connection.close()
+    def start(self, command, **env):
+        self.process = subprocess.Popen(
+            command, cwd=ROOT, env={**self.env, **env},
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        self.record_descendants(self.process.pid)
+        return self.process
 
-            thread = threading.Thread(target=accept_connections, daemon=True)
-            thread.start()
-            env = {**os.environ, "CMUX_TUI_SOCKET": str(socket_path), "TMPDIR": temp}
-            process = subprocess.Popen(
-                [shutil.which("bun"), str(MCP)],
-                cwd=ROOT,
-                env=env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
+    def record_descendants(self, pid):
+        """Only follow children of the process this test started; never scan ps."""
+        if pid not in self.owned:
             try:
-                request = {
-                    "jsonrpc": "2.0",
-                    "id": "cancel-test",
-                    "method": "tools/call",
-                    "params": {
-                        "name": "cmux_exec",
-                        "arguments": {"script": "await new Promise(() => {});"},
-                    },
-                }
-                cancellation = {
-                    "jsonrpc": "2.0",
-                    "method": "notifications/cancelled",
-                    "params": {"requestId": "cancel-test"},
-                }
-                process.stdin.write(json.dumps(request) + "\n")
-                process.stdin.flush()
-                time.sleep(0.2)
-                process.stdin.write(json.dumps(cancellation) + "\n")
-                process.stdin.flush()
-                ready, _, _ = select.select([process.stdout], [], [], 5)
-                self.assertTrue(ready, "cmux_exec cancellation did not return within 5 seconds")
-                response = json.loads(process.stdout.readline())
-                result = json.loads(response["result"]["content"][0]["text"])
-                self.assertTrue(result["cancelled"])
-                self.assertTrue(response["result"]["isError"])
-                process.stdin.close()
-                process.wait(timeout=5)
-                process.stdout.close()
-                process.stderr.close()
-                self.assertEqual(process.returncode, 0)
-                self.assertEqual(list(Path(temp).glob("cmux-code-mode-proxy.*")), [])
-                ps = subprocess.run(["ps", "-eo", "args="], check=True, capture_output=True, text=True)
-                self.assertNotIn(temp, ps.stdout)
-            finally:
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
-                stop.set()
-                server.close()
+                self.owned[pid] = os.pidfd_open(pid)
+            except ProcessLookupError:
+                return
+        try:
+            children = Path(f"/proc/{pid}/task/{pid}/children").read_text().split()
+        except FileNotFoundError:
+            return
+        for child in children:
+            self.record_descendants(int(child))
+
+    def cleanup_processes(self):
+        if self.process is not None:
+            if self.process.poll() is None:
+                self.record_descendants(self.process.pid)
+            # pidfds cannot accidentally signal a reused PID. These are only the
+            # test's recorded descendants, including bwrap's separate session.
+            for fd in reversed(list(self.owned.values())):
+                try:
+                    signal.pidfd_send_signal(fd, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            self.process.wait(timeout=5)
+            for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+                stream.close()
+        for fd in self.owned.values():
+            os.close(fd)
+
+    def ready(self):
+        connection, _ = self.server.accept()
+        with connection:
+            connection.settimeout(5)
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = connection.recv(4096)
+                self.assertTrue(chunk, "script closed before its readiness request")
+                data += chunk
+            self.assertEqual(json.loads(data)["id"], "ready")
+            self.record_descendants(self.process.pid)
+            self.assertGreater(len(self.owned), 2, "runner and sandbox were not observed")
+            connection.sendall(b'{"type":"response","id":"ready"}\n')
+
+    def send(self, message):
+        self.process.stdin.write(json.dumps(message).encode() + b"\n")
+        self.process.stdin.flush()
+
+    def execute(self, **arguments):
+        self.send({
+            "jsonrpc": "2.0", "id": "spin", "method": "tools/call",
+            "params": {"name": "cmux_exec", "arguments": {"script": SPIN, **arguments}},
+        })
+
+    def result(self):
+        readable, _, _ = select.select([self.process.stdout], [], [], 8)
+        self.assertTrue(readable, "cmux_exec did not return within 8 seconds")
+        line = self.process.stdout.readline()
+        self.assertTrue(line, "MCP exited without an execution result")
+        response = json.loads(line)
+        self.assertNotIn("error", response, response)
+        self.assertTrue(response["result"]["isError"], response)
+        return json.loads(response["result"]["content"][0]["text"])
+
+    def assert_cleaned(self):
+        deadline = time.monotonic() + 5
+        for pid, fd in self.owned.items():
+            if pid == self.process.pid:
+                continue
+            readable, _, _ = select.select([fd], [], [], max(0, deadline - time.monotonic()))
+            self.assertTrue(readable, f"owned code-mode descendant {pid} survived cleanup")
+        self.assertEqual(list(self.directory.glob("cmux-code-mode-proxy.*")), [])
+
+    def test_direct_runner_kills_cpu_spin_at_limit(self):
+        script = self.directory / "spin.ts"
+        script.write_text(SPIN)
+        self.start([str(RUNNER), str(script)], CMUX_CODE_MODE_TIMEOUT_MS="5000")
+        self.ready()
+        self.process.wait(timeout=8)
+        self.assertEqual(self.process.returncode, 124)
+        self.assert_cleaned()
+        self.assertIn(b"READY", self.process.stdout.read())
+
+    def test_mcp_timeout_override_kills_cpu_spin(self):
+        self.start([shutil.which("bun"), str(MCP)])
+        self.execute(timeout_ms=5000)
+        self.ready()
+        result = self.result()
+        self.assertTrue(result["timedOut"], result)
+        self.assertIn("READY", result["stdout"])
+        self.assert_cleaned()
+
+    def test_cancel_returns_and_leaves_no_descendants(self):
+        self.start([shutil.which("bun"), str(MCP)])
+        self.execute()
+        self.ready()
+        self.send({
+            "jsonrpc": "2.0", "method": "notifications/cancelled",
+            "params": {"requestId": "spin"},
+        })
+        self.assertTrue(self.result()["cancelled"])
+        self.assert_cleaned()
+
+    def test_input_end_kills_running_script(self):
+        self.start([shutil.which("bun"), str(MCP)])
+        self.execute()
+        self.ready()
+        self.process.stdin.close()
+        self.process.wait(timeout=8)
+        self.assertEqual(self.process.returncode, 0)
+        self.assert_cleaned()
+
+    def test_server_stop_kills_running_script(self):
+        self.start([shutil.which("bun"), str(MCP)])
+        self.execute()
+        self.ready()
+        self.process.terminate()
+        self.process.wait(timeout=8)
+        self.assert_cleaned()
 
 
 if __name__ == "__main__":
