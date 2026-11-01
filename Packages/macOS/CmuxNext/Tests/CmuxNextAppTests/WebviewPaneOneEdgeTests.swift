@@ -22,7 +22,7 @@ extension MainPaneGutterSuites {
     /// gutter stepped darker than the card over the art. The window's frame is an edge too: with the
     /// flush opt-in (Debug Settings gutter 0) the main pane takes the window's own edge and corners
     /// where it meets the window, so one outline shows. The default keeps today's 6 pt gutter.
-    @MainActor @Suite(.serialized) struct WebviewPaneOneEdgeTests {
+    @MainActor struct WebviewPaneOneEdgeTests {
         private actor NoHost: AgentPaneHostProviding {
             func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
         }

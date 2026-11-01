@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Security
 
@@ -21,7 +22,8 @@ public struct DeviceKeychain: Sendable {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &out)
+        // No UI: an item another signature of this bundle id made is refused, never prompted for.
+        let status = LoginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &out) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
         return out as? Data
@@ -29,7 +31,7 @@ public struct DeviceKeychain: Sendable {
 
     /// Adds or replaces the item.
     public func write(_ data: Data, account: String) throws {
-        let update = SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let update = LoginKeychain.withoutUI { SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary) }
         if update == errSecSuccess { return }
         guard update == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(update) }
         var add = query(account)
@@ -46,12 +48,13 @@ public struct DeviceKeychain: Sendable {
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         var out: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return [] }
+        guard LoginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &out) }) == errSecSuccess,
+              let items = out as? [[String: Any]] else { return [] }
         return items.compactMap { $0[kSecAttrAccount as String] as? String }
     }
 
     public func delete(_ account: String) throws {
-        let status = SecItemDelete(query(account) as CFDictionary)
+        let status = LoginKeychain.withoutUI { SecItemDelete(query(account) as CFDictionary) }
         guard status == errSecSuccess || status == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(status) }
     }
 

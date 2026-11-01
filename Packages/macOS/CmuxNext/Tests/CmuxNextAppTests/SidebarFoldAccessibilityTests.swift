@@ -1,9 +1,10 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct SidebarFoldAccessibilityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarFoldAccessibilityTests {
     static let fold = SidebarDoneFoldID(section: .machine(.local), group: nil)
 
     @Test(arguments: [false, true])
