@@ -22,8 +22,8 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
-  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
-> & { tabRowHeight?: number; preview?: boolean; inspectorPush?: boolean };
+  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenInspector"
+> & { tabRowHeight?: number; preview?: boolean; popover?: boolean; inspectorPush?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,7 +38,7 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, popover, inspectorPush, ...props }: Props) {
   return (
     <div
       className="acpmux-shell"
@@ -97,7 +97,13 @@ function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: 
         />
       ) : inspectorPush ? null : (
         <SummaryCard
-          card={card}
+          card={popover ? { ...card, column: false } : card}
+          environment={{
+            summary: { sessionId: "gallery-session", cwd: CWD, branch: "feature/session-details" },
+            machineName: "Development Mac",
+            repository: "example/atlas-web",
+            onOpenFolder: none,
+          }}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
           onOpenOutput={none}
           {...props}
@@ -134,12 +140,31 @@ const processes: InspectorProcess[] = [
   record("e2e", "bun test e2e --watch", 18, "killed", 9),
 ];
 
+/// A busy chat: eight commands running and three finished, more than the card used to show before
+/// "View all".
+const manyProcesses: InspectorProcess[] = [
+  ...processes.slice(0, 3),
+  record("api", "bun run api --watch", 23),
+  record("queue", "bun run worker:queue", 22),
+  record("tunnel", "cloudflared tunnel run dev", 21),
+  record("storybook", "bun run storybook", 19),
+  record("db", "docker compose up postgres", 17),
+  ...processes.slice(3),
+];
+
 const sessions: StartedSession[] = [
   { sessionId: "child-1", title: "Migrate the settings store to SQLite", state: "running", createdAt: minutesAgo(20) },
   { sessionId: "child-2", title: "Port the history page to React Aria", state: "running", createdAt: minutesAgo(19) },
   { sessionId: "child-3", title: "Rename the settings keys", state: "waiting", createdAt: minutesAgo(18) },
   { sessionId: "child-4", title: "Fix the flaky sidebar drag test", state: "failed", createdAt: minutesAgo(17) },
   { sessionId: "child-5", title: "Draft the release notes for 0.42", state: "idle", createdAt: minutesAgo(16) },
+];
+
+/// Seven started chats: more than the card used to show before "View all".
+const manySessions: StartedSession[] = [
+  ...sessions,
+  { sessionId: "child-6", title: "Profile the transcript scroll", state: "running", createdAt: minutesAgo(15) },
+  { sessionId: "child-7", title: "Audit the composer menus", state: "running", createdAt: minutesAgo(14) },
 ];
 
 const workflow: WorkflowSummary = {
@@ -179,6 +204,35 @@ const workflow: WorkflowSummary = {
 const workflowActions: WorkflowActions = { onPause: none, onStop: none, onSave: none, onOpenTranscript: none };
 const [realWorkflow] = createWorkflowAdapter()(realWorkflowFixture(GALLERY_NOW), "gallery-session");
 
+/// Two subagents, one still running, for the Subagents title and tab.
+const liveSubagentRows = [
+  ...rows,
+  row("subagents", 1, {
+    subagents: [
+      {
+        id: "explore-docs",
+        name: "Explore docs",
+        task: "Read the release docs",
+        parent: null,
+        state: "running",
+        startedAt: minutesAgo(3),
+      },
+      {
+        id: "check-links",
+        name: "Check links",
+        task: "Check every link",
+        parent: null,
+        state: "completed",
+        startedAt: minutesAgo(3),
+        endedAt: minutesAgo(1),
+      },
+    ],
+  }),
+];
+
+/// A record from before acpmux reported subagents: Claude's Task tool as a titled `think` call.
+const legacySubagentRows = [...rows, activity([tool("Audit the retry callers", "think", "in_progress")], 2)];
+
 const background = (list: InspectorProcess[]) => ({
   processes: list,
   listed: true,
@@ -196,6 +250,22 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
+    "popover-environment": {
+      note: "The toolbar popover begins with Environment and keeps activity counts in Subagents, without a title row.",
+      props: { popover: true, rows, background: background(processes), sessions: { list: sessions, onOpen: none } },
+    },
+    "popover-legacy-subagents": {
+      note: "An older record's Task-tool subagent beside a running command: the popover lists Subagents once.",
+      props: { popover: true, rows: legacySubagentRows, background: background(processes.slice(0, 2)) },
+    },
+    "popover-subagents": {
+      note: "A narrow pane's popover with live subagents: Environment first, and the Subagents title still opens the Subagents tab.",
+      props: { popover: true, rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
+    },
+    "inline-subagents": {
+      note: "The inline column with the same live subagents: the Subagents title opens the Subagents tab beside Summary.",
+      props: { rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
+    },
     "preview-tab-row": {
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },
@@ -275,6 +345,15 @@ export default componentEntry<Props>({
         sessions: { list: sessions, onOpen: none },
         workflow: realWorkflow,
         workflowActions,
+      },
+    },
+    "long-lists": {
+      note: "Every row of a long list is drawn and scrolls in the card, with no View all; Background tasks and Subagents end with Open in right pane, which opens that Session Info section beside the chat.",
+      props: {
+        rows,
+        background: background(manyProcesses),
+        sessions: { list: manySessions, onOpen: none },
+        onOpenInspector: none,
       },
     },
     "finished-open": {

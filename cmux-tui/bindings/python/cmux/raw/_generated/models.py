@@ -1520,6 +1520,20 @@ class ServerStatsJournalWriter:
 
 
 @dataclass(frozen=True)
+class ServerStatsLockDetail:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockDetail'
+    by_hold_p99: List[ServerStatsLockSiteDetail]
+    by_hold_total: List[ServerStatsLockSiteDetail]
+    contended_acquisitions: int
+    hold_us: ServerStatsHistogram
+    holder: Union[ServerStatsLockHolder, None]
+    last_stall: Union[ServerStatsLockStall, None]
+    sites: int
+    stalls: int
+    wait_us: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
 class ServerStatsLockHolder:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockHolder'
     held_for_us: int
@@ -1536,11 +1550,31 @@ class ServerStatsLockSite:
 
 
 @dataclass(frozen=True)
+class ServerStatsLockSiteDetail:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockSiteDetail'
+    acquisitions: int
+    hold_max_us: int
+    hold_p99_us: int
+    hold_total_us: int
+    site: str
+    wait_max_us: int
+    wait_p99_us: int
+    wait_total_us: int
+
+
+@dataclass(frozen=True)
 class ServerStatsLockStall:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockStall'
     blocker: Union[str, None]
     waited_us: int
     waiter: str
+
+
+@dataclass(frozen=True)
+class ServerStatsLocks:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLocks'
+    registry: ServerStatsLockDetail
+    state: ServerStatsLockDetail
 
 
 @dataclass(frozen=True)
@@ -1586,6 +1620,7 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
+    locks: Union[ServerStatsLocks, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
 
@@ -6149,9 +6184,12 @@ __all__ = [
     'ServerStatsHistogram',
     'ServerStatsHookQueue',
     'ServerStatsJournalWriter',
+    'ServerStatsLockDetail',
     'ServerStatsLockHolder',
     'ServerStatsLockSite',
+    'ServerStatsLockSiteDetail',
     'ServerStatsLockStall',
+    'ServerStatsLocks',
     'ServerStatsRegistryLock',
     'ServerStatsResourceProjection',
     'ServerStatsResult',

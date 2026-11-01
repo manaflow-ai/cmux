@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 public import Foundation
@@ -139,9 +140,15 @@ extension AgentPaneView {
         // The files the person picked in the file input's open panel (+ > Attach files): only their
         // own metadata can say where they came from, so the record holds their URLs and no claim.
         // WebKit opens the panel only for a user-activated file input, and the person picks the
-        // files, so page script can't fill it either.
+        // files, so page script can't fill it either. Where they are is kept as for a drop (a chat
+        // on this Mac links them in place), and the pick is the person's gesture, as a drop is: the
+        // click that opened the panel may be long past its lifetime once they choose, which refused
+        // the upload of every picked file (Retry on each tile).
         let chosen: @MainActor ([URL]) -> Void = { [weak self] urls in
-            self?.model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
+            guard let self else { return }
+            AgentPanePersonInput.record(model.transport.gestures)
+            model.droppedPaths.stash(urls, kind: .choose)
+            model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
         }
         let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }
         if let page {
@@ -184,14 +191,16 @@ extension AgentPaneView {
     /// report from a message's More button (`popUp`) opens that message's menu under the button now.
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
+            let popupID = (body as? [String: Any])?["popupId"] as? String
+            // After the page's message returns, from a run-loop callout, never a main-actor Task: a
+            // menu that tracks inside a main-queue job holds the main queue until it closes, and the
+            // click that closes it then waits for everything queued meanwhile (Leo, 2026-10-29).
             if let seq = (body as? [String: Any])?["forkDestinations"] as? Int {
-                // task-owner: one destination menu per Option-click; ends when the menu closes
-                Task { @MainActor [weak self] in self?.popUpForkMenu(through: seq, anchor: anchor) }
+                MainRunLoopBlock.perform { [weak self] in self?.popUpForkMenu(through: seq, anchor: anchor, popupID: popupID) }
                 return
             }
             let target = AgentPaneMessageTarget(report: body)
-            // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
-            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
+            MainRunLoopBlock.perform { [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor, popupID: popupID) }
             return
         }
         messageMenuTarget = AgentPaneMessageTarget(report: body)
@@ -208,7 +217,9 @@ extension AgentPaneView {
 
     /// More (…) on a message's action row: the menu a right-click on that message opens, with the
     /// same items, under the button (`anchor`, CSS px in the page's viewport).
-    private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect) {
+    private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect, popupID: String?) {
+        // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
+        defer { reportMessageMenuClosed(popupID) }
         let view: NSView = page?.focusView ?? webView
         guard let target, view.window != nil else { return }
         let menu = NSMenu()
@@ -221,7 +232,16 @@ extension AgentPaneView {
         menu.popUp(positioning: nil, at: NSPoint(x: left, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
     }
 
-    func popUpForkMenu(through seq: Int? = nil, anchor: CGRect? = nil) {
+    /// The page lit the opener of the menu `popupID` names (`messageMenu.ts`); it goes dark now.
+    private func reportMessageMenuClosed(_ popupID: String?) {
+        guard let popupID, let data = try? JSONEncoder().encode(popupID) else { return }
+        let id = String(decoding: data, as: UTF8.self)
+        evaluateScript("window.dispatchEvent(new CustomEvent('cmux-message-menu-closed', {detail: \(id)}))")
+    }
+
+    func popUpForkMenu(through seq: Int? = nil, anchor: CGRect? = nil, popupID: String? = nil) {
+        // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
+        defer { reportMessageMenuClosed(popupID) }
         let view: NSView = page?.focusView ?? webView
         guard view.window != nil else { return }
         let menu = AgentForkMenu.menu { [weak self] destination in
@@ -249,6 +269,7 @@ extension AgentPaneView {
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
+            quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
             open: { [weak self] url in self?.openLink(url) },
             linkItems: { LinkMenu().linkItems(for: $0) },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },

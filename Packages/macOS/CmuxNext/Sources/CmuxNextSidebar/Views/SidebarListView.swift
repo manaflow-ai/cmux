@@ -22,7 +22,6 @@ final class SidebarListView: NSView {
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
-    var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
@@ -90,10 +89,9 @@ final class SidebarListView: NSView {
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
-    /// The workspace whose tabs the last click folded or opened: a double-click's second press puts them back
-    /// before it renames the row.
-    var lastTabFold: WorkspaceID?
     let middleClick = SidebarMiddleClick()
+    /// A click on a group's name waits out the double-click interval before it folds.
+    let groupNameClick = SidebarGroupNameClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
@@ -144,7 +142,6 @@ final class SidebarListView: NSView {
     /// Whether a dragged document item is removed when dropped beside the sidebar, and its removal (`holdsDragOut`).
     var removesOnDragOut: ((String) -> Bool)?
     var onDragOutRemove: ((String) -> Void)?
-    let tabRowDrag = SidebarTabRowDrag()
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -152,6 +149,8 @@ final class SidebarListView: NSView {
     /// The group header that holds keyboard focus (arrow keys stop on
     /// headers; focus is not selection). Nil when a workspace has it.
     var focusedGroup: GroupID?
+    /// The disclosure with keyboard focus; focus never changes workspace selection.
+    var focusedFold: SidebarRowKey?
     /// The keyboard moved focus to `focusedGroup`, so its header draws the
     /// ring (a click focuses without one). A header view made later, by
     /// reuse or scrolling, draws it from this (SidebarListView+Reuse).

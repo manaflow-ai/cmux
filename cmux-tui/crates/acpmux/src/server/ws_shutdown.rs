@@ -143,12 +143,14 @@ impl Drop for Children {
 }
 
 /// Shutdown also interrupts a blocked text send. Sending Close flushes buffered frames, but
-/// a client that stopped reading cannot hold daemon handoff beyond CLOSE_BUDGET.
+/// a client that stopped reading cannot hold daemon handoff beyond CLOSE_BUDGET. A large line
+/// goes compressed once the client asked for that (`frame_compress.rs`).
 pub(super) async fn write<S>(
     mut sink: S,
     mut outbound: mpsc::Receiver<String>,
     mut stopped: oneshot::Receiver<()>,
     shutdown: WsShutdown,
+    wire: std::sync::Arc<crate::frame_compress::Wire>,
 ) where
     S: Sink<Frame> + Unpin,
 {
@@ -163,8 +165,8 @@ pub(super) async fn write<S>(
                     _ = &mut stopped => None,
                 };
                 let Some(line) = line else { break };
-                let text = line.trim_end_matches('\n').to_owned();
-                if sink.send(Frame::Text(text.into())).await.is_err() {
+                let Some(frame) = wire.frame(line).await else { break };
+                if sink.send(frame).await.is_err() {
                     break;
                 }
             }

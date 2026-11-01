@@ -77,6 +77,7 @@ export class MockAppsProvider implements PageClient {
           repository: detail.repository,
           screenshots: detail.screenshots,
           contributes: detail.contributes,
+          deploy: detail.deploy ?? null,
         };
         return wire as R;
       }
@@ -99,6 +100,7 @@ export class MockAppsProvider implements PageClient {
               failure: row.failure ?? null,
             },
             grants: [],
+            instance: row.instance ?? null,
           })),
         };
         return list as R;

@@ -433,10 +433,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// Claude's own trust answer counts too, so a Claude chat gets that second way.
     nonisolated static func trustSteps(folder: String, agent: String = "Claude", family: String = "claude") -> String {
         guard family == "claude" else {
-            return "\(agent) hasn't been trusted in \(folder) yet. On the Mac, open this workspace in cmux and choose Trust when it asks, "
+            return "\(agent) isn't trusted in \(folder). On the Mac, open this workspace in cmux and choose Trust when it asks, "
                 + "then start the chat again."
         }
-        return "\(agent) hasn't been trusted in \(folder) yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
+        return "\(agent) isn't trusted in \(folder). Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
             + "Or 2. Here, open this workspace's terminal, type claude, press Return, choose \u{201C}Yes, I trust this folder\u{201D}, then type /exit. "
             + "Then start the chat again."
     }
@@ -587,6 +587,18 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    /// A page's new tab or window (`rb.open_tab`): `new-browser-tab {url, pane}` in the pane of
+    /// the page that asked, as the Mac's own viewer opens it beside that page. The Mac's
+    /// mobile policy loads only `http(s)` and `about:blank` there; anything else is refused
+    /// here with words for the person.
+    public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        let scheme = url.scheme?.lowercased() ?? ""
+        guard ["http", "https"].contains(scheme) || url.absoluteString == "about:blank" else {
+            throw WorkspaceCreationError("Only web pages can open in a new tab from your iPhone.", isForPerson: true)
+        }
+        return try await newBrowserTab(url, besides: tab, in: workspace)
+    }
+
     /// A web link tapped in a terminal (the Mac's Cmd-click, `TerminalHostDelegate.openWeb`):
     /// `new-browser-tab {url, pane}` in the terminal's own pane, so the page opens beside it in
     /// the same workspace. Only `http` and `https` (the mobile host refuses any other scheme).
@@ -594,6 +606,12 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw WorkspaceCreationError("Only web links open in a browser tab.", isForPerson: true)
         }
+        return try await newBrowserTab(url, besides: tab, in: workspace)
+    }
+
+    /// `new-browser-tab {url, pane}` in `tab`'s pane, returned once the Mac lists the new tab.
+    /// Callers check the scheme first.
+    private func newBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         let (client, _) = try target(tab, in: workspace)
         guard let place = sync.tree?.tabPlaces[tab.id] else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")

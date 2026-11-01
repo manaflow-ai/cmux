@@ -91,6 +91,9 @@ final class SectionHeaderRowView: SidebarRowView {
         case .disconnected: Strings.statusDisconnected
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -122,6 +125,9 @@ final class SectionHeaderRowView: SidebarRowView {
         case .disconnected: Strings.statusDisconnected
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -135,7 +141,7 @@ final class SectionHeaderRowView: SidebarRowView {
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
             kind: section.kind, isHostGroup: section.isHostGroup, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,
-            fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
+            fontSize: SidebarStyle.headerFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide
         )
         guard needsConfigure(content) else { return }
         statusTip = nil
@@ -255,7 +261,7 @@ final class SectionHeaderRowView: SidebarRowView {
         // A machine's own icon leads the name; without one the header stays text only.
         var nameX = SidebarStyle.horizontalInset
         if !machineIcon.isHidden {
-            let side = Metrics.smallIconSize
+            let side = SidebarStyle.leadingGlyphSide
             machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
             nameX += side + Metrics.space2
         }

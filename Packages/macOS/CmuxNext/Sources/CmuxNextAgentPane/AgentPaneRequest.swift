@@ -108,6 +108,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case useFolder(String, confirm: Bool)
     /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
     case chooseChatFolder
+    /// Share with Me on a teammate's Cloud machine's refused start (`machine.share.self`): the app
+    /// grants the signed-in person chats there, after a real gesture (``AgentPaneMachineShare``).
+    case shareMachineWithMe
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
     /// after a real gesture, for a chat on this Mac.
     case chooseAttachments
@@ -117,7 +120,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
     /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
     /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
-    case attachSource(AgentPaneDroppedPaths.Kind, names: [String])
+    case attachSource(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
     /// `attachment.sourceIcon {bundleId}`: an attachment source's app icon, as a small data URL.
     case attachmentSourceIcon(String)
     /// Returns bounded recent project paths for the new-tab picker.
@@ -153,9 +156,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// throwaway Cloud VM, answered with its receipt (``AgentPaneModel/onSandboxRun``). `key` names
     /// the page's send, so its retry after an unclear failure finds the same Run.
     case sandboxRun(task: String, agent: String?, key: String)
+    /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
+    case cloudStartChat(AgentPaneCloudStart)
     /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
     /// (``AgentPaneSandboxRuns/state(wait:)``).
     case sandboxState(wait: Bool)
+    /// `cloud.handoffTurn {sessionId}`: before a prompt that starts a turn of this pane's chat on a
+    /// Cloud machine, the hand-off turn it names (``AgentPaneModel/onCloudHandoffTurn``, ``AgentPaneHandoffPrompt``).
+    case cloudHandoffTurn(sessionId: String)
     /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// A user-confirmed provider credential transfer for one Cloud chat.
@@ -325,6 +333,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).
     case featureTips(AgentPaneFeatureTipRequest)
+    /// `pane.setRemoteControl {on}`: Session Info's Remote Control switch (``AgentPaneRemoteControl``),
+    /// whether cmux on iPhone may open this Mac's chats. Only with the person's own click.
+    case remoteControl(on: Bool)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

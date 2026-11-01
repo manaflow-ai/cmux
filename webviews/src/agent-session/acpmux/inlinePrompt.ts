@@ -281,6 +281,7 @@ export async function restoreInline(
         mimeType: "text/plain",
         size: part.text.length,
         text: part.text,
+        ...(part.source ? { source: part.source } : {}),
       };
     else throw new Error(translate("attachment.unavailable", { name: part.name }));
     attachments.push(attachment);
