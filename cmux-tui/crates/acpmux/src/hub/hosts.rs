@@ -535,6 +535,8 @@ impl Hub {
             (all, profile.map(|p| p.kind))
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        // An agent kept through a restart keeps its transcript at each turn too (claude_keep.rs).
+        self.note_claude_store(session).await;
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {

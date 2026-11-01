@@ -2,6 +2,7 @@
 
 use super::full_access_bound::FullAccessEnd;
 use super::*;
+use crate::no_panic::LockExt;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
 use super::new_request::{claude_resume_refusal, unique_name_among};
@@ -926,6 +927,20 @@ impl Hub {
         let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
+        let claude_store = is_claude.then(|| meta.claude_store(&profile.env));
+        *session.claude_store.lock_or_recover() = claude_store.clone();
+        // Claude deletes transcripts past its retention: the kept copy goes
+        // back before the resume (or the fork) looks for it (claude_keep.rs).
+        // A resume only to the store that ran it; a failover's other store is
+        // refused below.
+        let resumes = fork_from.clone().or_else(|| {
+            existing_sid
+                .clone()
+                .filter(|_| meta.claude_profile.as_deref().is_none_or(|p| p == meta.harness))
+        });
+        if let (Some(store), Some(sid)) = (claude_store, resumes) {
+            self.restore_claude_transcript(session, store, sid, fork_from.is_none()).await;
+        }
         // Resume a Claude conversation only from a store that has it: one
         // that never finished a turn may not be stored at all, and one that
         // another profile ran lives in that profile's store (a failover onto

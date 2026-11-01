@@ -182,6 +182,10 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The Claude store (CLAUDE_CONFIG_DIR) its running Claude keeps the
+    /// conversation in, from its start: each turn's end keeps the transcript
+    /// from there (`claude_keep.rs`). None while no Claude runs it.
+    pub(super) claude_store: StdMutex<Option<std::path::PathBuf>>,
     /// The agent's context was emptied (`/clear`, `/compact`): its next
     /// prompt is told every forum rule again (`hub/forum.rs`).
     pub(super) forum_retell: AtomicBool,

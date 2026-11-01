@@ -202,7 +202,7 @@ fn is_turn_start(kind: Option<&str>, event: Option<&str>) -> bool {
 /// A line the person sent: a user message that is not a tool result, a
 /// compaction summary, a meta line, a subagent's or one Claude Code wrote
 /// itself (a task notification, another session's message).
-fn is_prompt(record: &Value) -> bool {
+pub(super) fn is_prompt(record: &Value) -> bool {
     let flag = |key: &str| record.get(key).and_then(Value::as_bool).unwrap_or(false);
     if record.get("type").and_then(Value::as_str) != Some("user")
         || flag("isMeta")
