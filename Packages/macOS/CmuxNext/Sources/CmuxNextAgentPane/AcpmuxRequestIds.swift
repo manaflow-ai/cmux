@@ -6,8 +6,9 @@ import CmuxNextCompat
 /// id at the daemon. The reply's id is mapped back to the page's, and a reply to a filtered method
 /// (``AcpmuxPaneMethods/replyShapes``) is cut to its shape. A page id (JSON value and type) is used
 /// by one request at a time. A daemon reply with an id the relay did not send is dropped. Every
-/// daemon frame passes the duplicate-key check and reaches the page as a fresh serialization, as
-/// every page frame reaches the daemon (in the transport).
+/// Replies pass the duplicate-key check and reach the page as a fresh serialization. Notifications
+/// have no id to rewrite, so the original text is forwarded after the duplicate-key check; only
+/// notifications that feed a host-side observer are parsed.
 nonisolated final class AcpmuxRequestIds: Sendable {
     private nonisolated struct Entry {
         var pageID: String
@@ -85,9 +86,9 @@ nonisolated final class AcpmuxRequestIds: Sendable {
 
     /// What the socket does with one daemon frame.
     nonisolated enum Inbound {
-        /// To the page: the fresh serialization, the parsed frame (its id the page's) for the
-        /// observers, and the request a reply answers.
-        case page(String, object: [String: Any], replyTo: String?)
+        /// To the page: the fresh serialization (or original notification text), an optional
+        /// parsed frame for observers, and the request a reply answers.
+        case page(String, object: [String: Any]?, replyTo: String?)
         /// A reply in place that acpmux answered: the host finishes it (``AgentPaneAgentReply``);
         /// acpmux's answer never reaches the page as it is.
         case complete(object: [String: Any], pageID: String, subject: String?)
@@ -96,24 +97,38 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         case close
     }
 
-    /// One daemon frame (ad349, round 8): the duplicate-key check, one full parse, then a fresh
-    /// serialization; a reply gets the page's id (or its filtered shape). A reply to no request the
-    /// relay sent is dropped.
+    /// One daemon frame (ad349, round 8): the duplicate-key check, then one parse only when a
+    /// notification feeds a host observer or when a reply needs its id rewritten. Notifications
+    /// otherwise retain their original text; a reply gets the page's id (or its filtered shape).
+    /// A reply to no request the relay sent is dropped.
     func toPage(_ text: String) -> Inbound {
         switch AcpmuxJSONKeys.verdict(text) {
         case .clean: break
         case .malformed: return .drop
         case .duplicate: return .close
         }
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
-        if object["method"] != nil {
-            if object["method"] as? String == "_acpmux/prompt_accepted", let promptAccepted,
+        // Stream notifications have no id to rewrite. The marker check avoids Foundation's full
+        // parse for the usual `session/update` payloads while retaining the parsed object for the
+        // three notifications read by host observers.
+        let observedMarkers = ["\"_acpmux/prompt_accepted\"", "\"_acpmux/event\"", "\"_acpmux/permission_pending\""]
+        let methodAt = text.range(of: "\"method\"")?.lowerBound
+        let resultBeforeMethod = methodAt.map { methodAt in
+            [text.range(of: "\"result\"")?.lowerBound, text.range(of: "\"error\"")?.lowerBound]
+                .compactMap { $0 }.contains { $0 < methodAt }
+        } ?? false
+        if methodAt != nil, !resultBeforeMethod {
+            guard observedMarkers.contains(where: text.contains),
+                  let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+            else { return .page(text, object: nil, replyTo: nil) }
+            let method = object["method"] as? String
+            if method == "_acpmux/prompt_accepted", let promptAccepted,
                let promptId = (object["params"] as? [String: Any])?["promptId"] as? String {
                 promptAccepted(promptId)
             }
-            guard let fresh = Self.encode(object) else { return .drop }
-            return .page(fresh, object: object, replyTo: nil)
+            return .page(text, object: observedMarkers.contains(where: { text.contains($0) }) ? object : nil,
+                         replyTo: method)
         }
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
         state.withLock { $0.answered.removeValue(forKey: relayID) }?(object["error"] == nil && object["result"] != nil)
         guard let entry = state.withLock({ state -> Entry? in
