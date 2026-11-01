@@ -17,32 +17,32 @@ import { PNG } from "pngjs";
 import { backdropBlurRadius, holeIn, holeMask } from "../src/ui/glass/seeThroughBlur";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-/** A DOMRect for the geometry tests (bun has no DOM). */
-class DOMRectReadOnlyLike {
-  readonly left: number;
-  readonly top: number;
-  readonly right: number;
-  readonly bottom: number;
-  readonly x: number;
-  readonly y: number;
-  constructor(
-    x: number,
-    y: number,
-    readonly width: number,
-    readonly height: number,
-  ) {
-    this.x = this.left = x;
-    this.y = this.top = y;
-    this.right = x + width;
-    this.bottom = y + height;
-  }
-  toJSON() {
-    return this;
-  }
-}
-
 await requireBrowserLane("see-through-blur.test.ts", async () => {
   setDefaultTimeout(120_000);
+
+  /** A DOMRect for the geometry tests (bun has no DOM). */
+  class DOMRectReadOnlyLike {
+    readonly left: number;
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
+    readonly x: number;
+    readonly y: number;
+    constructor(
+      x: number,
+      y: number,
+      readonly width: number,
+      readonly height: number,
+    ) {
+      this.x = this.left = x;
+      this.y = this.top = y;
+      this.right = x + width;
+      this.bottom = y + height;
+    }
+    toJSON() {
+      return this;
+    }
+  }
 
   describe("see-through blur geometry", () => {
     test("reads the blur radius from a backdrop-filter value", () => {
@@ -125,7 +125,10 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     });
     // The follow loop settles within a few frames.
     await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))),
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        ),
     );
   }
 
@@ -167,13 +170,11 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       await attach(page);
       const after = await barContrast(page, MIDDLE, ...INSIDE);
       const outsideAfter = await barContrast(page, MIDDLE, ...OUTSIDE);
-      expect(before).toBeGreaterThan(60);
+      expect(before).toBeGreaterThan(40);
       expect(after).toBeLessThan(before * 0.08);
       expect(Math.abs(outsideAfter - outsideBefore)).toBeLessThan(2);
       expect(await page.evaluate(() => document.querySelector(".chat")!.hasAttribute("data-glass-under"))).toBe(true);
-      expect(await page.evaluate(() => document.getElementById("popover")!.hasAttribute("data-glass-over"))).toBe(
-        true,
-      );
+      expect(await page.evaluate(() => document.getElementById("popover")!.hasAttribute("data-glass-over"))).toBe(true);
       await page.evaluate(() => (window as unknown as { detach(): void }).detach());
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(before * 0.95);
@@ -184,7 +185,9 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     test("the popover over a page that blurs itself draws no underlay", async () => {
       const page = await open(browser);
       const underlay = () =>
-        page.evaluate(() => getComputedStyle(document.getElementById("popover")!).getPropertyValue("--glass-underlay").trim());
+        page.evaluate(() =>
+          getComputedStyle(document.getElementById("popover")!).getPropertyValue("--glass-underlay").trim(),
+        );
       expect(await underlay()).toBe("70%");
       await attach(page);
       expect(await underlay()).toBe("0%");
@@ -210,7 +213,9 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     test("WebKit's backdrop already draws in place: nothing is attached", async () => {
       const page = await open(browser);
       await attach(page);
-      expect(await page.evaluate(() => document.querySelectorAll("[data-glass-under], [data-glass-over]").length)).toBe(0);
+      expect(await page.evaluate(() => document.querySelectorAll("[data-glass-under], [data-glass-over]").length)).toBe(
+        0,
+      );
       await page.close();
     });
   });

@@ -55,7 +55,11 @@ export function overlaps(a: DOMRectReadOnly, b: DOMRectReadOnly): boolean {
 }
 
 /** The surface's hole in `target`'s own box (the filter's user space is the element's border box). */
-export function holeIn(surface: DOMRectReadOnly, target: DOMRectReadOnly, style: { radius: number; blur: number; opacity: number }): BlurHole {
+export function holeIn(
+  surface: DOMRectReadOnly,
+  target: DOMRectReadOnly,
+  style: { radius: number; blur: number; opacity: number },
+): BlurHole {
   return {
     x: surface.left - target.left,
     y: surface.top - target.top,
@@ -94,7 +98,14 @@ export function createHoleFilter(doc: Document, id: string): SVGFilterElement {
   }) as SVGFilterElement;
   filter.append(
     primitive(doc, "feGaussianBlur", { in: "SourceGraphic", result: "blurred" }),
-    primitive(doc, "feComposite", { in: "blurred", in2: "SourceGraphic", operator: "arithmetic", k1: "0", k4: "0", result: "mixed" }),
+    primitive(doc, "feComposite", {
+      in: "blurred",
+      in2: "SourceGraphic",
+      operator: "arithmetic",
+      k1: "0",
+      k4: "0",
+      result: "mixed",
+    }),
     primitive(doc, "feImage", { preserveAspectRatio: "none", result: "hole" }),
     primitive(doc, "feComposite", { in: "mixed", in2: "hole", operator: "in", result: "inside" }),
     primitive(doc, "feComposite", { in: "SourceGraphic", in2: "hole", operator: "out", result: "outside" }),
@@ -107,7 +118,11 @@ export function createHoleFilter(doc: Document, id: string): SVGFilterElement {
 
 /** Writes `hole` into a filter made by createHoleFilter, for an element whose box is `box`. The
  * filter region is the element's whole box, so everything outside the hole passes through. */
-export function writeHoleFilter(filter: SVGFilterElement, box: { width: number; height: number }, hole: BlurHole): void {
+export function writeHoleFilter(
+  filter: SVGFilterElement,
+  box: { width: number; height: number },
+  hole: BlurHole,
+): void {
   const set = (element: Element | undefined, attributes: Record<string, string | number>) => {
     for (const [key, value] of Object.entries(attributes)) element?.setAttribute(key, String(value));
   };
@@ -122,7 +137,7 @@ export function writeHoleFilter(filter: SVGFilterElement, box: { width: number; 
 /** Whether this engine draws a backdrop over the page's pixels (Chromium) rather than in their
  * place (WebKit, which keeps -webkit-backdrop-filter): glass.css's own test for the underlay. */
 export function drawsBackdropOver(view: Window): boolean {
-  return view.CSS?.supports?.("-webkit-backdrop-filter", "none") === false;
+  return !(view as unknown as typeof globalThis).CSS.supports("-webkit-backdrop-filter", "none");
 }
 
 let nextId = 0;
@@ -174,7 +189,7 @@ export function attachSeeThroughBlur(surface: HTMLElement): () => void {
       under.push({ target: child, box, hole, key: JSON.stringify([box.width, box.height, hole]) });
     }
     const keep = new Set(under.map((entry) => entry.target));
-    for (const target of [...covered.keys()]) if (!keep.has(target)) release(target);
+    for (const target of covered.keys()) if (!keep.has(target)) release(target);
     for (const { target, box, hole, key } of under) {
       let entry = covered.get(target);
       if (!entry) {
@@ -220,7 +235,7 @@ export function attachSeeThroughBlur(surface: HTMLElement): () => void {
     surface.removeEventListener("transitionrun", kick);
     surface.removeEventListener("animationstart", kick);
     view.removeEventListener("resize", kick);
-    for (const target of [...covered.keys()]) release(target);
+    for (const target of covered.keys()) release(target);
     surface.removeAttribute(OVER_ATTRIBUTE);
     svg.remove();
   };
