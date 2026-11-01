@@ -2,6 +2,8 @@
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";
+// Spinner's own default (the dot hidden, the ring turning), wherever it draws (spinner.css).
+import "./spinner.css";
 
 export type CvIconProps = {
   size?: number;
