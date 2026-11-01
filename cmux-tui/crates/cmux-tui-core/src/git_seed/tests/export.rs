@@ -267,3 +267,26 @@ fn an_export_compares_with_the_newest_record() {
     assert!(!world.home.join("three.bundle").exists());
     assert_eq!(dropped["stash"], Value::Null);
 }
+
+/// Work inside a submodule on the machine is refused, never reported as
+/// unchanged.
+#[test]
+fn an_export_refuses_a_dirty_submodule() {
+    let (world, folder, first) = seeded("export-submodule");
+    // A checked-out submodule as the seed's `submodule update` leaves it: a
+    // gitlink in the index and a repository at its path.
+    let sub = folder.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    git(&sub, &["init", "-q"]);
+    write(&sub.join("x"), "x\n");
+    git(&sub, &["add", "x"]);
+    git(&sub, &["commit", "-q", "-m", "sub"]);
+    let commit = git(&sub, &["rev-parse", "HEAD"]);
+    git(&folder, &["update-index", "--add", "--cacheinfo", &format!("160000,{commit},sub")]);
+    write(&sub.join("x"), "x\nedited in the submodule\n");
+    let service = world.service();
+    let bundle = world.home.join("back.bundle");
+    let status = export(&service, &export_params(&folder, &first, &bundle));
+    assert_eq!(status["error_code"], "seed.submodule_local_work", "{status}");
+    assert!(!bundle.exists());
+}

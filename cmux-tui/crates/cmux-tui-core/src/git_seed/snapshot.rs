@@ -102,10 +102,7 @@ fn left_out(git: &Git, credential: &Credential, folder: &Path) -> Result<Vec<Vec
     Ok(listed
         .split(|byte| *byte == 0)
         .filter(|path| !path.is_empty())
-        .filter(|path| {
-            path.ends_with(b"/")
-                || super::secrets::reason(folder, &String::from_utf8_lossy(path)).is_some()
-        })
+        .filter(|path| path.ends_with(b"/") || super::secrets::reason(folder, path).is_some())
         .map(<[u8]>::to_vec)
         .collect())
 }

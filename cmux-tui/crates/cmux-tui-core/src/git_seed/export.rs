@@ -133,6 +133,14 @@ impl Export {
             .read(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
             .ok_or_else(|| failed("seed.export_failed", "the folder has no commit checked out"))?;
         let head_ref = self.read(&["symbolic-ref", "-q", "HEAD"]);
+        // Work inside a submodule leaves its gitlink as it is: it would read
+        // as unchanged. Refused, as the Mac's plan refuses it on the way up.
+        if let Some(path) = self.dirty_submodule().map_err(wrap)? {
+            return Err(failed(
+                "seed.submodule_local_work",
+                format!("submodule {path} has uncommitted changes on the machine"),
+            ));
+        }
         let snapshot =
             Snapshot::take(&self.git, &Credential::Anonymous, &self.folder).map_err(wrap)?;
         let commit = |tree: &str, parent: &str, message: &str| {
@@ -188,6 +196,32 @@ impl Export {
             read("work").as_deref() == Some(self.params.since_work.as_str())
                 && read("head").as_deref() == Some(self.params.since_head.as_str())
         })
+    }
+
+    /// The first submodule (a gitlink in the index, checked out) with
+    /// uncommitted changes or untracked files that are not ignored.
+    fn dirty_submodule(&self) -> Result<Option<String>, Failure> {
+        let staged = self.git(&["ls-files", "-z", "-s"])?;
+        for entry in staged.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
+            let entry = String::from_utf8_lossy(entry);
+            let Some((meta, path)) = entry.split_once('\t') else { continue };
+            if !meta.starts_with("160000 ") {
+                continue;
+            }
+            let checkout = self.folder.join(path);
+            if !checkout.join(".git").exists() {
+                continue;
+            }
+            let status = self.git.quiet(
+                Some(&checkout),
+                &Credential::Anonymous,
+                &["status", "--porcelain", "--ignore-submodules=none"],
+            )?;
+            if !status.is_empty() {
+                return Ok(Some(path.to_owned()));
+            }
+        }
+        Ok(None)
     }
 
     /// `refs/cmux-back/*` name exactly this export's commits.

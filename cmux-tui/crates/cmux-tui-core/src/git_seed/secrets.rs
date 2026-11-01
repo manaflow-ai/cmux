@@ -4,12 +4,17 @@
 //! and the machine's export ([`super::export`]) leaves out the same, so an
 //! `.env` the machine made never comes back to the Mac.
 
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 
-/// Why the untracked file at `relative` (under `top`) stays on this Mac,
-/// or None when it goes.
-pub fn reason(top: &Path, relative: &str) -> Option<&'static str> {
-    let name = relative.rsplit('/').next().unwrap_or(relative);
+/// Why the untracked file at `relative` (under `top`, git's raw bytes)
+/// stays where it is, or None when it goes. The raw path is what is read: a
+/// name that is not UTF-8 is never looked up by a lossy spelling.
+pub fn reason(top: &Path, relative: &[u8]) -> Option<&'static str> {
+    let raw_name = relative.rsplit(|byte| *byte == b'/').next().unwrap_or(relative);
+    let name = String::from_utf8_lossy(raw_name);
+    let name = name.as_ref();
     if name.starts_with(".env") {
         return Some(".env file: it may hold secrets, so it is shared only on purpose");
     }
@@ -31,7 +36,10 @@ pub fn reason(top: &Path, relative: &str) -> Option<&'static str> {
         _ => &[],
     };
     if !token_markers.is_empty() {
-        let text = std::fs::read(top.join(relative)).unwrap_or_default();
+        // A registry file that can't be read counts as holding a token.
+        let Ok(text) = std::fs::read(top.join(OsStr::from_bytes(relative))) else {
+            return Some("package registry credentials file that could not be read");
+        };
         let text = String::from_utf8_lossy(&text);
         if token_markers.iter().any(|marker| text.contains(marker)) {
             return Some("package registry credentials file with a token");
@@ -60,12 +68,10 @@ mod tests {
             "bundle.p12",
             ".netrc",
         ] {
-            assert!(reason(top, path).is_some(), "{path}");
+            assert!(reason(top, path.as_bytes()).is_some(), "{path}");
         }
-        for path in
-            ["README.md", "id_rsa.pub", "src/env.rs", ".envrc-notes/x", "keyboard.rs", ".npmrc"]
-        {
-            assert_eq!(reason(top, path), None, "{path}");
+        for path in ["README.md", "id_rsa.pub", "src/env.rs", ".envrc-notes/x", "keyboard.rs"] {
+            assert_eq!(reason(top, path.as_bytes()), None, "{path}");
         }
     }
 
@@ -75,8 +81,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(".npmrc"), "//registry.npmjs.org/:_authToken=abc\n").unwrap();
         std::fs::write(dir.join(".pypirc"), "[pypi]\nusername = x\n").unwrap();
-        assert!(reason(&dir, ".npmrc").is_some());
-        assert_eq!(reason(&dir, ".pypirc"), None);
+        assert!(reason(&dir, b".npmrc").is_some());
+        assert_eq!(reason(&dir, b".pypirc"), None);
+        std::fs::create_dir_all(dir.join(OsStr::from_bytes(b"bad-\xff"))).unwrap();
+        std::fs::write(
+            dir.join(OsStr::from_bytes(b"bad-\xff/.npmrc")),
+            "//registry.npmjs.org/:_authToken=abc\n",
+        )
+        .unwrap();
+        assert!(reason(&dir, b"bad-\xff/.npmrc").is_some(), "read by its raw path");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
