@@ -158,7 +158,10 @@ jobs:
           sparse-checkout: scripts/ci/pr_status.py
           sparse-checkout-cone-mode: false
 
+      # Advisory: the line is a convenience, so a GitHub API error writing it warns and never turns
+      # the check red (in its last 31 hours this check was red 47 times and never on a PR's code).
       - name: Update the PR's review line
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
