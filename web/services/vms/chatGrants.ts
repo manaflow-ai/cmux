@@ -84,6 +84,39 @@ export function listVmChatGrants(input: VmChatGrantAccessInput) {
   });
 }
 
+/**
+ * A side-effect-free answer for a NEW cmux-managed chat start. Unlike attach-endpoint this never
+ * creates a provider endpoint, lease, usage event or wake-up. The app may have an old Cloud link
+ * with an attach-time owner word, so it must read current team membership AND the current grant
+ * before sending another delegated start. The creator's own team machine also requires membership.
+ *
+ * This is an app-side preflight. Revocation racing the already-authorized daemon command still
+ * needs a server-enforced, revocable start capability to close the last TOCTOU window.
+ */
+export function currentVmChatStartAccess(input: VmChatGrantAccessInput & { readonly teamDirectory: VmTeamDirectory }) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireUserVm(input);
+    if (!vmAcceptsChatGrants(vm)) {
+      return { ok: true as const, value: vm.userId === input.userId ? "owner" as const : "none" as const };
+    }
+    const lookup = yield* listTeamMemberIdsWithTimeout(input.teamDirectory, vm.ownerTeamId, STACK_READ_TIMEOUT_MS);
+    if ("error" in lookup) return unavailable();
+    if (lookup.memberIds === null || !lookup.memberIds.includes(input.userId)) {
+      return { ok: true as const, value: "none" as const };
+    }
+    if (vm.userId === input.userId) return { ok: true as const, value: "owner" as const };
+    if (!repo.hasVmChatGrant) return unavailable();
+    const granted = yield* repo.hasVmChatGrant({ vmId: vm.id, userId: input.userId }).pipe(
+      Effect.timeout(STACK_READ_TIMEOUT_MS),
+      Effect.map((value) => value === true),
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    if (granted === null) return unavailable();
+    return { ok: true as const, value: granted ? "granted" as const : "none" as const };
+  });
+}
+
 /** Share chat starts on the machine with a current teammate. Idempotent: an existing grant is kept. */
 export function grantVmChat(input: VmChatGrantShareInput) {
   return Effect.gen(function* () {
