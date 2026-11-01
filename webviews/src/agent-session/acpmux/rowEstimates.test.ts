@@ -12,7 +12,7 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { hasReplyActions, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
+import { hasReplyActions, keepsReplyRoom, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -485,4 +485,15 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   // A sub-session message alone is one tool row, folded or not.
   expect(heightsOf(run([sendMessage]))[0]).toBe(lines(1));
   expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(lines(1));
+});
+
+test("a turn's end keeps a reply's room: a folded reply to the person keeps it, a folded note does not", () => {
+  const reply = { id: "r", kind: "assistant", text: "The build passed.", version: 1 } as AcpmuxRow;
+  const next = { id: "n", kind: "user", text: "next", version: 1 } as AcpmuxRow;
+  expect(keepsReplyRoom(reply, next)).toBe(true);
+  // turns.ts marks a finished turn's earlier replies settled inside its open "Worked for"; a reply
+  // to the person there is `foldedReply`, so the end moves nothing (agent-pane-stream-jitter).
+  expect(keepsReplyRoom({ ...reply, settled: true, foldedReply: true }, next)).toBe(true);
+  expect(keepsReplyRoom({ ...reply, settled: true }, next)).toBe(false);
+  expect(keepsReplyRoom({ ...reply, streaming: true }, next)).toBe(false);
 });

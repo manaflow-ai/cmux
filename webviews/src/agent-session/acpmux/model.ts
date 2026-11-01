@@ -1254,15 +1254,16 @@ export const hasReplyActions = (_row: AcpmuxRow, _next: AcpmuxRow | undefined) =
 /// capture of that build: "i like this spacing kinda i prefer it to what we have now tho it's just
 /// minor differences". Every finished reply with text that something follows (a prompt, a steer,
 /// another agent's message, a tool run), as `hasReplyActions` read it then; never the reply over its
-/// turn's footer (the footer is its row), nor a copy inside an opened "Worked for" (`settled`), nor
-/// one still streaming. App.tsx marks the rows `acpmux-row--reply-room` (conversation.css
+/// turn's footer (the footer is its row), nor one still streaming. Inside an opened "Worked for"
+/// (`settled`) only a reply to the person (`foldedReply`, which kept its action row) keeps it; a short
+/// note there stays quiet. So a turn's end, which marks its earlier replies settled, moves nothing. App.tsx marks the rows `acpmux-row--reply-room` (conversation.css
 /// `--cv-reply-room`); the estimate counts it as the action row's chrome.
 export const keepsReplyRoom = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   next !== undefined &&
   !isBeforeFooter(row, next) &&
   row.streaming !== true &&
-  row.settled !== true &&
+  (row.settled !== true || row.foldedReply === true) &&
   (row.text ?? "").trim().length > 0;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
