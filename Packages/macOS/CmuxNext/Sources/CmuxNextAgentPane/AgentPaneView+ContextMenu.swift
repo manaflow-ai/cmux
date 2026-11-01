@@ -121,15 +121,12 @@ extension AgentPaneView {
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
-            // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the drop
-            // of a real drag Chromium saw enter (`PageWebView.onFilesDropped`), from the page's
-            // message, with no AppKit event in dispatch.
-            if page?.chromiumPage != nil {
-                model.transport.gestures.record(click: false)
-            } else {
-                guard AgentPanePersonInput.currentIsPerson else { return }
-                AgentPanePersonInput.record(model.transport.gestures)
-            }
+            // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
+            // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
+            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it.
+            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+            guard let event, AgentPanePersonInput.isPerson(event) else { return }
+            model.transport.gestures.record(click: false)
             model.droppedPaths.stash(urls, kind: .drop)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).

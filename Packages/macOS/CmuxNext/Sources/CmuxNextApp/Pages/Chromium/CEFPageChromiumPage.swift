@@ -59,6 +59,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
                            onEnd: { [weak self] in self?.renderEnded() })
         tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
+        tab.pageDragEnded = { [weak self] dropped in self?.onEvent?(.dragEnded(dropped: dropped)) }
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
         tab.pagePasted = { [weak self] in self?.onEvent?(.pasted) }
         guard crashWatch == nil else { return }

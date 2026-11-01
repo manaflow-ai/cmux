@@ -144,6 +144,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
+    /// The drag of files the pane relays to the page (``pageFilesDragged``) ended: true in a drop
+    /// on the page (AppKit's `performDragOperation`, its event in dispatch), false when it left the
+    /// page or was cancelled. Page script cannot make either; nil ignores it.
+    @ObservationIgnored public var pageDragEnded: (@MainActor (Bool) -> Void)?
     /// A real mouse down or key down reached the page, at this `systemUptime` (a cmux page backs its
     /// calls with it as the person's gesture); nil ignores it.
     @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
@@ -162,6 +166,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Stops telling the page host about the page's drags, input and pastes (it stopped listening).
     public func clearPageEventHooks() {
         pageFilesDragged = nil
+        pageDragEnded = nil
         pageUserInput = nil
         pagePasted = nil
     }

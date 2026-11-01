@@ -217,6 +217,7 @@ extension PageWebView {
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
         chromiumDragged = nil
+        chromiumDropConfirmed = nil
         inputReadiness.editor = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
@@ -277,8 +278,8 @@ extension PageWebView {
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
             filesDragged(urls)
-        case .dragEnded:
-            break
+        case .dragEnded(let dropped):
+            chromiumDragEnded(dropped: dropped)
         case .userInput(let uptime):
             chromiumUserInput(at: uptime)
         case .contextMenu(let request):
@@ -325,20 +326,38 @@ extension PageWebView {
     /// ``fileDrop`` takes it (as on the WebKit page), and the page script hands the drop over.
     private func filesDragged(_ urls: [URL]) {
         chromiumDragged = urls.isEmpty ? nil : (urls, now())
+        chromiumDropConfirmed = nil
         let url = urls.first.flatMap { url in fileDrop.flatMap { $0.accepts(url) ? url : nil } }
         chromiumDragFile = url.map { ($0, now()) }
         chromiumSession?.bridge.evaluate("window.__cmuxHostDrop && window.__cmuxHostDrop(\(url != nil))")
     }
 
-    /// The page's drop of files: the files of the real drag that entered it, once, and only soon
-    /// after it entered (page script can post this message but cannot name a file, and with no
-    /// drag the host saw, it reports nothing).
+    /// The drag that entered the page ended natively. A drop on the page (AppKit's
+    /// `performDragOperation` on the pane, with its event in dispatch) arms one page drop message;
+    /// a drag that left or was cancelled clears what it entered with, so a later message from page
+    /// script reports nothing.
+    private func chromiumDragEnded(dropped: Bool) {
+        guard dropped, chromiumDragged != nil else {
+            chromiumDragged = nil
+            chromiumDropConfirmed = nil
+            return
+        }
+        chromiumDropConfirmed = (now(), NSApp?.currentEvent)
+    }
+
+    /// The page's drop of files: the files of the real drag that entered it, once, and only right
+    /// after the pane's native drop of that drag (``chromiumDragEnded(dropped:)``). Page script can
+    /// post this message at any time but cannot name a file or make a native drop, so with no drop
+    /// the host saw (a drag still under way, left or cancelled), it reports nothing. A drop the host
+    /// took (``fileDrop``, ``hostDropped()``) is not the page's and is not reported here.
     private func pageDropped() {
-        guard let dragged = chromiumDragged else { return }
+        guard let dragged = chromiumDragged, let confirmed = chromiumDropConfirmed else { return }
         chromiumDragged = nil
-        guard now().timeIntervalSince(dragged.at) < Self.chromiumDropWindow else { return }
+        chromiumDropConfirmed = nil
+        guard chromiumDragFile == nil, now().timeIntervalSince(confirmed.at) < Self.chromiumDropConfirmation else { return }
         droppedEnteredAt = dragged.at
-        defer { droppedEnteredAt = nil }
+        droppedEvent = confirmed.event
+        defer { (droppedEnteredAt, droppedEvent) = (nil, nil) }
         onFilesDropped?(dragged.urls)
     }
 

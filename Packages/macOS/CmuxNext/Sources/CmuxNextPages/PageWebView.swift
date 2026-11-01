@@ -156,8 +156,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
     /// Called with their file URLs when files are dropped on the page itself (not a ``fileDrop`` the
     /// host opens): a real gesture page script can't make. In WebKit, with the drop's event in
-    /// dispatch; in Chromium, from the page's drop of a drag the host saw enter
-    /// (``PageChromiumEvent/filesDragged(_:)``, within ``chromiumDropWindow``), its files once.
+    /// dispatch; in Chromium, from the page's drop message, and only right after a native drop of
+    /// a drag the host saw enter (``PageChromiumEvent/filesDragged(_:)`` then
+    /// ``PageChromiumEvent/dragEnded(dropped:)``, within ``chromiumDropConfirmation``), its files
+    /// once, with that drop's event in ``droppedEvent``.
     public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
         didSet { (webView as? PageWKWebView)?.onFilesDropped = onFilesDropped }
     }
@@ -183,6 +185,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The page took the drop before the host hears of it, so a record of it is dated by the drag's
     /// entry, before the page's gesture. Nil in WebKit, where the drop's event is in dispatch.
     public internal(set) var droppedEnteredAt: Date?
+    /// The native drop of the Chromium page's current drag (``PageChromiumEvent/dragEnded(dropped:)``):
+    /// when it happened and the AppKit event in dispatch then. One use: the page's drop message
+    /// takes it. Page script cannot make one.
+    var chromiumDropConfirmed: (at: Date, event: NSEvent?)?
+    /// While ``onFilesDropped`` runs for a Chromium page: the AppKit event that was in dispatch at
+    /// the native drop (WebKit's drop has it in dispatch, as `NSApp.currentEvent`). A host checks
+    /// that it is the person's before it treats the drop as their gesture. Nil in WebKit.
+    public internal(set) var droppedEvent: NSEvent?
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
     /// gesture (a file page's "Open <path>?" sheet) records the value it used.
