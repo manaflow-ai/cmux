@@ -13,6 +13,8 @@ final class RootViewController: UIViewController {
     private let container: AppContainer
     private var current: UIViewController?
     private weak var home: HomeViewController?
+    private weak var homeNavigation: UINavigationController?
+    private var pendingCloudAttention: CloudChatAttention?
     private var shownState: AuthState?
 
     init(container: AppContainer) {
@@ -30,6 +32,12 @@ final class RootViewController: UIViewController {
         container.devOptions.onChange = { [weak self] options in self?.home?.apply(options) }
         container.onUpdateRequiredChange = { [weak self] requirement in self?.home?.updateRequired = requirement }
         container.feedResponder.presentApprove = { [weak self] request, scope in self?.presentApprove(request, scope: scope) }
+        container.notificationDelegate.onCloudAttention = { [weak self] attention in
+            self?.presentCloudChat(attention: attention)
+        }
+        container.onCloudChatTransportChange = { [weak self] in
+            self?.presentPendingCloudAttentionIfPossible()
+        }
         #if DEBUG
         if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {
             // DEV preview (simulator screenshots): the update-required banner
@@ -90,7 +98,9 @@ final class RootViewController: UIViewController {
         self.home = home
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
+        homeNavigation = navigation
         install(navigation)
+        presentPendingCloudAttentionIfPossible()
         container.chiefCall.homeReady(account: account, presenter: self)
         DebugLaunchTasks.homeShown(store: store, window: view.window)
         #if DEBUG
@@ -141,6 +151,25 @@ final class RootViewController: UIViewController {
         let sheet = UIHostingController(rootView: FeedApproveSheet(model: model))
         model.onDone = { [weak sheet] in sheet?.dismiss(animated: true) }
         present(sheet, animated: true)
+    }
+
+    private func presentCloudChat(attention: CloudChatAttention) {
+        pendingCloudAttention = attention
+        presentPendingCloudAttentionIfPossible()
+    }
+
+    private func presentPendingCloudAttentionIfPossible() {
+        guard let attention = pendingCloudAttention,
+              let transport = container.cloudChatTransport,
+              let navigation = homeNavigation else { return }
+        pendingCloudAttention = nil
+        let model = CloudChatViewModel(transport: transport)
+        navigation.pushViewController(model.viewController(), animated: true)
+        Task { @MainActor in
+            await model.load()
+            guard let session = model.sessions.first(where: { $0.id == attention.sessionID }) else { return }
+            await model.select(session)
+        }
     }
 
     private func install(_ next: UIViewController) {

@@ -26,7 +26,11 @@ final class AppContainer {
     /// Signs an approve answer with this phone's presence key (cx-aocz); nil
     /// without an API origin.
     let approveSigner: (any FeedApproveSigning)?
-    private let notificationDelegate: NotificationDelegate
+    let notificationDelegate: NotificationDelegate
+    private(set) var cloudChatTransport: (any CloudChatTransport)? {
+        didSet { onCloudChatTransportChange?() }
+    }
+    var onCloudChatTransportChange: (() -> Void)?
     private(set) var home: HomeStore?
     /// Which chat server Home uses (Settings > Chat Server), persisted.
     let chatServers = HomeChatServerStore(defaults: .standard)
@@ -131,6 +135,13 @@ final class AppContainer {
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
         updateRequired = requirement
+    }
+
+    /// Installs the paired-Mac relay used by the Cloud chat screen. The
+    /// pairing owner calls this with ``CloudChatRPCTransport(client:)`` once a
+    /// ``MobileCoreRPCClient`` is ready, and clears it when that client closes.
+    func setCloudChatTransport(_ transport: (any CloudChatTransport)?) {
+        cloudChatTransport = transport
     }
 
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the

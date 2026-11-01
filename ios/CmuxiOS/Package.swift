@@ -26,6 +26,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
+        .package(path: "../../Packages/iOS/CmuxMobileRPC"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
@@ -55,6 +56,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport"),
                 .product(name: "CmuxPhonePush", package: "CmuxPhonePush"),

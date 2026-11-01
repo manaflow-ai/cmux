@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMobileRPC
 import SwiftUI
 import UIKit
 
@@ -50,6 +51,16 @@ public struct CloudChatRPCTransport: CloudChatTransport {
     private let request: Request
 
     public init(request: @escaping Request) { self.request = request }
+
+    /// Production adapter for the paired-Mac L3 relay. The request envelope
+    /// is encoded by the shared RPC client so auth, attach-ticket context and
+    /// transport retries stay in the existing mobile path.
+    public init(client: MobileCoreRPCClient) {
+        self.init { method, params in
+            let request = try MobileCoreRPCClient.requestData(method: method, params: params)
+            return try await client.sendRequest(request)
+        }
+    }
 
     public func sessions() async throws -> [CloudChatSession] {
         let data = try await request("mobile.chat.sessions", [:])
