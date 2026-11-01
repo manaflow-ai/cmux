@@ -47,7 +47,7 @@ fn activity_parent(m: &SessionMeta) -> Option<&str> {
         .as_ref()
         .map(|l| l.parent.as_str())
         .or_else(|| m.subsession.as_ref().map(|s| s.started_by.as_str()))
-        .or_else(|| live_activity_tag(m, SPAWNED_BY_TAG, now_ms()))
+        .or_else(|| live_activity_tag(m, SPAWNED_BY_TAG, crate::store::now_ms()))
 }
 
 fn live_activity_tag<'a>(m: &'a SessionMeta, key: &str, at: u64) -> Option<&'a str> {
@@ -362,7 +362,7 @@ impl Hub {
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
         let listed = session.read_meta(|m| {
-            let at = now_ms();
+            let at = crate::store::now_ms();
             m.lineage.is_none()
                 && m.subsession.is_none()
                 && live_activity_tag(m, SPAWNED_BY_TAG, at).is_none()
