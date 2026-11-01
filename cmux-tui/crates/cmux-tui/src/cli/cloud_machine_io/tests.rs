@@ -369,12 +369,14 @@ fn what_needs_root_or_is_not_for_the_direct_route_goes_to_the_proxy() {
         ..base.clone()
     });
     cases.push(Request { op: Op::Exec, command: Some("  ".into()), ..base.clone() });
-    cases.push(Request { route: RouteChoice::Proxy, ..base.clone() });
+    cases.push(Request { route: RouteChoice::Proxy, ..base });
     for case in &cases {
         assert_eq!(go(case, T0).0, Route::Proxy, "{case:?}");
     }
     assert_eq!(count(&seen, Seen::is_mint), 0);
-    assert_eq!(count(&seen, Seen::is_proxy), cases.len());
+    assert_eq!(count(&seen, Seen::is_exec_await), 0);
+    // Each went to the cmux API's own route (the classic id to its own machine path).
+    assert_eq!(count(&seen, |s| s.line.contains(" /v1/cloud/machines/")), cases.len());
 }
 
 #[test]
@@ -545,7 +547,7 @@ fn files_round_trip_through_the_program_small_staged_and_ranged() {
         &Request {
             op: Op::Exec,
             command: Some("printf hi; printf oops >&2; exit 3".into()),
-            ..base.clone()
+            ..base
         },
         T0,
     );
