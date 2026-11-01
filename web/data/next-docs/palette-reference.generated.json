@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1252,
+    "entries": 1253,
     "shortcuts": 189
   },
   "sections": [
@@ -5873,7 +5873,7 @@
         },
         {
           "id": "palette.forkAgentConversationTo",
-          "title": "Fork to…",
+          "title": "Fork To…",
           "shortcut": null,
           "command": null
         },
@@ -6650,6 +6650,12 @@
           "title": "Set Up GitHub on This Machine",
           "shortcut": null,
           "command": "cmux cloud setup-github"
+        },
+        {
+          "id": "cloudShareMachine",
+          "title": "Share Machine…",
+          "shortcut": null,
+          "command": "cmux cloud share-machine"
         },
         {
           "id": "palette.auth.signIn",

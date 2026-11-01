@@ -68,6 +68,11 @@ public final class AgentPaneModel {
     /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
     /// sandboxes in this app.
     @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String) async -> [String: Any])?
+    /// A Cloud chat's hand-off turn (`cloud.handoffTurn`, ``AgentPaneHandoffPrompt``): the App opens
+    /// it and answers `{turn}` or a refusal. Nil: no hand-offs in this app.
+    @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
+    /// The session a pane with no chat yet asked hand-off turns for (`cloud.handoffTurn`).
+    @ObservationIgnored private var handoffSession: String?
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
@@ -211,6 +216,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onLocalPaths: (@MainActor () -> Bool)?
     /// The file URLs of the person's last native drop or paste on the page.
     @ObservationIgnored var droppedPaths = AgentPaneDroppedPaths()
+    /// Where a dropped screenshot or recording preview is kept (``retainedDropURLs``); tests point it elsewhere.
+    @ObservationIgnored var chatUploadFolders = ChatUploadFolders.standard
     /// The icons of the apps this pane said attachments came from (`attachment.sourceIcon`).
     @ObservationIgnored let sourceIcons = AttachmentSourceIcons()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
@@ -396,7 +403,7 @@ public final class AgentPaneModel {
         case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
         case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
         // A chat on another machine gets the gesture's source only (`attachSource`).
-        case .attachSource(let kind, let names): return await attachSource(kind, names: names)
+        case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
         case .attachmentSourceIcon(let bundleId):
             return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
         case .useFolder(let cwd, let confirm) where remoteChat:
@@ -455,6 +462,16 @@ public final class AgentPaneModel {
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
+        case .cloudHandoffTurn(let session):
+            // Only this pane's own chat on another machine: its chat, or the one it is starting now
+            // (a remote chat's session is made by its first send, just before this ask). A pane
+            // with no chat yet is held to the first session it asks for.
+            let own = sessionId ?? handoffSession ?? session
+            guard let onCloudHandoffTurn, remoteChat, own == session else {
+                return Self.unsupported("cloud.handoffTurn")
+            }
+            if sessionId == nil { handoffSession = session }
+            return await onCloudHandoffTurn(session)
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
         case .cloudCredentialTransfer(let request):
             guard remoteChat, newTab == nil, sessionId == request.sessionID else {

@@ -291,6 +291,14 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "sandbox.state": self = .sandboxState(wait: params?["wait"] as? Bool == true)
+        case "cloud.handoffTurn":
+            // The store's session ids only (`SESSION` in backend handoffs/routes.ts).
+            guard let session = params?["sessionId"] as? String,
+                  session.range(of: #"^[A-Za-z0-9_.:-]{1,128}$"#, options: .regularExpression) != nil else {
+                self = .unsupported(method)
+                return
+            }
+            self = .cloudHandoffTurn(sessionId: session)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
@@ -307,7 +315,7 @@ extension AgentPaneRequest {
         case "machine.share.self": self = .shareMachineWithMe
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
-            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)), kind != .choose,
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
                let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
                names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
                 self = .attachDropped(kind, names: names)
@@ -318,7 +326,9 @@ extension AgentPaneRequest {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
                let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
                names.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 }) {
-                self = .attachSource(kind, names: names)
+                // The page's `Date.now()` when it took the gesture (ms); absent from an older page.
+                let gestureAt = (params?["gestureAt"] as? NSNumber).map { $0.doubleValue / 1000 }.flatMap { $0.isFinite ? $0 : nil }
+                self = .attachSource(kind, names: names, gestureAt: gestureAt)
             } else {
                 self = .unsupported(method)
             }
