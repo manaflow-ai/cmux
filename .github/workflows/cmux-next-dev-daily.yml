@@ -161,15 +161,13 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "error: source run id '$SOURCE_RUN_ID' is not a number" >&2; exit 1; }
-          source_run="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '
+          sha="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '
             select(.event == "workflow_dispatch" and .head_branch == "feat-cmux-next"
                    and .path == ".github/workflows/cmux-next.yml" and .status == "completed"
                    and .head_repository.full_name == env.GH_REPO
                    and (.name == "cmux NEXT DEV daily · " + .head_sha or .display_title == "cmux NEXT DEV daily · " + .head_sha))
-            | [.head_sha, (.run_attempt // 1)] | @tsv')"
-          read -r sha source_attempt <<< "$source_run"
+            | .head_sha')"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: run $SOURCE_RUN_ID is not a finished cmux NEXT DEV daily run of cmux-next.yml on feat-cmux-next" >&2; exit 1; }
-          [[ "$source_attempt" =~ ^[1-9][0-9]?$ ]] || { echo "error: source run $SOURCE_RUN_ID has invalid attempt $source_attempt" >&2; exit 1; }
           # head_branch is a short name, the same for a tag called
           # feat-cmux-next: require the commit to be on the branch itself.
           branch_sha="$(gh api "repos/$GH_REPO/git/ref/heads/feat-cmux-next" --jq '.object.sha')"
@@ -180,8 +178,7 @@ jobs:
             exit 1
           }
           echo "SOURCE_SHA=$sha" >> "$GITHUB_ENV"
-          echo "SOURCE_RUN_ATTEMPT=$source_attempt" >> "$GITHUB_ENV"
-          echo "Source run $SOURCE_RUN_ID attempt $source_attempt built feat-cmux-next $sha"
+          echo "Source run $SOURCE_RUN_ID built feat-cmux-next $sha"
 
       - name: Require a successful app-producing job
         id: source-gate
@@ -257,16 +254,6 @@ jobs:
           [[ "$actual_name" == "$APP_NAME" ]] || { echo "unexpected app name: $actual_name" >&2; exit 1; }
           /usr/libexec/PlistBuddy -c 'Delete :CMUXCommit' "$app/Contents/Info.plist" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $SOURCE_SHA" "$app/Contents/Info.plist"
-          # Sparkle compares CFBundleVersion, so the signed DEV archive uses the
-          # same globally monotonic run+attempt form as NIGHTLY. Without the
-          # attempt suffix a newer DEV source can have a lower Sparkle version
-          # than an older NIGHTLY run and Sparkle rejects the switch.
-          [[ "${SOURCE_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]?$ ]] || { echo "source run attempt is missing" >&2; exit 1; }
-          dev_build="${SOURCE_RUN_ID}$(printf '%02d' "$SOURCE_RUN_ATTEMPT")"
-          /usr/libexec/PlistBuddy -c 'Delete :CFBundleVersion' "$app/Contents/Info.plist" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $dev_build" "$app/Contents/Info.plist"
-          echo "DEV_BUILD=$dev_build" >> "$GITHUB_ENV"
-          echo "Stamped DEV CFBundleVersion=$dev_build"
           echo "app=$app" >> "$GITHUB_OUTPUT"
         id: unpack
 

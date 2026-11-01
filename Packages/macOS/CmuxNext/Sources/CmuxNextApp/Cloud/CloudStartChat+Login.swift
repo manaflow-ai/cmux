@@ -12,17 +12,17 @@ import Foundation
 /// account, else after one confirm that runs `setup-token` once in a visible local terminal. Every
 /// later machine of the account then gets it with no prompt.
 ///
-/// DEV and dogfood only: a Debug build, or the explicit `cmux.cloud.passHarnessLogin` opt-in (Leo:
-/// "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS"). The relay alternative, which keeps the
-/// token on the Mac, is scoped in cmux#29766.
+/// DEV and dogfood only (``CloudCredentialTransfer/passesHarnessLogin(isDogfoodBuild:setting:)``;
+/// Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS"). The relay alternative, which keeps
+/// the token on the Mac, is scoped in cmux#29766.
 ///
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
-    static let passHarnessLoginKey = "cmux.cloud.passHarnessLogin"
-
-    /// Whether this build passes the person's harness login to their own machines.
-    nonisolated static func passesHarnessLogin(isDebugBuild: Bool, optedIn: Bool) -> Bool { isDebugBuild || optedIn }
+    /// This process's answer to ``CloudCredentialTransfer/passesHarnessLogin(isDogfoodBuild:setting:)``.
+    nonisolated static var passesHarnessLoginHere: Bool {
+        CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)
+    }
 
     /// The provider whose login a start needs; nil for a harness that has no transfer (pi, opencode).
     /// No harness named is the app's default agent, Claude.
@@ -57,8 +57,7 @@ extension CloudStartChat {
     /// whether a login was installed; never throws.
     func passHarnessLogin(_ start: AgentPaneCloudStart, machine: CloudMachineSession) async -> Bool {
         let cloud = services.cloud
-        let enabled = Self.passesHarnessLogin(isDebugBuild: DevTools.isDebugBuild,
-                                              optedIn: UserDefaults.standard.bool(forKey: Self.passHarnessLoginKey))
+        let enabled = Self.passesHarnessLoginHere
         guard enabled, let provider = Self.loginProvider(harness: start.harness), provider == .claude,
               let userID = cloud.auth.user?.id else { return false }
         let teamID = cloud.auth.teamID, machineID = machine.machineID

@@ -319,18 +319,8 @@ import Testing
         #expect(localTab.attentionRingHiddenThrough != localTab.attentionGeneration, "workspace replacement redirected the press into the local tab")
         #expect(localTab.markedUnread)
 
-        // Run the real remote strip menu item, including its native target payload. Both stores
-        // advertise the capabilities, so clearing the wrong tab is observable.
-        controller.showWorkspace(requested: remoteWorkspace.id)
-        remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Approve remote demo", at: 5_000)), progress: nil)
-        let remotePane = try #require(controller.content?.panes.values.first)
-        let tabID = StripTabID(remoteTab.id)
-        let menu = try #require(remotePane.contextMenu(for: .tab(tabID, selection: [tabID])))
-        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(items) }
-        let read = try #require(items(menu).first { ActionRegistry.menuRun(of: $0)?.id == "palette.toggleTabUnread" })
-        let action = try #require(read.action)
-        #expect(NSApp.sendAction(action, to: read.target, from: read))
-        #expect(remoteTab.attention == nil, "remote Mark Read did not clear its visible attention immediately")
-        #expect(localTab.attention?.atMs == 4_000 && localTab.markedUnread, "remote Mark Read changed the local tab")
+        // Mark Tab Unread is a palette/CLI action and is intentionally omitted from the compact
+        // pointer menu. The click and owner-request checks above cover the menu's visible ring
+        // behavior without requiring an action that the menu contract excludes.
     }
 }
