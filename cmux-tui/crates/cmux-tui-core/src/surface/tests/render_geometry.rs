@@ -180,6 +180,15 @@ fn geometry_updates_skip_vt_replay_without_byte_attach_subscribers() {
     let byte_attach = surface.attach_stream().unwrap();
     pty.vt_replay_builds.store(0, Ordering::Release);
     surface.resize(101, 31).unwrap();
+    assert_eq!(
+        pty.vt_replay_builds.load(Ordering::Acquire),
+        0,
+        "the resize commit must leave the byte-attach replay to the viewer"
+    );
+    assert!(matches!(
+        byte_attach.stream.try_recv(),
+        Ok(AttachFrame::ResizedWithColors { cols: 101, rows: 31, .. })
+    ));
     assert_eq!(pty.vt_replay_builds.load(Ordering::Acquire), 1);
 
     drop(byte_attach);
@@ -257,6 +266,99 @@ fn resize_replay_preserves_a_valid_large_inflight_kitty_upload() {
             .len(),
         pixels.len()
     );
+}
+
+/// A byte mirror that keeps up with steady output still gets its resize
+/// replay: it is due once the frames queued before the resize are taken,
+/// not when the queue is first found empty (steady output would keep the
+/// replay waiting until the mirror overflowed).
+#[test]
+fn a_mirror_under_steady_output_gets_its_resize_replay_after_the_earlier_frames() {
+    let mux = Mux::new_for_test("resize-replay-steady-output", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let attach = surface.attach_stream().unwrap();
+    while attach.stream.try_recv().is_ok() {}
+    // Output queued before the resize.
+    pty.broadcast_attach_output(b"before");
+    surface.resize(100, 30).unwrap();
+    let mut seen: Vec<String> = Vec::new();
+    for round in 0..50 {
+        // Steady output: one more chunk between every two frames taken.
+        pty.broadcast_attach_output(format!("after-{round}").as_bytes());
+        match attach.stream.try_recv() {
+            Ok(AttachFrame::ResizedWithColors { cols: 100, rows: 30, .. }) => {
+                // The frame queued before the resize (later output may merge
+                // into it) comes first; the replay is queued behind frames
+                // already waiting when it is built, so it lands within a
+                // few rounds, not after the output stops.
+                assert!(
+                    seen.first().is_some_and(|first| first.starts_with("before")),
+                    "the replay came before the frame queued ahead of the resize: {seen:?}"
+                );
+                assert!(round < 5, "the replay waited {round} rounds behind later output");
+                return;
+            }
+            Ok(AttachFrame::Output(bytes)) => {
+                seen.push(String::from_utf8_lossy(&bytes).into_owned())
+            }
+            Ok(other) => panic!("unexpected frame {other:?}"),
+            Err(error) => panic!("the mirror ran dry without a replay: {error:?}"),
+        }
+    }
+    panic!("steady output kept the resize replay waiting: {seen:?}");
+}
+
+/// A replay that does not fit behind the frames still queued replaces them
+/// instead of overflowing the mirror (the replay waits only for the frames
+/// before the resize, so later output may be queued when it is built). An
+/// ~8.4 MB in-flight Kitty upload, a resize, 9 MiB of later output queued
+/// (16 MiB queue): the mirror gets the replay, not a disconnect.
+#[test]
+fn a_large_replay_replaces_queued_later_output_instead_of_overflowing() {
+    const IMAGE_WIDTH: usize = 2_048;
+    const IMAGE_HEIGHT: usize = 1_024;
+    let pixels = vec![0xff; IMAGE_WIDTH * IMAGE_HEIGHT * 3];
+    let payload = base64::engine::general_purpose::STANDARD.encode(&pixels);
+    let first_chunk = format!(
+        "\x1b_Ga=t,t=d,f=24,i=197,s={IMAGE_WIDTH},v={IMAGE_HEIGHT},m=1,q=2;{}\x1b\\",
+        &payload[..payload.len() - 4]
+    )
+    .into_bytes();
+    let mux = Mux::new_for_test("large-replay-behind-output", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let attach = surface.attach_stream().unwrap();
+    while attach.stream.try_recv().is_ok() {}
+    pty.term.lock().unwrap().vt_write(&first_chunk);
+    surface.resize(81, 24).unwrap();
+    // Later output, queued before the mirror takes anything: 9 MiB, more
+    // than the queue's room beside the replay.
+    let line = vec![b'x'; 64 * 1024];
+    for _ in 0..144 {
+        pty.broadcast_attach_output(&line);
+    }
+    let mut frames = 0;
+    loop {
+        match attach.stream.try_recv() {
+            Ok(
+                AttachFrame::ResizedWithColors { cols: 81, .. }
+                | AttachFrame::Resized { cols: 81, .. },
+            ) => break,
+            Ok(_) => {
+                frames += 1;
+                assert!(frames < 10_000, "no replay");
+            }
+            Err(error) => panic!(
+                "the mirror lost its stream instead of getting the replay ({error:?}, \
+                 overflowed: {})",
+                attach.lifecycle.is_canceled()
+            ),
+        }
+    }
+    assert!(!attach.lifecycle.is_canceled(), "the mirror was disconnected");
 }
 
 #[test]
