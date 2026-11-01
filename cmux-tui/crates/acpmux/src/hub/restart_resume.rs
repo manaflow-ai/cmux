@@ -399,6 +399,7 @@ impl Hub {
         // The cut turn's prompt id, control, trust gate, texts and images: its `turn_started`,
         // the `user_message` that started it and those steered into it.
         let (mut prompt_id, mut control, mut gate) = (None::<String>, None::<String>, None);
+        let mut cloud_mobile = false;
         let mut prompts: Vec<String> = Vec::new();
         let mut images: Vec<Value> = Vec::new();
         // A Web steer made the turn a Web turn (`web_control.rs` `check_steer`).
@@ -445,6 +446,7 @@ impl Hub {
                     prompt_id = field("promptId");
                     control = field("control");
                     gate = e.msg.get("trustGate").and_then(Value::as_bool);
+                    cloud_mobile = e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     let ids = e.msg.pointer("/carried/promptIds").and_then(Value::as_array);
                     carried_ids = ids
                         .into_iter()
@@ -595,6 +597,7 @@ impl Hub {
             // restart. A Web turn (by its start or a Web steer) is always checked again, as is
             // one from a log from before `turn_started` recorded its gate.
             "trustGate": control == "web" || gate.unwrap_or(false),
+            "cloudMobile": cloud_mobile,
         });
         if !images.is_empty() {
             queued.set("images", Value::Array(images));

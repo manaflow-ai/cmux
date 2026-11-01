@@ -332,6 +332,7 @@ impl Hub {
             "turnId": turn.turn_id,
             "control": turn.control.as_str(),
             "trustGate": continues.trust_gate,
+            "cloudMobile": session.floor.cloud_mobile_turn.load(Ordering::SeqCst),
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
         });
         let seq = self.append(session, "mux", "turn_started", msg).seq;
