@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The one native host for the popups that open from the omnibar and the toolbar (Lawrence
 /// 2026-10-14: "omnibar stuff should be macos specific so it feels more native"; hq
@@ -32,6 +33,8 @@ public final class NativePopupHost {
     /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
     private var generation = 0
     private var observers: [NSObjectProtocol] = []
+    /// The menus AppKit tracks while the popup shows (``MenuTracking``), for ``childMenus``.
+    private var menus: MenuTracking?
     private var monitors: [Any] = []
     /// The menus opened from inside the popup that are tracking now (their top menus).
     private var childMenus: Set<ObjectIdentifier> = []
@@ -64,11 +67,10 @@ public final class NativePopupHost {
         // starts inside it, is noted synchronously) the popup closes unless a child took them.
         if let press, contains(press.window) {
             let showing = generation
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated { // main-proof: DispatchQueue.main
-                    guard let self, self.generation == showing, self.isShown, !self.hasOpenChild, !self.panel.isKeyWindow else { return }
-                    self.dismiss()
-                }
+            // task-owner: one deferred dismiss check after the press, on the main actor; it checks the generation itself
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == showing, self.isShown, !self.hasOpenChild, !self.panel.isKeyWindow else { return }
+                self.dismiss()
             }
             return
         }
@@ -227,21 +229,16 @@ public final class NativePopupHost {
                 Task { @MainActor in self?.dismiss() }
             }
         }
-        // A menu opened from inside the popup, noted as AppKit posts it (no queue: delivered at
-        // once on the posting thread, inside the press that opens the menu) so a key loss checked
-        // after the press sees it.
-        observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] note in
-            guard Thread.isMainThread, let tracked = note.object as? NSMenu else { return } // main-proof: returns off the main thread
-            // crash-allow: read only inside the assumeIsolated below, on this same main-thread delivery, so it never crosses actors.
-            nonisolated(unsafe) let menu = tracked
-            MainActor.assumeIsolated { self?.menuBegan(menu) } // main-proof: guarded by Thread.isMainThread above
-        })
-        observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { [weak self] note in
-            guard Thread.isMainThread, let tracked = note.object as? NSMenu else { return } // main-proof: returns off the main thread
-            // crash-allow: read only inside the assumeIsolated below, on this same main-thread delivery, so it never crosses actors.
-            nonisolated(unsafe) let menu = tracked
-            MainActor.assumeIsolated { self?.menuEnded(menu) } // main-proof: guarded by Thread.isMainThread above
-        })
+        // A menu opened from inside the popup, noted as AppKit posts it (MenuTracking delivers at
+        // once, inside the press that opens the menu) so a key loss checked after the press sees it.
+        let menus = MenuTracking(center: center)
+        menus.subscribe { [weak self] change in
+            switch change {
+            case .began(let menu): self?.menuBegan(menu)
+            case .ended(let menu): self?.menuEnded(menu)
+            }
+        }
+        self.menus = menus
         let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, !self.contains(event.window), !self.hasOpenChild, !self.keepsOpen(event) else { return event }
             self.dismiss()
@@ -262,6 +259,7 @@ public final class NativePopupHost {
         observers = []
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
+        menus = nil
         childMenus = []
     }
 }

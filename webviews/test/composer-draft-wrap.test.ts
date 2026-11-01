@@ -138,7 +138,7 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
       name: "the New Tab field",
       entry: "agent-pane.new-tab",
       variant: "empty",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       scroller: ".nt-field",
     },
     {

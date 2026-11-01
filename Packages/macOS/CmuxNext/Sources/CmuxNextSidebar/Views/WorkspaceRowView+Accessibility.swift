@@ -23,21 +23,54 @@ extension WorkspaceRowView {
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         var actions = super.accessibilityCustomActions() ?? []
         guard !isShowingPlaceholder else { return actions.isEmpty ? nil : actions }
-        if let treeFold, let onToggleTree {
+        // VoiceOver may retain an action after the list recycles this view for another workspace.
+        // Resolve the current callback only while this row still represents the action's workspace.
+        let actionKey = key
+        if let treeFold, onToggleTree != nil {
             let name = treeFold == .collapsed ? Strings.expandSessions : Strings.collapseSessions
-            actions.append(NSAccessibilityCustomAction(name: name) { onToggleTree(); return true })
+            actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
+                guard let self, self.canPerformAccessibilityAction(for: actionKey), self.treeFold == treeFold,
+                      let onToggleTree = self.onToggleTree else { return false }
+                onToggleTree()
+                return true
+            })
         }
-        if let onMore {
-            actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
+        if onMore != nil {
+            actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { [weak self] in
+                guard let self, self.canPerformAccessibilityAction(for: actionKey), let onMore = self.onMore else { return false }
+                onMore()
+                return true
+            })
         }
         if let group = standingGroup {
-            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { group.edit(); return true })
-            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.moreActions) { group.menu(); return true })
-            if let add = group.add { actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { add(); return true }) }
+            func groupAction(_ name: String, _ perform: @escaping (StandingGroupAccess) -> Bool) {
+                actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
+                    guard let self, self.canPerformAccessibilityAction(for: actionKey),
+                          let current = self.standingGroup else { return false }
+                    return perform(current)
+                })
+            }
+            groupAction(GroupEditorStrings.editor) { $0.edit(); return true }
+            groupAction(GroupEditorStrings.moreActions) { $0.menu(); return true }
+            if group.add != nil {
+                groupAction(GroupEditorStrings.newWorkspace) { current in
+                    guard let add = current.add else { return false }
+                    add()
+                    return true
+                }
+            }
             let fold = group.expanded ? GroupEditorStrings.collapse : GroupEditorStrings.expand
-            actions.append(NSAccessibilityCustomAction(name: fold) { group.toggle(); return true })
+            groupAction(fold) { current in
+                guard current.expanded == group.expanded else { return false }
+                current.toggle()
+                return true
+            }
         }
         return actions.isEmpty ? nil : actions
+    }
+
+    private func canPerformAccessibilityAction(for actionKey: SidebarRowKey) -> Bool {
+        key == actionKey && !isHidden && !isShowingPlaceholder
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {

@@ -1576,11 +1576,40 @@ class Nightly(unittest.TestCase):
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(), newer=[RUN_ID + 7])
         _, summary = run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "30"})
-        self.assertIn("cancel", api.calls)
+        self.assertNotIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("newer:nightly-next", api.calls)
         self.assertNotIn("newer:main", api.calls)
-        self.assertIn("a newer nightly run on nightly-next", summary)
+        self.assertIn("started delivery work", summary)
+
+    def test_finished_visual_router_does_not_protect_an_unstarted_build(self):
+        clock = Clock()
+        def jobs(_seconds):
+            return [job("decide", status="completed"),
+                    job("route-visual-gate-nightly", status="completed", runner="mini"),
+                    job("build-nightly-app", status="queued")]
+        api = NightlyAPI(clock, jobs, head="b" * 40)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True,
+                               path=rescue.NIGHTLY_WORKFLOW_PATH, event="push",
+                               push_branch="nightly-next")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep,
+                               log=lambda _: None)
+        self.assertIn("cancelled", result)
+        self.assertIn("cancel", api.calls)
+
+    def test_completed_build_protects_a_later_queued_signer(self):
+        clock = Clock()
+        def jobs(_seconds):
+            return [job("decide", status="completed"),
+                    {**job("build-nightly-app", status="completed", runner="mini"), "conclusion": "success"},
+                    job("sign-nightly-identity", status="queued", labels=["blacksmith-6vcpu-macos-26"])]
+        api = NightlyAPI(clock, jobs)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True,
+                               path=rescue.NIGHTLY_WORKFLOW_PATH, event="push")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep,
+                               log=lambda _: None)
+        self.assertIn("started delivery work", result)
+        self.assertNotIn("cancel", api.calls)
 
     def test_a_next_run_whose_head_is_no_longer_the_tip_is_never_rerun(self):
         # nightly-next pushes share one job-level build slot, which the workflow-level
@@ -1734,8 +1763,9 @@ class Nightly(unittest.TestCase):
         api = NightlyAPI(clock, nightly_run())
         code, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
-        self.assertIn("cancel", api.calls)
-        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "jobs")
+        self.assertIn("started delivery work", summary)
         self.assertNotIn("rerun", api.calls)
         self.assertNotIn("pull", api.calls)
         self.assertIn(f"queued on {TRUSTED}", summary)
@@ -1746,7 +1776,7 @@ class Nightly(unittest.TestCase):
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(), newer=[RUN_ID + 7])
         _, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
-        self.assertIn("cancel", api.calls)
+        self.assertNotIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("a newer nightly run on main", summary)
 
@@ -1808,7 +1838,7 @@ class Nightly(unittest.TestCase):
         code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"),
                                  env_extra={"RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
-        self.assertIn("cancel", api.calls)
+        self.assertNotIn("cancel", api.calls)
         self.assertIn(f"build-nightly-app queued on {TRUSTED}", summary)
 
     def test_only_the_app_build_or_the_trusted_pool_is_judged(self):
