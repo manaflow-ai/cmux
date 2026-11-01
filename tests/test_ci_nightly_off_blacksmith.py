@@ -33,7 +33,7 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
-FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
+FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
                          r"|needs\.[\w-]+\.outputs\.(?:owned|owned_pool|sign_owned|sign_owned_pool|early_[a-z_]+_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
                          r"|matrix\.")
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
