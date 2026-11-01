@@ -9,8 +9,6 @@ import CmuxNextDesign
 final class DisplayLinkDriver: MotionAnimating {
     /// Called once per frame with the elapsed seconds. Return true to keep ticking.
     var onFrame: ((Double) -> Bool)?
-    /// Lays the layout out at its final state in one pass (the window went out of sight).
-    var onSettle: (() -> Void)?
     /// Tests are the clock: `start` asks for no display-link frames, and the test steps
     /// `LayoutRootView.advanceFrame` at a fixed dt instead.
     var isManual = false
@@ -48,9 +46,5 @@ final class DisplayLinkDriver: MotionAnimating {
 
     func motionStep(_ dt: Double) -> Bool {
         onFrame?(dt) ?? false
-    }
-
-    func motionSettle() {
-        onSettle?()
     }
 }

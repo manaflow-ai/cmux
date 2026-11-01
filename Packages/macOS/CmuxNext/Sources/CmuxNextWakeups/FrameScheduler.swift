@@ -48,7 +48,6 @@ public final class FrameScheduler: NSObject {
 
     /// `window`'s scheduler, created on first use and dropped with the window.
     public static func forWindow(_ window: NSWindow) -> FrameScheduler {
-        watchSight()
         let key = ObjectIdentifier(window)
         if let scheduler = windows[key]?.value, scheduler.window === window { return scheduler }
         windows = windows.filter { $0.value.value?.window != nil }
@@ -73,7 +72,7 @@ public final class FrameScheduler: NSObject {
         [app] + windows.values.compactMap(\.value)
     }
 
-    static var associationKey: UInt8 = 0
+    private static var associationKey: UInt8 = 0
 
     enum Host {
         case screen
@@ -83,7 +82,7 @@ public final class FrameScheduler: NSObject {
     public let name: String
     public private(set) weak var window: NSWindow?
     private let isScreenHost: Bool
-    private(set) var clients: [ObjectIdentifier: FrameClient] = [:]
+    private var clients: [ObjectIdentifier: FrameClient] = [:]
     /// The budgeted clients, the one that ran least recently first: a class's budget goes to them
     /// in this order, and a client that ran moves to the back, so one saturating client never
     /// keeps the others of its class from ticking (round-robin).
@@ -107,8 +106,6 @@ public final class FrameScheduler: NSObject {
     /// The last frame stall seen (debug and tests).
     public private(set) var lastStall: FrameStall?
     private var closeObserver: MainActorObservation?
-    /// The app's one window-occlusion observer (only ``app`` holds it; FrameScheduler+Sight).
-    var sightObserver: MainActorObservation?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
     /// Display links made since creation (debug: a link that stays up through a backlog makes one per burst).
@@ -156,8 +153,6 @@ public final class FrameScheduler: NSObject {
     // MARK: Clients
 
     func activate(_ client: FrameClient) {
-        // A window out of sight gets no animation frames: the animation ends now (FrameScheduler+Sight).
-        if client.isAnimation, isOutOfSight { return settle(client) }
         let id = ObjectIdentifier(client)
         clients[id] = client
         if client.workClass.isBudgeted, !budgetedOrder.contains(id) { budgetedOrder.append(id) }
@@ -180,7 +175,7 @@ public final class FrameScheduler: NSObject {
         if clients.isEmpty { pause() }
     }
 
-    func drop(_ id: ObjectIdentifier) {
+    private func drop(_ id: ObjectIdentifier) {
         clients[id] = nil
         budgetedOrder.removeAll { $0 == id }
     }
@@ -188,7 +183,7 @@ public final class FrameScheduler: NSObject {
     /// Drops the link while idle: an idle window holds no display link at
     /// all (and no link -> scheduler retain cycle); the next client makes a
     /// new one.
-    func pause() {
+    private func pause() {
         link?.invalidate()
         link = nil
         lastTimestamp = nil
@@ -271,7 +266,7 @@ public final class FrameScheduler: NSObject {
         lastStall = FrameStall(startedAt: lastLinkFrame, detectedAt: mediaTime())
         ledger.record("FrameScheduler.\(name)", reason: "stalled frame")
         deliver(timestamp: nil, refreshInterval: nil)
-        guard !clients.isEmpty else { return pause() }
+        guard !clients.isEmpty else { return }
         (link ?? makeLink())?.isPaused = false
         armStall()
     }
@@ -302,10 +297,8 @@ public final class FrameScheduler: NSObject {
         let ticking = clients.values.filter(\.isActive)
         let order = budgetedOrder
         budget?.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
-        let outOfSight = isOutOfSight
         for client in ticking where !client.workClass.isBudgeted {
-            // A window that went out of sight between frames: its animations end, the rest tick.
-            if outOfSight, client.isAnimation { end(client) } else { fire(client, tick) }
+            fire(client, tick)
         }
         guard let budget else { return }
         for workClass in MainWorkClass.budgeted {
