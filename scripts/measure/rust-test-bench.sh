@@ -85,8 +85,9 @@ main() {
   rm -rf "$out"
   mkdir -p "$out"
   report="$out/output.txt"
-  # Steps run with a per-step HOME; Homebrew tools live outside it.
-  export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+  # The step's own PATH as the worker gives it (the rustup shim and the fleet's pinned zig first),
+  # as cmux-tui-rust-check.sh uses it: a Homebrew cargo or zig ahead of them would build with the
+  # wrong toolchain.
   # Its own target directory in the step's checkout: nothing shared with another step.
   export CARGO_TARGET_DIR="$root/.build/rust-test-bench-target"
 
@@ -118,8 +119,10 @@ main() {
   set +e
   # Output goes to the step log as it comes, so a long build is not stopped as a silent one.
   cargo test --locked -p "$crate" "${target_args[@]}" --no-run 2>&1 | tee "$out/build.log"
-  build_status=${PIPESTATUS[0]}
+  local -a build_pipe=("${PIPESTATUS[@]}")
   set -e
+  build_status=${build_pipe[0]}
+  [[ ${build_pipe[1]} -eq 0 ]] || { echo "rust-test-bench.sh: could not write $out/build.log" >&2; exit 3; }
   if [[ $build_status -ne 0 ]]; then
     grep -E "^error" "$out/build.log" | sort -u | head -40 || true
     note "RUST-TEST-BENCH build: failed (exit $build_status) after $((SECONDS - t0)) s"
@@ -134,15 +137,19 @@ main() {
   set +e
   cargo test --locked -p "$crate" "${target_args[@]}" -- "$filter" --nocapture --test-threads=1 2>&1 |
     tee "$out/test.log" | tee -a "$report"
-  status=${PIPESTATUS[0]}
+  local -a test_pipe=("${PIPESTATUS[@]}")
   set -e
+  status=${test_pipe[0]}
+  [[ ${test_pipe[1]} -eq 0 && ${test_pipe[2]} -eq 0 ]] ||
+    { echo "rust-test-bench.sh: could not write the test log" >&2; exit 3; }
   host_load after
   # Each test binary prints "test result: ... N passed; M failed"; the sum is the run.
   local ran
   ran="$(sed -nE 's/^test result: [a-zA-Z]+\. ([0-9]+) passed; ([0-9]+) failed.*/\1 \2/p' "$out/test.log" |
     awk '{ n += $1 + $2 } END { print n + 0 }')"
   note "RUST-TEST-BENCH result: cargo exit $status, $ran test(s), $((SECONDS - t0)) s"
-  if [[ "$ran" -eq 0 ]]; then
+  # A test binary that crashed prints no "test result:" line: cargo's exit says so, not "no test".
+  if [[ "$ran" -eq 0 && "$status" -eq 0 ]]; then
     note "RUST-TEST-BENCH result: no test matched $filter"
     exit 1
   fi
@@ -157,7 +164,7 @@ host_load() {
   note "RUST-TEST-BENCH load $1: $(sysctl -n vm.loadavg)"
   local busy
   busy="$(top -l 2 -s 1 -stats cpu,command -o cpu 2>/dev/null |
-    awk '/^%CPU/ { block++; next } block == 2 && $1 + 0 > 5 { printf "%s=%s ", $2, $1 }' | head -c 600)"
+    awk '/^%CPU/ { block++; next } block == 2 && $1 + 0 > 5 { printf "%s=%s ", $2, $1 }' | head -c 600)" || true
   note "RUST-TEST-BENCH busy $1: ${busy:-none over 5 %}"
 }
 
