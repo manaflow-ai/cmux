@@ -166,3 +166,31 @@ test("a status read that fails for another reason still says so", async () => {
   expect(git.statusFailed).toBe(true);
   expect(git.available).toBe(true);
 });
+
+test("a repository made while the view is open brings Commit and Push back on the next check", async () => {
+  let initialized = false;
+  const source = {
+    diff: async () => ({ files: [] }),
+    status: () =>
+      initialized
+        ? Promise.resolve({ detached: false, head: "abc123", branch: "main", ahead: 0, behind: 0 })
+        : Promise.reject(notARepository()),
+    commit: async () => ({}),
+    push: async () => ({}),
+  } as unknown as ChangesSource;
+  let latest: GitWrite | undefined;
+  function Probe() {
+    latest = useGitWrite(source, () => undefined);
+    return null;
+  }
+  root = createRoot(installDom());
+  await act(async () => root!.render(<Probe />));
+  await act(async () => await Promise.resolve());
+  expect(latest!.available).toBe(false);
+  expect(latest!.statusFailed).toBe(false);
+  initialized = true;
+  await act(async () => latest!.recheck());
+  await act(async () => await Promise.resolve());
+  expect(latest!.available).toBe(true);
+  expect(latest!.status?.branch).toBe("main");
+});
