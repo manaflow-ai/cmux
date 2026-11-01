@@ -92,19 +92,19 @@ enum AgentSessionWorkspace {
            let row = SidebarEdits.predecessor(named: name, inGroup: group, inEach: windows.controllers.map(\.sidebar.model.sections)) {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
-        let rowStays = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
+        let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
-        // Its row already at its place: the workspace and chat show now (P4); a close of the stand-in follows this task's create-workspace on one connection.
-        let tabs = services.agentTabs, machine = MachineID(daemon.machineID), instant = !rowStays || AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) != nil ? nil
-            : tabs.showWorkspace(key, name: name ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }), index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair)
+        // No group: workspace and chat show now (P4) with Cmd-N's pending row at their slot in the window that lists them (never drawn elsewhere first).
+        let tabs = services.agentTabs, machine = MachineID(daemon.machineID), shownName = name ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }), window = group == nil && tabs.showsWorkspaceAtOnce(on: daemon) && AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) == nil ? windows.registry.value.mostRecentOpen() : nil
+        let instant = window.flatMap { window in PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: shownName, opensPage: true), slot: placed.slot, byDefault: placed.rule), name: shownName); return tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair) }
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
-                if let instant { _ = try await instant.confirm(DaemonConnection.lateReplyDeadline()) }
+                if let instant { do { _ = try await instant.confirm(DaemonConnection.lateReplyDeadline()) } catch { PendingWorkspaceRows.shared.remove(key.rawValue); throw error } }
                 let tab = if let instant { tabs.resolve(instant.tabKey) } else {
                     try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
                         try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: tabs)
@@ -138,10 +138,10 @@ enum AgentSessionWorkspace {
     /// row's only place: Cmd-N's slot in the window's current group first, then a move across to `group`, showed every
     /// agent's session in the wrong group for a moment (Leo, 2026-11-01: "it looks really odd when they pop up into some
     /// existing group on the sidebar as a workspace and then go to wherever they're supposed to go to").
-    /// Returns whether a stand-in's row is at that place before the daemon lists it (unplaced rows draw first under `top`, else last).
+    /// Returns the slot and the default rule it registered (a stand-in's pending row takes them).
     @discardableResult
     @MainActor static func expectPlacement(_ id: String, group: String?, top: Bool, parent: AgentSessionParents.Identity?,
-                                           windows: WindowManager) -> Bool {
+                                           windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
             join = { id, sidebar in
@@ -153,7 +153,7 @@ enum AgentSessionWorkspace {
         let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
         let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: nil, in: windows)
         NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: group == nil ? rule : nil, then: join, windows: windows)
-        return group == nil && slot == nil && (top ? NewWorkspacePlacements.rule(for: nil, in: windows).placement == .top : rule.placement != .afterCurrent)
+        return (slot, group == nil ? rule : nil)
     }
 
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
