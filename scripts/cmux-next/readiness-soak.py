@@ -1370,7 +1370,9 @@ class Soak:
             time.sleep(2)  # soak script: the app reloads cmux.json from its file watcher
             asked = time.monotonic()
             try:
-                Client(self.socket, timeout=10).call("action.run", {"action": "quit", "wait": False})
+                # A remembered End Everything no longer deletes workspaces on a
+                # scripted quit (it keeps them); the flag asks for it outright.
+                Client(self.socket, timeout=10).call("action.run", {"action": "quit", "args": {"endEverything": True}, "wait": False})
             except (OSError, ValueError, KeyError) as error:
                 failed = f"{type(error).__name__}: {error}"
                 say(f"quit: the request got no reply ({failed}); waiting for the app to exit")

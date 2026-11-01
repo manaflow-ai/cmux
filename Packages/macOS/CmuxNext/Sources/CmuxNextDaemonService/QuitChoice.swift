@@ -24,7 +24,8 @@ public enum QuitOrigin: Equatable, Sendable {
     /// `--end-sessions` or `--end-everything`: runs as asked.
     case explicit(QuitSessionsChoice)
     /// `cmux app quit` (or `action.run quit`) with no flag: follows the
-    /// setting and never waits on a sheet.
+    /// setting (End Everything ends the sessions but keeps the workspaces)
+    /// and never waits on a sheet.
     case scripted
     /// Shut down, restart or log out: never asks, never ends terminals
     /// (the system ends them).

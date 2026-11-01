@@ -237,19 +237,15 @@ public final class CmuxDialogView: NSView {
         for field in spec.fields {
             for view in fieldViews(field, width: contentWidth, reusing: reusable, rows: rows) { stack.addArrangedSubview(view) }
         }
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = Metrics.space2
-        row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
-            buttonViews.append(view)
-            row.addArrangedSubview(view)
+            buttonViews.append(CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self,
+                                                    action: #selector(pressed(_:))))
         }
-        row.translatesAutoresizingMaskIntoConstraints = false
+        let row = Self.buttonRow(buttonViews, width: contentWidth)
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
-        focusables += buttonViews
+        // Tab follows what the person sees: left to right on one line, top to bottom when stacked.
+        focusables += row.orientation == .vertical ? buttonViews.reversed() : buttonViews
         chainKeyViews()
     }
 
@@ -270,6 +266,30 @@ public final class CmuxDialogView: NSView {
             widthAnchor.constraint(equalToConstant: CmuxDialogMetrics.width),
             heightAnchor.constraint(equalTo: stack.heightAnchor),
         ])
+    }
+
+    /// The buttons on one line, right-aligned, when they fit in `width`; else stacked, each `width` wide and the
+    /// default on top, as NSAlert stacks buttons that do not fit (the quit choice's four buttons, a long locale).
+    private static func buttonRow(_ buttons: [CmuxDialogButtonView], width: CGFloat) -> NSStackView {
+        let row = NSStackView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.spacing = Metrics.space2
+        let needed = buttons.reduce(0) { $0 + $1.intrinsicContentSize.width }
+            + row.spacing * CGFloat(max(buttons.count - 1, 0))
+        guard needed > width else {
+            row.orientation = .horizontal
+            row.addArrangedSubview(NSView())
+            for button in buttons { row.addArrangedSubview(button) }
+            return row
+        }
+        row.orientation = .vertical
+        row.alignment = .leading
+        // The spec draws the primary button last (rightmost); stacked, it goes first (top).
+        for button in buttons.reversed() {
+            row.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: width).isActive = true
+        }
+        return row
     }
 
     /// Tab order closes on itself: the last control's next is the first.
