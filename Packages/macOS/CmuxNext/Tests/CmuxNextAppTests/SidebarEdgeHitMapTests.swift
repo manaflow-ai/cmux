@@ -107,14 +107,15 @@ import Testing
         }
     }
 
-    /// Beside the knob (above or below it) the band keeps its full width on both sides of the edge.
+    /// Beside the knob (above or below it) the band keeps its full width on both sides of the edge: its
+    /// `SidebarResizeBand.contentInset` (2 pt, #27954) inside the sidebar and the gutter outside it.
     @Test func theBandKeepsItsWidthBesideTheKnob() throws {
         let f = try Self.fixture()
         defer { f.window.close() }
         let knob = try Self.knob(f)
         let edge = f.root.sidebar.frame.maxX
         let y = knob.maxY + 40 < f.root.bounds.maxY - 40 ? knob.maxY + 40 : knob.minY - 40
-        for offset: CGFloat in [-3.5, -2, -0.5, 0.5, 2, 4, 5.5] {
+        for offset: CGFloat in [-1.5, -1, -0.5, 0.5, 2, 4, 5.5] {
             #expect(Self.target(atX: edge + offset, y: y, in: f) == .resize, "a press \(offset) pt from the edge")
         }
         #expect(Self.width(of: .resize, atY: y, in: f) >= 8)
