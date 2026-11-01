@@ -46,7 +46,7 @@ extension SidebarRegionView {
 
     /// A press moved (window points). True once a drag runs.
     func dragMoved(_ subject: SidebarRegionDragSubject, from start: NSPoint, _ event: NSEvent) -> Bool {
-        guard allowsDrag else { return false }
+        guard allowsDrag, isMovable(subject) else { return false }
         // A section the list draws (the sidebar document): its item drags as any list row does, in the list's one drag.
         if let list = docList {
             guard case let .item(id) = subject, let section = content?.sections.first?.id else { return false }
@@ -153,6 +153,24 @@ extension SidebarRegionView {
         // The old press's release never comes: its tile shows again and the new press may drag.
         docSpentPress = nil
         endDocPress()
+    }
+
+    /// Whether `subject` may be dragged, from its item's data (`LayoutItem.isMovable`): Home never is. A section is.
+    func isMovable(_ subject: SidebarRegionDragSubject) -> Bool {
+        guard case let .item(id) = subject else { return true }
+        return content?.sections.lazy.flatMap(\.items).first { $0.id == id }?.isMovable ?? true
+    }
+
+    /// Whether one of the region's items holds a press whose release has not come.
+    var holdsItemPress: Bool { itemViews.values.contains(where: \.holdsPress) }
+
+    /// Ends every item press the region holds and the look it gave (the list's one gesture end): the pressed fills
+    /// clear, a press the list's drag spent is free again, and a tile the list's drag held hidden shows, unless its
+    /// card still flies home (`landingTile`: the landing shows it when it arrives).
+    func endItemPresses(except landingTile: LayoutItemID? = nil) {
+        for view in itemViews.values { view.endPress() }
+        docSpentPress = nil
+        if docPressedItem != landingTile { endDocPress() }
     }
 
     func cancelDrag() {

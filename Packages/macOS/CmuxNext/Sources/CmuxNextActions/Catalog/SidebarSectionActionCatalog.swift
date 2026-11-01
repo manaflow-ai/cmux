@@ -337,15 +337,6 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(cli: .exempt(.guiOnly),
                                   menus: [p(.sidebarBackground, .view, 134, folder: .options, label: ObjectMenuLabels.densityExpanded)])
             ),
-            // Leo (2026-10-09): the sidebar's menu checks Show Tabs Under
-            // Workspaces (`sidebar.showWorkspaceTabs`; scripts set that), in
-            // Options; the workspace row's ⋮ keeps its pointer menu focused.
-            ActionDescriptor(
-                id: "sidebar.workspaceTabs.toggle", title: t("action.sidebar.workspaceTabs.toggle", "Show Tabs Under Workspaces"),
-                keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",
-                surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options)])
-            ),
             ActionDescriptor(
                 id: "sidebar.edit", title: t("action.sidebar.edit", "Edit Sidebar"), keywords: ["sidebar", "edit", "arrange", "reorder", "move", "remove",
                     "add", "items", "wiggle", "home screen"], category: .sidebar, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .contextMenu],
@@ -376,6 +367,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("new_agent_chat", t("argument.sidebar.builtin.newAgentChat", "New Agent Chat")),
             ("search_chats", t("argument.sidebar.builtin.searchChats", "Search Chats")),
             ("chief", t("argument.sidebar.builtin.chief", "Chief")),
+            ("automations", t("argument.sidebar.builtin.automations", "Automations")),
             ("customize", t("argument.sidebar.builtin.customize", "Customize Appearance")),
         ]
         // Free text with the built-ins offered: `workspace:<id>` and

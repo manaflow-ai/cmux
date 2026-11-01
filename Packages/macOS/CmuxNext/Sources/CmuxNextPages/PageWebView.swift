@@ -51,11 +51,22 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var nativeRects: [CGRect] = [] {
         didSet { if nativeRects != oldValue { applyNativeRects() } }
     }
+    /// Called after the page's effective visibility changes. Owners use this to revoke native
+    /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
+    public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The Chromium host this page started in: told when its Chromium page attached
+    /// (``PageChromiumHosting/focusViewChanged(_:)``).
+    weak var chromiumFocusHost: (any PageChromiumHosting)?
+    /// The Chromium execution context behind the isolated question-key channel was destroyed.
+    /// Owners clear their cached binding and refresh it against the new document context.
+    public var onQuestionKeyChannelInvalidated: (@MainActor () -> Void)?
     /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
     /// takes, with when it entered; the page's drop opens it once.
     var chromiumDragFile: (url: URL, at: Date)?
     /// Shows the Chromium page's context menu at a point of this view (tests capture it).
     var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        // A view in no window cannot anchor a menu (AppKit raises): the page closed meanwhile.
+        guard view.window != nil else { return }
         menu.popUp(positioning: nil, at: point, in: view)
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
@@ -71,7 +82,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
     /// This page's file chooser (its web view holds the UI delegate weakly).
-    private var fileChooser: PageOpenPanel?
+    private(set) var fileChooser: PageOpenPanel?
     var loaded = false
     /// The tab closed (``close()``): its web view is retired and never loads again.
     var isClosed = false
@@ -116,6 +127,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// A document finished loading in the page (either engine): the page lives, so a host that
+    /// shows a crash notice for it takes the notice away (a host route, a retarget or a WebKit
+    /// fallback can load the page again without the notice's Reload).
+    public var onDocumentLoaded: (@MainActor () -> Void)?
+    /// Why the last crash reported to ``onCrash`` ended the page's process (WebKit's reason and
+    /// pid); nil before any crash.
+    public internal(set) var lastTermination: PageTermination?
+    /// The last WebContent pid seen at a finished load: WebKit may report 0 for a process that ended.
+    var knownWebContentPid: Int32 = 0
     /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
     /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
     /// false: every crash shows its notice, and only its Reload button reloads.
@@ -139,6 +159,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
         get { (webView as? PageWKWebView)?.onFilesDropped }
         set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
+    }
+    /// Called with their file URLs when the person picks files in the page's file input
+    /// (``PageOpenPanel``), before the page gets them: a pick page script can't make.
+    public var onFilesChosen: (@MainActor ([URL]) -> Void)? {
+        get { fileChooser?.onChosen }
+        set { fileChooser?.onChosen = newValue }
     }
     /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
     public var onPaste: (@MainActor () -> Void)? {
@@ -229,15 +255,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     /// Whether `descriptor` may be served from `root`: any root for an app page; for a first-party
-    /// page only its bundled root or its DEBUG override.
-    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
+    /// page only its bundled root or its DEBUG override, or in DEBUG a `testRoot`.
+    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL, testRoot: Bool = false) -> Bool {
         guard PageID.isReserved(descriptor.id) else { return true }
-        let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
-        var allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
-                       debugRoot(for: descriptor)].compactMap { $0 }
         #if DEBUG
-        allowed += PageID.fixtureRoots(for: descriptor.id)
+        if testRoot { return true }
         #endif
+        let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
+                       debugRoot(for: descriptor)].compactMap { $0 }
         return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
     }
 
@@ -254,13 +280,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `appearance.surfaces.diff` reaches `--cmux-surface-background`); `dynamicResources` answers
     /// the descriptor's dynamic prefixes (a 404 without one).
     ///
+    /// `testRoot` (DEBUG only; a Release build ignores it): `root` is a test's own fixture, served for a
+    /// reserved page too. `swift test` links every test target into one process, so the page's registered
+    /// root (``PageID/registerBundledRoot(_:for:)``, the first wins) may be another test's.
+    ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
     /// ``chromiumHosting`` by default; tests pass a fake).
-    public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
+    public convenience init?(descriptor: PageDescriptor, root: URL, testRoot: Bool = false, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
                              chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
-        guard Self.mayServe(descriptor, from: root) else { return nil }
+        guard Self.mayServe(descriptor, from: root, testRoot: testRoot) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
                                           documentAttributes: documentAttributes, options: options)
@@ -409,7 +439,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -505,7 +535,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
-            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused")
+            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
         // The message conversion stays here: `handle` must start in the order the page posted, and
@@ -553,6 +583,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        if !visible { chromiumSession?.questionKeys?.invalidate() }
+        onVisibilityChanged?(visible)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -564,13 +597,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Another tab took the pane: the page's popup ends.
     public override func viewDidHide() {
         super.viewDidHide()
+        chromiumSession?.questionKeys?.invalidate()
         popupHost?.dismiss()
         setChromiumVisibility(false)
+        onVisibilityChanged?(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
         setChromiumVisibility(true)
+        onVisibilityChanged?(visible)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -581,6 +618,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
+        if !visible { chromiumSession?.questionKeys?.invalidate() }
+        onVisibilityChanged?(visible)
     }
 
     func applyTheme(force: Bool = false) {
@@ -597,9 +637,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
+    /// Built in this view's scope (`performWithTheme`): whether the window is see-through here
+    /// comes from that scope's picture and tint, not the app's. Built outside it, a workspace's
+    /// picture over an opaque theme painted the page solid, a black chat over the wallpaper (#28867).
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
-        WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                 surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        performWithTheme {
+            WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                     surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        }
     }
 
     // MARK: WKNavigationDelegate

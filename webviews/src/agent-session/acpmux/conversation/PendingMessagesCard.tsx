@@ -40,7 +40,9 @@ export function PendingMessagesCard({
   };
   const bodyId = useId();
   const rows = row.pendingMessages?.rows;
-  const senders = useMemo(() => bySender(rows ?? []), [rows]);
+  const displayRows = row.pendingMessages?.displayRows ?? rows;
+  const senders = useMemo(() => bySender(displayRows ?? []), [displayRows]);
+  const sources = useMemo(() => bySender(rows ?? []), [rows]);
   const reveal = useContext(FindReveal);
   // Find names the group's row for a match in one of its messages: the group opens, and only the
   // message holding the match (`matchRowId`) is asked as its own row would be, so it opens too.
@@ -53,14 +55,14 @@ export function PendingMessagesCard({
   }, [holdsMatch, reveal]);
   if (!rows?.length) return null;
   const n = rows.length;
-  const names = senders.map((group) => {
+  const names = sources.map((group) => {
     const first = group.rows[0]!;
     return first.incoming?.kind === "message" ? first.incoming.message.name : "";
   });
   const count =
-    senders.length === 1
+    sources.length === 1
       ? t("message.waitingFromOne", { n })
-      : t("message.waitingFrom", { n, sessions: senders.length });
+      : t("message.waitingFrom", { n, sessions: sources.length });
   return (
     <div className="cv-pending" data-open={open || undefined}>
       {/* Find counts the messages' words, not the head's names. */}
@@ -86,7 +88,7 @@ export function PendingMessagesCard({
             const first = group.rows[0]!;
             const message = first.incoming?.kind === "message" ? first.incoming.message : undefined;
             return (
-              <section key={group.key} className="cv-pending__sender">
+              <section key={group.key} className={message ? "cv-pending__sender" : undefined}>
                 {message && (
                   <div className="cv-pending__sender-head" data-find-skip="">
                     <SenderName message={message} onOpen={onOpen} />
@@ -99,7 +101,11 @@ export function PendingMessagesCard({
                   <div key={member.id} data-row-id={member.id} data-find-member="">
                     <FindReveal.Provider
                       value={
-                        holdsMatch && reveal?.matchRowId === member.id ? { ...reveal, rowId: member.id } : undefined
+                        holdsMatch &&
+                        reveal &&
+                        (reveal.matchRowId === member.id || member.joined?.includes(reveal.matchRowId ?? ""))
+                          ? { ...reveal, rowId: member.id }
+                          : undefined
                       }
                     >
                       {renderMessage(member)}

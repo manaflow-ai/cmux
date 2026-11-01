@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import CmuxMobileNotifications
 import Foundation
 import UserNotifications
 #if canImport(UIKit)
@@ -155,7 +156,7 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = message.isUnsent ? String(localized: "Message unsent")
-            : message.text.isEmpty && !message.attachments.isEmpty ? String(localized: "Attachment") : message.text
+            : message.text.isEmpty && !message.attachments.isEmpty ? String(localized: "Attachment") : PushPlainText(markdown: message.text).text
         content.sound = .default
         content.threadIdentifier = "chief.\(conversationID)"
         var userInfo: [String: String] = [Self.conversationKey: conversationID]

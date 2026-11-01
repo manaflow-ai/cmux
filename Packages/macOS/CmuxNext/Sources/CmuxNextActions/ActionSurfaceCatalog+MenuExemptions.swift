@@ -30,7 +30,7 @@ nonisolated extension ActionSurfaceCatalog {
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
-            "closeAllWindows", "window.closeOthers", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
+            "closeAllWindows", "window.closeOthers", "window.mergeAll", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
             "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions",
@@ -89,7 +89,7 @@ nonisolated extension ActionSurfaceCatalog {
             "fileExplorerOpenSelectionFinderAlias", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
             "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudListMachines",
+            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudAPIKeyList", "cloudAPIKeyRevoke", "cloudListMachines",
         ],
         .focusMove: [
             "history.goTo",
@@ -144,6 +144,17 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
         .pointerMenuTrim: [
+            // Specialist tab controls stay canonical palette/CLI commands, outside the
+            // compact pointer menu. Shared commands keep their other menu placements.
+            "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
+            "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute",
+            "hibernateTab", "wakeTab", "neverHibernateSite", "browser.resetPinnedTab",
+            // Pane geometry, providers and diagnostics stay searchable; the menu keeps
+            // its common actions, including target-dependent reconnect, remote and chat tools.
+            "newPaneAutoLayout", "triggerFlash", "palette.swapWithSession", "toggleCanvasLayout", "palette.newSimulatorPane",
+            "remote.openTerminalHere", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
+            "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.dock", "column.undock", "column.float",
+            "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
             // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
             // so the workspace row's Move menu does not grow six rows nobody can use yet.
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",

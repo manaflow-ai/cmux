@@ -8,6 +8,7 @@
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
@@ -18,7 +19,6 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
   CARD_DELAY,
-  cardOffset,
   JUMP_CURVE,
   LANDING_OFFSET,
   replyPreview,
@@ -91,7 +91,6 @@ export function ScrollMap({
   const [hovered, setHovered] = useState<string | undefined>(undefined);
   const [focused, setFocused] = useState<string | undefined>(undefined);
   const [cardMark, setCardMark] = useState<string | undefined>(undefined);
-  const [cardHeight, setCardHeight] = useState(0);
   const [cardFocus, setCardFocus] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
   const [reduce, setReduce] = useState(false);
@@ -126,7 +125,7 @@ export function ScrollMap({
     const bar = thumb.current;
     if (!node || !bar) return;
     const { height: rail, total, viewportHeight: view, marks: all } = live.current;
-    const at = mapThumb(node.scrollTop, view, total, rail);
+    const at = mapThumb(layoutScrollTop(node), view, total, rail);
     bar.style.transform = `translateY(${at.top}px)`;
     bar.style.height = `${at.height}px`;
     const covered = marksIn(all, at.top, at.top + at.height);
@@ -145,9 +144,6 @@ export function ScrollMap({
   const showCard = preview.shown !== null && cardAt !== undefined;
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
-  useLayoutEffect(() => {
-    if (showCard && card.current) setCardHeight(card.current.offsetHeight);
-  }, [showCard, cardAt]);
   const cardRow = cardAt ? rows[cardAt.row] : undefined;
   const agentReply = useMemo(
     () => (cardAt?.kind === "agent" && cardRow?.text ? replyPreview(cardRow.text) : []),
@@ -176,19 +172,23 @@ export function ScrollMap({
       return;
     }
     const target = () =>
-      Math.min(
-        Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
-        Math.max(0, layout.totalHeight - node.clientHeight),
+      physicalScrollTop(
+        node,
+        Math.min(
+          Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
+          Math.max(0, layout.totalHeight - node.clientHeight),
+        ),
       );
-    // A click lands at once, as the compact rail's does (ThreadMinimap.tsx `jump`).
-    animateScroll(node, target, 0, JUMP_CURVE);
+    // A click lands at once, as the compact rail's does (ThreadMinimap.tsx `jump`). An explicit
+    // request: it runs inside the hold that follows the reader's last input (userScroll.ts).
+    animateScroll(node, target, 0, JUMP_CURVE, undefined, undefined, { explicit: true });
   };
   /// Centers the view on rail point `y`, at once: a click on the track as a scrub does.
   const seek = (y: number) => {
     const node = scroller.current;
     if (!node) return;
     stopScroll(node);
-    node.scrollTop = scrollTopAt(y, height, layout.totalHeight, node.clientHeight);
+    node.scrollTop = physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight));
   };
   const point = (y: number) => {
     const at = keyOf(marks[markAt(marks, y) ?? -1]);
@@ -342,13 +342,13 @@ export function ScrollMap({
           side={side}
           x={placement.reserve + placement.left + ROW_WIDTH}
           railLeft={placement.left}
-          y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
+          center={MAP_MARGIN + cardAt.y}
+          viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
           metadata={cardTurn?.metadata}
-          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)
               ? { marked: cardMarked, toggle: () => bookmarks.toggle(cardTurn) }

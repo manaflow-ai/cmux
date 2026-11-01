@@ -47,13 +47,12 @@ struct AgentCursorSnapshotBuilder {
 
     // MARK: Windows
 
-    /// Windows front to back (`NSApp.orderedWindows`); unordered ones last.
+    /// Windows front to back (`NSApp.orderedWindows`, a sync WindowServer query: skipped for one window, 3.0 s hang 2026-10-31).
     private func orderedControllers(_ services: AppServices) -> [WindowController] {
-        let order = NSApp.orderedWindows
-        func rank(_ controller: WindowController) -> Int {
-            order.firstIndex { $0 === controller.window } ?? Int.max
-        }
-        return services.windows.controllers.sorted { rank($0) < rank($1) }
+        let controllers = services.windows.controllers
+        guard controllers.count > 1, let order = NSApp?.orderedWindows else { return controllers }  // NSApp: nil in a test process
+        func rank(_ controller: WindowController) -> Int { order.firstIndex { $0 === controller.window } ?? Int.max }
+        return controllers.sorted { rank($0) < rank($1) }
     }
 
     private func window(_ controller: WindowController, target: String,
