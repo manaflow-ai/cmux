@@ -7,7 +7,11 @@
 //!   runaway guard paused that `sessionId` is in (`hub/agent_pairs.rs`); `peerSessionId` only
 //!   picks one of them. Only a connection that proved the person key (`hub/person.rs`) on this
 //!   machine (the unix socket or the app, `remote_guard.rs` refusing Web and Peer first).
-//! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]).
+//! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]),
+//!   except those a taken-over chat holds.
+//! - `_acpmux/agent_hold {sessionId, held}`: the person takes a managed chat over, so its
+//!   manager's messages wait, or hands it back, which delivers them (`hub/agent_hold.rs`). The
+//!   person on this machine only, as `agent_pair_resume`.
 //!
 //! And `_acpmux/retry {sessionId, subagentId?}` ([`retry`]): the chat's failed last turn, retried
 //! now (`hub/auto_resume/retry_turn.rs`), or with `subagentId` that failed subagent, resumed now
@@ -51,11 +55,21 @@ pub(super) async fn handle(
         let s = hub.resolve(session_key(params)?)?;
         return hub.prompt_withdraw(&s, params).await;
     }
-    // An agent may not resume its own pair.
+    // An agent may not resume its own pair, nor take a chat over or hand it back.
     if !local_person(conn) {
         return Err(Hub::agent_pair_resume_refused());
     }
     let s = hub.resolve(session_key(params)?)?;
+    if m == method::MUX_AGENT_HOLD {
+        let held = params
+            .get("held")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| RpcError::invalid_params("`held` (a boolean) is required"))?;
+        // The held messages come back with the logs (`restore_queue`).
+        hub.pair_peer_logs(&s).await;
+        hub.wait_logs().await;
+        return hub.agent_hold(&s, held);
+    }
     // The pairs come back with the logs (`restore_queue`): resume what they restored.
     hub.wait_logs().await;
     Ok(hub.agent_pair_resume(&s.id, str_param(params, "peerSessionId")))

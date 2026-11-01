@@ -57,6 +57,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_SESSION_AUTH,
     // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
     method::MUX_AGENT_PAIR_RESUME,
+    method::MUX_AGENT_HOLD,
     method::MUX_HANDOFF_PREPARE,
     method::MUX_HANDOFF_GET,
     method::MUX_HANDOFF_DRAFT,

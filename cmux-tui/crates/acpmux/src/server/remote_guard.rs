@@ -267,7 +267,7 @@ async fn check_inner(
         return Err(crate::hub::Hub::inbox_digest_origin_refused());
     }
     // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
-    if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
+    if (m == method::MUX_AGENT_PAIR_RESUME || m == method::MUX_AGENT_HOLD) && origin.web_class() {
         return Err(RpcError::invalid_params(
             "resuming agent pairs is accepted only from this machine's app or unix socket",
         ));
