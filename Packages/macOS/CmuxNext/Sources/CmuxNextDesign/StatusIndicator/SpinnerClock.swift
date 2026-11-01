@@ -16,16 +16,24 @@ public import QuartzCore
 public nonisolated struct SpinnerClock: Sendable {
     /// Now on the Core Animation clock (`CACurrentMediaTime`).
     public var mediaTime: @Sendable () -> CFTimeInterval
-    /// Now as seconds since 1970 (`Date().timeIntervalSince1970`).
+    /// Now as seconds since 1970: by default the media clock on one offset per process.
     public var unixTime: @Sendable () -> TimeInterval
+
+    /// Unix time minus media time, read once per process. The media clock stops while the Mac
+    /// sleeps and Unix time does not, so reading both afresh for every spinner put one started
+    /// after a sleep out of step with one still turning from before it (Leo 2026-11-01, on two
+    /// working spinners side by side: "why did you desync these"). Counted from this one offset,
+    /// every spinner in the process keeps one phase however long it ran.
+    static let processEpoch: TimeInterval = Date().timeIntervalSince1970 - CACurrentMediaTime()
 
     /// - Parameters:
     ///   - mediaTime: Now on the Core Animation clock.
-    ///   - unixTime: Now as seconds since 1970; the phase is counted from it.
+    ///   - unixTime: Now as seconds since 1970; the phase is counted from it. Nil reads `mediaTime`
+    ///     on the process's one Unix offset (``processEpoch``).
     public init(mediaTime: @escaping @Sendable () -> CFTimeInterval = { CACurrentMediaTime() },
-                unixTime: @escaping @Sendable () -> TimeInterval = { Date().timeIntervalSince1970 }) {
+                unixTime: (@Sendable () -> TimeInterval)? = nil) {
         self.mediaTime = mediaTime
-        self.unixTime = unixTime
+        self.unixTime = unixTime ?? { mediaTime() + SpinnerClock.processEpoch }
     }
 
     /// The media time a repeating loop of `cycle` seconds begins at so that its phase now is
