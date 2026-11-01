@@ -411,9 +411,11 @@ extension AgentTabStore {
                 let account = services.cloud.account
                 verifyDelegatedStart = { [weak services] in
                     guard let services, await services.cloud.account == account else { return false }
-                    let allowed = try await services.cloud.callerOwnsVM(machineID)
+                    // The link's attach endpoint has side effects (leases, wake-up). This GET
+                    // checks the current grant and membership without creating another attach.
+                    let role = try await services.cloud.api.pinningTeam(services.cloud.auth.teamID).chatStartAccess(machineID)
                     let stillSameAccount = await services.cloud.account == account
-                    return allowed && stillSameAccount
+                    return role != .none && stillSameAccount
                 }
             } else {
                 verifyDelegatedStart = nil
