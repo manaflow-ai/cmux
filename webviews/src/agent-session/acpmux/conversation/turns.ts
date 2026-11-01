@@ -1062,13 +1062,13 @@ function liftedStep(
   const doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, item!.text);
   const kept = items.filter((_, position) => position !== index);
   const next = rows.slice();
-  if (kept.length) next[at] = { ...run, items: kept, version: run.version * RUN_STATES + LIFTED };
+  if (kept.length) next[at] = { ...run, items: kept, version: run.version * LIFTED_STATES + 1 };
   else next.splice(at, 1);
   return { rows: next, doing, shell };
 }
-/// A run with its last call on the live line: a state of its own (`RUN_STATES`), never the version
-/// of another drawn state of that run, the ended turn's open fold included.
-const LIFTED = 5;
+/// A run with its last call on the live line differs from the same run whole. (Not a sixth
+/// `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
+const LIFTED_STATES = 2;
 
 /// The newest call still running in a live turn's latest row.
 function runningCall(
@@ -1232,7 +1232,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
 /// The drawn states of one Codex-style run, each its own version offset so a memoized row redraws
 /// on every change between them (App.tsx compares versions): 1 the live latest run, 2 an earlier
 /// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds.
-const RUN_STATES = 6;
+const RUN_STATES = 5;
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
 /// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
