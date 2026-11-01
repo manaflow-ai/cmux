@@ -218,8 +218,13 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 runs_on = jobs[name]["runs-on"]
                 # A member of the declared set: 16 vCPU when LINUX_RUNNER names it, else 32; a job
                 # holding a secret takes the literal (the signing-keychain guard).
+                # The sign pick takes GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run
+                # (tests/test_nightly_trusted_routing.py, the signer route).
                 self.assertTrue("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || " in runs_on
-                                or runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}") and "LINUX_RUNNER" not in runs_on, runs_on)
+                                or runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}") and "LINUX_RUNNER" not in runs_on
+                                or name == "pick-nightly-sign-runner"
+                                and runs_on.endswith("github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"),
+                                runs_on)
                 self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER \|\|")
                 self.assertNotIn("macos", runs_on)
                 labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],

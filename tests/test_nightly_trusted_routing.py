@@ -17,6 +17,8 @@ from test_ci_fork_runner_routing import parse_expression
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
 DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
+# The nightly signer jobs and their pick: GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run.
+SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
 
 
 def evaluate(node, context):
@@ -37,6 +39,9 @@ def evaluate(node, context):
         return context.get(node[1], '')
     if kind == 'cmp':
         left, right = (str(evaluate(arg, context)).lower() for arg in node[2:])
+        if node[1] in ('>', '<', '>=', '<='):
+            left, right = float(left or 0), float(right or 0)
+            return {'>': left > right, '<': left < right, '>=': left >= right, '<=': left <= right}[node[1]]
         return (left == right) == (node[1] == '==')
     if kind == 'not':
         return not evaluate(node[1], context)
@@ -242,23 +247,47 @@ class NightlyTrustedRouting(unittest.TestCase):
                 retry = label('prepare-nightly-variant', runner, 'failure')
                 self.assertNotEqual(retry, primary)
                 self.assertIn(retry, ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'))
-        # The retry and signer-build pick from the declared set, whatever LINUX_RUNNER holds.
+        # The retry picks from the declared set, whatever LINUX_RUNNER holds.
         members = ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404')
         for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404') + members:
             with self.subTest(runner=runner):
                 self.assertIn(label('prepare-nightly-variant', runner, 'failure'), members)
-                self.assertIn(label('signer-build', runner), members)
-        self.assertEqual(label('signer-build', 'blacksmith-16vcpu-ubuntu-2404'), 'blacksmith-16vcpu-ubuntu-2404')
-        self.assertEqual(label('signer-build', 'ubuntu-24.04'), 'blacksmith-32vcpu-ubuntu-2404')
+
+    def test_signer_jobs_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32(self):
+        # Signing is notarization-bound (W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s,
+        # signer-build 7 s, the pick 11 s). Leo, 2026-11-01: "surely we measured the signign we dont need 32/16
+        # just for signing", "surely github has linux hosted we can just use". Attempt 1 takes GitHub-hosted
+        # Ubuntu, a re-run Blacksmith Linux 4 vCPU, whatever LINUX_RUNNER or the overflow switch holds.
+        for name in SIGNER_ROUTE_JOBS:
+            source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
+            for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
+                           'blacksmith-32vcpu-ubuntu-2404'):
+                for attempt, want in ((1, 'ubuntu-24.04'), (2, 'blacksmith-4vcpu-ubuntu-2404'),
+                                      (3, 'blacksmith-4vcpu-ubuntu-2404')):
+                    context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
+                               'vars.LINUX_RUNNER': runner, 'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}'}
+                    with self.subTest(job=name, runner=runner, attempt=attempt):
+                        self.assertEqual(evaluate(parse_expression(source), context), want)
+            fork = {'github.repository_owner': 'someone', 'github.run_attempt': 1}
+            self.assertEqual(evaluate(parse_expression(source), fork), 'ubuntu-24.04')
+        # signer-build holds no secret: decide's early fleet placement (#29864) comes first on its own attempt.
+        source = DOC['jobs']['signer-build']['runs-on'].removeprefix('${{').removesuffix('}}')
+        placed = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+                  'needs.decide.outputs.early_attempt': '1', 'needs.decide.outputs.early_linux_jobs': ' signer-build ',
+                  'needs.decide.outputs.early_linux_runner': 'cmux-fleet-linux-x64'}
+        self.assertEqual(evaluate(parse_expression(source), placed), 'cmux-fleet-linux-x64')
+        self.assertEqual(evaluate(parse_expression(source), {**placed, 'github.run_attempt': 2}),
+                         'blacksmith-4vcpu-ubuntu-2404')
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
         # (empty, the overflow switch's hosted value, an old 4 vCPU value, 16 or 32).
+        # The signer jobs have their own route (test_signer_jobs_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32).
         members = {'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'}
         checked = 0
         for name, job in DOC['jobs'].items():
             runs_on = job.get('runs-on', '')
-            if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on:
+            if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on or name in SIGNER_ROUTE_JOBS:
                 continue
             checked += 1
             source = runs_on.removeprefix('${{').removesuffix('}}')
