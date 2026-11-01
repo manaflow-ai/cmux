@@ -47,6 +47,11 @@
   opacity: 0.4;
   pointer-events: none;
 }
+/* The `dimmed` gutter arm (gutter.experiment.ts): the occluded rail stays drawn, faint, and still
+   leaves the text its clicks. */
+.acpmux-minimap__rail[data-occluded][data-dim] {
+  opacity: 0.4;
+}
 @keyframes acpmux-minimap-in {
   from {
     opacity: 0;

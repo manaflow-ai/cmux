@@ -881,7 +881,8 @@ jobs:
       dry_run: ${{ steps.decide.outputs.dry_run }}
       scan_failed: ${{ steps.decide.outputs.scan_failed }}
     steps:
-      - name: Checkout the promote guard from main
+      - &legacy-route-shared-4
+        name: Checkout the promote guard from main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
@@ -1007,17 +1008,7 @@ jobs:
       group: nightly-next-promote-ack-${{ github.run_id }}
       cancel-in-progress: false
     steps:
-      - name: Checkout the promote guard from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/promote-nightly-next.mjs
-            scripts/ci/nightly_next_train.py
-            .github/release-surface.txt
-          sparse-checkout-cone-mode: false
-
+      - *legacy-route-shared-4
       - name: Decide again and check the approver
         id: ack
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -1133,7 +1124,8 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Select Xcode
+      - &select-xcode
+        name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
       - name: Compute Xcode compilation cache key
@@ -1338,8 +1330,7 @@ jobs:
             echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas"
           } >> "$GITHUB_ENV"
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Compute the DerivedData seed fingerprint
         id: compilation-cache-key
@@ -1740,7 +1731,8 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      - name: Give this job its own bun
+      - &legacy-route-shared-6
+        name: Give this job its own bun
         run: scripts/cmux-next/private-bun.sh
 
       - name: Setup Node
@@ -1848,7 +1840,8 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
-      - name: Mint the routing token without the org permission
+      - &legacy-route-shared-1
+        name: Mint the routing token without the org permission
         id: route-token-repo
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
@@ -4130,29 +4123,7 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
-      - name: Mint the routing token without the org permission
-        id: route-token-repo
-        if: steps.route-token.outcome == 'failure'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-
-      # The owned labels the build picker offers (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
-      # nightly slot, then vars.CI_SIDE_LANE_RUNNER), never the dedicated builder, while one of
-      # their runners is idle now (nightly_build_runner.py verify). glaeda admits a nightly job on
-      # a mini ahead of every PR, DEV and side job. Anything else, a failure included, is empty,
-      # and the verify jobs take `runner`.
-      # Only nightly-next push and dispatch runs, at any attempt, the scope ci-owned-pool-rescue.yml
-      # watches (owned_pool_rescue.py nightly_target, and its sweeper through the marker below): a
-      # stuck owned verify there is moved to Blacksmith. RC and main runs keep Blacksmith. Until
-      # 2026-10-28 only attempt 1 of a push got it: dispatch run 40594111618's attempt 3 had
-      # signer-dmg-image wait 51 min on blacksmith-6vcpu-macos-26 and signer-verify queue there too. Until 2026-10-27 this
-      # ran the pull request pool picker, which named a Blacksmith macOS 15 label in run 40515681971
-      # while owned side runners sat idle: verify then queued 1.5 h on Blacksmith.
+      - *legacy-route-shared-1
       - name: Pick an owned Mac for the verify jobs
         id: owned
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -4307,7 +4278,8 @@ jobs:
           done
           echo "Unsigned resume signing controls: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Initialize cmux-next notices submodule
+      - &legacy-route-shared-5
+        name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
         shell: bash
         run: bash scripts/ci/init-submodule.sh ghostty-next
@@ -4330,12 +4302,7 @@ jobs:
           fi
           CMUX_PARSE_ROOT="$PWD" "$checker" "$workflow"
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # prepare-nightly-variant ran every check that executes bundle code on
-      # this exact app (cmux-tui install, theme picker, sidecar handshake) and
-      # thinned it; this job only signs, notarizes and packages it.
+      - *select-xcode
       - name: Download prepared app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -5158,13 +5125,8 @@ jobs:
       - *checkout-build-ref
 
       # nightly-next's license check reads ghostty-next/build.zig.zon.
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *legacy-route-shared-5
+      - *select-xcode
 
       - name: Download signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5296,21 +5258,8 @@ jobs:
 
       # The static DMG verifier runs the license check, which reads
       # ghostty-next/build.zig.zon.
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # The notarize step stapled the final DMG. Verify that exact DMG and
-      # record its digest without launching bundle code. A build still in Apple's
-      # queue has no final DMG yet: verify-recovered-nightly-next verifies it
-      # when a later run continues it.
-      # A pool-signed build reads signer-dmg's one-DMG artifact: the variant artifact holds the
-      # same DMG twice (the release and the immutable name), and this Mac reads it over the
-      # office uplink (199 s for 481 MB in run 40728513403).
+      - *legacy-route-shared-5
+      - *select-xcode
       - name: Download final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5555,8 +5504,7 @@ jobs:
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
         run: bash scripts/ci/init-submodule.sh ghostty-next
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
@@ -5795,22 +5743,11 @@ jobs:
 
       - *wait-through-github-api-rate-l
 
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      # macOS /bin/bash 3.2 exits 0 on a parse error in a script with an EXIT
-      # trap (runs 39014131817, 39014922771). Parse every script this job can
-      # run before any signing or notarization.
+      - *legacy-route-shared-5
       - name: Parse signing and notarize scripts with /bin/bash 3.2
         run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # The DMG around the stapled app is built with the same create-dmg as
-      # build-sign-notarize-nightly.
+      - *select-xcode
       - *set-up-node
 
       - name: Install create-dmg
@@ -5882,13 +5819,8 @@ jobs:
       # from this workflow commit too.
       - *checkout-default
 
-      - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
-        shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *legacy-route-shared-5
+      - *select-xcode
 
       - name: Download the recovered variant
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -6007,8 +5939,7 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Check the states
         run: python3 scripts/cmux-next/visual-gate/capture_states.py --check scripts/cmux-next/visual-gate/states
@@ -6018,9 +5949,7 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      - name: Give this job its own bun
-        run: scripts/cmux-next/private-bun.sh
-
+      - *legacy-route-shared-6
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -7020,20 +6949,82 @@ jobs:
   # copies, if any: the newest build on the cmux NEXT feed when it is newer than
   # the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
+  # Read live capacity after the build/publication prerequisites, immediately before
+  # the legacy control. This picker holds only the routing App key, never release keys.
+  pick-legacy-identity-runner:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner]
+    if: &legacy-identity-enabled "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    environment: ci-routing-agent
+    continue-on-error: true
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      runs_on: ${{ steps.place.outputs.linux_runner }}
+      overflow: ${{ steps.overflow.outputs.runner }}
+      alternate: ${{ steps.overflow.outputs.alternate }}
+      attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout runner tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Mint routing token for legacy capacity
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+      - name: Place legacy identity target on live fleet Linux
+        id: place
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          JOBS: legacy-identity-target
+          LINUX_ONLY: legacy-identity-target
+          REQUIRE_LIVE_CAPACITY: "1"
+          NIGHTLY: "1"
+          NIGHTLY_WAIT_FOR_FLEET: "1"
+          FLEET_LINUX: cmux-fleet-linux-x64
+          SIDE_LABEL: glaeda-side-light-xcode-26.6
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+      - name: Pick moving Linux overflow for legacy identity target
+        id: overflow
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          PLATFORM: linux
+          CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/nightly_sign_runner.py
+
   legacy-identity-target:
     # The prepared NEXT artifact is a candidate before the main notarization.
     # The compatibility copy is deliberately post-publication: its independent
     # re-sign and notarization must never consume the signing cap or delay the
     # primary appcast. A pending continuation still uses the published feed path.
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner]
-    if: "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner, pick-legacy-identity-runner]
+    if: *legacy-identity-enabled
     # Only for the release App credentials (CMUX_RELEASE_APP_*), which live in this environment;
     # it runs only on nightly-next, the environment's one deployment branch.
     environment: release-next
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.linux_alternate || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # Fresh fleet observation per attempt, then moving paid overflow.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-legacy-identity-runner.outputs.attempt == github.run_attempt && needs.pick-legacy-identity-runner.outputs.runs_on || needs.pick-legacy-identity-runner.outputs.attempt == github.run_attempt && needs.pick-legacy-identity-runner.outputs.overflow || needs.pick-legacy-identity-runner.outputs.alternate || github.run_attempt > 1 && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 65
     permissions:
       contents: read
@@ -7404,8 +7395,7 @@ jobs:
     steps:
       - *checkout-default
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Download the stapled cmux NIGHTLY DMG
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -7789,7 +7779,8 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
-      - name: Checkout build ref
+      - &legacy-route-shared-3
+        name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -7822,9 +7813,7 @@ jobs:
 
       - *wait-through-github-api-rate-l
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
+      - *select-xcode
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -7890,15 +7879,7 @@ jobs:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
     steps:
-      - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-
-      # The ring script, the guard, the publisher and the gh rate-limit wait come from the
-      # workflow commit on every track: the build ref can predate them (publish-nightly does
-      # the same), and an older publisher has no secondary-limit backoff or serial uploads.
+      - *legacy-route-shared-3
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

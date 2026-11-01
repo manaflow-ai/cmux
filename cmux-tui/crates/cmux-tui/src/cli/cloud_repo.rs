@@ -119,10 +119,10 @@ pub(super) fn validate(action: &str, fields: &Map<String, Value>) -> Result<(), 
                 return Err("complete must be true or false".into());
             }
         } else if key == "timeout_ms" {
-            if !value.as_u64().is_some_and(|ms| ms <= MAX_WAIT_MS) {
+            if value.as_u64().is_none_or(|ms| ms > MAX_WAIT_MS) {
                 return Err(format!("timeout_ms must be an integer from 0 to {MAX_WAIT_MS}"));
             }
-        } else if !value.as_str().is_some_and(|value| !value.trim().is_empty()) {
+        } else if value.as_str().is_none_or(|value| value.trim().is_empty()) {
             return Err(format!("{key} must be a nonempty string"));
         }
     }
