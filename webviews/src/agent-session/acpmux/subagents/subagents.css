@@ -508,6 +508,13 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-look="tall"] .acpmux-running-tray__list {
   --acpmux-tray-lines: 8;
 }
+/* A populated list keeps one complete control row when the floating stack is short; this keeps
+   its Stop slot inside the scroll viewport after fractional flex rounding. An empty tray still gives
+   up all list height so its header and footer remain reachable. */
+.acpmux-running-tray__list:not(:empty) {
+  min-height: var(--ui-row-height, 28px);
+}
+
 /* The `sectioned` look: a hairline between what runs and what ended, and ended lines dim. */
 .acpmux-running-tray[data-look="sectioned"] li:not([data-finished]) + li[data-first-finished] {
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
