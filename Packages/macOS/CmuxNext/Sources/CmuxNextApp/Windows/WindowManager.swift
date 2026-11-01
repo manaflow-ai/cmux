@@ -141,8 +141,8 @@ final class WindowManager {
     var incognitoSession: BrowserProfileID?
     /// The incognito space each incognito window shows (window id to space), deleted with its window.
     var incognitoSpaces: [String: ProfileID] = [:]
-    /// Workspaces of open incognito windows, closed at the next launch when
-    /// this run ends without closing them.
+    let incognitoSpaceMarks = IncognitoSpaceMarks()
+    /// Workspaces of open incognito windows, closed at the next launch when this run ends without closing them.
     lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// Incognito windows waiting for the ephemeral workspace created for
     /// them (`WindowManager+Ephemeral`).
