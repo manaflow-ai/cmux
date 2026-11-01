@@ -59,15 +59,15 @@ extension TabHandlers {
     /// selected tabs every selected tab goes, in strip order (`movingTabs`).
     private static func moveToNewWorkspace(_ ctx: AppActionContext, _ invocation: ActionInvocation, newWindow: Bool) {
         guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-        if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
+        if let reason = TabPromotion.refusal(tab: tab, services: ctx.services) {
             return ctx.registry.refuse(reason)
         }
         let windows = ctx.services.windows, tabs = ctx.movingTabs(invocation, tab)
-        let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
+        let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab))
         // Read before the await: whether this run may change the view (a run this client's user did
         // not start opens the window behind, never key), and the window it acts in.
         let allowed = ActionRunScope.viewChangeAllowed()
-        let source = newWindow ? nil : ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
+        let source = newWindow ? nil : ctx.services.landingWindow(tabWorkspace: ctx.services.workspaceID(ofTab: tab), workspaceID: nil)
         let preferred = newWindow ? nil : (source ?? windows.active)?.state
         if allowed, let source, let pane = ctx.services.locateTab(model: tab)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
         let work: ActionWork = Task {
@@ -141,8 +141,8 @@ extension TabHandlers {
                          workspaceID: String?) -> @MainActor (Bool) -> Void {
         let services = ctx.services
         let allowed = ActionRunScope.viewChangeAllowed()
-        let source = services.landingWindow(tab: tab.id, workspaceID: nil)
-        let landing = services.landingWindow(tab: tab.id, workspaceID: workspaceID) ?? source
+        let source = services.landingWindow(tabWorkspace: services.workspaceID(ofTab: tab), workspaceID: nil)
+        let landing = services.landingWindow(tabWorkspace: services.workspaceID(ofTab: tab), workspaceID: workspaceID) ?? source
         if allowed, let landing, let pane = services.locateTab(model: tab)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
         let daemon = services.machines.daemon(forTab: tab)
         return { landed in

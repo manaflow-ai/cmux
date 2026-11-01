@@ -22,7 +22,7 @@ optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
 optchat-chief settings [show | set cache.ttl 5m|1h | set replies.thread auto|always|never | set show.afterReport true|false | set trace.full true|false
-                       | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
+                       | set subagents.showWorkspaces true|false | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
                                                            per-Chief settings (none of them makes the Chief ask before it acts)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
@@ -333,6 +333,10 @@ fn main() -> std::process::ExitCode {
                                 optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
                                     s.cloud_auto_pause_idle_secs =
                                         optchat_chief::chief_settings::parse_idle_secs(value)?
+                                }
+                                optchat_chief::chief_settings::SHOW_SUBAGENT_WORKSPACES => {
+                                    s.show_subagent_workspaces =
+                                        optchat_chief::chief_settings::parse_bool(value)?
                                 }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }
