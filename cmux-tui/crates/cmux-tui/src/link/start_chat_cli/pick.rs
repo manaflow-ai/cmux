@@ -126,10 +126,20 @@ pub(crate) fn destination(
     Destination::New
 }
 
-/// Makes `machine` the workspace `workspace`'s own in `account`, unless
-/// another workspace of the account already has it: a machine serves one
-/// workspace for now. Answers whether it did.
+/// Makes `machine` the workspace `workspace`'s own in `account` when the
+/// workspace has none yet and no other workspace of the account has it (a
+/// machine serves one workspace for now). Answers whether it is the
+/// workspace's now.
+///
+/// The first machine a workspace gets stays its own: a retry of an older send
+/// never takes the workspace back, and when two first sends of one workspace
+/// race (both planned `New` before either pinned), the first pin wins and the
+/// later machine keeps only its own send's chat. A machine that is gone was
+/// already dropped by [`destination`], so the workspace's next one binds.
 pub(crate) fn claim(pins: &mut Ledger, workspace: &str, account: &str, machine: &str) -> bool {
+    if let Some(own) = pins.workspace_machine(workspace, account) {
+        return own == machine;
+    }
     if pins.held_by_another(machine, workspace, account) {
         return false;
     }

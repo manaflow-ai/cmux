@@ -15,7 +15,7 @@
 //!   send before anything runs there, so a retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
 //!   to the machine the App just made for it, and makes it the workspace's
-//!   unless another workspace already has it.
+//!   when the workspace has none yet and no other workspace has it.
 //! - `copy --key K --account A --machine ID --socket PATH --local ROOT
 //!   [--subpath SUB] --work-root R...`: copies ROOT to a folder of the send's
 //!   own on the machine (`cmux link sync push`), trying each work root in
@@ -209,9 +209,7 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
             pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one,
             // and a machine another workspace has never becomes this one's too.
-            if let Some(workspace) = workspace
-                && pins.workspace_machine(workspace, &request.account).is_none()
-            {
+            if let Some(workspace) = workspace {
                 pick::claim(pins, workspace, &request.account, id);
             }
         }
@@ -234,8 +232,8 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
 }
 
 /// `pin`: the send `key` of `account` runs on `machine` (one the App just made
-/// for it), which is the Mac workspace `workspace`'s own from now on, unless
-/// another workspace already has it.
+/// for it), which is the Mac workspace `workspace`'s own from now on when the
+/// workspace has none yet and no other workspace has it ([`pick::claim`]).
 pub(super) fn pin(
     ledger: &Path,
     key: &str,

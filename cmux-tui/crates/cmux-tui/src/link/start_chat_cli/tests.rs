@@ -27,7 +27,6 @@ fn machine(id: &str, title: &str) -> Candidate {
         created_by: Some(ME.into()),
         status: "running".into(),
         connected: true,
-        ..Candidate::default()
     }
 }
 
@@ -873,9 +872,21 @@ fn plan_and_pin_keep_each_workspaces_machine_across_a_relaunch() {
     let relaunched = Ledger::update(&path, |pins| pins.clone()).unwrap();
     assert_eq!(relaunched.workspace_machine("ws-a", ACCOUNT).as_deref(), Some("vm-a"));
     assert_eq!(relaunched.workspace_machine("ws-b", ACCOUNT).as_deref(), Some("vm-b"));
-    // A retry of the first send stays on vm-a, but never takes ws-a back from the machine
-    // that replaced it.
-    assert_eq!(pin(&path, &key(), ACCOUNT, "vm-c", Some("ws-a"))["ok"], json!(true));
+    // Router review at 6b62dda: two first sends of one workspace that both planned a new
+    // machine race to pin; the first pin wins and the later machine keeps only its send.
+    let racing = key();
+    assert_eq!(pin(&path, &racing, ACCOUNT, "vm-race", Some("ws-a"))["ok"], json!(true));
+    let raced = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(raced.workspace_machine("ws-a", ACCOUNT).as_deref(), Some("vm-a"));
+    assert_eq!(raced.machine(&send(&racing)).as_deref(), Some("vm-race"));
+    // vm-a fails: ws-a's next send gets a new machine, vm-c, which becomes its own. A retry
+    // of the first send then stays on vm-a (still listed) but never takes ws-a back.
+    let failed = json!([
+        {"id": "vm-a", "title": "cloud-chats", "created_by": ME, "status": "failed", "connected": false},
+    ]);
+    let third = key();
+    assert_eq!(plan(&path, &request(&third, "ws-a", &failed))["machine"], Value::Null);
+    assert_eq!(pin(&path, &third, ACCOUNT, "vm-c", Some("ws-a"))["ok"], json!(true));
     assert_eq!(plan(&path, &request(&first, "ws-a", &listed))["machine"], json!("vm-a"));
     let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
     assert_eq!(kept.workspace_machine("ws-a", ACCOUNT).as_deref(), Some("vm-c"));
