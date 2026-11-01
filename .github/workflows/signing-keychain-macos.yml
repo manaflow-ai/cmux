@@ -55,7 +55,7 @@ jobs:
   # that cannot be read (new branch, too many files, API error) runs it.
   real-import-plan:
     name: Does the keychain tool change?
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -127,7 +127,7 @@ jobs:
   # proves this bash rejects the construct that broke nightly-next.
   bash32-syntax:
     name: scripts/ci parse under /bin/bash 3.2
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 10
     permissions:
       contents: read

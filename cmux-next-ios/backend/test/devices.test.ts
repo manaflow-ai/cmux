@@ -1,7 +1,7 @@
 import { exportPKCS8, generateKeyPair, decodeProtectedHeader } from "jose"
 import { describe, expect, it } from "vitest"
 import { env } from "cloudflare:workers"
-import { apnsPayload, apnsRequest, clean, collapseId, sendApns, turnPushKey } from "../src/push.ts"
+import { apnsPayload, apnsRequest, clean, collapseId, sendApns, sendCloudAttention, turnPushKey } from "../src/push.ts"
 import { userHubName, type TeamHub } from "../src/team-hub.ts"
 import type { PushRegistration } from "../src/store.ts"
 import { call, connect, PROD_PROJECT, register, token } from "./helpers.ts"
@@ -188,5 +188,44 @@ describe("APNs payload and sender", () => {
     expect(seen[0]!.headers.get("apns-collapse-id")).toBe("e1")
     const jwt = seen[0]!.headers.get("authorization")!.slice(7)
     expect(decodeProtectedHeader(jwt)).toMatchObject({ alg: "ES256", kid: "KEY123" })
+  })
+
+  it("sends Cloud attention with routing metadata only", async () => {
+    const { privateKey } = await generateKeyPair("ES256", { extractable: true })
+    const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEY456", teamId: "TEAM456" }
+    const target: PushRegistration = {
+      deviceId: "phone",
+      ownerUserId: "owner",
+      token: "cc".repeat(32),
+      environment: "sandbox",
+      topic: "dev.cmux.mobile",
+      kinds: ["question"],
+      mutedMacs: [],
+      previews: true,
+      updatedAt: "",
+    }
+    let received: Record<string, unknown> | undefined
+    let receivedRequest: Request | undefined
+    const fetcher = (async (req: Request) => {
+      receivedRequest = req
+      received = JSON.parse(await req.text()) as Record<string, unknown>
+      return new Response(null, { status: 200, headers: { "apns-id": "safe-id" } })
+    }) as unknown as typeof fetch
+    const result = await sendCloudAttention(config, [target], {
+      recipient: "owner",
+      kind: "question",
+      event_id: "attention-1",
+      team_id: "team-1",
+      machine_id: "vm_abcdefghijklmnopqrst",
+      session_id: "session-1",
+      deep_link: "cmux://cloud/chat/vm_abcdefghijklmnopqrst/session-1",
+    }, 1_700_000_000_000, fetcher)
+    expect(result[0]).toMatchObject({ outcome: "sent", status: 200, apns_id: "safe-id" })
+    expect(receivedRequest!.headers.get("apns-collapse-id")).toMatch(/^[0-9a-f]{64}$/)
+    expect(received).toMatchObject({
+      aps: { category: "CLOUD_QUESTION", sound: "default", alert: { title: "Cloud chat has a question" } },
+      cmux: { cloud: { event_id: "attention-1", team_id: "team-1", machine_id: "vm_abcdefghijklmnopqrst", session_id: "session-1" } },
+    })
+    expect(JSON.stringify(received)).not.toContain("owner")
   })
 })

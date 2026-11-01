@@ -19,6 +19,7 @@ import itertools
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -324,6 +325,20 @@ class TrustedRoute(unittest.TestCase):
         self.assertEqual(selector, "")
 
 
+class NightlyOnlyBuilderRoute(unittest.TestCase):
+    def test_builder_only_while_a_runner_carrying_it_is_idle(self) -> None:
+        builder, plain = picker.NIGHTLY_ONLY_BUILDER_LABEL, picker.NIGHTLY_ONLY_LABEL
+
+        def runner(status: str = "online", busy: bool = False, *labels: str) -> dict:
+            return {"status": status, "busy": busy, "labels": [{"name": label} for label in labels or (plain, builder)]}
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(busy=True), runner()])[0], builder)
+        for label, runners in ((builder, [runner(busy=True)]), (builder, [runner("offline")]),
+                               (builder, [runner("online", False, plain)]), (builder, None),
+                               ("", [runner()]), (plain, [runner()]), ("glaeda-unregistered", [runner()])):
+            with self.subTest(label=label, runners=runners):
+                self.assertEqual(picker.nightly_only_builder_route(label, plain, runners)[0], plain)
+
+
 class BlacksmithRoute(unittest.TestCase):
     def test_the_moving_label_is_picked(self) -> None:
         self.assertEqual(picker.blacksmith_route(LARGE, snapshot({LARGE: 90}), NOW)[0], SMALL)
@@ -526,6 +541,17 @@ class Main(unittest.TestCase):
                             read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
         self.assertEqual(out, {"owned": SIDE})
 
+    def test_the_verify_mode_queues_unread_runners_on_the_owned_pool(self) -> None:
+        # Run 41335987427: every routing-App read got a 403 rate limit, and the verify jobs went blind to
+        # blacksmith-6vcpu-macos-26. A refused read is not "no owned runners": with the opt-in they queue on
+        # the first watched owned pool; without it they keep Blacksmith.
+        def broken(token: str, repo: str):
+            raise OSError("HTTP 403: API rate limit exceeded for installation")
+        out = self.run_main({"UNREAD_OWNED_FALLBACK": "1"}, argv=("verify",), read_runners=broken, read_snapshot=broken)
+        self.assertEqual(out, {"owned": SIDE})
+        out = self.run_main({}, argv=("verify",), read_runners=broken, read_snapshot=broken)
+        self.assertEqual(out, {"owned": ""})
+
     def test_every_blacksmith_label_stalled_queues_on_the_busy_owned_pool(self) -> None:
         # Run 40622241620 (2026-10-28): build-nightly-app waited 15 min on a stalled Blacksmith label
         # while the owned nightly slots took the next two tips.
@@ -567,18 +593,24 @@ class Main(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_only_the_rescued_build_pick_opts_into_the_unread_owned_fallback(self) -> None:
-        # nightly.yml's build pick: on only while the CI_PR_POOL_OWNED kill switch is on (the rescue watches it).
+    def test_only_the_nightly_build_and_verify_picks_opt_into_the_unread_owned_fallback(self) -> None:
+        # nightly.yml's build pick and the sign picker's verify pick (run 41335987427): on only while the
+        # CI_PR_POOL_OWNED kill switch is on.
         import yaml  # noqa: PLC0415
-        steps = DOC["jobs"]["pick-nightly-build-runner"]["steps"]
-        pick = next(step for step in steps if step.get("id") == "pick")
-        flag = pick["env"]["UNREAD_OWNED_FALLBACK"].removeprefix("${{").removesuffix("}}")
-        # And only while the rescue runs (ci-owned-pool-rescue.yml: CI_OWNED_POOL_RESCUE unset or not '0').
-        for owned_on, rescue_on, want in (("1", "", "1"), ("1", "1", "1"), ("1", "0", ""), ("0", "", ""),
-                                          ("", "", ""), ("0", "1", "")):
-            with self.subTest(owned_on=owned_on, rescue_on=rescue_on):
-                context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
-                self.assertEqual(evaluate(parse_expression(flag), context) or "", want)
+        picks = {"pick-nightly-build-runner": "pick", "pick-nightly-sign-runner": "owned"}
+        for job, step_id in picks.items():
+            steps = DOC["jobs"][job]["steps"]
+            pick = next(step for step in steps if step.get("id") == step_id)
+            flag = pick["env"]["UNREAD_OWNED_FALLBACK"].removeprefix("${{").removesuffix("}}")
+            # And only while the rescue runs (ci-owned-pool-rescue.yml: CI_OWNED_POOL_RESCUE unset or not '0').
+            for owned_on, rescue_on, want in (("1", "", "1"), ("1", "1", "1"), ("1", "0", ""), ("0", "", ""),
+                                              ("", "", ""), ("0", "1", "")):
+                with self.subTest(job=job, owned_on=owned_on, rescue_on=rescue_on):
+                    context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
+                    self.assertEqual(evaluate(parse_expression(flag), context) or "", want)
+        # The signing pick (signing_runner.py owned) never takes it: its exclusive claim needs a pinned runner.
+        sign = next(step for step in DOC["jobs"]["pick-nightly-sign-runner"]["steps"] if step.get("id") == "sign-owned")
+        self.assertNotIn("UNREAD_OWNED_FALLBACK", sign.get("env") or {})
         # nightly-next-train.yml has no owned-pool rescue, so its pick never sets it.
         train = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly-next-train.yml").read_text())
         for step in train["jobs"]["pick-train-runner"]["steps"]:
@@ -756,5 +788,26 @@ class Workflow(unittest.TestCase):
                     self.assertEqual(bool(evaluate(parse_expression(marker["if"]), context)), wanted)
 
 
+class BuilderReadDeadline(unittest.TestCase):
+    def test_a_slow_builder_read_takes_the_plain_label_within_the_deadline(self):
+        import time as _time
+        def slow(_token, _repo):
+            _time.sleep(5)
+            return [{"status": "online", "busy": False, "labels": [{"name": picker.NIGHTLY_ONLY_BUILDER_LABEL}]}]
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch) / "output"
+            env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ATTEMPT": "1",
+                   "GITHUB_REF": "refs/heads/nightly-next", "GITHUB_EVENT_NAME": "push",
+                   "NIGHTLY_ONLY_LABEL": picker.NIGHTLY_ONLY_LABEL,
+                   "NIGHTLY_ONLY_BUILDER_LABEL": picker.NIGHTLY_ONLY_BUILDER_LABEL,
+                   "ROUTE_TOKEN": "token", "GITHUB_OUTPUT": str(out)}
+            with mock.patch.object(picker, "BUILDER_READ_SECONDS", 0.2):
+                started = _time.monotonic()
+                self.assertEqual(picker.main(env, read_runners=slow), 0)
+                self.assertLess(_time.monotonic() - started, 2)
+            self.assertIn(f"owned={picker.NIGHTLY_ONLY_LABEL}\n", out.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
+

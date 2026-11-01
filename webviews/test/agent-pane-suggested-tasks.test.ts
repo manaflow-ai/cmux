@@ -618,7 +618,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
-      expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(26);
+      expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");

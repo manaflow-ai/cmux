@@ -374,6 +374,9 @@ public final class TabStripView: NSView {
         closingWatch.end()
         closingModeWidth = nil
         menuTracking.end()
+        _ = newTabHold.end()
+        pressedNewTab = false
+        newTabButton.isPressed = false
         buttonReveal.pointerInStrip = false
     }
 

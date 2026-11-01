@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # nightly.yml publish-nightly: "Record nightly publication marker outcome". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# nightly-next: the feed on R2 is the publication; publish-nightly-next-github
+# moves the tag afterwards, off the feed's path.
 set -euo pipefail
 if [ "$TAG_MOVE_OUTCOME" = "success" ] && [ "$CHANNEL_RELEASE_TAG" = nightly-next ]; then
   if [ "${NEXT_FEED_CURRENT:-false}" != true ]; then
