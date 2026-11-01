@@ -73,11 +73,15 @@ async fn activity_parent_keeps_lineage_precedence_expiry_and_one_level_visibilit
         ),
         (json!({"lineage": lineage}), json!({"tags": {"spawnedBy": {"value": "missing"}}}), false),
     ];
-    for (child, parent, listed) in cases {
+    for (index, (child, parent, listed)) in cases.into_iter().enumerate() {
         let hub = hub(vec![row("child", child.clone()), row("root", parent.clone())]);
         let session = hub.resolve("child").unwrap();
         let expected = listed.then(|| "root".to_owned());
-        assert_eq!(hub.spawned_by_session(&session), expected, "child={child}, parent={parent}");
+        assert_eq!(
+            hub.spawned_by_session(&session),
+            expected,
+            "case {index}, child={child}, parent={parent}"
+        );
         assert_eq!(hub.spawned_by(&session.meta()), expected);
         assert_eq!(
             hub.chat_activity_fields(&session)["parent"],
