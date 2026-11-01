@@ -596,14 +596,15 @@ impl Pacer {
             // A busy host can briefly take seconds to build a list. Keeping that build's
             // absolute-time debt after the next cheap build made a 15 s window impose
             // nearly a minute of sleep: the burst allowance had already shrunk. Preserve
-            // the number of lists owed when the cost falls. A cost increase applies to
-            // new reservations only; it must not lengthen work already admitted.
+            // the number of lists owed in both directions. Discounting falls but not
+            // charging rises would forgive debt on every oscillation, removing pacing.
+            // Previously returned reservation sleeps are not rescheduled.
             self.ahead_to = self.ahead_to.map(|to| {
                 let remaining = to.saturating_duration_since(now);
                 let scaled = if self.period.is_zero() {
                     Duration::ZERO
                 } else {
-                    remaining.mul_f64((period.as_secs_f64() / self.period.as_secs_f64()).min(1.0))
+                    remaining.mul_f64(period.as_secs_f64() / self.period.as_secs_f64())
                 };
                 now + scaled
             });

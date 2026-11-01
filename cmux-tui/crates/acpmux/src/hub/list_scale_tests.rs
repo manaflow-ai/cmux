@@ -22,17 +22,41 @@ async fn cheaper_builds_do_not_inherit_the_slow_builds_time_debt() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn slower_builds_do_not_lengthen_already_admitted_debt() {
+async fn rising_and_falling_costs_preserve_outstanding_work() {
     let now = Instant::now();
     let fast = Duration::from_millis(100);
     let slow = Duration::from_secs(15);
     let mut pace = Pacer::default();
     pace.spend(now, fast, fast);
-    assert_eq!(pace.wait(now, Duration::ZERO, slow), fast);
+    assert_eq!(pace.wait(now, Duration::ZERO, slow), slow);
     pace.spend(now, slow, slow);
-    assert_eq!(pace.wait(now, Duration::ZERO, slow), slow + fast);
-    tokio::time::advance(slow + fast).await;
+    assert_eq!(pace.wait(now, Duration::ZERO, slow), slow * 2);
+    tokio::time::advance(slow * 2).await;
     assert_eq!(pace.wait(Instant::now(), Duration::ZERO, fast), Duration::ZERO);
+}
+
+#[tokio::test(start_paused = true)]
+async fn oscillating_build_costs_keep_the_sustained_cpu_budget() {
+    let mut pace = Pacer::default();
+    let mut now = Instant::now();
+    let mut window = Duration::ZERO;
+    let mut sleep = Duration::ZERO;
+    let mut work = Duration::ZERO;
+    for n in 0..1_000 {
+        // Same builder pacing and charging as snapshot(), invalidated each time.
+        let wait = pace.wait(now, window * (BURST - 1), window).min(window);
+        sleep += wait;
+        now += wait;
+        let cost = Duration::from_millis(if n % 2 == 0 { 10 } else { 30 });
+        window = cost.saturating_mul(PACE).min(MAX_WINDOW);
+        pace.spend(now, window, window);
+        now += cost;
+        work += cost;
+    }
+    eprintln!("oscillating list cost: {work:?} work, {sleep:?} deliberate sleep");
+    // The former asymmetric repricing admitted all 20 s of work with zero sleep.
+    // Allow the initial burst; sustained work still consumes about 1/32 of a core.
+    assert!(sleep >= work * (PACE - 2), "{work:?} work, {sleep:?} sleep");
 }
 
 #[tokio::test(start_paused = true)]
