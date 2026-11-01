@@ -1,7 +1,7 @@
 {
   "actions" : [
     {
-      "cli" : "guiOnly",
+      "cli" : "offered",
       "cli_name" : "app settings",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -19,7 +19,7 @@
       },
       "id" : "openSettings",
       "main_menu" : "app",
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
@@ -1162,29 +1162,7 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "",
-              "modifiers" : [
-                "ctrl"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "]",
-              "modifiers" : [
-                "ctrl",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -1218,29 +1196,7 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "",
-              "modifiers" : [
-                "ctrl"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "[",
-              "modifiers" : [
-                "ctrl",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -1428,105 +1384,7 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "1",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "2",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "3",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "4",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "5",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "6",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "7",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "8",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "9",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -3448,6 +3306,62 @@
       "palette_suggested" : null,
       "title" : "Move Workspace to Bottom",
       "title_key" : "action.workspace.moveToBottom",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace move-above",
+      "context_menu" : "dragGesture",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.moveAbove",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Workspace Above…",
+      "title_key" : "action.workspace.moveAbove",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace move-below",
+      "context_menu" : "dragGesture",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.moveBelow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Workspace Below…",
+      "title_key" : "action.workspace.moveBelow",
       "title_table" : "WorkspaceActions"
     },
     {
@@ -8892,17 +8806,6 @@
         {
           "keys" : [
             {
-              "key" : "\t",
-              "modifiers" : [
-                "ctrl"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
               "key" : "]",
               "modifiers" : [
                 "shift",
@@ -8944,18 +8847,6 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "\t",
-              "modifiers" : [
-                "ctrl",
-                "shift"
-              ]
-            }
-          ],
-          "when" : null
-        },
         {
           "keys" : [
             {
@@ -11193,6 +11084,62 @@
       "palette_suggested" : null,
       "title" : "Pin\/Unpin Conversation",
       "title_key" : "action.home.togglePin",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home hide",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.hideConversation",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Delete Conversation from List",
+      "title_key" : "action.home.hideConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home show-hidden",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.showHiddenConversations",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Hidden Conversations",
+      "title_key" : "action.home.showHiddenConversations",
       "title_table" : "HomeActions"
     },
     {
@@ -31811,6 +31758,34 @@
       "palette_suggested" : null,
       "title" : "Move Tab to Workspace…",
       "title_key" : "action.tab.moveToWorkspace",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab move-to-space",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.moveToSpace",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Tab to Space…",
+      "title_key" : "action.tab.moveToSpace",
       "title_table" : "LayoutActions"
     },
     {
