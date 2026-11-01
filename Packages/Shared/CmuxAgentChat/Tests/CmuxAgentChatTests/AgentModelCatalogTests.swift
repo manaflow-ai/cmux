@@ -12,7 +12,6 @@ struct AgentModelCatalogTests {
         ("claude-opus-5-5", "Opus 5.5", 1_000_000),
         ("claude-haiku-4-5-20251001", "Haiku 4.5", 200_000),
         ("claude-haiku-4-5@20251001", "Haiku 4.5", 200_000),
-        ("claude-sonnet-5-5", "Sonnet 5.5", 1_000_000),
         ("claude-sonnet-4-5-20250929", "Sonnet 4.5", 200_000),
         ("claude-sonnet-4-5-20250929[1m]", "Sonnet 4.5", 1_000_000),
         ("us.anthropic.claude-opus-4-1-20250805-v1:0", "Opus 4.1", 200_000),
@@ -22,6 +21,16 @@ struct AgentModelCatalogTests {
         #expect(info.displayName == displayName)
         #expect(info.contextWindow == window)
         #expect(info.pricing != nil)
+    }
+
+    /// `sonnet-5-5` is in the 1M-window family list but not yet in
+    /// `claudePrices`; keep it out of the priced rows so their
+    /// `pricing != nil` assertion stays meaningful.
+    @Test func sonnet55HasMillionWindowButNoPrice() throws {
+        let info = try #require(catalog.info(forModelID: "claude-sonnet-5-5"))
+        #expect(info.displayName == "Sonnet 5.5")
+        #expect(info.contextWindow == 1_000_000)
+        #expect(info.pricing == nil)
     }
 
     @Test func familyPrefixesDoNotBorrowAnotherModelsPrice() throws {
