@@ -497,7 +497,6 @@ import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
-import { openCloudEnvironment } from "./cloudEnvironment";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
@@ -12717,7 +12716,7 @@ function AcpmuxPane() {
                         runMode: sandboxModeRows,
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
-                        ...(cloudStart ? { cloudStatus: <CloudStartView start={cloudStart} bubble={false} onOpenEnvironment={openCloudEnvironment} /> } : {}),
+                        ...(cloudStart ? { cloudStatus: <CloudStartView start={cloudStart} bubble={false} /> } : {}),
                         cloudStarting,
                         onCloud: (
                           harness: string,
@@ -13142,7 +13141,7 @@ function AcpmuxPane() {
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : cloudStart && !snapshot.sessionId ? (
-                  <CloudStartView start={cloudStart} onOpenEnvironment={openCloudEnvironment} />
+                  <CloudStartView start={cloudStart} />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
                     run={sandboxView}

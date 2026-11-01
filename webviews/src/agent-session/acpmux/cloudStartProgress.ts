@@ -139,6 +139,14 @@ export function cloudStartPushed(
   }
   const environmentId = line(fields.environmentId ?? fields.environment_id, 128);
   if (environmentId) next.environmentId = environmentId;
+  const directMachineStarted = number(fields.machineStartedAt ?? fields.machine_started_at);
+  const directMachineFinished = number(fields.machineFinishedAt ?? fields.machine_finished_at);
+  const directHarnessStarted = number(fields.harnessStartedAt ?? fields.harness_started_at);
+  const directHarnessFinished = number(fields.harnessFinishedAt ?? fields.harness_finished_at);
+  if (directMachineStarted !== undefined) next.machineStartedAt = directMachineStarted;
+  if (directMachineFinished !== undefined) next.machineFinishedAt = directMachineFinished;
+  if (directHarnessStarted !== undefined) next.harnessStartedAt = directHarnessStarted;
+  if (directHarnessFinished !== undefined) next.harnessFinishedAt = directHarnessFinished;
   const folder = line(fields.folder, 64);
   if (folder && !folder.includes("/")) next.folder = folder;
   const machine = line(fields.machine, 64);

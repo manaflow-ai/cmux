@@ -35,6 +35,10 @@ nonisolated struct CloudMoveCLI: Sendable {
         var seedTotalObjects: Int?
         var environmentStatus: String?
         var environmentLogTail: String?
+        var machineStartedAt: Double?
+        var machineFinishedAt: Double?
+        var harnessStartedAt: Double?
+        var harnessFinishedAt: Double?
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -170,7 +174,11 @@ nonisolated struct CloudMoveCLI: Sendable {
                             seedObjects: object["objects"] as? Int,
                             seedTotalObjects: object["total_objects"] as? Int,
                             environmentStatus: object["environment_status"] as? String,
-                            environmentLogTail: object["environment_log_tail"] as? String)
+                            environmentLogTail: object["environment_log_tail"] as? String,
+                            machineStartedAt: object["machine_started_at"] as? Double ?? object["machineStartedAt"] as? Double,
+                            machineFinishedAt: object["machine_finished_at"] as? Double ?? object["machineFinishedAt"] as? Double,
+                            harnessStartedAt: object["harness_started_at"] as? Double ?? object["harnessStartedAt"] as? Double,
+                            harnessFinishedAt: object["harness_finished_at"] as? Double ?? object["harnessFinishedAt"] as? Double)
         return (answer, object, result.status)
     }
 }

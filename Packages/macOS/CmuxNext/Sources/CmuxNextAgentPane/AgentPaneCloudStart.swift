@@ -208,6 +208,8 @@ extension AgentPaneCloudStart {
                                     cloneState: String? = nil, clonePhase: String? = nil, cloneReceivedBytes: Int? = nil,
                                     cloneObjects: Int? = nil, cloneTotalObjects: Int? = nil, setupStatus: String? = nil,
                                     setupLogTail: String? = nil,
+                                    machineStartedAt: Double? = nil, machineFinishedAt: Double? = nil,
+                                    harnessStartedAt: Double? = nil, harnessFinishedAt: Double? = nil,
                                     to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
@@ -226,9 +228,10 @@ extension AgentPaneCloudStart {
         if let setupStatus { setupFields["status"] = .string(setupStatus) }
         if let setupLogTail { setupFields["log_tail"] = .string(setupLogTail) }
         if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
-        let now = JSONValue.number(Date().timeIntervalSince1970 * 1000)
-        if step == "machine" { value["machineStartedAt"] = now }
-        if step == "folder" { value["machineFinishedAt"] = now; value["clone"] = .object(["state": .string("done")]) }
+        if let machineStartedAt { value["machineStartedAt"] = .number(machineStartedAt) }
+        if let machineFinishedAt { value["machineFinishedAt"] = .number(machineFinishedAt) }
+        if let harnessStartedAt { value["harnessStartedAt"] = .number(harnessStartedAt) }
+        if let harnessFinishedAt { value["harnessFinishedAt"] = .number(harnessFinishedAt) }
         if step == "opening" { value["harnessStartedAt"] = now; value["initialized"] = .bool(true) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
