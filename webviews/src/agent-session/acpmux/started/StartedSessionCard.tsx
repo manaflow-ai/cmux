@@ -6,7 +6,6 @@
 // says what the card would. Behind the `started-session-cards` experiment (startedSessions.ts).
 import { createContext, useContext } from "react";
 import { Icon } from "../icons/Icon";
-import { ArrowUpRight } from "../conversation/icons";
 import { rowIconSize } from "../icons/iconSize";
 import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
@@ -98,8 +97,6 @@ export function StartedSessionChip({
         onClick={() => onOpen(mention.sessionId)}
       >
         {text}
-        {/* The open cue every session link chip carries (AgentTag.tsx). */}
-        <ArrowUpRight size={11} strokeWidth={1.4} className="acpmux-started-cue" />
       </button>
       {card}
     </>

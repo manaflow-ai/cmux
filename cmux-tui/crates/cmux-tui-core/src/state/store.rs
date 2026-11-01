@@ -418,10 +418,7 @@ pub(crate) fn workspace_key_is_ephemeral(
 /// workspace that still carries the flag. Its flag row goes when that
 /// workspace closes, so callers that need the answer after the close keep
 /// it (`OutputStore::mark_private`).
-fn terminal_is_ephemeral(
-    connection: &Connection,
-    terminal_id: &str,
-) -> anyhow::Result<bool> {
+fn terminal_is_ephemeral(connection: &Connection, terminal_id: &str) -> anyhow::Result<bool> {
     if !state_tables_ready(connection)? {
         return Ok(false);
     }

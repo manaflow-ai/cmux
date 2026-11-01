@@ -3,7 +3,7 @@
 // whole line gets highlighted and it's not obvious that clicking on this will be a new thing"), in
 // a real layout (test/browser/session-chip.harness.tsx): on a received message's line and on a
 // sent message's row, the chip's centre is the row icon's centre, it has real padding around its
-// name, it reads as a link (the link colour, an open cue), and pointing at it lights the chip alone:
+// name, it reads as a way to another chat (its own tint, no arrow glyph), and pointing at it lights the chip alone:
 // the line's background and text keep their tone. design/chat-transcript.md "Session link chip".
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -76,7 +76,8 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       const line = document.querySelector<HTMLElement>(row.line)!;
       const icon = document.querySelector<Element>(row.icon)!;
       const label = chip.querySelector(".cv-agent-tag__label")!;
-      const cue = chip.querySelector<SVGElement>(".cv-agent-tag__cue");
+      // Any glyph drawn in the chip (the ↗ it once carried): there is none.
+      const cue = chip.querySelector<SVGElement>("svg");
       const c = chip.getBoundingClientRect();
       const i = icon.getBoundingClientRect();
       const l = label.getBoundingClientRect();
@@ -98,8 +99,8 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
         chipWidth: c.width,
         lineWidth: line.getBoundingClientRect().width,
         insetStart: l.left - c.left,
-        insetEnd: c.right - (cue ? cue.getBoundingClientRect().right : l.right),
-        cue: cue ? Number(getComputedStyle(cue).opacity) : -1,
+        insetEnd: c.right - l.right,
+        cue: chip.querySelectorAll("svg").length + (/↗/.test(chip.textContent ?? "") ? 1 : 0),
         labelCut: label.scrollWidth > label.clientWidth + 0.5,
         chipColor: paint(chipStyle.color),
         chipBackground: paint(chipStyle.backgroundColor),
@@ -138,16 +139,17 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
           expect(rest.chipWidth).toBeLessThan(rest.lineWidth * 0.6);
           // The whole name shows when the line has room for it: never cut beside an empty gap.
           expect(rest.labelCut).toBe(false);
-          // A link: its own colour, apart from the line's words, and the open cue.
+          // A link: its own colour, apart from the line's words, and no arrow glyph (Leo, 2026-11-01:
+          // "nobody asked for that up right arrow").
           expect(rest.chipColor).not.toBe(rest.lineColor);
-          expect(rest.cue).toBeGreaterThan(0);
+          expect(rest.cue).toBe(0);
 
           // Pointing at the chip lights it alone: the line's plate and tone stay as at rest.
           await page.locator(row.chip).hover();
           await capture(page, `${theme}-${kind}-hover-chip`);
           const hover = await measure(page, row);
           expect(hover.chipBackground).not.toBe(rest.chipBackground);
-          expect(hover.cue).toBe(1);
+          expect(hover.cue).toBe(0);
           expect(hover.lineBackground).toBe(rest.lineBackground);
           expect(hover.lineColor).toBe(rest.lineColor);
           expect(hover.preview).toBe(rest.preview);
@@ -166,7 +168,96 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       });
     }
 
-  test("a reply's started-chat chip carries the same open cue", async () => {
+  // Leo, 2026-11-01: "dont do blue by default, theme it". The chip's text, tint and ring are the
+  // theme's own text colour (--cv-text, from the host's --agent-text) at rest and under the pointer,
+  // in light, dark and a non-default theme whose own blue is set (Catppuccin Mocha): never the link
+  // blue. design/chat-transcript.md "Session link chip".
+  const CHIPS = {
+    received: ROWS.received.chip,
+    sent: ROWS.sent.chip,
+    reply: '[data-chip-row="reply"] .acpmux-started-chip',
+  } as const;
+  const chipColours = async (page: Page, selector: string) => {
+    await settled(page);
+    return page.evaluate((selector) => {
+      const chip = document.querySelector<HTMLElement>(selector)!;
+      // The theme's text token as this chip's scope resolves it.
+      const probe = document.createElement("span");
+      probe.style.color = "var(--cv-text)";
+      chip.parentElement!.append(probe);
+      // A computed colour as [r, g, b] in 0-255 and its alpha. Chromium gives rgb(), color(srgb ...)
+      // (any srgb color-mix) or, for an oklab mix such as the link blue, oklab(); the last is read
+      // back off a 1px canvas, which is exact for an opaque colour.
+      const parse = (value: string) => {
+        const colour = /^((?:rgba?|color|oklab|oklch|lab|lch)\([^)]*\))/.exec(value.trim())?.[1];
+        if (!colour) return null;
+        const match = /^(rgba?|color)\((?:srgb\s+)?([^)]*)\)$/.exec(colour);
+        if (match) {
+          const parts = match[2]!
+            .split(/[\s,/]+/)
+            .filter(Boolean)
+            .map(Number);
+          const scale = match[1] === "color" ? 255 : 1;
+          return { rgb: parts.slice(0, 3).map((part) => part * scale), alpha: parts[3] ?? 1 };
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = colour;
+        context.fillRect(0, 0, 1, 1);
+        const [r, g, bl, a] = context.getImageData(0, 0, 1, 1).data;
+        return { rgb: [r!, g!, bl!], alpha: a! / 255 };
+      };
+      const token = getComputedStyle(probe).color;
+      const style = getComputedStyle(chip);
+      const result = {
+        token: parse(token),
+        text: parse(style.color),
+        tint: parse(style.backgroundColor),
+        ring: style.boxShadow === "none" ? null : parse(style.boxShadow),
+      };
+      probe.remove();
+      return result;
+    }, selector);
+  };
+  const sameRgb = (a: { rgb: number[] } | null, b: { rgb: number[] } | null) => {
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    for (const [index, channel] of a!.rgb.entries()) expect(Math.abs(channel - b!.rgb[index]!)).toBeLessThanOrEqual(1);
+  };
+
+  for (const theme of ["dark", "light", "mocha"] as const)
+    for (const [kind, selector] of Object.entries(CHIPS)) {
+      test(`${theme} ${kind}: the session chip takes the theme's text colour, never the link blue`, async () => {
+        const page = await browser.newPage({ viewport: { width: 700, height: 320 }, deviceScaleFactor: 2 });
+        try {
+          const port = (vite.httpServer!.address() as { port: number }).port;
+          await page.emulateMedia({ reducedMotion: "reduce" });
+          await page.goto(`http://127.0.0.1:${port}/test/browser/session-chip.html?theme=${theme}`);
+          await page.locator(selector).waitFor();
+          await page.mouse.move(690, 310);
+          const rest = await chipColours(page, selector);
+          // Its words are the theme's text, its tint and ring a wash of that same colour.
+          sameRgb(rest.text, rest.token);
+          expect(rest.text!.alpha).toBe(1);
+          sameRgb(rest.tint, rest.token);
+          expect(rest.tint!.alpha).toBeGreaterThan(0);
+          if (rest.ring) sameRgb(rest.ring, rest.token);
+
+          // Under the pointer it lifts with a stronger wash of the same token, still no blue.
+          await page.locator(selector).hover();
+          const hover = await chipColours(page, selector);
+          sameRgb(hover.text, hover.token);
+          sameRgb(hover.tint, hover.token);
+          expect(hover.tint!.alpha).toBeGreaterThan(rest.tint!.alpha);
+          if (hover.ring) sameRgb(hover.ring, hover.token);
+        } finally {
+          await page.close();
+        }
+      });
+    }
+
+  test("a reply's started-chat chip carries no arrow glyph", async () => {
     const page = await browser.newPage({ viewport: { width: 700, height: 320 }, deviceScaleFactor: 2 });
     try {
       const port = (vite.httpServer!.address() as { port: number }).port;
@@ -174,13 +265,11 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}/test/browser/session-chip.html?theme=dark`);
       const chip = page.locator('[data-chip-row="reply"] .acpmux-started-chip');
       await chip.waitFor();
-      expect(await chip.locator(".acpmux-started-cue").count()).toBe(1);
+      expect(await chip.locator("svg").count()).toBe(0);
+      expect(await chip.textContent()).not.toContain("↗");
       await chip.hover();
       await settled(page);
       await capture(page, "dark-reply-hover-chip");
-      expect(await chip.locator(".acpmux-started-cue").evaluate((cue) => Number(getComputedStyle(cue).opacity))).toBe(
-        1,
-      );
     } finally {
       await page.close();
     }

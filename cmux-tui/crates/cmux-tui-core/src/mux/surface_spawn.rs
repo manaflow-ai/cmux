@@ -156,21 +156,24 @@ impl Mux {
                 ),
                 None => self.spawn_identity(tab_id, incognito).and_then(|identity| {
                     Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
-                    id,
-                    opts,
-                    Arc::downgrade(self),
-                    crate::surface::HostLaunch {
-                        terminal_id: Some(terminal_id),
-                        // Reopen Closed of an archived terminal (ARCHIVE-1).
-                        seed: &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
-                        // Its first record names the workspace, so the
-                        // recovery mirror below needs no second synced write.
-                        workspace_key,
-                        standby: None,
-                    },
-                    Some(identity),
-                    crate::surface::PtyLifetime::SessionOwned,
-                    cell_pixels,
+                        id,
+                        opts,
+                        Arc::downgrade(self),
+                        crate::surface::HostLaunch {
+                            terminal_id: Some(terminal_id),
+                            // Reopen Closed of an archived terminal (ARCHIVE-1).
+                            seed: &self
+                                .terminal_respawns
+                                .take_seed(&terminal_hex)
+                                .unwrap_or_default(),
+                            // Its first record names the workspace, so the
+                            // recovery mirror below needs no second synced write.
+                            workspace_key,
+                            standby: None,
+                        },
+                        Some(identity),
+                        crate::surface::PtyLifetime::SessionOwned,
+                        cell_pixels,
                     )
                 }),
             };

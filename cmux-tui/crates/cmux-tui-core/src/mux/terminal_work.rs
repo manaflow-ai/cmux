@@ -200,13 +200,8 @@ impl Mux {
             crate::debug_spans::mark("prelaunch.target");
             let cwd = self.new_terminal_cwd(cwd, Some(target), None);
             let workspace_key = self.workspace_key_for_pane(target);
-            let (launch_opts, cell_pixels) = self.terminal_spawn_options_in(
-                cwd,
-                command,
-                size,
-                &env,
-                workspace_key.as_deref(),
-            );
+            let (launch_opts, cell_pixels) =
+                self.terminal_spawn_options_in(cwd, command, size, &env, workspace_key.as_deref());
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);
             }
@@ -255,7 +250,9 @@ impl Mux {
             debug_assert!(host.terminal_id() == terminal_id);
             // An incognito terminal is private before its first byte; a
             // normal one is known normal before its registry row exists.
-            if let (Some(key), Some(public_id)) = (workspace_key.as_deref(), host.terminal_public_id()) {
+            if let (Some(key), Some(public_id)) =
+                (workspace_key.as_deref(), host.terminal_public_id())
+            {
                 if self.workspace_key_is_ephemeral(key) {
                     self.output_store.mark_private(public_id);
                 } else {

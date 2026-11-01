@@ -28,6 +28,7 @@ import { recordedPromptParts } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+import { SourceBadge, useSourceLabel, withSourceLabel } from "../composer/SourceBadge";
 import {
   ForkButton,
   forkWithFeedback,
@@ -341,6 +342,8 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
+  // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
+  const from = useSourceLabel(image.source);
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
@@ -377,18 +380,26 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       }}
     />
   );
-  if (!openImage) return thumbnail;
-  return (
+  const opened = openImage ? (
     <button
       type="button"
       /* The image drags out as a file (conversation/dragOut.ts). */
       draggable
-      /* tooltip-allow: an image thumbnail shows no name */ title={label}
+      /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}
       aria-label={label || t("image.view")}
       onClick={() => openImage(src, label)}
     >
       {thumbnail}
     </button>
+  ) : (
+    thumbnail
+  );
+  if (!image.source) return opened;
+  return (
+    <span className="cv-user__sourced">
+      {opened}
+      <SourceBadge source={image.source} />
+    </span>
   );
 });
 

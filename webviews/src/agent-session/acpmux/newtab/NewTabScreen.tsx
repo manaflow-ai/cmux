@@ -2001,7 +2001,7 @@ export function NewTabScreen(props: Props) {
     ? undefined
     : (environment?.kind === "ssh" ? environment.host : undefined) || machine?.peer || props.machineName;
   // The folder askChat starts in: the saved environment's, else the picked machine's, else askFolder.
-  const headlineFolder = environment ? environment.folder : machine ? machine.folder : askFolder;
+  const headlineFolder = none ? undefined : environment ? environment.folder : machine ? machine.folder : askFolder;
   const headline =
     widgets.has("greeting") &&
     frame(

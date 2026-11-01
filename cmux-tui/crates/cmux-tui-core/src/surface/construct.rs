@@ -275,7 +275,8 @@ impl Surface {
         };
         let pty = cmux_pty::open(initial_geometry.pty_size())?;
 
-        let launch = crate::shell_integration::shell_launch(opts.command.clone(), opts.extra_env.clone());
+        let launch =
+            crate::shell_integration::shell_launch(opts.command.clone(), opts.extra_env.clone());
         let argv = launch.command;
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
