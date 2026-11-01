@@ -353,3 +353,34 @@ fn a_terminal_with_no_registry_row_reads_as_incognito() {
     assert!(!mux.output_store.keeps_screen(&mux, &unknown));
     mux.shutdown();
 }
+
+/// A normal terminal is known normal from its spawn, before its registry row
+/// is committed: its first commands and output are kept even while the
+/// registry cannot answer.
+#[test]
+fn a_normal_terminal_is_known_normal_from_its_spawn() {
+    let session = Session::new("incognito-known-normal");
+    let mux = session.open();
+    let (_, key) = workspace(&mux, "normal", "terminal", false);
+    let terminal = terminals_of(&mux, &key).pop().expect("a terminal");
+    let public = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .terminal_resource_id(&terminal)
+        .unwrap()
+        .expect("a public terminal id");
+    // The registry cannot answer, as before the row is committed.
+    mux.read_registry_state(|connection| {
+        connection.execute_batch("ALTER TABLE resource_terminals RENAME TO resource_terminals_hidden;")?;
+        Ok(())
+    })
+    .unwrap();
+    assert!(!mux.output_store.is_private(&mux, &public), "a spawned normal terminal is known normal");
+    mux.read_registry_state(|connection| {
+        connection.execute_batch("ALTER TABLE resource_terminals_hidden RENAME TO resource_terminals;")?;
+        Ok(())
+    })
+    .unwrap();
+    mux.shutdown();
+}
