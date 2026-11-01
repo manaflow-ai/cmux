@@ -28,3 +28,33 @@ nonisolated struct PhaseTimer: Sendable {
         }
     }
 }
+
+/// Speed triage only: prints each main-queue stall over 500 ms while it runs, as
+/// `phase-timing stall LABEL TEST main-blocked-ms N at-s T` (a thread pings the main queue every 100 ms).
+nonisolated final class MainStallWatch: @unchecked Sendable { // the flag is read and written under `lock`
+    private let lock = NSLock()
+    private var running = true
+
+    init(_ label: String) {
+        let test = Test.current?.name ?? "?"
+        let start = DispatchTime.now()
+        Thread.detachNewThread { [self] in
+            while isRunning {
+                let sent = DispatchTime.now()
+                let answered = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async { answered.signal() }
+                answered.wait()
+                let blocked = Double(DispatchTime.now().uptimeNanoseconds - sent.uptimeNanoseconds) / 1e6
+                if blocked > 500 {
+                    let at = Double(sent.uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
+                    FileHandle.standardError.write(Data("phase-timing stall \(label) \(test) main-blocked-ms \(Int(blocked)) at-s \((at * 10).rounded() / 10)\n".utf8))
+                }
+                _ = DispatchSemaphore(value: 0).wait(timeout: .now() + .milliseconds(100))
+            }
+        }
+    }
+
+    private var isRunning: Bool { lock.withLock { running } }
+
+    func stop() { lock.withLock { running = false } }
+}

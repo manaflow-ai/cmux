@@ -253,6 +253,8 @@ struct PinnedPageTests {
     static func withApp(heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp?.sendEvent(event) },
                         _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let timer = PhaseTimer("pinned")
+        let stalls = MainStallWatch("pinned")
+        defer { stalls.stop() }
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pinned-\(UUID().uuidString.prefix(8))")
         var reaped = false
