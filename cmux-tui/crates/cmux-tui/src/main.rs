@@ -2635,6 +2635,10 @@ fn run_server(
     acp::install_daemon_acpmux(&mux, &socket_path);
     #[cfg(unix)]
     mux.set_agent_start_host(agent_start_host::source());
+    #[cfg(unix)]
+    mux.set_cloud_turn_config(cmux_tui_core::server::CloudTurnConfig::from_lookup(|key| {
+        std::env::var(key).ok()
+    }));
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);

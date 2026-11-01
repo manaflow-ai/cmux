@@ -168,6 +168,7 @@ pub(super) struct Fixture {
     /// most [`WAIT`], or until its sender is gone).
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    pub(super) turn_prepare_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
 
 fn serve(
@@ -186,6 +187,25 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "agent-session-turn-prepare" => {
+                let answer = json!({"session":SESSION,"turn":"turn_1"});
+                if let Some(gate) = fixture.turn_prepare_gate.clone() {
+                    let mut delayed = writer.try_clone().unwrap();
+                    let id = id.clone();
+                    std::thread::spawn(move || {
+                        let _ = gate.lock().unwrap().recv_timeout(WAIT);
+                        let _ = writeln!(
+                            delayed,
+                            "{}",
+                            json!({"jsonrpc":"2.0","id":id,"result":answer})
+                        );
+                    });
+                    None
+                } else {
+                    Some(answer)
+                }
+            }
+            "agent-session-turn-abandon" => Some(json!({"abandoned":true})),
             "_acpmux/attach" => {
                 if let Some(gate) = &fixture.attach_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
@@ -583,6 +603,7 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
 include!("agent_session_observe_tests.rs");
 include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
+include!("agent_session_turn_tests.rs");
 
 // MARK: Capability and trust
 
