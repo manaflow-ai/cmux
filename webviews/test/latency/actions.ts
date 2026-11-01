@@ -1202,5 +1202,7 @@ export const PAGES: LatencyPageSpec[] = [
   RAIL_DRAG_PAGE,
   RAIL_POINTER_PAGE,
   ...RAIL_SWEEP_PAGES,
-  ...GLASS_PAGES,
+  // Experiment comparisons (design/glass.md, design/motion-and-polish.md in leo-workspace): run on
+  // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
 ];
