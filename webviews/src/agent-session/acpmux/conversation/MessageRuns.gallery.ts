@@ -36,7 +36,12 @@ function work(): AcpmuxRow[] {
       ],
       9,
     ),
-    received("opus-ui-verify", "Merged (3) cmux#30265, the real-shaped fixtures, as 03b289c3, a squash pinned to its head.", 8.5, "claude"),
+    received(
+      "opus-ui-verify",
+      "Merged (3) cmux#30265, the real-shaped fixtures, as 03b289c3, a squash pinned to its head.",
+      8.5,
+      "claude",
+    ),
     row("compaction", 8.4, { compaction: { state: "completed", preTokens: 369_000, postTokens: 24_000 } }),
     activity(
       [
@@ -114,9 +119,6 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 520, normal: 760, wide: 900 },
-  covers: [
-    "agent-session/acpmux/conversation/MessageRunLine.tsx",
-    "agent-session/acpmux/conversation/messageRuns.ts",
-  ],
+  covers: ["agent-session/acpmux/conversation/MessageRunLine.tsx", "agent-session/acpmux/conversation/messageRuns.ts"],
   variants,
 });

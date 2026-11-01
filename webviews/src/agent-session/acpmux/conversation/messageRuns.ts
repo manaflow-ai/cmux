@@ -31,7 +31,14 @@ const isSend = (group: ToolGroup) =>
 const isReceivedLine = (row: AcpmuxRow) => row.kind === "user" && isLineRow(row) && !isWaitingMessage(row);
 
 /// What one member adds to its run's line, or undefined for a row that ends the run.
-type Member = { lines: number; sent: number; received: number; work: AcpmuxActivity[]; failed: number; running: boolean };
+type Member = {
+  lines: number;
+  sent: number;
+  received: number;
+  work: AcpmuxActivity[];
+  failed: number;
+  running: boolean;
+};
 
 function member(row: AcpmuxRow): Member | undefined {
   if (row.kind === "compaction")
@@ -106,13 +113,17 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
       failed: parts.reduce((sum, part) => sum + part.failed, 0),
       running: parts.some((part) => part.running),
       // A folded copy of an edit run is drawn under its source row's id and a suffix (turns.ts FOLDED).
-      rows: members.flatMap((row) => [row.id, ...(row.id.endsWith(":fold") ? [row.id.slice(0, -5)] : []), ...(row.joined ?? [])]),
+      rows: members.flatMap((row) => [
+        row.id,
+        ...(row.id.endsWith(":fold") ? [row.id.slice(0, -5)] : []),
+        ...(row.joined ?? []),
+      ]),
     };
     out.push({
       id,
       // Moves with every member's version and the open state: the memoized line and the height
       // cache compare versions only.
-      version: (members.reduce((sum, row) => (sum * 31 + row.version) % 1_000_003, members.length) * 2 + (open ? 1 : 0)),
+      version: members.reduce((sum, row) => (sum * 31 + row.version) % 1_000_003, members.length) * 2 + (open ? 1 : 0),
       at: first.at,
       kind: MESSAGE_RUN,
       foldOpen: open,
@@ -140,7 +151,8 @@ export function openMessageRuns(rows: readonly AcpmuxRow[], start: number, end: 
 
 /// The message-run line among `drawn` that folds the row `rowId` away, so Find or a link opens it.
 export function messageRunFoldFor(drawn: readonly AcpmuxRow[], rowId: string): string | undefined {
-  for (const row of drawn) if (row.kind === MESSAGE_RUN && !row.foldOpen && row.messageRun?.rows.includes(rowId)) return row.id;
+  for (const row of drawn)
+    if (row.kind === MESSAGE_RUN && !row.foldOpen && row.messageRun?.rows.includes(rowId)) return row.id;
   return undefined;
 }
 

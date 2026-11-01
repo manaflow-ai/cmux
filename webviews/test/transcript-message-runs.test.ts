@@ -35,7 +35,12 @@ const activity = (items: AcpmuxActivity[], id?: string) =>
   row("activity", { ...(id && { id }), items, toolCount: items.length });
 /// Another agent's message that came in while the turn ran (a steer into it).
 const received = (name: string, text: string, id: string) =>
-  row("user", { id, text: "", continues: true, incoming: { kind: "message", message: { name, sessionId: name, text, raw: text } } });
+  row("user", {
+    id,
+    text: "",
+    continues: true,
+    incoming: { kind: "message", message: { name, sessionId: name, text, raw: text } },
+  });
 
 /// A finished turn shaped like Leo's screenshot: sends, a read and another send in one run, a
 /// subagent's report, a compaction, then a command and a read, two more sends and a read.
@@ -81,7 +86,12 @@ test("a finished Claude turn's run of sends, another agent's line and a compacti
   for (const member of ["run-1", "report", "compacted", "run-2"]) expect(ids(view)).not.toContain(member);
   expect(lines[0]!.messageRun?.rows).toEqual(expect.arrayContaining(["run-1", "report", "compacted", "run-2"]));
   // The prompt, the line, then the answer and the footer: the answer stays last.
-  expect(view.map((row) => row.kind)).toEqual(["user", MESSAGE_RUN, "assistant", "turnSummary"]);
+  expect(view.map((row) => row.kind).filter((kind) => kind !== "date")).toEqual([
+    "user",
+    MESSAGE_RUN,
+    "assistant",
+    "turnSummary",
+  ]);
 });
 
 test("the line opens on click to the rows exactly as they drew before", () => {

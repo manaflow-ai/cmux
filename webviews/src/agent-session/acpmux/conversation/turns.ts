@@ -515,7 +515,18 @@ function shapedTurn(
     }
   }
   if (!live)
-    shapedTurns.set(user, { source, open, background, messageRuns, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
+    shapedTurns.set(user, {
+      source,
+      open,
+      background,
+      messageRuns,
+      last,
+      clockOffset,
+      dated,
+      liveRuns,
+      agentFamily,
+      rows: shaped,
+    });
   return shaped;
 }
 
@@ -1464,19 +1475,23 @@ export function openViewTurnFold(
   return next;
 }
 
+/// The fold that keeps `rows[index]` out of `drawn`: a message run's closed line that holds it
+/// (messageRuns.ts), else its turn's (``turnFoldFor``). Find, a link and a running line's count open it.
+export function hiddenRowFold(
+  rows: readonly AcpmuxRow[],
+  drawn: readonly AcpmuxRow[],
+  index: number,
+): string | undefined {
+  const row = rows[index];
+  return (row && messageRunFoldFor(drawn, row.id)) ?? turnFoldFor(rows, index);
+}
+
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
 /// of the message's rows the transcript already draws, else its first row and the "Worked for" fold
 /// that hides it. A tool call ends the reply it interrupts, so one message is several rows and only
 /// a turn's last one stays outside the fold: a link to a message that worked lands on a folded row,
 /// and the fold has to open before the transcript can scroll to it. Undefined when the chat's rows
 /// hold none of `messageRows` (another machine's transcript, or history not loaded yet).
-/// The fold that keeps `rows[index]` out of `drawn`: a message run's closed line that holds it
-/// (messageRuns.ts), else its turn's (``turnFoldFor``). Find, a link and a running line's count open it.
-export function hiddenRowFold(rows: readonly AcpmuxRow[], drawn: readonly AcpmuxRow[], index: number): string | undefined {
-  const row = rows[index];
-  return (row && messageRunFoldFor(drawn, row.id)) ?? turnFoldFor(rows, index);
-}
-
 export function messageRevealTarget(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
