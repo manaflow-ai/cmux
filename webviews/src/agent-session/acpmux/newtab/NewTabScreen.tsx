@@ -338,9 +338,7 @@ export function NewTabScreen(props: Props) {
   const [carried] = useState(() => props.takeDraft?.());
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
-  const untouchedText = useRef(
-    (location ?? "").replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n"),
-  );
+  const untouchedText = useRef((location ?? "").replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n"));
   const [text, setText] = useState(carried?.text || untouchedText.current);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
