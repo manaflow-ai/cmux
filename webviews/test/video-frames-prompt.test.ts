@@ -10,8 +10,9 @@ import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpm
 import { intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
 import { isVideoAttachment, parseVideoInfo } from "../src/agent-session/acpmux/composer/videoAttachments";
 import {
+  frameTextOf,
   frameTime,
-  isFrameText,
+  rowImageNames,
   withoutFramesNotes,
   withoutVideoFrames,
 } from "../src/agent-session/acpmux/composer/videoPrompt";
@@ -143,7 +144,9 @@ test("a chat whose agent takes no images gets the video's link without its frame
   const blocks = prompts[0]!.prompt as Block[];
   expect(blocks.some((block) => block.type === "resource_link")).toBe(true);
   expect(blocks.some((block) => block.type === "image")).toBe(false);
-  expect(blocks.some((block) => block.type === "text" && isFrameText(block.text!))).toBe(false);
+  expect(blocks.some((block) => block.type === "text" && /Frames from the video| frame at /.test(block.text!))).toBe(
+    false,
+  );
 });
 
 test("a video the host could not read goes as its link, as before", async () => {
@@ -184,7 +187,7 @@ test("the sent bubble leaves out the frames and the note acpmux echoes, and keep
   expect(shown.images?.map((image) => image.name)).toEqual(["Screenshot.png"]);
   expect(shown.inlineParts?.map((part) => part.kind)).toEqual(["text", "file"]);
   // A person's own line that only looks like it, mid-text, stays.
-  expect(withoutFramesNotes(`${note}\nand this`)).toBe(`${note}\nand this`);
+  expect(withoutFramesNotes(`${note}\nand this`, frameTextOf(rowImageNames(row)))).toBe(`${note}\nand this`);
 });
 
 test("a picked frame where a scene starts says so in its label", async () => {
@@ -204,6 +207,7 @@ test("a video placed mid-text: its note and labels leave Copy and Edit wherever 
     at: 0,
     kind: "user",
     text: `before\n${note}\nclip.mov frame at 0:01.0 (new scene)\nafter`,
+    images: [{ id: "e".repeat(64), mimeType: "image/jpeg", name: "clip.mov frame at 0:01.0" }],
   } as AcpmuxRow;
   expect(withoutVideoFrames(row).text).toBe("before\nafter");
   // With paste ranges, only the last lines go: no range moves.
@@ -230,5 +234,36 @@ test("Edit after a reload rebuilds the video's chip, never its frames, note or l
   const restored = await restoreInline(row, "look", async () => (reads++, { mimeType: "image/jpeg", data: "x" }));
   expect(reads).toBe(0);
   expect(restored.attachments.map((chip) => [chip.kind, chip.name])).toEqual([["link", "clip.mov"]]);
+  expect(restored.input).not.toContain("Frames from the video");
+});
+
+test("the person's own words that only read like a frame's label or note stay, in the bubble, Copy and Edit", async () => {
+  const own = "Please inspect the failure in demo.mp4 frame at 0:07.2";
+  const note = "Frames from the video other.mp4 (0:04, 640×360), in order, at: 0:01.0.";
+  const lonely = { id: "user-4", version: 1, at: 0, kind: "user", text: `look\n${own}` } as AcpmuxRow;
+  // No frame image in the prompt: nothing is the agent's.
+  expect(withoutVideoFrames(lonely).text).toBe(lonely.text);
+  // Another video's frame: only that frame's label and note go, never a look-alike of another time.
+  const row = {
+    ...lonely,
+    text: `look\n${own}\n${note}\nother.mp4 frame at 0:01.0`,
+    images: [{ id: "f".repeat(64), mimeType: "image/jpeg", name: "other.mp4 frame at 0:01.0" }],
+    inlineParts: [
+      { kind: "text", text: `look\n${own}` },
+      { kind: "text", text: own.replace("demo.mp4", "other.mp4") },
+      { kind: "text", text: note },
+      { kind: "text", text: "other.mp4 frame at 0:01.0" },
+      { kind: "image", id: "f".repeat(64), mimeType: "image/jpeg", name: "other.mp4 frame at 0:01.0" },
+    ],
+  } as AcpmuxRow;
+  const shown = withoutVideoFrames(row);
+  expect(shown.text).toBe(`look\n${own}`);
+  expect(shown.inlineParts?.map((part) => (part.kind === "text" ? part.text : part.kind))).toEqual([
+    `look\n${own}`,
+    own.replace("demo.mp4", "other.mp4"),
+  ]);
+  const restored = await restoreInline(row, row.text!, async () => undefined);
+  expect(restored.input).toContain(own);
+  expect(restored.input).toContain(own.replace("demo.mp4", "other.mp4"));
   expect(restored.input).not.toContain("Frames from the video");
 });

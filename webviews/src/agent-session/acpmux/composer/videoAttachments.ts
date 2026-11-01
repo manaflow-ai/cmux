@@ -136,6 +136,9 @@ export function answerOf(video: VideoInfo): VideoInfo {
   return pickedFrom.get(video) ?? video;
 }
 
+/// How far a decoded frame's time may be from the time asked (AgentPaneVideoInfo.pickedTolerance).
+const SCENE_TOLERANCE_MS = 100;
+
 /// The answer's frames replaced by `picked`, the frames the host decoded at the page's times, each
 /// marked where a scene starts; the answer itself when none came.
 export function withPickedFrames(
@@ -144,10 +147,12 @@ export function withPickedFrames(
   scenes: ReadonlySet<number> = new Set(),
 ): VideoInfo {
   const raw = (answer as { frames?: unknown } | null | undefined)?.frames;
+  // The host answers each frame at its decoded time, within SCENE_TOLERANCE_MS of the one asked.
+  const startsScene = (atMs: number) => [...scenes].some((at) => Math.abs(at - atMs) <= SCENE_TOLERANCE_MS);
   const frames = (Array.isArray(raw) ? raw : []).flatMap((frame: unknown): VideoFrame[] => {
     const { atMs, data } = (frame ?? {}) as { atMs?: unknown; data?: unknown };
     return typeof atMs === "number" && Number.isFinite(atMs) && atMs >= 0 && typeof data === "string" && data
-      ? [{ atMs, data, ...(scenes.has(atMs) ? { scene: true as const } : {}) }]
+      ? [{ atMs, data, ...(startsScene(atMs) ? { scene: true as const } : {}) }]
       : [];
   });
   const fitted = fitFrames(frames.slice(0, MAX_PICKED));

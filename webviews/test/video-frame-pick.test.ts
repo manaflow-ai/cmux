@@ -13,6 +13,7 @@ import {
   pickFrameTimes,
   type VideoProbe,
 } from "../src/agent-session/acpmux/composer/videoFramePick";
+import { withPickedFrames } from "../src/agent-session/acpmux/composer/videoAttachments";
 
 const CELLS = 24 * 24;
 const flat = (gray: number) => new Uint8Array(CELLS).fill(gray);
@@ -50,7 +51,7 @@ test("each scene change gets a frame at its cut, marked, and the rest fill the g
   for (let index = 1; index < times.length; index++)
     expect(times[index]! - times[index - 1]!).toBeGreaterThan(900);
   // The opening frame is there.
-  expect(times[0]).toBe(250);
+  expect(times[0]).toBe(0);
 });
 
 test("a still video (no cuts) is spread evenly", () => {
@@ -102,4 +103,18 @@ test("the host's probes are checked: base64 cells of one size, a time each", () 
   expect(parsed?.map((probe) => probe.atMs)).toEqual([250, 750]);
   expect(parsed?.[0]!.cells[0]).toBe(7);
   expect(parseProbes({})).toBeUndefined();
+});
+
+test("a scene's frame keeps its mark when the host decodes it a little off the time asked", () => {
+  const video = { durationMs: 16_000, width: 1280, height: 720, poster: "", frames: [] };
+  const picked = withPickedFrames(
+    video,
+    { frames: [{ atMs: 0, data: "a" }, { atMs: 7233, data: "b" }, { atMs: 12_000, data: "c" }] },
+    new Set([7200]),
+  );
+  expect(picked.frames.map((frame) => [frame.atMs, frame.scene === true])).toEqual([
+    [0, false],
+    [7233, true],
+    [12_000, false],
+  ]);
 });

@@ -25,7 +25,7 @@ import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
 import { recordedPromptParts } from "../inlinePrompt";
-import { withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
+import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import {
@@ -51,7 +51,10 @@ export function UserBubble({
 }) {
   // A video's frames and their note went to the agent only; the bubble draws the video's tile.
   const row = useMemo(() => withoutVideoFrames(given), [given]);
-  const text = useMemo(() => withoutFramesNotes(givenText, !given.pasted?.length), [givenText, given.pasted]);
+  const text = useMemo(
+    () => withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+    [givenText, given],
+  );
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);

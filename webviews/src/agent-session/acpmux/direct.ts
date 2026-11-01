@@ -50,7 +50,14 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { isFrameText, isVideoFrameName, withoutFrames, withoutFramesNotes } from "./composer/videoPrompt";
+import {
+  frameTextOf,
+  imageNames,
+  isVideoFrameName,
+  rowImageNames,
+  withoutFrames,
+  withoutFramesNotes,
+} from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -613,13 +620,14 @@ function queuedEntry(
   retry?: SubagentRetryNotice,
 ): QueuedPrompt {
   // A video's frames, its note and its labels went to the agent only (composer/videoPrompt.ts).
+  const isFrame = frameTextOf(rowImageNames({ images, inlineParts }));
   const shownImages = images?.filter((image) => !isVideoFrameName(image.name));
   const parts = inlineParts?.filter((part) =>
-    part.kind === "image" ? !isVideoFrameName(part.name) : !(part.kind === "text" && isFrameText(part.text)),
+    part.kind === "image" ? !isVideoFrameName(part.name) : !(part.kind === "text" && isFrame(part.text)),
   );
   return {
     id,
-    prompt: withoutFramesNotes(prompt),
+    prompt: withoutFramesNotes(prompt, isFrame),
     ...(next ? { next } : {}),
     ...(sending ? { sending } : {}),
     ...(shownImages?.length ? { images: [...shownImages] } : {}),
@@ -6364,12 +6372,13 @@ export class AcpmuxDirectClient {
     }
     const blocks = promptBlocks(input, carried, options);
     const inline = inlinePrompt(input, carried);
+    const isFrame = frameTextOf(imageNames(blocks));
     const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
             // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFrameText(block.text)) return shown;
+            if (block.type !== "text" || isFrame(block.text)) return shown;
             if (shown.text) shown.text += "\n";
             const start = shown.text.length;
             shown.text += block.text;

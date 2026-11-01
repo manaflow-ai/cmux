@@ -47,15 +47,39 @@ export function frameLabel(video: string, atMs: number, scene: boolean): string 
   return scene ? `${frameName(video, atMs)} (new scene)` : frameName(video, atMs);
 }
 
-const FRAME_LABEL = /\.(mov|mp4|m4v) frame at \d+(:\d{2}){1,2}\.\d( \(new scene\))?$/i;
-/// Whether `text` is a frame's label (`frameLabel`).
-export function isFrameLabel(text: string): boolean {
-  return FRAME_LABEL.test(text);
+/// A matcher for the text a prompt carried for the agent only, given the names of the prompt's images:
+/// a frames note of a video whose frames it carries, and the label of each such frame (its image's
+/// name, with or without "(new scene)"). Text only like one, with no such frame image in the prompt,
+/// is the person's own and stays.
+export type FrameText = (text: string) => boolean;
+export function frameTextOf(names: Iterable<string | undefined>): FrameText {
+  const labels = new Set<string>();
+  const notes: string[] = [];
+  for (const name of names) {
+    if (!isVideoFrameName(name)) continue;
+    labels.add(name!).add(`${name} (new scene)`);
+    const video = name!.replace(/ frame at [\d:.]+$/, "");
+    // l10n-allow: matches framesNote's text for the agent, not UI.
+    notes.push(`Frames from the video ${video} (`);
+  }
+  if (!labels.size) return () => false;
+  return (text) => labels.has(text) || (isFramesNote(text) && notes.some((head) => text.startsWith(head)));
 }
 
-/// Whether a prompt's text block (or line) went to the agent only: a frames note or a frame's label.
-export function isFrameText(text: string): boolean {
-  return isFramesNote(text) || isFrameLabel(text);
+/// The names of the images in `blocks` (a prompt's), for `frameTextOf`.
+export function imageNames(blocks: readonly PromptBlock[]): (string | undefined)[] {
+  return blocks.flatMap((block) => (block.type === "image" ? [block.name] : []));
+}
+
+/// The names of a row's images and image parts, for `frameTextOf`.
+export function rowImageNames(row: {
+  images?: readonly { name?: string }[];
+  inlineParts?: readonly PromptContentPart[];
+}): (string | undefined)[] {
+  return [
+    ...(row.images ?? []).map((image) => image.name),
+    ...(row.inlineParts ?? []).flatMap((part) => (part.kind === "image" ? [part.name] : [])),
+  ];
 }
 
 /// The note that comes before a video's frames: one line, so the bubble can leave it out whole.
@@ -108,11 +132,12 @@ export function withoutFrames(chips: ComposerAttachment[]): ComposerAttachment[]
 export function withoutVideoFrames<
   Row extends { text?: string; images?: PromptImage[]; inlineParts?: PromptContentPart[]; pasted?: unknown[] },
 >(row: Row): Row {
+  const isFrame = frameTextOf(rowImageNames(row));
   const images = row.images?.filter((image) => !isVideoFrameName(image.name));
   const parts = row.inlineParts?.filter((part) =>
-    part.kind === "image" ? !isVideoFrameName(part.name) : !(part.kind === "text" && isFrameText(part.text)),
+    part.kind === "image" ? !isVideoFrameName(part.name) : !(part.kind === "text" && isFrame(part.text)),
   );
-  const text = row.text === undefined ? undefined : withoutFramesNotes(row.text, !row.pasted?.length);
+  const text = row.text === undefined ? undefined : withoutFramesNotes(row.text, isFrame, !row.pasted?.length);
   if (images?.length === row.images?.length && parts?.length === row.inlineParts?.length && text === row.text)
     return row;
   return {
@@ -123,14 +148,15 @@ export function withoutVideoFrames<
   };
 }
 
-/// `text` without the frames notes and frame labels on its last lines, or on any line (`anywhere`).
-export function withoutFramesNotes(text: string, anywhere = false): string {
+/// `text` without the frames notes and frame labels (`isFrame`, from `frameTextOf`) on its last lines,
+/// or on any line (`anywhere`).
+export function withoutFramesNotes(text: string, isFrame: FrameText, anywhere = false): string {
   const lines = text.split("\n");
   if (anywhere) {
-    const kept = lines.filter((line) => !isFrameText(line));
+    const kept = lines.filter((line) => !isFrame(line));
     return kept.length === lines.length ? text : kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "");
   }
   let end = lines.length;
-  while (end > 0 && isFrameText(lines[end - 1]!)) end -= 1;
+  while (end > 0 && isFrame(lines[end - 1]!)) end -= 1;
   return end === lines.length ? text : lines.slice(0, end).join("\n").replace(/\n+$/, "");
 }

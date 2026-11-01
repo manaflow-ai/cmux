@@ -58,7 +58,8 @@ export function pickFrameTimes(
     .sort((a, b) => a.atMs - b.atMs);
   if (sorted.length < 2) return evenTimes(durationMs, want).map((atMs) => ({ atMs, scene: false }));
   const minGap = durationMs / (want * 2);
-  const picks: FramePick[] = [{ atMs: sorted[0]!.atMs, scene: false }];
+  // The opening frame, whatever the first probe's time.
+  const picks: FramePick[] = [{ atMs: 0, scene: false }];
   const far = (atMs: number) => picks.every((pick) => Math.abs(pick.atMs - atMs) >= minGap);
   const cuts = sorted
     .slice(1)
