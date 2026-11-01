@@ -144,8 +144,8 @@ struct Failed {
     retry_after_seconds: Option<u64>,
     /// The daemon the failure is about, when it is one side's.
     side: Option<&'static str>,
-    /// `sync_conflict`: the paths changed on both sides.
-    conflicts: Vec<String>,
+    /// `sync_conflict`: the paths changed on both sides (boxed: `Failed` is every call's error).
+    conflicts: Option<Box<Vec<String>>>,
 }
 
 impl Failed {
@@ -156,7 +156,7 @@ impl Failed {
             transfer_id: None,
             retry_after_seconds: None,
             side: None,
-            conflicts: Vec::new(),
+            conflicts: None,
         }
     }
 
@@ -222,8 +222,8 @@ pub(super) fn run(args: &[String]) -> i32 {
             if let Some(side) = failed.side {
                 line.set("side", json!(side));
             }
-            if !failed.conflicts.is_empty() {
-                line.set("conflicts", json!(failed.conflicts));
+            if let Some(conflicts) = failed.conflicts {
+                line.set("conflicts", json!(conflicts));
             }
             println!("{line}");
             1
@@ -478,7 +478,10 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
             if !reasons.is_empty() {
                 error = format!("{error} ({})", reasons.join("; "));
             }
-            Err(Failed { conflicts, ..Failed::new("sync_conflict", error) })
+            Err(Failed {
+                conflicts: Some(Box::new(conflicts)),
+                ..Failed::new("sync_conflict", error)
+            })
         }
         Back::Failed { code, error } => {
             Err(Failed::new(code, format!("the folder's last changes: {error}")))
