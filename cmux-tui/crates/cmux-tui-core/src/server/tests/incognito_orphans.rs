@@ -228,6 +228,7 @@ fn move_to_new_workspace(
 /// A creator whose connection dropped while its process still runs may
 /// come back at any moment: its workspaces stay, so no close races its
 /// reconnect.
+#[cfg(unix)]
 #[test]
 fn a_creator_whose_process_still_runs_keeps_its_workspaces() {
     let (mux, root) = persistent("running");

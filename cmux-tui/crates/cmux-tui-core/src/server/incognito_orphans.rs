@@ -236,6 +236,7 @@ mod tests {
         assert!(orphaned(&creators, "token:2.1", &connected, |_| false).is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_running_process_is_not_gone() {
         assert!(!process_gone(&format!("token:{}.1", std::process::id())));
