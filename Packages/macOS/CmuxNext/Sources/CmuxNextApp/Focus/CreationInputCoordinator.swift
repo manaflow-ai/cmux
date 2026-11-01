@@ -46,9 +46,9 @@ final class CreationInputCoordinator {
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
     /// script or agent run without `focus`), which leaves the keys where they are.
-    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
+    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
-        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: router?.focus(for: window).0?.content?.daemon.machineID)
+        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: machine ?? router?.focus(for: window).0?.content?.daemon.machineID)
     }
 
     /// A creation's placement continues after its create reply (Home moves the new terminal beside
@@ -138,7 +138,7 @@ final class CreationInputCoordinator {
         }
         // A pending creation's early view has the keyboard: the keys held for it first, then this one if it was typed for
         // it too. Keys typed for another creation wait for that one's terminal (P0 1193).
-        if let controller, let lane = Self.earlyLane(buffer, controller, shell), runAgain(buffer.take(lane: lane), from: buffer, in: shell),
+        if let controller, let lane = Self.keyboardTerminal(controller, shell).flatMap(buffer.earlyLane(tab:)), runAgain(buffer.take(lane: lane), from: buffer, in: shell),
            lane == buffer.lane(focusedTab: controller.focus.state.typingTab) { return false }
         buffer.capture(event, focusedTab: controller?.focus.state.typingTab)
         return true
@@ -151,13 +151,15 @@ final class CreationInputCoordinator {
         for (index, key) in keys.enumerated() {
             replaying = true
             switch key {
-            case .run(let event): if let router { replay(event, window, router) }
+            case .run(let event, _): if let router { replay(event, window, router) }
             case .type(let events, let lane): type(events, into: lane)
-            case .command(let event, let lane): runCommand(event, for: lane, in: window)
+            case .command(let event, let lane): // with that terminal's tab as its target; no binding now: its key
+                guard let (binding, context) = shortcut(event, tab: lane.tab, in: window), let router else { type([event], into: lane); break }
+                RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
             }
             replaying = false
             if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
-                next.prepend(keys.dropFirst(index + 1).flatMap(\.events))
+                next.prepend(keys.dropFirst(index + 1).flatMap(\.keys), issuer: key.lane)
                 return false
             }
         }
@@ -174,7 +176,7 @@ final class CreationInputCoordinator {
         }
         let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue), surface = tab.surface
         if skipped > 0 { Self.logger.error("\(skipped, privacy: .public) held key(s) have no daemon key name") }
-        services.daemon(for: pane).send("send-key") { connection in
+        services.daemon(for: pane).sendInOrder("send-key", to: surface) { connection in // after this terminal's earlier held sends
             for input in inputs {
                 switch input {
                 case .text(let text): try await connection.send(surface, text: text)
@@ -184,23 +186,20 @@ final class CreationInputCoordinator {
         }
     }
 
-    /// A held Command chord typed for `lane`'s terminal while another has the focus: an app shortcut runs with that
-    /// terminal's tab as its target and its key context, as a key press there; any other chord is that terminal's key.
-    private func runCommand(_ event: NSEvent, for lane: CreationInputBuffer.HeldLane, in window: NSWindow) {
-        guard let router, let controller = router.focus(for: window).0 else { return }
+    /// The app shortcut `event` runs in terminal `tab`'s key context, as a key press there; nil: the key is the terminal's.
+    private func shortcut(_ event: NSEvent, tab: String, in window: NSWindow) -> (KeyBinding, KeyContext)? {
+        guard let router, let controller = router.focus(for: window).0 else { return nil }
         var state = controller.focus.currentState()
-        if let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == lane.tab }) { state.resolved = .terminal(pane: pane.paneKey, tab: lane.tab) }
+        if let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == tab }) { state.resolved = .terminal(pane: pane.paneKey, tab: tab) }
         let context = router.keyContext(for: state, facts: router.facts(in: window, controller: controller))
-        guard let binding = router.resolve(event, context: context) else { return type([event], into: lane) }
-        RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
+        return router.resolve(event, context: context).map { ($0, context) }
     }
 
-    /// The pending creation whose early view (focused, shown, the first responder; never another view) has the keyboard.
-    private static func earlyLane(_ buffer: CreationInputBuffer, _ controller: WindowController, _ window: NSWindow) -> Int? {
-        guard case .terminal(let pane, let tab) = controller.focus.state.resolved, let lane = buffer.earlyLane(tab: tab),
-              let shown = controller.content?.paneController(key: pane), shown.currentTabKey == tab,
-              case .terminal(let entry)? = shown.currentContent else { return nil }
-        return entry.session.hasKeyboard(window.firstResponder) ? lane : nil
+    /// The focused terminal's tab when its shown view has the keyboard (never another view: a composer, a text field).
+    private static func keyboardTerminal(_ controller: WindowController, _ window: NSWindow) -> String? {
+        guard case .terminal(let pane, let tab) = controller.focus.state.resolved, let shown = controller.content?.paneController(key: pane),
+              shown.currentTabKey == tab, case .terminal(let entry)? = shown.currentContent else { return nil }
+        return entry.session.hasKeyboard(window.firstResponder) ? tab : nil
     }
 
     /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they
@@ -248,7 +247,7 @@ final class CreationInputCoordinator {
         guard let buffer = buffers[window.windowNumber] else { return }
         guard force || buffer.isResolved else {
             // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle).
-            if let lane = router?.focus(for: window).0.flatMap({ Self.earlyLane(buffer, $0, window) }) { _ = runAgain(buffer.take(lane: lane), from: buffer, in: window) }
+            if let lane = router?.focus(for: window).0.flatMap({ Self.keyboardTerminal($0, window).flatMap(buffer.earlyLane(tab:)) }) { _ = runAgain(buffer.take(lane: lane), from: buffer, in: window) }
             return
         }
         guard let router, let controller = router.focus(for: window).0 else {
@@ -264,9 +263,9 @@ final class CreationInputCoordinator {
         }
         buffers[window.windowNumber] = nil
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
-        let pending = buffer.take(focused: controller.focus.state.terminalTab)
+        let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
         if end == .limitReached {
-            // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
+            // The person's keys for a new terminal waited the whole bound and go on now, each to the terminal it was typed for.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
         }
         _ = runAgain(pending, from: buffer, in: window)

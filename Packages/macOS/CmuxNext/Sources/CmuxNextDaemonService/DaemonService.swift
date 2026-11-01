@@ -36,6 +36,9 @@ public final class DaemonService {
     #endif
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
+    /// The last ordered send to each terminal surface (``sendInOrder(_:to:_:)``): the next one waits for it.
+    @ObservationIgnored var orderedSends: [SurfaceID: (serial: UInt64, work: ActionWork)] = [:]
+    @ObservationIgnored var orderedSendSerial: UInt64 = 0
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
     public private(set) var connection: DaemonConnection?
