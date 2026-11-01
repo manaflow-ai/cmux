@@ -212,7 +212,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                     var submitting = false
                     do {
                         let prepared = try await client.prepareCloudTurn(id: prompt, scope: ownerState)
-                        if let replay = try Self.preparedAcknowledgement(prepared, prompt: prompt) {
+                        if let replay = try Self.preparedAcknowledgement(prepared, prompt: prompt, session: session, ownerState: ownerState) {
                             accepted = replay
                         } else {
                             let capability = try await cloudTurn.capture(session, prompt, prepared, ownerState)
@@ -467,11 +467,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// An already accepted prompt is acknowledged from the daemon's durable receipt without
     /// capturing or claiming twice. Only the acknowledgement's public fields can reach the page.
-    private static func preparedAcknowledgement(_ data: Data, prompt: String) throws -> Data? {
+    private static func preparedAcknowledgement(_ data: Data, prompt: String, session: String, ownerState: Data) throws -> Data? {
         struct Accepted: Codable { let prompt_id: String; let turn_id: String; let queued: Bool }
-        struct Prepared: Decodable { let accepted: Accepted? }
-        guard let accepted = try JSONDecoder().decode(Prepared.self, from: data).accepted else { return nil }
-        guard accepted.prompt_id == prompt, !accepted.turn_id.isEmpty else {
+        struct Prepared: Decodable { let accepted: Accepted?; let session: String; let turn: String; let generation: Int; let attempt_id: String }
+        struct Scope: Decodable { let turn: String; let generation: Int; let attemptId: String }
+        let prepared = try JSONDecoder().decode(Prepared.self, from: data)
+        let scope = try JSONDecoder().decode(Scope.self, from: ownerState)
+        guard prepared.session == session, prepared.turn == scope.turn, prepared.turn == prompt,
+              prepared.generation == scope.generation, prepared.attempt_id == scope.attemptId else {
+            throw AgentSessionRemoteError(code: "agent_session.turn_scope", message: "The prepared turn did not match this attempt.")
+        }
+        guard let accepted = prepared.accepted else { return nil }
+        guard accepted.prompt_id == prompt, accepted.turn_id == prepared.turn else {
             throw AgentSessionRemoteError(code: "agent_session.turn_scope", message: "The prepared turn did not match this prompt.")
         }
         return try JSONEncoder().encode(accepted)
