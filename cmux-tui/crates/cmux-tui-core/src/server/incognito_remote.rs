@@ -535,30 +535,7 @@ pub(super) fn refuse_line(
         }
     }
     let hidden = hidden(mux)?;
-    let saved = hidden.saved_in(&request).map(str::to_string);
-    let (kind, selector) = match hidden.named_in_request(&request) {
-        Some((key, value)) => (
-            kind_of(key),
-            match value {
-                Value::String(text) => text.clone(),
-                other => other.to_string(),
-            },
-        ),
-        // `reopen-saved-tab-group`, `delete-saved-screen-group`, ... by a
-        // saved group of an incognito workspace.
-        None if saved.is_some() => ("saved group", saved.unwrap_or_default()),
-        None => {
-            let command = request.get("cmd").and_then(Value::as_str).unwrap_or_default();
-            if resource
-                || !hidden.current_hidden
-                || NO_CURRENT_TARGET.contains(&command)
-                || Hidden::names_a_target(&request)
-            {
-                return None;
-            }
-            ("workspace", "current".to_string())
-        }
-    };
+    let (kind, selector) = hidden.refusal(&request, resource)?;
     if resource {
         let scope = match kind {
             "surface" => "tab",
@@ -571,6 +548,55 @@ pub(super) fn refuse_line(
     }
     let id = request.get("id").cloned();
     Some(super::responses::send_request_error(writer, id, &format!("unknown {kind} {selector}")))
+}
+
+impl Hidden {
+    /// Why a remote device's `request` is refused: the kind and selector of
+    /// the hidden object it names, or the current workspace when it names
+    /// none and acts on an incognito current workspace.
+    fn refusal(&self, request: &Value, resource: bool) -> Option<(&'static str, String)> {
+        let saved = self.saved_in(request).map(str::to_string);
+        let refused = match self.named_in_request(request) {
+            Some((key, value)) => (
+                kind_of(key),
+                match value {
+                    Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                },
+            ),
+            // `reopen-saved-tab-group`, `delete-saved-screen-group`, ... by a
+            // saved group of an incognito workspace.
+            None if saved.is_some() => ("saved group", saved.unwrap_or_default()),
+            None => {
+                let command = request.get("cmd").and_then(Value::as_str).unwrap_or_default();
+                if resource
+                    || !self.current_hidden
+                    || NO_CURRENT_TARGET.contains(&command)
+                    || Hidden::names_a_target(request)
+                {
+                    return None;
+                }
+                ("workspace", "current".to_string())
+            }
+        };
+        Some(refused)
+    }
+}
+
+/// A remote device's command line, kept to be judged again when it is
+/// dispatched: a command the connection's scheduler queued runs after the
+/// Mac may have switched to, or opened, an incognito workspace.
+pub(super) fn line_to_recheck(mux: &Mux, client: u64, message: &str) -> Option<String> {
+    is_remote_device(mux, client).then(|| message.to_string())
+}
+
+/// The refusal of a remote device's command line at dispatch, judged against
+/// the incognito workspaces of that moment, as [`refuse_line`] judged it on
+/// arrival.
+pub(super) fn recheck(mux: &Mux, line: &str) -> Option<String> {
+    let request = serde_json::from_str::<Value>(line).ok()?;
+    let (kind, selector) = hidden(mux)?.refusal(&request, false)?;
+    Some(format!("unknown {kind} {selector}"))
 }
 
 /// Leave hidden rows out of a remote device's command reply.

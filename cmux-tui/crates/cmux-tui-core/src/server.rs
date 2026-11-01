@@ -626,6 +626,10 @@ struct Request {
     id: Option<Value>,
     #[serde(flatten)]
     cmd: Command,
+    /// A remote device's line, judged again at dispatch
+    /// (`incognito_remote::recheck`, #31210).
+    #[serde(skip)]
+    remote_line: Option<String>,
 }
 
 #[derive(Deserialize)]
