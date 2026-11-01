@@ -910,6 +910,8 @@ async fn dispatch_request(
                 // This connection is the person (`hub/person.rs`): never yet,
                 // as the proof comes after this reply.
                 "person": conn.is_person(),
+                // Only a verified first-initialize caller token supplies this ID.
+                "callerSessionId": conn.caller(),
                 // The challenge a local connection proves the person key against.
                 "personChallenge": if conn.challengeable() {
                     json!({"nonce": conn.nonce, "connection": conn.id})

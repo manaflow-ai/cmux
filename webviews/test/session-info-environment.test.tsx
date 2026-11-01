@@ -244,34 +244,6 @@ test("the machine row says where the chat runs: Local, SSH or Cloud beside the m
   ]);
 });
 
-test("Cloud repository rows follow the native route flag and keep the machine row", async () => {
-  const container = installDom();
-  root = createRoot(container);
-  const summary = { ...chat([]).summary!, sessionId: "cloud-session", hostKind: "cloud", host: "cloud-01" } as Summary;
-  const render = async (cloudRepositoryAvailable?: boolean) => {
-    await act(async () =>
-      root!.render(
-        <EnvironmentSection
-          summary={summary}
-          machineName="studio-mac"
-          cloudRepositoryAvailable={cloudRepositoryAvailable}
-        />,
-      ),
-    );
-    return container.querySelector<HTMLElement>('ul[data-section="environment"]')!;
-  };
-
-  const available = await render(true);
-  expect(available.querySelector("li[data-machine]")?.textContent).toContain("cloud-01");
-  expect(available.textContent).toContain("Default");
-  expect(available.textContent).toContain("Add repository…");
-
-  const unavailable = await render(false);
-  expect(unavailable.querySelector("li[data-machine]")?.textContent).toContain("cloud-01");
-  expect(unavailable.textContent).not.toContain("Add repository…");
-  expect(unavailable.textContent).not.toContain("Default");
-});
-
 test("without the App's actions the rows are plain text, and no Remote Control row is drawn", async () => {
   const base = chat(projectsRows);
   const environment = await renderSessionInfo({

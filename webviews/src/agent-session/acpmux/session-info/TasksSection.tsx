@@ -130,7 +130,7 @@ export function TasksSection({
       {finished.length > 0 && (
         <>
           <SessionInfoFold open={showFinished} onToggle={() => setShowFinished(!showFinished)}>
-            <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+            <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
             {t("rail.finished", { count: finished.length })}
           </SessionInfoFold>
           {showFinished && (
