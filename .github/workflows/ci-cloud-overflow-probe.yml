@@ -59,8 +59,8 @@ concurrency:
 
 jobs:
   probe:
-    # One probe per Blacksmith Linux size compiles run on
-    # (cloud_overflow_switch.PROBE_LABELS). Overflow goes off only when none of
+    # One probe per Blacksmith Linux size in the linux runner pool
+    # (cloud_overflow_switch.PROBE_LABELS, the pool's members). Overflow goes off only when none of
     # them starts, and back on only when all start: a single probed label is a pin, and on 2026-10-28 the 4 vCPU
     # label alone stalling flipped the whole fleet four times. A drill probes
     # only its own label.
@@ -69,7 +69,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        label: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && format('["{0}"]', inputs.probe_label) || '["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]') }}
+        label: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && format('["{0}"]', inputs.probe_label) || '["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || matrix.label }}
     timeout-minutes: 2
     permissions: {}

@@ -44,8 +44,18 @@ class Declared(unittest.TestCase):
 
     def test_the_linux_pool_is_the_runner_set(self) -> None:
         # Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow".
+        # Leo, 2026-11-01: "ok. we clearly are not able to use them. so we should have resized a long-ass
+        # time ago." The pool steps down through every size to the smallest that fits its jobs.
         self.assertEqual(runner_pools.load_pools()["linux"]["members"],
-                         ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
+                         ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                          "blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"])
+
+    def test_the_linux_pool_runs_largest_first_down_to_the_smallest(self) -> None:
+        # A stalled size moves the pool to the next smaller one, never up to a larger one.
+        sizes = [runner_pools.vcpus(label) for label in runner_pools.load_pools()["linux"]["members"]]
+        self.assertNotIn(None, sizes)
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(len(set(sizes)), len(sizes))
 
     def test_no_pool_names_a_reused_machine(self) -> None:
         # A job reading a pool, a fork's pull request included, never lands on an owned Mac:
@@ -182,9 +192,36 @@ class Reconcile(unittest.TestCase):
         probed, _ = self.run_once(first, served={"blacksmith-32vcpu-ubuntu-2404"}, now=NOW + dt.timedelta(minutes=5))
         self.assertEqual(probed["linux"], "blacksmith-32vcpu-ubuntu-2404")
 
-    def test_every_member_dead_keeps_the_first(self) -> None:
-        value, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"})
+    def test_every_member_dead_takes_the_smallest(self) -> None:
+        # Blacksmith's concurrency is a hard, small cap: with every size stalled, the smallest starts the
+        # most jobs under it. Before this, the pool kept its first (largest) member.
+        value, lines = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"})
+        self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertIn("pools.linux: unset -> blacksmith-16vcpu-ubuntu-2404", lines)
+        # Order does not decide it: macos_26 lists 6 then 12 vCPU, macos_26_large 12 then 6.
+        value, _ = self.run_once({}, dead={"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"})
+        self.assertEqual((value["macos_26"], value["macos_26_large"]),
+                         ("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"))
+
+    def test_a_stall_steps_the_linux_pool_down_one_size_at_a_time(self) -> None:
+        pools = runner_pools.load_pools()
+        sizes = runner_pools.members(pools["linux"])
+        for stalled in range(len(sizes) + 1):
+            dead = set(sizes[:stalled])
+            with self.subTest(dead=sorted(dead)):
+                value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
+                want = sizes[stalled] if stalled < len(sizes) else "blacksmith-4vcpu-ubuntu-2404"
+                self.assertEqual(value["linux"], want)
+        # A smaller size stalling alone keeps the larger live one; the pool never steps up past a live size.
+        value, _ = runner_pools.reconcile({}, pools, dead_now={"blacksmith-8vcpu-ubuntu-2404"}, served_now=(), now=NOW)
         self.assertEqual(value["linux"], "blacksmith-32vcpu-ubuntu-2404")
+
+    def test_smallest_reads_the_vcpu_count(self) -> None:
+        self.assertEqual(runner_pools.vcpus("blacksmith-16vcpu-ubuntu-2404"), 16)
+        self.assertIsNone(runner_pools.vcpus("ubuntu-24.04"))
+        self.assertEqual(runner_pools.smallest(["blacksmith-32vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404",
+                                                "blacksmith-8vcpu-ubuntu-2404"]), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(runner_pools.smallest(["ubuntu-24.04"]), "ubuntu-24.04")
 
     def test_no_change_keeps_the_value_byte_for_byte(self) -> None:
         value, _ = self.run_once({})
@@ -280,6 +317,23 @@ class Main(unittest.TestCase):
         # LINUX_RUNNER leaves the stalled size with the pool.
         self.assertEqual(mirrored, ("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404"))
 
+    def test_linux_runner_on_a_dead_size_follows_the_pool_down(self) -> None:
+        # 2026-11-01: LINUX_RUNNER sat on blacksmith-32vcpu-ubuntu-2404, marked dead, with about 1,500 jobs
+        # queued on it. With every larger size stalled it leaves for the smallest member, 4 vCPU.
+        sizes = runner_pools.members(runner_pools.load_pools()["linux"])
+        switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
+            **{label: "stalled" for label in sizes[:-1]}, sizes[-1]: "started"})),
+            "LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=self.Api(None), switch=switch, now=NOW), 0)
+        [(name, raw), mirrored] = switch.writes
+        self.assertEqual((name, json.loads(raw)["linux"]), ("RUNNER_POOLS", "blacksmith-4vcpu-ubuntu-2404"))
+        self.assertEqual(mirrored, ("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404"))
+        # Every size stalled: still the smallest, never the 32 vCPU size the queue is stuck on.
+        switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({label: "stalled" for label in sizes})),
+                              "LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=self.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(switch.writes[-1], ("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404"))
+
     def test_linux_runner_on_a_size_outside_the_set_follows_the_pool(self) -> None:
         # 2026-10-31: RUNNER_POOLS.linux was live but LINUX_RUNNER still named the stalled 4 vCPU size.
         pools = {"linux": "blacksmith-32vcpu-ubuntu-2404"}
@@ -316,7 +370,9 @@ class Main(unittest.TestCase):
         value, _ = runner_pools.reconcile({}, runner_pools.load_pools(), dead_now=(), served_now=(), now=NOW)
         env = {"RUNNER_POOLS": runner_pools.render(value)}
         self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="blacksmith-32vcpu-ubuntu-2404")), 0)
-        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="blacksmith-4vcpu-ubuntu-2404")), 1)
+        # 4 vCPU is a linux pool member now; 2 vCPU is outside the pool.
+        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="blacksmith-4vcpu-ubuntu-2404")), 0)
+        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="blacksmith-2vcpu-ubuntu-2404")), 1)
         self.assertEqual(runner_pools.main(["--check"], env), 1)
         self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04",
                                                              CI_CLOUD_OVERFLOW_SAVED='{"changed": {}}')), 0)

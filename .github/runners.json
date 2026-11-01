@@ -65,10 +65,12 @@
       "Only a pool marked hosted may name a GitHub-hosted label, and it says why."
     ],
     "linux": {
-      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\")",
+      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\"), largest first, down to the smallest that fits the pool's jobs (all short: p90 6 min on 32 vCPU, 2026-10-30/31), so a stalled size steps the pool down one size (Leo, 2026-11-01: \"ok. we clearly are not able to use them. so we should have resized a long-ass time ago.\")",
       "members": [
         "blacksmith-32vcpu-ubuntu-2404",
-        "blacksmith-16vcpu-ubuntu-2404"
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-8vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404"
       ]
     },
     "linux_arm64": {

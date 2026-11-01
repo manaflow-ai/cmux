@@ -390,7 +390,57 @@ class PlanTests(unittest.TestCase):
 
     def test_the_probe_set_is_the_compile_sizes(self) -> None:
         # Never one label: one stalled size must not flip the fleet (Leo's no-pins order, 2026-10-28).
-        self.assertEqual(switch.PROBE_LABELS, ("blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"))
+        # Every size the linux pool can step down to is probed, so runner_pools.py has health for each.
+        self.assertEqual(switch.PROBE_LABELS, ("blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                                               "blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"))
+        import runner_pools
+        self.assertEqual(list(switch.PROBE_LABELS), runner_pools.members(runner_pools.load_pools()["linux"]))
+
+    def test_a_size_whose_probe_waits_3_minutes_is_stalled_for_routing(self) -> None:
+        # Leo, 2026-11-01, on the 32 vCPU queue: "ok. we clearly are not able to use them. so we should have
+        # resized a long-ass time ago." A size whose probe sits POOL_STALL_MINUTES with no runner is stalled in
+        # CI_CLOUD_LABEL_HEALTH, so the pool steps down a size, even when a runner takes the probe before
+        # PROBE_MINUTES and the fleet-wide decision calls every size started.
+        self.assertEqual(switch.POOL_STALL_MINUTES, 3)
+        clock = Clock()
+        first, rest = switch.PROBE_LABELS[0], switch.PROBE_LABELS[1:]
+
+        class Slow(FakeActions):
+            def jobs(self, run_id, attempt=None):
+                waited = (clock.moment - NOW).total_seconds() / 60
+                created = {"status": "queued", "created_at": switch.iso(NOW), "runner_name": None}
+                took = {"status": "in_progress", "created_at": switch.iso(NOW), "runner_name": "bs-1"}
+                # The first size takes its probe only after 4 minutes; the others at once.
+                return ([{**(took if waited >= 4 else created), "name": switch.probe_job_name(first)}]
+                        + [{**took, "name": switch.probe_job_name(label)} for label in rest])
+
+        slow: set[str] = set()
+        outcome, stalled = switch.wait_for_probe(Slow(None), 1, 1, 5, switch.PROBE_LABELS, now=clock.now,
+                                                 sleep=clock.sleep, log=lambda line: None, slow=slow)
+        self.assertEqual((outcome, stalled), ("started", []))
+        self.assertEqual(slow, {first})
+        # Through main: overflow stays on (every probe started), and health marks the slow size stalled.
+        writer = FakeSwitch()
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"GH_REPO": "manaflow-ai/cmux", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1",
+                   "GITHUB_OUTPUT": f"{tmp}/out", "GITHUB_STEP_SUMMARY": f"{tmp}/summary", **BLACKSMITH_STEADY}
+            clock.moment = NOW
+            self.assertEqual(switch.main([], env, api=Slow(None), switch=writer, now=clock.now, sleep=clock.sleep), 0)
+            self.assertIn("outcome=started", Path(f"{tmp}/out").read_text())
+        self.assertEqual(writer.writes, [])
+        self.assertEqual(writer.health[-1]["labels"], {first: "stalled", **{label: "started" for label in rest}})
+        # A probe a runner took within the 3 minutes is not slow.
+        clock.moment = NOW
+        quick: set[str] = set()
+
+        class Quick(FakeActions):
+            def jobs(self, run_id, attempt=None):
+                return [{"status": "in_progress", "created_at": switch.iso(NOW), "runner_name": "bs-1",
+                         "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]
+
+        switch.wait_for_probe(Quick(None), 1, 1, 5, switch.PROBE_LABELS, now=clock.now, sleep=clock.sleep,
+                              log=lambda line: None, slow=quick)
+        self.assertEqual(quick, set())
 
     def test_stuck_job_needs_a_blacksmith_label_and_the_wait(self) -> None:
         jobs = [
@@ -461,7 +511,7 @@ class MainTests(unittest.TestCase):
 
     def test_a_started_probe_restores_and_deletes_the_record(self) -> None:
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
-            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"},
+            "LINUX_RUNNER": {"before": "blacksmith-2vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"},
             "CI_PAID_MACOS_OVERFLOW": {"before": None, "after": "1"},
             "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
         env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
@@ -471,10 +521,10 @@ class MainTests(unittest.TestCase):
         code, out, summary = run_main(env, actions, writer)
         self.assertEqual(code, 0)
         self.assertIn("outcome=started", out)
-        # Review of this change: 4 vCPU is not probed and may still be stalled, so LINUX_RUNNER stays on
-        # the 16 vCPU size whose probe started rather than going back to a label nobody watches.
+        # Review of this change: 2 vCPU is not probed (not a linux pool member) and may still be stalled, so
+        # LINUX_RUNNER stays on the 16 vCPU size whose probe started rather than going back to a label nobody watches.
         self.assertEqual(writer.writes, [("CI_PAID_MACOS_OVERFLOW", None), ("CI_CLOUD_OVERFLOW_SAVED", None)])
-        self.assertIn("stays blacksmith-16vcpu-ubuntu-2404; its value before, blacksmith-4vcpu-ubuntu-2404", summary)
+        self.assertIn("stays blacksmith-16vcpu-ubuntu-2404; its value before, blacksmith-2vcpu-ubuntu-2404", summary)
         self.assertIn("left alone", summary)
         # A before that is a probed size goes back as before.
         restores = switch.plan_on({"changed": {"LINUX_RUNNER": {
@@ -584,7 +634,8 @@ class MainTests(unittest.TestCase):
         stalled = probe_job(6)
         started = {**probe_job(6, runner_name="bs-1", status="in_progress"),
                    "name": switch.probe_job_name(switch.PROBE_LABELS[1])}
-        self.assertEqual(switch.probe_set_outcome([stalled, started], switch.PROBE_LABELS, NOW, 5),
+        others = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS[1:]]
+        self.assertEqual(switch.probe_set_outcome([stalled, *others], switch.PROBE_LABELS, NOW, 5),
                          ("partial", [switch.PROBE_LABELS[0]]))
         self.assertEqual(switch.probe_set_outcome([stalled], switch.PROBE_LABELS, NOW, 5),
                          ("waiting", [switch.PROBE_LABELS[0]]))
@@ -600,16 +651,16 @@ class MainTests(unittest.TestCase):
         env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6",
                "VAR_CMUX_CI_XCODE_APP_PR": PIN}
         writer = FakeSwitch()
-        code, out, _ = run_main(env, FakeActions([stalled, started]), writer)
+        code, out, _ = run_main(env, FakeActions([stalled, *others]), writer)
         self.assertEqual((code, writer.writes), (0, []))
         self.assertIn("outcome=partial", out)
         # Nor does it turn overflow off when there is no record.
         writer = FakeSwitch()
-        code, out, _ = run_main(BLACKSMITH_STEADY, FakeActions([stalled, started]), writer)
+        code, out, _ = run_main(BLACKSMITH_STEADY, FakeActions([stalled, *others]), writer)
         self.assertEqual((code, writer.writes), (0, []))
         # Per-label health is written either way, for the pool reconciler to read.
         self.assertEqual(writer.health[-1]["labels"], {switch.PROBE_LABELS[0]: "stalled",
-                                                       switch.PROBE_LABELS[1]: "started"})
+                                                       **{label: "started" for label in switch.PROBE_LABELS[1:]}})
         self.assertEqual(writer.health[-1]["run"], "https://github.com/manaflow-ai/cmux/actions/runs/1")
         # Every size started: the record is put back and deleted.
         writer = FakeSwitch()
@@ -624,10 +675,11 @@ class MainTests(unittest.TestCase):
         stalled = probe_job(6)
         started = {**probe_job(6, runner_name="bs-1", status="in_progress"),
                    "name": switch.probe_job_name(switch.PROBE_LABELS[1])}
+        others = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS[1:]]
         env = {"VAR_LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404", "VAR_MACOS_RUNNER_PR": "blacksmith-6vcpu-macos-26",
                "VAR_CMUX_CI_XCODE_APP_PR": PIN}
         writer = FakeSwitch()
-        code, out, _ = run_main(env, FakeActions([stalled, started]), writer)
+        code, out, _ = run_main(env, FakeActions([stalled, *others]), writer)
         self.assertEqual((code, writer.writes), (0, []))
         self.assertIn("outcome=partial", out)
         self.assertEqual(writer.health[-1]["labels"][switch.PROBE_LABELS[0]], "stalled")
@@ -642,16 +694,19 @@ class MainTests(unittest.TestCase):
         current = {"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
                    "MACOS_RUNNER_PR": "glaeda-std-xcode-26.6", "MACOS_RUNNER_15": "glaeda-std-xcode-26.6"}
         restores = {r.name: r for r in switch.plan_on(record, current, switch.PROBE_LABELS)}
-        self.assertTrue(restores["CI_TRUSTED_RUNNER"].skipped)
+        # 4 vCPU is a linux pool member, so it is probed; it started, and CI_TRUSTED_RUNNER goes back to it.
+        self.assertEqual((restores["CI_TRUSTED_RUNNER"].value, restores["CI_TRUSTED_RUNNER"].skipped),
+                         ("blacksmith-4vcpu-ubuntu-2404", ""))
         self.assertTrue(restores["LINUX_RUNNER"].skipped)  # unset falls back to an unprobed literal
         self.assertFalse(restores["MACOS_RUNNER_PR"].skipped)
         self.assertTrue(restores["MACOS_RUNNER_15"].skipped)  # GitHub-hosted is never put back
 
     def test_a_recovered_legacy_hosted_record_never_leaves_linux_on_hosted(self) -> None:
-        # Review at cd797966: before was the unprobed 4 vCPU, after GitHub-hosted Ubuntu. Every size starts,
+        # Review at cd797966: before was an unprobed size (then 4 vCPU; 2 vCPU since 4 vCPU joined the pool),
+        # after GitHub-hosted Ubuntu. Every size starts,
         # the record is deleted, and LINUX_RUNNER must not stay on hosted Ubuntu.
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
-            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
+            "LINUX_RUNNER": {"before": "blacksmith-2vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
             "CI_TRUSTED_RUNNER": {"before": None, "after": "ubuntu-24.04"}}}
         started = probe_job(0, status="in_progress", runner_name="bs-1")
         up = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]

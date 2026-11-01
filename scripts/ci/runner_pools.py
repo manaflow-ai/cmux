@@ -31,8 +31,11 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     pool members, so they are not read;
 - marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
   DEAD_TTL unless seen again; evidence that the label started a job clears it at once;
-- points each pool at its first member with no mark. With every member marked, the pool keeps
-  its first member;
+- points each pool at its first member with no mark. A pool lists its sizes from the preferred one
+  down to the smallest that fits its jobs (linux: 32, 16, 8, then 4 vCPU), so a size that stalls
+  moves the pool one size down. With every member marked, the pool takes its smallest member
+  (smallest()): Blacksmith's concurrency is a hard, small cap, and the smallest size starts the
+  most jobs under it;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -124,6 +127,21 @@ def load_pools(path: Path = RUNNERS) -> dict[str, dict[str, Any]]:
 
 def members(spec: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(spec["members"]))
+
+
+VCPUS = re.compile(r"^blacksmith-(\d+)vcpu-")
+
+
+def vcpus(label: str) -> int | None:
+    """A Blacksmith label's vCPU count; None for any other label."""
+    found = VCPUS.match(label)
+    return int(found.group(1)) if found else None
+
+
+def smallest(candidates: Sequence[str]) -> str:
+    """The member with the fewest vCPUs (the earliest on a tie, or with no size to compare)."""
+    sized = [(vcpus(label), index, label) for index, label in enumerate(candidates) if vcpus(label) is not None]
+    return min(sized)[2] if sized else candidates[0]
 
 
 def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -318,7 +336,8 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
-        chosen = next((label for label in candidates if label not in marks), candidates[0])
+        # Every member stalled: Blacksmith is at its cap on every size, and the smallest starts the most jobs.
+        chosen = next((label for label in candidates if label not in marks), None) or smallest(candidates)
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
