@@ -3,7 +3,8 @@
 // before the matrix screenshots it. The same function runs in the shell (on open and on Replay)
 // and in the matrix runner. Each ctx action is one step; around each step the stage measures:
 //   - anchors: the entry's named elements; one the step did NOT target must not move or resize;
-//   - layout shift: the CLS sum of the step and each shift with its source node;
+//   - layout shift: the CLS sum of the step and each shift with its source node, and the box shift
+//     (shift.ts): the tracked rows' boxes frame by frame, which also sees scroll-made moves;
 //   - long frames: Long Animation Frames where the engine has them (Chromium), else rAF intervals;
 //     frames over 16.7 ms are reported, and a frame over 33 ms fails ONLY from Long Animation
 //     Frames data. rAF timing (headless WebKit on a CPU-only VM: software rendering) measures the
@@ -19,6 +20,7 @@
 // frames), never on a fixed time; a wait that never resolves fails at its cap.
 
 import type { MotionController, MotionEvidence } from "./motionEvidence";
+import type { BoxMove } from "./shift";
 
 export type PlayTarget =
   | { role: string; name?: string | RegExp }
@@ -48,8 +50,16 @@ export type PlayContext = {
     move(target: PlayTarget): Promise<void>;
     up(target: PlayTarget): Promise<void>;
   };
-  /** Resolves when `condition` holds, re-checked on each DOM mutation and frame; part of the step before it. */
+  /**
+   * Resolves when `condition` holds, re-checked on each DOM mutation and frame. The wait is its own
+   * measured step for layout shift (a load that lands after the click: older history, a reply).
+   */
   waitFor(condition: () => boolean | Element | null | undefined, options?: { capMs?: number }): Promise<void>;
+  /**
+   * Resizes the stage's viewport to `width` CSS px, as a sidebar toggle resizes the pane. Each box
+   * may move once, to its new place; a second move is a bounce and counts as shift.
+   */
+  resize(width: number): Promise<void>;
   /** Resolves `target` now (throws when it is not there). */
   find(target: PlayTarget): Element;
   document: Document;
@@ -91,7 +101,10 @@ export type PlayAction =
   | "focus"
   | "type"
   | "scroll"
-  | "select";
+  | "select"
+  | "resize"
+  /** A `waitFor`: measured for shift only (its frames and time are the page's load, not a response). */
+  | "wait";
 
 export const DEFAULT_CHECKS = {
   anchorMovePx: 0,
@@ -111,6 +124,9 @@ export type StepReport = {
   anchorMoves: { anchor: string; before: Rect | null; after: Rect | null; delta: number }[];
   layoutShift: number;
   shifts: Shift[];
+  /** The box shift score (shift.ts) and the moves that made it; absent on a scroll step. */
+  boxShift?: number;
+  boxMoves?: BoxMove[];
   /** Durations in ms of the frames over 16.7 ms. */
   longFrames: number[];
   frameSource: "long-animation-frame" | "raf";
@@ -119,6 +135,8 @@ export type StepReport = {
   /** Popup layer problems (judgePopups); absent where the stage measured none. */
   popupProblems?: string[];
 };
+/** The stage's mount, from navigation until the play starts (frame/main.ts): what opening it looks like. */
+export type LoadReport = { layoutShift: number; shifts: Shift[]; boxShift: number; boxMoves: BoxMove[] };
 export type PlayReport = {
   status: "pass" | "warn" | "fail" | "none";
   steps: StepReport[];
@@ -203,18 +221,29 @@ export function judgeStep(
   const failMs = checks.longFrameFailMs?.value ?? DEFAULT_CHECKS.longFrameFailMs;
   const shiftMax = checks.layoutShiftMax?.value ?? DEFAULT_CHECKS.layoutShiftMax;
   const settleMax = checks.settleMaxMs?.value;
-  for (const move of measured.anchorMoves)
+  // A wait is the page loading what it waits for: nothing in it is judged here. Its shift is still
+  // measured and scored, against the state's row in gallery health's shift baseline
+  // (scripts/gallery-matrix/shift-baseline.ts), so a wait that starts shifting fails there.
+  const waiting = measured.action === "wait";
+  for (const move of waiting ? [] : measured.anchorMoves)
     if (move.delta > movePx) problems.push(`anchor ${move.anchor} moved ${move.delta.toFixed(1)} px (limit ${movePx})`);
-  const failing = measured.longFrames.filter((ms) => ms > failMs);
+  const failing = waiting ? [] : measured.longFrames.filter((ms) => ms > failMs);
   // Only Long Animation Frames data gates; rAF timing on a software-rendered VM only warns.
   if (failing.length && measured.frameSource === "long-animation-frame")
     problems.push(`${failing.length} frame(s) over ${failMs} ms (longest ${Math.max(...failing).toFixed(1)} ms)`);
-  if (measured.layoutShift > shiftMax)
+  if (!waiting && measured.layoutShift > shiftMax)
     problems.push(`layout shift ${measured.layoutShift.toFixed(4)} (limit ${shiftMax})`);
+  if (!waiting && (measured.boxShift ?? 0) > shiftMax)
+    problems.push(
+      `box shift ${measured.boxShift!.toFixed(4)} (limit ${shiftMax}): ${(measured.boxMoves ?? [])
+        .slice(0, 3)
+        .map((move) => `${move.label} [${move.dx} ${move.dy}]`)
+        .join(", ")}`,
+    );
   // Settling waits on frames, so where rAF times them (a software renderer) its latency measures
   // the machine as the frame timing does: over the budget it warns there, with the number.
   const warnings: string[] = [];
-  if (settleMax !== undefined && measured.settleMs > settleMax) {
+  if (!waiting && settleMax !== undefined && measured.settleMs > settleMax) {
     const latency = `settle latency ${measured.settleMs.toFixed(1)} ms (limit ${settleMax} ms`;
     if (measured.frameSource === "long-animation-frame") problems.push(`${latency})`);
     else warnings.push(`${latency}; rAF timing, not a gate)`);
@@ -222,7 +251,8 @@ export function judgeStep(
   const popupProblems = checks.popupLayer?.value === false ? [] : (measured.popupProblems ?? []);
   if (checks.popupLayer?.value === true) problems.push(...popupProblems);
   else warnings.push(...popupProblems);
-  const warn = measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs) || warnings.length > 0;
+  const warn =
+    (!waiting && measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs)) || warnings.length > 0;
   return {
     status: problems.length ? "fail" : warn ? "warn" : "pass",
     problems: problems.length ? problems : warnings,

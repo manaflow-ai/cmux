@@ -551,8 +551,8 @@ export function QuickModelMenu({
     const choices = effortChoices(model);
     const stars = families?.stars;
     // A row's star, beside its effort column: a plain button, not a menu item, so it is no stop for
-    // Up and Down and a click on it never picks the model. From the keyboard, ⌘D stars the
-    // highlighted row (keyDown).
+    // Up and Down and a click on it never picks the model. It has no key: ⌘D is Split Right, and the
+    // open menu never takes an app shortcut it does not show on a row.
     const starred = stars?.has(model) ?? false;
     const star = stars ? (
       <button
@@ -560,9 +560,8 @@ export function QuickModelMenu({
         className="acpmux-quick-star"
         tabIndex={-1}
         aria-pressed={starred}
-        aria-keyshortcuts="Meta+D"
         aria-label={`${t(starred ? "picker.unstar" : "picker.star")}: ${model.name}`}
-        title={`${t(starred ? "picker.unstar" : "picker.star")}  ⌘D`}
+        title={t(starred ? "picker.unstar" : "picker.star")}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
@@ -598,14 +597,13 @@ export function QuickModelMenu({
       pickRow({ ...model, effort: value });
     };
     const look = menu.effortLook ?? "list";
-    // A row of a tab other than the chat's runs nothing yet: its column names the level a pick
-    // lands (the model's recommended one), as the chat's running row names its own.
-    const held = !!families && model.family !== families.current;
+    // A row that does not run names the level a pick lands (the model's recommended one), as the
+    // running row names its own, on every tab: a blank column until pointed at hid that each model
+    // has an effort choice at all (https://github.com/manaflow-ai/cmux/issues/29915).
     const shown = running
       ? choices.find((choice) => choice.id === effort?.current)
-      : held
-        ? choices.find((choice) => choice.recommended)
-        : undefined;
+      : choices.find((choice) => choice.recommended);
+    const held = !running && !!shown;
     // The row stays one line: the model, then its effort item at the trailing edge (the running
     // model's level and a chevron). Pointing at it or ArrowRight opens the model's levels as a side
     // dropdown beside the row, a vertical list in its own popup (never clipped by the list's scroll,
@@ -616,7 +614,7 @@ export function QuickModelMenu({
         key={valueOf(model)}
         data-effort-look={look}
         data-running={running ? "" : undefined}
-        data-held={held && shown ? "" : undefined}
+        data-held={held ? "" : undefined}
       >
         {name}
         <Submenu
@@ -765,18 +763,6 @@ export function QuickModelMenu({
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // ⌘1 to ⌘9 pick a row as 1 to 9 do, also while a search shows (where a bare digit is text).
     const commandDigit = event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key);
-    // ⌘D stars or unstars the highlighted model row, as its star button does.
-    if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "d" && families?.stars) {
-      const highlighted = event.currentTarget.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]');
-      const star = highlighted
-        ?.closest(".acpmux-quick-model-effort")
-        ?.querySelector<HTMLButtonElement>(".acpmux-quick-star");
-      if (star) {
-        event.preventDefault();
-        star.click();
-      }
-      return;
-    }
     if (
       (event.metaKey && !commandDigit) ||
       event.ctrlKey ||

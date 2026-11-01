@@ -54,7 +54,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
   }
 
   async function suggest(page: Page) {
-    await page.locator(".nt-field").click();
+    await page.locator(".nt-field .ProseMirror").click();
     await page.keyboard.type("re");
     await page.locator(".nt-popover .nt-row").first().waitFor();
   }
@@ -201,11 +201,13 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       await page.locator(button).first().click();
       await page.locator(menu).waitFor();
       // The field takes text without a press elsewhere (which would close the menu), as the host's
-      // dictation or a paste lands there.
+      // dictation or a paste lands there. The field is MarkdownField: the text goes in through its
+      // handle's writeText, the path the host's dictation takes (NewTabScreen's dictation field).
       await page.evaluate(() => {
-        const field = document.querySelector<HTMLTextAreaElement>(".nt-field")!;
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "re");
-        field.dispatchEvent(new Event("input", { bubbles: true }));
+        const field = document.querySelector(".nt-field") as Element & {
+          acpmuxMarkdownField?: { writeText(value: string, start: number, end: number): void };
+        };
+        field.acpmuxMarkdownField!.writeText("re", 2, 2);
       });
       await page.locator(".nt-popover .nt-row").first().waitFor();
       const result = await covered(page, menu, rows);

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { minutesAgo } from "../../gallery/clock";
 import { session } from "../../gallery/fixtures/acpmux";
 import { homeLists } from "./HomeLists";
+import { withoutChildren } from "./sessionList";
 
 test("homeLists excludes unlisted and not-ready sessions, then caps each section", () => {
   const current = session({ sessionId: "current", status: "waiting", updatedAt: minutesAgo(0) });
@@ -70,4 +71,64 @@ test("the inbox lists each other chat's open ask by its permission, never the cu
   expect(waiting.map(({ id }) => id)).toEqual(["acpmux:p-new", "acpmux:p-old"]);
   // One click answers once, never always: Always allow is the chat's card's to give.
   expect(waiting[0]!.answers.map(({ id }) => id)).toEqual(["p-new-yes", "p-new-no"]);
+});
+
+test("a nested working chat's pending permission stays in the Home inbox", () => {
+  const parent = session({ sessionId: "parent", indicator: "working" });
+  const child = session({
+    sessionId: "child",
+    spawnedBy: "parent",
+    status: "running",
+    indicator: "working",
+    pendingPermissions: 1,
+  });
+  const quietChild = session({ sessionId: "quiet", spawnedBy: "parent", indicator: "working" });
+  const { waiting } = homeLists([parent, child, quietChild], "home", [
+    {
+      sessionId: "child",
+      at: minutesAgo(1),
+      permission: {
+        permissionId: "child-permission",
+        title: "Read the requested file",
+        pending: true,
+        options: [
+          { id: "allow", name: "Allow once", kind: "allow_once", allow: true },
+          { id: "deny", name: "Deny", kind: "reject_once", allow: false },
+        ],
+      },
+    },
+  ]);
+  expect(waiting.map(({ id }) => id)).toEqual(["acpmux:child-permission"]);
+  // A quiet agent-started chat still folds under its parent.
+  expect(withoutChildren([parent, child, quietChild]).map(({ sessionId }) => sessionId)).toEqual(["parent", "child"]);
+});
+
+test("a nested child waiting for a question remains discoverable before its indicator updates", () => {
+  const parent = session({ sessionId: "parent" });
+  const question = session({
+    sessionId: "question",
+    spawnedBy: "parent",
+    status: "running",
+    indicator: "working",
+    waitingOn: { on: "question", prompt: "Which option should I use?" },
+  });
+  const waiting = session({
+    sessionId: "waiting",
+    spawnedBy: "parent",
+    status: "waiting",
+    indicator: "working",
+  });
+  const lost = session({
+    sessionId: "lost",
+    spawnedBy: "parent",
+    indicator: "lost",
+    pendingPermissions: 1,
+  });
+  const result = homeLists([parent, question, waiting, lost], "home");
+  expect(result.waiting.map(({ sessionId }) => sessionId)).toEqual(["question", "waiting"]);
+  expect(withoutChildren([parent, question, waiting, lost]).map(({ sessionId }) => sessionId)).toEqual([
+    "parent",
+    "question",
+    "waiting",
+  ]);
 });

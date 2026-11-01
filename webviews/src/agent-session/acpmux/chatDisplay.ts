@@ -22,7 +22,7 @@ export type ChatFontPreset = "system" | "serif" | "mono";
 export type ChatFontChoice = ChatFontPreset | "markdown";
 /// The Session Info chip setting a cmux.json may still hold (Left, Right, Off). The chat header no
 /// longer draws a machine · folder label (Leo, 2026-10-26: "i thought we said to remove this?"), so
-/// every value is accepted and none draws one; the Inspector's Environment says where a chat runs.
+/// every value is accepted and none draws one; Session Info's Environment says where a chat runs.
 export type EnvironmentPlacement = "left" | "right" | "off";
 
 export interface ChatDisplay {
@@ -38,12 +38,12 @@ export interface ChatDisplay {
   /// Code as a share of the text size, or null for the chat's own code sizes (13px inline and
   /// 12px blocks at 14px text, scaled with the text).
   codeScale: number | null;
-  /// Where the Inspector goes when open (inspector/ChatInspector.tsx): `overlay` (the default) floats
+  /// Where Session Info goes when open (session-info/SessionInfo.tsx): `overlay` (the default) floats
   /// in the chat's right gutter, so opening, closing or updating it never reflows the chat (Leo,
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
-  inspector: "push" | "overlay";
+  sessionInfo: "push" | "overlay";
   /// The prompt rail edge; its context menu writes the same saved setting.
   railSide: "left" | "right";
   /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
@@ -56,8 +56,9 @@ export interface ChatDisplay {
   environmentPlacement: EnvironmentPlacement;
 }
 
-/// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
-export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
+/// The saved settings key keeps its old `inspector` name, so a saved Push or Overlay choice survives.
+export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.inspector.placement";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -110,7 +111,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   lineHeight: CHAT_DISPLAY.lineHeight.fallback,
   codeFamily: null,
   codeScale: null,
-  inspector: "overlay",
+  sessionInfo: "overlay",
   railSide: "left",
   minimal: false,
   environmentPlacement: "left",
@@ -173,7 +174,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     codeScale:
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
-    inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    sessionInfo: values[SESSION_INFO_PLACEMENT_KEY] === "push" ? "push" : "overlay",
     railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])

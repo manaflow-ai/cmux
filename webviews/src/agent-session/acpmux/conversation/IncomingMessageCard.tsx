@@ -33,7 +33,7 @@ import type { PromptImage } from "../model";
 import { messagePreview, unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
 import { dedupeReferences } from "./messageRefs";
 import { PromptEditor, SentImages } from "./UserBubble";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
@@ -54,6 +54,7 @@ import { laneNotice } from "./laneReport";
 import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -62,6 +63,9 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
   ancestor: "message.from.ancestor",
   descendant: "message.from.descendant",
 };
+
+/// A harness logo's size in the sender's glyph slot (see SenderName).
+const SENDER_LOGO_SIZE = 12;
 
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
@@ -72,7 +76,9 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   const chief = useChiefFace(message.chief);
   const name = (message.chief && chief?.name) || message.name;
   const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
-  const sessionId = message.chief ? undefined : sender.sessionId;
+  // Read only (a guest): the sender's chat is not this reader's to open.
+  const readOnly = useTranscriptReadOnly();
+  const sessionId = message.chief || readOnly ? undefined : sender.sessionId;
   const avatar = useAgentAvatar(sender.sessionId);
   const notice = laneNotice(message);
   const inboxNames =
@@ -97,11 +103,14 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       {chief.text}
     </span>
   ) : (
-    // A sender with no harness mark keeps the robot in its own stable tone, so two such senders tell apart.
+    // A sender with no harness mark keeps the robot in its own stable tone, so two such senders tell
+    // apart. A logo fills its whole box while the envelope and the bot leave a margin in their 16px
+    // one: at 12px its ink is the stroke glyphs' (about 12px), so a sender's logo and a send's
+    // envelope read as one size in the shared glyph slot (transcript-icon-column.test.ts).
     <AgentIdentity
       harness={harness}
       tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
-      size={14}
+      size={SENDER_LOGO_SIZE}
       fallbackNode={<Bot size={16} />}
     />
   );
@@ -161,6 +170,8 @@ export function IncomingMessageLine({
   githubRepository?: string;
 }) {
   const t = useT();
+  // Read only (a guest): nobody replies.
+  const readOnly = useTranscriptReadOnly();
   const notice = laneNotice(message);
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
@@ -187,10 +198,8 @@ export function IncomingMessageLine({
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(
-    needle && (notice?.body ?? unsigned(message.text, message.name)).toLocaleLowerCase().includes(needle),
-  );
-  const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
+  const inText = Boolean(needle && foldFind(notice?.body ?? unsigned(message.text, message.name)).includes(needle));
+  const inRaw = Boolean(needle && !inText && foldFind(message.raw).includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
     played.current = false;
@@ -218,7 +227,7 @@ export function IncomingMessageLine({
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
-  const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
+  const replies = !readOnly && onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
     replying.has(key) ? "open" : "closed",
   );

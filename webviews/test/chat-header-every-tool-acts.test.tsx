@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture chat titles and paths, not shipped UI.
 // No dead clicks in the chat header (Leo 2026-10-21): every item in the header row does something when
-// clicked. The row as App.tsx draws it: the panel toggle (the summary's with the Inspector off,
-// the Inspector's with it on), the Needs you inbox, every quick action and the "..." menu.
+// clicked. The row as App.tsx draws it: the panel toggle (the summary's with Session Info off,
+// Session Info's with it on), the Needs you inbox, every quick action and the "..." menu.
 // Each one is clicked on its own fresh render and must call its action, open its popup or flip
 // its toggle. Machine and folder are composer chips, never header buttons.
 import { afterEach, expect, test } from "bun:test";
@@ -12,8 +12,8 @@ import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { configureQuickActions } from "../src/agent-session/acpmux/header/quickActions";
-import { useChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
-import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { NeedsYouButton } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -23,12 +23,12 @@ let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-function installDom(inspector: boolean): HTMLElement {
+function installDom(sessionInfo: boolean): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  setHeaderState({ inspector });
+  setHeaderState({ inspector: sessionInfo });
   class FakeResizeObserver {
     observe() {}
     disconnect() {}
@@ -53,14 +53,14 @@ function installDom(inspector: boolean): HTMLElement {
   };
   for (const key of Object.keys(replacements)) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
-  resetInspectorState();
+  resetSessionInfoState();
   return dom.window.document.getElementById("root")!;
 }
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
-  resetInspectorState();
+  resetSessionInfoState();
   configureQuickActions({});
   setHeaderState({ inspector: false, pullRequest: null });
   dom?.window.close();
@@ -87,7 +87,7 @@ const snapshot = chat([
 /// The header row as App.tsx draws it, every action recorded by name.
 function Header({ calls }: { calls: string[] }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
-  const inspector = useChatInspector({ snapshot, machineName: "Studio", shell });
+  const sessionInfo = useSessionInfo({ snapshot, machineName: "Studio", shell });
   const record = (name: string) => () => void calls.push(name);
   const [summaryShown, setSummaryShown] = useState(false);
   const card = {
@@ -117,9 +117,9 @@ function Header({ calls }: { calls: string[] }) {
             previewUrl="http://localhost:5173/"
             onPreview={record("preview")}
             onSideTabs={record("newTab")}
-            summary={inspector.on ? null : <SummaryButton card={card as never} />}
+            summary={sessionInfo.on ? null : <SummaryButton card={card as never} />}
             menu={() => [{ key: "rename", label: "Rename", icon: "action.edit", onSelect: record("rename") }]}
-            inspector={inspector.button}
+            sessionInfo={sessionInfo.button}
             inbox={
               <NeedsYouButton
                 items={[]}
@@ -129,12 +129,12 @@ function Header({ calls }: { calls: string[] }) {
           />
         </div>
       </header>
-      {inspector.panel}
+      {sessionInfo.panel}
     </section>
   );
 }
 
-/// What a click can change: an action called, a popup or toggle state, an Inspector section lit,
+/// What a click can change: an action called, a popup or toggle state, a Session Info section lit,
 /// a popup in the document.
 function fingerprint(container: HTMLElement, calls: string[]): string {
   const document = container.ownerDocument;
@@ -148,14 +148,14 @@ function fingerprint(container: HTMLElement, calls: string[]): string {
     states,
     lit,
     popups,
-    inspector: !!document.querySelector("aside.acpmux-chat-inspector"),
+    sessionInfo: !!document.querySelector("aside.acpmux-session-info"),
   });
 }
 
-async function everyItemActs(inspector: boolean, before?: () => void) {
+async function everyItemActs(sessionInfo: boolean, before?: () => void) {
   const labels: string[] = [];
   for (let index = 0; ; index++) {
-    const container = installDom(inspector);
+    const container = installDom(sessionInfo);
     configureQuickActions({
       quickActions: ["changes", "preview", "files", "terminal", "splitDown", "browser", "newTab"],
     });
@@ -178,17 +178,17 @@ async function everyItemActs(inspector: boolean, before?: () => void) {
     expect([label, fingerprint(container, calls)]).not.toEqual([label, was]);
     await act(async () => root!.unmount());
     root = undefined;
-    resetInspectorState();
+    resetSessionInfoState();
     configureQuickActions({});
     dom?.window.close();
   }
   return labels;
 }
 
-test("with the Inspector on, every header item acts on a click", async () => {
+test("with Session Info on, every header item acts on a click", async () => {
   setChatDisplay({});
   const labels = await everyItemActs(true);
-  // The Inspector's toggle leads the top-right tools, as Claude Code desktop's panel toggle does.
+  // Session Info's toggle leads the top-right tools, as Claude Code desktop's panel toggle does.
   expect(labels).toEqual([
     "Session Info",
     "Needs you",
@@ -203,7 +203,7 @@ test("with the Inspector on, every header item acts on a click", async () => {
   ]);
 });
 
-test("with the Inspector off, every header item acts on a click", async () => {
+test("with Session Info off, every header item acts on a click", async () => {
   setChatDisplay({});
   const labels = await everyItemActs(false);
   expect(labels).toEqual([

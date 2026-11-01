@@ -8,7 +8,7 @@ import type { Subagent } from "./subagentFold";
 /// The progress parts that apply, in order; none until the harness reports any.
 /// `usage: false` leaves out its tokens and tool uses: the tray's and transcript's subagent rows
 /// read like Claude Code's, its title and state (Leo, 2026-10-31: "we can remove the symbols and the
-/// tokens"); the Inspector's Context still says them.
+/// tokens"); Session Info's Context still says them.
 export function subagentProgress(
   t: Translate,
   language: PaneLanguage,

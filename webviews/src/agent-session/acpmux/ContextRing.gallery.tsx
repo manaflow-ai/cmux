@@ -28,7 +28,7 @@ function GalleryContextRing(props: Props) {
         size={props.size}
         setup={props.setup}
         breakdown={props.breakdown}
-        // The chat's Inspector reveal (App.tsx); the gallery has no Inspector to open.
+        // The chat's Session Info reveal (App.tsx); the gallery has no Session Info to open.
         onOpenDetails={props.details ? () => {} : undefined}
       />
       <button

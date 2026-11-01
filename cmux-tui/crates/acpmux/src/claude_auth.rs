@@ -200,13 +200,20 @@ pub fn direct_sign_in() -> bool {
     find(&env).signed_in()
 }
 
-static SPAWNED: Mutex<Option<HashMap<String, BTreeMap<String, String>>>> = Mutex::new(None);
+#[derive(Clone)]
+struct Spawned {
+    env: BTreeMap<String, String>,
+    routed: bool,
+}
+
+static SPAWNED: Mutex<Option<HashMap<String, Spawned>>> = Mutex::new(None);
 
 /// Remember a Claude agent's spawn environment for its session: the
 /// Claude home, HOME, the endpoint and shell as they are, and only the
-/// presence of credential keys (their values are replaced). Logs a warning
+/// presence of credential keys (their values are replaced), plus whether a route supplied
+/// the environment. Logs a warning
 /// when it has no sign-in at all.
-pub fn remember(session_id: &str, env: &[(String, String)]) {
+pub fn remember(session_id: &str, env: &[(String, String)], routed: bool) {
     let mut kept = BTreeMap::new();
     for (k, v) in env {
         if REMEMBERED.contains(&k.as_str()) || PROVIDER_KEYS.iter().any(|(p, _)| p == k) {
@@ -220,7 +227,8 @@ pub fn remember(session_id: &str, env: &[(String, String)]) {
         tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env, settings or credentials file (a keychain sign-in is not checked)");
     }
     let mut map = SPAWNED.lock().unwrap_or_else(|e| e.into_inner());
-    map.get_or_insert_with(HashMap::new).insert(session_id.to_owned(), kept);
+    map.get_or_insert_with(HashMap::new)
+        .insert(session_id.to_owned(), Spawned { env: kept, routed });
 }
 
 /// The session now runs another harness: its Claude spawn env no longer applies.
@@ -230,7 +238,8 @@ pub fn forget(session_id: &str) {
     }
 }
 
-/// Claude's own words for "no usable sign-in".
+/// Claude's own words for "no usable sign-in": a missing login, and the API's refusal of the
+/// credential it sent ("Failed to authenticate. API Error: 401 … authentication_error").
 pub fn is_sign_in_failure(message: &str) -> bool {
     let m = message.to_lowercase();
     m.contains("not logged in")
@@ -238,6 +247,8 @@ pub fn is_sign_in_failure(message: &str) -> bool {
         || m.contains("invalid api key")
         || m.contains("oauth token has expired")
         || m.contains("authentication_failed")
+        || m.contains("authentication_error")
+        || m.contains("failed to authenticate. api error")
 }
 
 /// Whether `message` says a credential expired: "OAuth token has expired", "the token is
@@ -283,14 +294,20 @@ pub fn explain(session_id: &str, original: &str) -> Option<String> {
     if !explains(original) {
         return None;
     }
-    let agent_env =
+    let spawned =
         SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
     // File reads block: off a multi-thread runtime's workers.
     let work = || {
-        let agent = find(&agent_env);
+        let agent = find(&spawned.env);
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
-        compose(&agent, &terminal, terminal_env.get("SHELL").map(String::as_str), original)
+        compose(
+            &agent,
+            &terminal,
+            terminal_env.get("SHELL").map(String::as_str),
+            original,
+            spawned.routed,
+        )
     };
     let multi_thread = tokio::runtime::Handle::try_current()
         .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
@@ -313,7 +330,13 @@ fn rc_file(shell: Option<&str>) -> &'static str {
     }
 }
 
-fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str) -> String {
+fn compose(
+    agent: &Found,
+    terminal: &Found,
+    shell: Option<&str>,
+    original: &str,
+    routed: bool,
+) -> String {
     let mut out = String::from("Claude is not signed in here.");
     let with_endpoint = |f: &Found| match &f.endpoint {
         Some(host) => format!(" through a custom API endpoint ({host}, ANTHROPIC_BASE_URL)"),
@@ -340,7 +363,19 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
     } else {
         out.push_str(" Your terminal has no Claude sign-in either.");
     }
-    let fix = if agent.signed_in() {
+    let api_key = agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY");
+    let fix = if routed && api_key {
+        "Replace the credential in the selected model route, or select another route, then start a new chat."
+            .to_owned()
+    } else if agent.endpoint.is_none() && api_key {
+        // Claude Code prefers ANTHROPIC_API_KEY over a `claude /login` sign-in, so logging in
+        // again does not help while a rejected key is set. Not with an endpoint: a route or a
+        // proxy set that key (routes.rs), and removing it would break the route.
+        format!(
+            "Claude uses ANTHROPIC_API_KEY before your `claude /login` sign-in. To use your Claude sign-in, remove ANTHROPIC_API_KEY from {} or this agent's profile and open a new terminal; or replace the key. Then send the message again.",
+            rc_file(shell)
+        )
+    } else if agent.signed_in() {
         "Run `claude /login` in a terminal, or check that key, then send the message again."
             .to_owned()
     } else if terminal.signed_in() && agent.home != terminal.home {
@@ -379,6 +414,8 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// A sign-in failure is explained; one that says the provider was unreachable is not.
     #[test]
     fn an_outage_that_names_a_token_is_not_explained_as_a_sign_in() {
@@ -387,6 +424,93 @@ mod tests {
         assert!(!super::explains("HTTP 503: OAuth token has expired"));
         assert!(!super::explains("connection error: Not logged in"));
         assert!(!super::explains("Claude is not signed in here. Not logged in"));
+    }
+
+    /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as
+    /// raw API text instead of the sign-in explanation.
+    #[test]
+    fn a_rejected_credential_is_a_sign_in_failure() {
+        let said = r#"Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#;
+        assert!(is_sign_in_failure(said));
+        assert!(is_sign_in_failure("Not logged in · Please run /login"));
+        assert!(!is_sign_in_failure("API Error: 529 overloaded_error"));
+    }
+
+    /// A rejected ANTHROPIC_API_KEY wins over `claude /login`, so the fix names the key, not a
+    /// login that would not help.
+    #[test]
+    fn a_rejected_env_api_key_says_to_remove_it() {
+        let agent = Found {
+            home: PathBuf::from("/h/.claude"),
+            sources: vec!["an API key (ANTHROPIC_API_KEY)".to_owned()],
+            env_keys: vec!["ANTHROPIC_API_KEY".to_owned()],
+            ..Found::default()
+        };
+        let text = compose(
+            &agent,
+            &agent,
+            Some("/bin/zsh"),
+            "Failed to authenticate. API Error: 401",
+            false,
+        );
+        assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
+        assert!(!text.contains("Run `claude /login`"), "{text}");
+
+        // Review of #25950: a route's key (with its endpoint) is not the person's to remove.
+        let routed = Found { endpoint: Some("router.example:443".to_owned()), ..agent };
+        let text = compose(
+            &routed,
+            &routed,
+            Some("/bin/zsh"),
+            "Failed to authenticate. API Error: 401",
+            false,
+        );
+        assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");
+    }
+
+    #[test]
+    fn a_subscription_route_without_a_key_keeps_login_advice() {
+        let agent = Found::default();
+        let text = compose(&agent, &agent, None, "Not logged in", true);
+        assert!(text.contains("Run `claude /login`"), "{text}");
+        assert!(!text.contains("selected model route"), "{text}");
+    }
+
+    #[test]
+    fn a_routed_api_key_without_an_endpoint_says_to_change_the_route() {
+        let home = tempfile::tempdir().unwrap();
+        let mut profile: crate::config::HarnessProfile =
+            serde_json::from_value(serde_json::json!({
+                "kind": "claude-stdio",
+                "argv": ["claude"],
+                "env": {
+                    "HOME": home.path(),
+                    "CLAUDE_CONFIG_DIR": home.path(),
+                    (crate::agent::REMOTE_ENV_POLICY_KEY): "1"
+                }
+            }))
+            .unwrap();
+        crate::routes::apply(
+            &mut profile.env,
+            &crate::routes::RouteEnv {
+                set: BTreeMap::from([("ANTHROPIC_API_KEY".into(), "rejected-test-key".into())]),
+                unset: crate::routes::SCRUBBED.iter().map(|key| (*key).to_owned()).collect(),
+            },
+        );
+        let id = "claude-auth-routed-key-without-endpoint";
+        let _command = crate::agent::harness_command(
+            "claude",
+            &profile,
+            home.path(),
+            None,
+            Some((id, "route auth test")),
+        )
+        .unwrap();
+        let text = explain(id, "Failed to authenticate. API Error: 401").unwrap();
+        forget(id);
+        assert!(text.contains("route"), "{text}");
+        assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");
+        assert!(!text.contains("rejected-test-key"), "{text}");
     }
 
     /// Only a revoked token is one: not an expired or missing sign-in, nor an outage.

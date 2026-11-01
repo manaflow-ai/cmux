@@ -1,7 +1,9 @@
+import AppKit
 import CmuxNextFileGrid
 import CmuxNextFiles
 @testable import CmuxNextScreenshots
 import Foundation
+import os
 import Testing
 
 /// The pane's live model: merged listing, watch events, filters and the drop folder.
@@ -13,7 +15,7 @@ import Testing
 
     /// No watch: these tests drive events by hand, so the order is deterministic.
     static func model() -> ScreenshotsModel {
-        ScreenshotsModel(watcher: SilentWatcher())
+        ScreenshotsModel(watcher: SilentWatcher(), listsAtOnce: true)
     }
 
     @Test func mergesEveryFolderNewestFirst() async throws {
@@ -148,7 +150,7 @@ import Testing
     /// The real watch (CmuxNextFiles' FolderWatcher): a screenshot saved into a watched folder shows.
     @Test(.timeLimit(.minutes(1))) func theWatchShowsANewScreenshot() async throws {
         let folder = try TemporaryFolder()
-        let model = ScreenshotsModel(watcher: FolderWatcher(latency: 0.05))
+        let model = ScreenshotsModel(watcher: FolderWatcher(latency: 0.05), listsAtOnce: true)
         defer { model.stop() }
         model.setSources([Self.source("a", folder.url)])
         await model.refresh()
@@ -183,4 +185,110 @@ nonisolated struct SilentWatcher: FolderWatching {
     func changes(in folder: URL) -> AsyncStream<FolderChange> {
         AsyncStream { $0.finish() }
     }
+}
+
+/// ~/Desktop is macOS's default screenshot folder, which macOS guards. The app's page model is made with
+/// `listsAtOnce: false`: a page an agent or a script made off screen reads and watches no folder until it is on
+/// screen (`startListing()`).
+@MainActor @Suite struct ScreenshotsModelListsOnlyWhenStartedTests {
+    @Test func aModelNotStartedReadsAndWatchesNoFolder() async {
+        let lister = RecordingLister()
+        let watcher = RecordingWatcher()
+        let model = ScreenshotsModel(reader: ScreenshotFolderReader(lister: lister), watcher: watcher, listsAtOnce: false)
+        let desktop = URL(fileURLWithPath: "/Users/someone/Desktop", isDirectory: true)
+        model.setSources([ScreenshotsModelTests.source("system", desktop)])
+        await model.refresh()
+        #expect(!model.isListing)
+        #expect(await lister.listed.isEmpty)
+        #expect(watcher.watched.isEmpty)
+
+        model.startListing()
+        await model.refresh()
+        #expect(model.isListing)
+        #expect(await lister.listed.contains(desktop.path))
+        #expect(watcher.watched.contains(desktop.path))
+    }
+}
+
+/// Records each folder the model lists.
+private actor RecordingLister: DirectoryListing {
+    private(set) var listed: [String] = []
+    func list(_ folder: URL) async throws -> [FileEntry] {
+        listed.append(folder.path)
+        return []
+    }
+    func entry(at url: URL) async -> FileEntry? { nil }
+}
+
+/// Records each folder the model watches; reports no change.
+private final class RecordingWatcher: FolderWatching {
+    private let paths = OSAllocatedUnfairLock(initialState: [String]())
+    var watched: [String] { paths.withLock { $0 } }
+    func changes(in folder: URL) -> AsyncStream<FolderChange> {
+        paths.withLock { $0.append(folder.path) }
+        return AsyncStream { $0.finish() }
+    }
+}
+
+/// The decision of a `screenshots.open` run: only the person's own run brings the tab to the front; any other run
+/// opens it in the background and says so, even when it asked for focus.
+@Suite struct ScreenshotsOpenDecisionTests {
+    @Test func onlyThePersonsRunSelectsAndEveryOtherRunIsTold() {
+        let person = ScreenshotsOpen(personsRun: true)
+        #expect(person.selects && person.note == nil)
+        let script = ScreenshotsOpen(personsRun: false)
+        #expect(!script.selects)
+        #expect(script.note?.isEmpty == false)
+        // What a script hears: a new tab opened behind, or the tab already there, listing or waiting for the click.
+        #expect(person.result(existing: false, listing: false) == nil)
+        let opened = script.result(existing: false, listing: false)
+        #expect(opened?.opened == "background" && opened?.listing == false && opened?.note != nil)
+        let listing = script.result(existing: true, listing: true)
+        #expect(listing?.opened == "existing" && listing?.listing == true && listing?.note == nil)
+        let waiting = script.result(existing: true, listing: false)
+        #expect(waiting?.opened == "existing" && waiting?.listing == false && waiting?.note != nil)
+    }
+}
+
+/// The gate remembers the person's click by tab key, so a page made again (hibernation wake, engine switch)
+/// lists with no second click, and no folder is detected until the first click.
+@MainActor @Suite struct ScreenshotsGateTests {
+    @Test func nothingIsUnlockedOrDetectedBeforeTheClickAndTheClickIsRememberedPerTab() {
+        let gate = ScreenshotsGate()
+        #expect(!gate.mayDetect)
+        #expect(!gate.isUnlocked("tab-a"))
+        gate.unlock("tab-a")
+        #expect(gate.mayDetect)
+        #expect(gate.isUnlocked("tab-a"))
+        #expect(!gate.isUnlocked("tab-b"))
+    }
+
+    /// A plain NSButton takes the keyboard only with Full Keyboard Access on, so the pane itself takes it while the
+    /// prompt is up, and Space (the button's key) shows the screenshots; then the grid has the keyboard again.
+    @MainActor @Test func spacePressesShowScreenshotsWhileThePromptIsUp() throws {
+        let model = ScreenshotsModel(watcher: SilentWatcher(), listsAtOnce: false)
+        let view = ScreenshotsView(model: model, cache: ThumbnailCache(), workspace: NoWorkspace())
+        // Plain values in each expectation: a failure message must not reflect the view (its drop pasteboard).
+        let paneTakesKeys = view.focusTarget === view
+        #expect(paneTakesKeys, "the pane does not take the keyboard before the click")
+        let acceptsKeys = view.acceptsFirstResponder
+        #expect(acceptsKeys)
+        let space = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                  context: nil, characters: " ", charactersIgnoringModifiers: " ",
+                                                  isARepeat: false, keyCode: 49))
+        view.keyDown(with: space)
+        let listing = model.isListing
+        #expect(listing, "Space did not show the screenshots")
+        let gridTakesKeys = view.focusTarget !== view
+        #expect(gridTakesKeys)
+    }
+
+    @Test func aModelListsOnlyWhenItsCallerSaysSo() {
+        #expect(!ScreenshotsModel(watcher: SilentWatcher()).isListing, "the default must be the safe one")
+    }
+}
+
+@MainActor private final class NoWorkspace: ScreenshotsWorkspace {
+    func open(_ urls: [URL]) {}
+    func reveal(_ urls: [URL]) {}
 }

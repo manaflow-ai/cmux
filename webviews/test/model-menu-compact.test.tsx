@@ -536,29 +536,37 @@ test("the rail lists Starred, then each harness; a harness's tab lists its model
   expect(itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort"))).toBe(false);
 });
 
-test("⌘D stars and unstars the highlighted model row, as its star does", async () => {
+test("a row's star stars and unstars its model, and ⌘D is left to Split Right", async () => {
   await mount({ routes: [] });
   await open();
   const row = modelRows(menu()!)[0]!;
   const name = row.querySelector(".acpmux-menu-label")?.textContent ?? "";
   await act(async () => row.focus());
   await settle();
-  expect(row.hasAttribute("data-highlighted")).toBe(true);
   const star = () => row.closest(".acpmux-quick-model-effort")!.querySelector<HTMLButtonElement>(".acpmux-quick-star")!;
-  // The star says which model it stars, and its key.
+  // The star says which model it stars, and names no key.
   expect(star().getAttribute("aria-label")).toContain(name);
-  expect(star().getAttribute("aria-keyshortcuts")).toBe("Meta+D");
-  expect(star().title).toContain("⌘D");
+  expect(star().hasAttribute("aria-keyshortcuts")).toBe(false);
+  expect(star().title).not.toContain("⌘D");
   expect(star().getAttribute("aria-pressed")).toBe("false");
-  const press = () =>
-    act(async () => {
-      row.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "d", metaKey: true, bubbles: true }));
-    });
-  await press();
+  // ⌘D is cmux's Split Right: the open menu neither stars with it nor keeps it from the app.
+  const commandD = new dom.window.KeyboardEvent("keydown", {
+    key: "d",
+    metaKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => {
+    row.dispatchEvent(commandD);
+  });
+  await settle();
+  expect(commandD.defaultPrevented, "the menu took ⌘D").toBe(false);
+  expect(star().getAttribute("aria-pressed")).toBe("false");
+  await act(async () => star().click());
   await settle();
   expect(star().getAttribute("aria-pressed")).toBe("true");
-  expect(menu(), "⌘D closed the menu").not.toBeNull();
-  await press();
+  expect(menu(), "the star closed the menu").not.toBeNull();
+  await act(async () => star().click());
   await settle();
   expect(star().getAttribute("aria-pressed")).toBe("false");
 });

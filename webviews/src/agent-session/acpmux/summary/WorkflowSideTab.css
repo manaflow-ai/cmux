@@ -36,7 +36,7 @@
 .acpmux-workflow-side-tab__state[data-state="running"] { color: var(--agent-accent); }
 .acpmux-workflow-side-tab__state[data-state="failed"] { color: var(--agent-status-failure); }
 .acpmux-workflow-side-tab__state svg { flex: none; }
-.acpmux-workflow-side-tab__summary .acpmux-chat-inspector-stop { margin-left: auto; }
+.acpmux-workflow-side-tab__summary .acpmux-session-info-stop { margin-left: auto; }
 .acpmux-workflow-side-tab__description { margin: 0 0 14px; color: var(--agent-soft); font-size: var(--text-detail); line-height: 18px; }
 .acpmux-workflow-side-tab__timeline { position: relative; display: flex; flex-direction: column; gap: var(--ds-space-3); margin: 0; padding: 0; list-style: none; }
 .acpmux-workflow-side-tab__timeline::before { content: ""; position: absolute; top: 10px; bottom: 10px; left: 6px; width: 1px; background: var(--agent-border); }
