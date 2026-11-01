@@ -595,7 +595,15 @@ fn resolve_with_cua_helper(
                 name: crate::cloud_repo_mcp::SERVER_NAME.into(),
                 command: acpmux.exe.clone(),
                 args: acpmux.args_lossy(&["repo-mcp"]),
-                env: vec![],
+                env: executable("cmux")
+                    .map(|path| ("CMUX_BIN".into(), path.to_string_lossy().into_owned()))
+                    .into_iter()
+                    .chain(
+                        std::env::var("CMUX_SOCKET_PATH")
+                            .ok()
+                            .map(|path| ("CMUX_SOCKET_PATH".into(), path)),
+                    )
+                    .collect(),
             });
         }
     }
@@ -718,6 +726,16 @@ impl AgentTools {
     /// an allowlisted env to a stdio MCP server (Codex does).
     pub fn for_session(mut self, session_id: &str) -> Self {
         for server in &mut self.servers {
+            let repo_route: Vec<_> = if server.name == crate::cloud_repo_mcp::SERVER_NAME {
+                server
+                    .env
+                    .iter()
+                    .filter(|(k, _)| matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH"))
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            };
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
@@ -763,6 +781,7 @@ impl AgentTools {
                         .map(|(k, v)| (k.to_owned(), v)),
                 );
             }
+            server.env.extend(repo_route);
         }
         self
     }

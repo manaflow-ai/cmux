@@ -1,7 +1,7 @@
 //! Cloud repository tools for agent sessions on a Cloud machine.
 //!
 //! The agent and the web UI use the same daemon actions.  This stdio server
-//! only forwards the caller's session token; it never trusts a session id
+//! forwards the chat ID supplied by acpmux; it never trusts a session id
 //! supplied by tool arguments.
 
 use crate::client::Client;
@@ -19,7 +19,7 @@ pub const REPO_LIST_ACTION: &str = "cloud.repo.list";
 pub const REPO_ADD_ACTION: &str = "cloud.repo.add";
 pub const REPO_WAIT_GITHUB_ACTION: &str = "cloud.repo.wait_github";
 
-/// Cloud machines are marked by the image, with an trusted image marker; tests can inject a marker in a fixture image.
+/// Cloud machines carry the same image marker used by acpmux host updates.
 pub fn is_cloud_machine() -> bool {
     std::path::Path::new("/etc/cmux/vm-kind").exists()
 }
@@ -62,7 +62,9 @@ pub async fn run() -> Result<()> {
 
 fn ok(result: Value) -> Value {
     let text = result_text(&result);
-    json!({"content":[{"type":"text","text":text}],"structuredContent":result,"isError":false})
+    let code = result["code"].as_str().or(result["error"]["code"].as_str());
+    let is_error = code.is_some_and(|code| !matches!(code, "repo.needs_github" | "repo.ambiguous"));
+    json!({"content":[{"type":"text","text":text}],"structuredContent":result,"isError":is_error})
 }
 
 fn result_text(result: &Value) -> String {
@@ -102,15 +104,24 @@ fn result_text(result: &Value) -> String {
 }
 
 /// The Cloud CLI already speaks the legacy machine socket contract. Calling
-/// it without a shell keeps the agent's session token in an argv value only
+/// it without a shell keeps the chat ID in an argv value only
 /// (never interpolated into a command string), and makes this bridge work with
 /// the same socket as `cmux cloud repo`.
 async fn run_cli(action: &str, request: Value) -> Result<Value, String> {
     let binary = std::env::var_os("CMUX_BIN").unwrap_or_else(|| "cmux".into());
+    run_cli_with(&binary, std::env::var_os("CMUX_SOCKET_PATH").as_deref(), action, request).await
+}
+
+async fn run_cli_with(
+    binary: &std::ffi::OsStr,
+    socket: Option<&std::ffi::OsStr>,
+    action: &str,
+    request: Value,
+) -> Result<Value, String> {
     let mut command = tokio::process::Command::new(binary);
     command.kill_on_drop(true).arg("--json");
-    if let Some(socket) = std::env::var_os("CMUX_SOCKET_PATH") {
-        command.args(["--socket", &socket.to_string_lossy()]);
+    if let Some(socket) = socket {
+        command.arg("--socket").arg(socket);
     }
     command.args([
         "cloud",
@@ -262,5 +273,52 @@ mod tests {
         let mut result = json!({"code":"repo.not_found"});
         enrich_retry(&mut result, "chat", "x", None);
         assert!(result.get("retry").is_none());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod bridge_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn cloud_repo_cli_error_exit_preserves_recovery_and_literal_arguments() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("cmux");
+        let argv = dir.path().join("argv");
+        std::fs::write(&script, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nprintf '%s\\n' '{{\"code\":\"repo.needs_github\",\"message\":\"Connect GitHub.\",\"install_url\":\"https://github.com/install\"}}'\nexit 1\n", argv.display())).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let result = run_cli_with(
+            script.as_os_str(),
+            Some(std::ffi::OsStr::new("/tmp/daemon.sock")),
+            REPO_ADD_ACTION,
+            json!({"session":"chat-1","repo":"literal; $(false)","ref":"main"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result["code"], "repo.needs_github");
+        let words = std::fs::read_to_string(argv).unwrap();
+        assert_eq!(
+            words.lines().collect::<Vec<_>>(),
+            vec![
+                "--json",
+                "--socket",
+                "/tmp/daemon.sock",
+                "cloud",
+                "repo",
+                "add",
+                "--session",
+                "chat-1",
+                "--repo",
+                "literal; $(false)",
+                "--ref",
+                "main"
+            ]
+        );
+        assert_eq!(ok(result)["isError"], false);
+        assert_eq!(
+            ok(json!({"code":"seed.disk_full","message":"Free disk space and retry."}))["isError"],
+            true
+        );
     }
 }
