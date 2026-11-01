@@ -493,10 +493,3 @@ export const ArrowRight = (p: CvIconProps) => (
     <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
   </Svg>
 );
-
-/** Opens somewhere else: the cue on a chip that opens another chat (AgentTag.tsx). */
-export const ArrowUpRight = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M5.25 10.75 10.75 5.25M6.25 5.25h4.5v4.5" />
-  </Svg>
-);
