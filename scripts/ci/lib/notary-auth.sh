@@ -5,7 +5,7 @@
 # default Linux/Blacksmith path decodes ASC_API_KEY_P8_BASE64 into <private-dir>
 # with mode 600. A native owned-Mac caller sets
 # CMUX_NOTARY_USE_KEYCHAIN_PROFILE=true; that path imports the key through an
-# inherited fd into notarytool's profile in the job's temporary default
+# inherited fd into notarytool's profile in the job's explicitly named temporary
 # keychain, and never writes a P8 file.
 # The caller owns <private-dir> and must delete it on exit (an EXIT trap), so
 # the decoded key never outlives the script that used it.
