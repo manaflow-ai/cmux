@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import { railPlacement } from "../src/agent-session/acpmux/threadMinimap/model";
 
 await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   setDefaultTimeout(300_000);
