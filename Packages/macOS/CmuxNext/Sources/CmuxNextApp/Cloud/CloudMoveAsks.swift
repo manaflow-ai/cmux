@@ -34,7 +34,7 @@ final class CloudMoveAsks {
     }
 
     private var asks: [String: Ask] = [:]
-    private var unfinishedOffer: Task<Void, Never>?
+    private(set) var unfinishedOffer: Task<Void, Never>?
     /// Tabs whose card is the launch offer of an unfinished move: their Dismiss is remembered.
     private var offered: Set<String> = []
     private var dismissedMemory: [String: String] = [:]

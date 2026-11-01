@@ -1,7 +1,8 @@
 //! Requests about one queued prompt before its turn: `_acpmux/queue_remove {sessionId,
 //! promptId}`, its sender taking it back (`author.rs`), and the owner's answer to a person's prompt
 //! that waits for them (`hub/queue_approve.rs`): `_acpmux/queue_approve {sessionId, promptId,
-//! turnId, revision}` and `_acpmux/queue_decline {sessionId, promptId}`. The answer is the owner's only:
+//! turnId, revision}` and `_acpmux/queue_decline {sessionId, promptId}`, and `_acpmux/queue_get
+//! {sessionId, promptId}`, which reads it whole before the answer. These are the owner's only:
 //! a request that names a person (`_meta.acpmux.author`) is refused `queue.owner_only`. From Web it
 //! counts as controlling the chat, as a Web prompt does (`remote_guard.rs`), and a chat in Full
 //! access by a machine's setting takes any of them from that machine only (`full_access_hold`).
@@ -11,9 +12,27 @@
 
 use super::*;
 
+/// `initialize`'s reply with `_acpmux/queue_get` in `extensions` and `queueGet` in `features`,
+/// added here: the reply's own `json!` is at the macro's recursion limit.
+pub(super) fn advertised(mut reply: Value) -> Value {
+    let added =
+        [("extensions", method::MUX_QUEUE_GET), ("features", crate::author::QUEUE_GET_FEATURE)];
+    for (key, value) in added {
+        let list = reply.pointer_mut(&format!("/_meta/acpmux/{key}")).and_then(Value::as_array_mut);
+        list.into_iter().for_each(|list| list.push(Value::from(value)));
+    }
+    reply
+}
+
 /// Whether `m` is one of them.
 pub(super) fn handles(m: &str) -> bool {
-    matches!(m, method::MUX_QUEUE_REMOVE | method::MUX_QUEUE_APPROVE | method::MUX_QUEUE_DECLINE)
+    matches!(
+        m,
+        method::MUX_QUEUE_REMOVE
+            | method::MUX_QUEUE_APPROVE
+            | method::MUX_QUEUE_DECLINE
+            | method::MUX_QUEUE_GET
+    )
 }
 
 pub(super) async fn handle(
@@ -49,6 +68,9 @@ pub(super) async fn handle(
     }
     crate::author::owner_only(params)?;
     hub.web_control_check(&s, control)?;
+    if m == method::MUX_QUEUE_GET {
+        return hub.queued_get(&s, prompt_id);
+    }
     if m == method::MUX_QUEUE_APPROVE {
         let turn_id = str_param(params, "turnId").filter(|id| !id.is_empty()).ok_or_else(|| {
             RpcError::invalid_params("turnId is required: the queued incarnation the owner saw")

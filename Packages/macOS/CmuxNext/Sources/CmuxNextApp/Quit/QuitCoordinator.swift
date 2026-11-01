@@ -209,9 +209,9 @@ final class QuitCoordinator {
                     windows: {
                         // Incognito windows' chats are purged before their spaces go (IncognitoChats), and
                         // the step waits for them: every quit, Keep included, waits for a step past its limit.
-                        IncognitoChats.closingForQuit(services)
+                        services.incognitoChats.closingForQuit(services)
                         await services.windows.prepareForTermination()
-                        await IncognitoChats.drain()
+                        await services.incognitoChats.drain()
                     },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
@@ -223,7 +223,7 @@ final class QuitCoordinator {
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
                 // The incognito chats' purges reach acpmux before its agents end.
-                await IncognitoChats.drain()
+                await services.incognitoChats.drain()
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
