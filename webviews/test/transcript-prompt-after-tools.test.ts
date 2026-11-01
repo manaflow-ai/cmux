@@ -64,8 +64,12 @@ await requireBrowserLane("transcript-prompt-after-tools.test.ts", async () => {
       const lines = [...document.querySelectorAll(".acpmux-row:not(.acpmux-user) .cv-tool")]
         .map((element) => ({ rect: element.getBoundingClientRect(), text: (element.textContent ?? "").trim() }))
         .filter(({ rect }) => rect.height > 0);
-      const over = lines.filter(({ rect }) => rect.bottom <= box.top + 0.01).sort((a, b) => b.rect.bottom - a.rect.bottom)[0];
-      const under = lines.filter(({ rect }) => rect.top >= box.bottom - 0.01).sort((a, b) => a.rect.top - b.rect.top)[0];
+      const over = lines
+        .filter(({ rect }) => rect.bottom <= box.top + 0.01)
+        .sort((a, b) => b.rect.bottom - a.rect.bottom)[0];
+      const under = lines
+        .filter(({ rect }) => rect.top >= box.bottom - 0.01)
+        .sort((a, b) => a.rect.top - b.rect.top)[0];
       if (!over || !under) return undefined;
       return {
         above: box.top - over.rect.bottom,

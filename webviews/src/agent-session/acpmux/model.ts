@@ -1386,18 +1386,18 @@ export const statusEdge = (
   isOwnPrompt(next) && row.lastTurn !== true && (isStatusRow(row) || isLineRow(row))
     ? "before-prompt"
     : row.kind === "assistant"
-    ? // A reply that keeps its room (`keepsReplyRoom`) ends at that room, whatever follows it.
-      isStatusRow(next) && !isBeforeFooter(row, next) && !keepsReplyRoom(row, next)
-      ? hasReplyActions(row, next)
-        ? "before-status"
-        : "before-status-plain"
-      : undefined
-    : next?.kind === "assistant" && prev?.kind === "assistant" && isStatusRow(row)
-      ? // The same room as above the line, read from the same reply, so the two always match.
-        hasReplyActions(prev, row)
-        ? "before-reply"
-        : "before-reply-plain"
-      : undefined;
+      ? // A reply that keeps its room (`keepsReplyRoom`) ends at that room, whatever follows it.
+        isStatusRow(next) && !isBeforeFooter(row, next) && !keepsReplyRoom(row, next)
+        ? hasReplyActions(row, next)
+          ? "before-status"
+          : "before-status-plain"
+        : undefined
+      : next?.kind === "assistant" && prev?.kind === "assistant" && isStatusRow(row)
+        ? // The same room as above the line, read from the same reply, so the two always match.
+          hasReplyActions(prev, row)
+          ? "before-reply"
+          : "before-reply-plain"
+        : undefined;
 /// The room above and below a status row between two replies, line box to text box
 /// (conversation.css `--cv-status-gap`): a reply's action row (its meta gap and line) and the step's
 /// 2px top margin; between the copies inside an opened fold, the plain gap.
