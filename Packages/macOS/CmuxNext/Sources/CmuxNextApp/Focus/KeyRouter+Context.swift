@@ -148,7 +148,7 @@ extension KeyRouter {
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
-                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
+                     workspacesAsTabs: SidebarTunables.workspacesAsTabsOn,
                      pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
     }
 

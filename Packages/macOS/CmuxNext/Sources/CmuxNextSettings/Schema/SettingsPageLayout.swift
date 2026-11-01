@@ -225,6 +225,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
                 "sidebar.groupHeader.unreadCount", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
             ]),
+            // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under
+            // `maxRowsPerCard`.
+            card("settings.pageGroup.sidebarLayout", "Sidebar Layout", [
+                "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
+            ]),
             card("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces", [
                 "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
                 "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",

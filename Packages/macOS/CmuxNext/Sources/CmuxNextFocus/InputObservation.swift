@@ -1,13 +1,11 @@
-import CmuxNextFocus
-
 /// A snapshot of the combined input state: each window's focus model next
 /// to what AppKit, Ghostty, WebKit and Chromium actually show
 /// (plans/cmux-next/input-spec.md section 2). Built from the live app by
 /// `InputObservationBuilder`, and from the simulated world by the model
 /// fuzzer, so both are checked by the same `InputInvariants`.
-nonisolated struct InputObservation: Hashable, Sendable, Codable {
+public nonisolated struct InputObservation: Hashable, Sendable, Codable {
     /// Which window has the keyboard at the AppKit level.
-    enum KeyWindow: Hashable, Sendable, Codable {
+    public enum KeyWindow: Hashable, Sendable, Codable {
         case none
         /// A cmux window itself.
         case window(String)
@@ -21,55 +19,86 @@ nonisolated struct InputObservation: Hashable, Sendable, Codable {
         case other(String)
     }
 
-    struct Window: Hashable, Sendable, Codable {
-        var id: String
-        var model: FocusState
+    public struct Window: Hashable, Sendable, Codable {
+        public var id: String
+        public var model: FocusState
         /// The first responder AppKit reports, classified.
-        var responder: FocusEvent.Responder
+        public var responder: FocusEvent.Responder
         /// Class name of the first responder, for reports.
-        var responderClass: String?
-        var isKey: Bool
+        public var responderClass: String?
+        public var isKey: Bool
         /// `LayoutModel.focusedPane`.
-        var layoutFocus: String?
+        public var layoutFocus: String?
         /// Tabs of this window whose Ghostty surface has focus.
-        var ghosttyFocused: [String]
+        public var ghosttyFocused: [String]
         /// The page the applier gave Chromium focus to.
-        var childPage: String?
+        public var childPage: String?
         /// The tab each pane shows right now (`currentTabKey`).
-        var presented: [String: String]
+        public var presented: [String: String]
         /// Tabs whose page lives in a child window (Chromium).
-        var childWindowTabs: [String] = []
+        public var childWindowTabs: [String] = []
         /// A sheet is attached to the window.
-        var hasSheet = false
+        public var hasSheet = false
         /// A top page (History, Settings, the App Store) covers the workspace: the model still
         /// names the parked workspace's pane, which nothing presents. Optional for old journals.
-        var topPage: Bool?
+        public var topPage: Bool?
+
+        public init(id: String, model: FocusState, responder: FocusEvent.Responder, responderClass: String? = nil, isKey: Bool,
+                    layoutFocus: String? = nil, ghosttyFocused: [String], childPage: String? = nil, presented: [String: String],
+                    childWindowTabs: [String] = [], hasSheet: Bool = false, topPage: Bool? = nil) {
+            self.id = id
+            self.model = model
+            self.responder = responder
+            self.responderClass = responderClass
+            self.isKey = isKey
+            self.layoutFocus = layoutFocus
+            self.ghosttyFocused = ghosttyFocused
+            self.childPage = childPage
+            self.presented = presented
+            self.childWindowTabs = childWindowTabs
+            self.hasSheet = hasSheet
+            self.topPage = topPage
+        }
     }
 
-    var windows: [Window]
-    var keyWindow: KeyWindow
+    public var windows: [Window]
+    public var keyWindow: KeyWindow
     /// `paletteOpen` in the registry context.
-    var paletteOpen: Bool
+    public var paletteOpen: Bool
     /// The window that publishes the registry context.
-    var activeWindow: String?
+    public var activeWindow: String?
     /// The published `terminalFocused` / `browserFocused` bits.
-    var context: FocusState.Context
+    public var context: FocusState.Context
 
-    func window(_ id: String) -> Window? { windows.first { $0.id == id } }
+    public init(windows: [Window], keyWindow: KeyWindow, paletteOpen: Bool, activeWindow: String? = nil, context: FocusState.Context) {
+        self.windows = windows
+        self.keyWindow = keyWindow
+        self.paletteOpen = paletteOpen
+        self.activeWindow = activeWindow
+        self.context = context
+    }
+
+    public func window(_ id: String) -> Window? { windows.first { $0.id == id } }
 }
 
 /// One broken invariant.
-nonisolated struct InputViolation: Hashable, Sendable, Codable {
-    var invariant: InputInvariant
-    var window: String?
-    var detail: String
+public nonisolated struct InputViolation: Hashable, Sendable, Codable {
+    public var invariant: InputInvariant
+    public var window: String?
+    public var detail: String
+
+    public init(invariant: InputInvariant, window: String? = nil, detail: String) {
+        self.invariant = invariant
+        self.window = window
+        self.detail = detail
+    }
 
     /// Stable identity for de-duplication (details may carry ids that differ).
-    var signature: String { "\(invariant.rawValue)@\(window ?? "-")" }
+    public var signature: String { "\(invariant.rawValue)@\(window ?? "-")" }
 }
 
 /// The invariants of plans/cmux-next/input-spec.md, by id.
-nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterable {
+public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterable {
     // Model (every state the reducers produce).
     case overlayOnTop = "F1"
     case livePane = "F2"
@@ -111,7 +140,7 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
     // Hover cards (plans/cmux-next/hovercards.md).
     case hoverCardSingle = "H1"
 
-    var summary: String {
+    public var summary: String {
         switch self {
         case .overlayOnTop: "an open overlay is the keyboard target"
         case .livePane: "focus names a pane and tab that exist and are selected"

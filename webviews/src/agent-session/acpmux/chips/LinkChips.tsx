@@ -20,6 +20,7 @@ import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
+import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 
@@ -104,11 +105,16 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   const pullRequest = pullRequestRef(href);
+  // A pull request's mark takes its state's colour once the host knows it, as GitHub draws a
+  // reference and as the card's glyph does: merged purple (Leo 2026-10-23, of a merged #23835's
+  // blue chip: "I feel like this should be purple"). Colour only, so the chip never reflows.
+  const state = usePullRequestState(pullRequest?.url);
   return (
     <>
       <a
         ref={setAnchor}
         className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
+        data-pr-state={state}
         href={href}
         rel="noreferrer"
         {...hover.trigger}

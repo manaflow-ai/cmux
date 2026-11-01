@@ -168,13 +168,18 @@ extension WorkspaceRowView {
         let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
         let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
         // An end action owns the column. Tree controls and chips remain visible and clickable
-        // to its left, even when an idle row has no status mark reserving that slot.
+        // to its left, even when an idle row has no status mark reserving that slot. A row with none
+        // of them keeps its rest layout: the title keeps its full width on hover and the controls
+        // draw over its faded end (Lawrence 2026-10-11, "Overlay with fade"), so nothing moves.
+        let restTrailing = trailing
         if SidebarTunables.rowCloseSpot.value.atEnd, showClose || showMore {
             trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width) - Metrics.space1)
         }
+        let reserved = trailing
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
         trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
+        if trailing == reserved { trailing = restTrailing }
         // Lawrence 2026-10-11 ("Overlay with fade"): the title keeps its full
         // width at rest and on hover. The x and the more button draw over the
         // end of the title, which fades out before them (an alpha mask), so

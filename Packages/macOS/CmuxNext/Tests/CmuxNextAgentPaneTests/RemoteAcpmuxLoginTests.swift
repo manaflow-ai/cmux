@@ -71,6 +71,24 @@ import Testing
         }
     }
 
+    /// #30894: a new chat has no session (nor client) before its first send, yet its first failed
+    /// turn must offer Sign in: its `initialize` names the feature from its machine's daemon read,
+    /// with and without a Cloud owner answer.
+    @Test func aNewChatNamesTheFeatureBeforeItsFirstSend() async throws {
+        let start: RemoteAcpmuxWire.Start = { _, _, _ in throw CancellationError() }
+        for served in [true, false] {
+            for owner in [nil, { true } as RemoteAcpmuxWire.OwnerCloud] {
+                let frames = Frames()
+                let wire = RemoteAcpmuxWire(start: start, ownerCloud: owner, servesLogin: served)
+                try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
+                wire.send(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"#) { _ in }
+                try await Self.waitUntil { frames.reply(1) != nil }
+                let acpmux = ((frames.reply(1)?["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+                #expect(((acpmux?["features"] as? [String])?.contains("agent_login") ?? false) == served)
+            }
+        }
+    }
+
     @Test func eachStepGoesToThisChatsDaemon() async throws {
         let client = FakeClient()
         let (wire, frames) = try await Self.wire(client)

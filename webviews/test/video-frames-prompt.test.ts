@@ -10,11 +10,13 @@ import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpm
 import { intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
 import { isVideoAttachment, parseVideoInfo } from "../src/agent-session/acpmux/composer/videoAttachments";
 import {
+  frameTextOf,
   frameTime,
-  isFramesNote,
+  rowImageNames,
   withoutFramesNotes,
   withoutVideoFrames,
 } from "../src/agent-session/acpmux/composer/videoPrompt";
+import { restoreInline } from "../src/agent-session/acpmux/inlinePrompt";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { fitPromptBudget } from "../src/agent-session/acpmux/promptBudget";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -116,13 +118,17 @@ test("a Chat Uploads mp4 sent to a Claude Code chat carries its frames, each nam
     type: "text",
     text: "Frames from the video screen-demo.mp4 (0:16, 1920×1080), in order, at: 0:02.0, 0:06.0, 0:10.0, 0:14.0.",
   });
+  // Each frame: its label with its time, then its image.
   expect(blocks.slice(link + 2)).toEqual(
-    FRAMES.map((frame) => ({
-      type: "image",
-      mimeType: "image/jpeg",
-      data: frame.data,
-      name: `screen-demo.mp4 frame at ${frameTime(frame.atMs)}`,
-    })),
+    FRAMES.flatMap((frame) => [
+      { type: "text", text: `screen-demo.mp4 frame at ${frameTime(frame.atMs)}` },
+      {
+        type: "image",
+        mimeType: "image/jpeg",
+        data: frame.data,
+        name: `screen-demo.mp4 frame at ${frameTime(frame.atMs)}`,
+      },
+    ]),
   );
   // The bubble shows the prompt and the video, not the note.
   chat.snapshot();
@@ -138,7 +144,9 @@ test("a chat whose agent takes no images gets the video's link without its frame
   const blocks = prompts[0]!.prompt as Block[];
   expect(blocks.some((block) => block.type === "resource_link")).toBe(true);
   expect(blocks.some((block) => block.type === "image")).toBe(false);
-  expect(blocks.some((block) => block.type === "text" && isFramesNote(block.text!))).toBe(false);
+  expect(blocks.some((block) => block.type === "text" && /Frames from the video| frame at /.test(block.text!))).toBe(
+    false,
+  );
 });
 
 test("a video the host could not read goes as its link, as before", async () => {
@@ -179,5 +187,152 @@ test("the sent bubble leaves out the frames and the note acpmux echoes, and keep
   expect(shown.images?.map((image) => image.name)).toEqual(["Screenshot.png"]);
   expect(shown.inlineParts?.map((part) => part.kind)).toEqual(["text", "file"]);
   // A person's own line that only looks like it, mid-text, stays.
-  expect(withoutFramesNotes(`${note}\nand this`)).toBe(`${note}\nand this`);
+  expect(withoutFramesNotes(`${note}\nand this`, frameTextOf(rowImageNames(row)))).toBe(`${note}\nand this`);
+});
+
+test("a picked frame where a scene starts says so in its label", async () => {
+  const chip = await uploadedVideo();
+  const frames = [{ atMs: 7200, data: btoa("cut"), scene: true as const }];
+  const picked = { ...chip, video: { ...chip.video!, frames, picked: true as const } };
+  const blocks = promptBlocks("look", [picked]) as Block[];
+  const texts = blocks.filter((block) => block.type === "text").map((block) => block.text);
+  expect(texts).toContain("screen-demo.mp4 frame at 0:07.2 (new scene)");
+});
+
+test("a video placed mid-text: its note and labels leave Copy and Edit wherever they sit", () => {
+  const note = "Frames from the video clip.mov (0:04, 640×360), in order, at: 0:01.0.";
+  const row = {
+    id: "user-2",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: `before\n${note}\nclip.mov frame at 0:01.0 (new scene)\nafter`,
+    images: [{ id: "e".repeat(64), mimeType: "image/jpeg", name: "clip.mov frame at 0:01.0" }],
+  } as AcpmuxRow;
+  expect(withoutVideoFrames(row).text).toBe("before\nafter");
+  // With paste ranges, only the last lines go: no range moves.
+  expect(withoutVideoFrames({ ...row, pasted: [{ start: 0, end: 6 }] } as AcpmuxRow).text).toBe(row.text);
+});
+
+test("Retry and Edit after a reload rebuild the video's chip with its saved frames, never the note or labels as text", async () => {
+  const note = "Frames from the video clip.mov (0:04, 640×360), in order, at: 0:01.0.";
+  const row = {
+    id: "user-3",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "look",
+    inlineParts: [
+      { kind: "text", text: "look " },
+      { kind: "file", name: "clip.mov", uri: "file:///tmp/clip.mov", placed: true },
+      { kind: "text", text: note },
+      { kind: "text", text: "clip.mov frame at 0:01.0 (new scene)" },
+      { kind: "image", id: "d".repeat(64), mimeType: "image/jpeg", name: "clip.mov frame at 0:01.0" },
+    ],
+  } as AcpmuxRow;
+  const restored = await restoreInline(row, "look", async () => ({ mimeType: "image/jpeg", data: "eA==" }));
+  expect(restored.attachments.map((chip) => [chip.kind, chip.name])).toEqual([["link", "clip.mov"]]);
+  expect(restored.input).not.toContain("Frames from the video");
+  expect(restored.input).not.toContain("frame at");
+  const video = restored.attachments[0]!.video!;
+  expect([video.durationMs, video.width, video.height]).toEqual([4000, 640, 360]);
+  expect(video.frames).toEqual([{ atMs: 1000, data: "eA==", scene: true }]);
+  // Sent again, the agent gets the same note, label and frame.
+  const blocks = promptBlocks(restored.input, restored.attachments) as Block[];
+  expect(blocks.filter((block) => block.type === "image").map((block) => block.name)).toEqual([
+    "clip.mov frame at 0:01.0",
+  ]);
+  expect(blocks.some((block) => block.type === "text" && block.text === note)).toBe(true);
+  expect(blocks.some((block) => block.type === "text" && block.text === "clip.mov frame at 0:01.0 (new scene)")).toBe(
+    true,
+  );
+});
+
+test("the person's own words that only read like a frame's label or note stay, in the bubble, Copy and Edit", async () => {
+  const own = "Please inspect the failure in demo.mp4 frame at 0:07.2";
+  const note = "Frames from the video other.mp4 (0:04, 640×360), in order, at: 0:01.0.";
+  const lonely = { id: "user-4", version: 1, at: 0, kind: "user", text: `look\n${own}` } as AcpmuxRow;
+  // No frame image in the prompt: nothing is the agent's.
+  expect(withoutVideoFrames(lonely).text).toBe(lonely.text);
+  // Another video's frame: only that frame's label and note go, never a look-alike of another time.
+  const row = {
+    ...lonely,
+    text: `look\n${own}\n${note}\nother.mp4 frame at 0:01.0`,
+    images: [{ id: "f".repeat(64), mimeType: "image/jpeg", name: "other.mp4 frame at 0:01.0" }],
+    inlineParts: [
+      { kind: "text", text: `look\n${own}` },
+      { kind: "text", text: own.replace("demo.mp4", "other.mp4") },
+      { kind: "file", name: "other.mp4", uri: "file:///tmp/other.mp4", placed: true },
+      { kind: "text", text: note },
+      { kind: "text", text: "other.mp4 frame at 0:01.0" },
+      { kind: "image", id: "f".repeat(64), mimeType: "image/jpeg", name: "other.mp4 frame at 0:01.0" },
+    ],
+  } as AcpmuxRow;
+  const shown = withoutVideoFrames(row);
+  expect(shown.text).toBe(`look\n${own}`);
+  expect(shown.inlineParts?.map((part) => (part.kind === "text" ? part.text : part.kind))).toEqual([
+    `look\n${own}`,
+    own.replace("demo.mp4", "other.mp4"),
+    "file",
+  ]);
+  const restored = await restoreInline(row, row.text!, async () => ({ mimeType: "image/jpeg", data: "eA==" }));
+  expect(restored.input).toContain(own);
+  expect(restored.input).toContain(own.replace("demo.mp4", "other.mp4"));
+  expect(restored.input).not.toContain("Frames from the video");
+});
+
+test("after a reload, two videos of one name each get back their own frames, and an unreadable frame fails the restore", async () => {
+  const noteOf = (seconds: number) => `Frames from the video demo.mp4 (0:0${seconds}, 640×360), in order, at: 0:01.0.`;
+  const frame = (id: string) =>
+    ({ kind: "image", id: id.repeat(64), mimeType: "image/jpeg", name: "demo.mp4 frame at 0:01.0" }) as const;
+  const row = {
+    id: "user-5",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "compare",
+    inlineParts: [
+      { kind: "text", text: "compare " },
+      { kind: "file", name: "demo.mp4", uri: "file:///before/demo.mp4", placed: true },
+      { kind: "text", text: noteOf(4) },
+      { kind: "text", text: "demo.mp4 frame at 0:01.0" },
+      frame("1"),
+      { kind: "text", text: " with " },
+      { kind: "file", name: "demo.mp4", uri: "file:///after/demo.mp4", placed: true },
+      { kind: "text", text: noteOf(8) },
+      { kind: "text", text: "demo.mp4 frame at 0:01.0" },
+      frame("2"),
+    ],
+  } as AcpmuxRow;
+  const bytes = new Map([
+    ["1".repeat(64), "b25l"],
+    ["2".repeat(64), "dHdv"],
+  ]);
+  const restored = await restoreInline(row, "compare", async (id) => ({
+    mimeType: "image/jpeg",
+    data: bytes.get(id)!,
+  }));
+  expect(
+    restored.attachments.map((chip) => [chip.path, chip.video?.durationMs, chip.video?.frames.map((f) => f.data)]),
+  ).toEqual([
+    ["/before/demo.mp4", 4000, ["b25l"]],
+    ["/after/demo.mp4", 8000, ["dHdv"]],
+  ]);
+  await expect(restoreInline(row, "compare", async () => undefined)).rejects.toThrow();
+});
+
+test("after a reload, a frame with no video chip before it (an image of its own) comes back as that image", async () => {
+  const row = {
+    id: "user-6",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "again",
+    inlineParts: [
+      { kind: "text", text: "again " },
+      { kind: "image", id: "9".repeat(64), mimeType: "image/jpeg", name: "demo.mp4 frame at 0:01.0" },
+    ],
+  } as AcpmuxRow;
+  const restored = await restoreInline(row, "again", async () => ({ mimeType: "image/jpeg", data: "eA==" }));
+  expect(restored.attachments.map((chip) => [chip.kind, chip.name])).toEqual([["image", "demo.mp4 frame at 0:01.0"]]);
 });

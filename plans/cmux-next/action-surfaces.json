@@ -36503,7 +36503,7 @@
       "title_table" : "SidebarSectionActions"
     },
     {
-      "cli" : "devOnly",
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-compact-list-toggle",
       "context_menu" : "offered",
       "context_menus" : [
@@ -36516,7 +36516,7 @@
       "default_shortcut" : null,
       "id" : "sidebar.compactList.toggle",
       "main_menu" : null,
-      "mcp" : "devOnly",
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
@@ -44193,7 +44193,7 @@
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
-                "debug_only" : true,
+                "debug_only" : false,
                 "feature" : null,
                 "requires" : [
 

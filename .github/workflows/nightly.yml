@@ -276,6 +276,7 @@ jobs:
             /scripts/ci/nightly_admission_receipt.py
             /scripts/ci/fleet_admission_transport.py
             /scripts/ci/pr_runner_pool.py
+            /scripts/ci/github_spend.py
             /scripts/ci/side_lane_placement.py
             /scripts/ci/next_macos_cascade.py
             /scripts/ci/simple_pool_picker.py
@@ -808,6 +809,33 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      - name: Start early Linux admission beside the Mac picker
+        id: start-early-linux
+        if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && !(github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro')
+        continue-on-error: true
+        timeout-minutes: 1
+        env: &early-linux-admission-env
+          CHECK_RECEIPTS: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == '' && '1' || '' }}
+          JOBS: resolve-nightly-cmux-tui-client resolve-nightly-ghostty-cli-helper build-nightly-inputs find-nightly-next-recovery
+          NIGHTLY: "1"
+          NIGHTLY_WAIT_FOR_FLEET: "1"
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          OVERFLOW_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+          ADMISSION_RECEIPT_PATH: ${{ runner.temp }}/early-nightly-admission.json
+          SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          ROUTE_TOKEN: ${{ steps.early-route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        # Receipt mode reads the controller's published receipt once after a fixed wait; started
+        # early it would usually miss and sleep, so it keeps running inline in place-early.
+        run: |
+          [ "$CHECK_RECEIPTS" = 1 ] && exit 0
+          state="$RUNNER_TEMP/early-linux-admission"
+          ( set +e
+            GITHUB_OUTPUT="$state.out" GITHUB_STEP_SUMMARY="$state.summary" \
+              python3 scripts/ci/nightly_linux_admission.py > "$state.log" 2>&1
+            echo $? > "$state.rc" ) > /dev/null 2>&1 &
+          echo $! > "$state.pid"
+
       # The Mac-build picker uses the routing App key. It keeps the existing
       # owned-Mac/Blacksmith trust path and never enters the secret-free JIT pool.
       - name: Place credentialed early picker on owned minis
@@ -834,18 +862,23 @@ jobs:
         if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && !(github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro')
         continue-on-error: ${{ !(github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == '') }}
         timeout-minutes: 5
-        env:
-          CHECK_RECEIPTS: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == '' && '1' || '' }}
-          JOBS: resolve-nightly-cmux-tui-client resolve-nightly-ghostty-cli-helper build-nightly-inputs find-nightly-next-recovery
-          NIGHTLY: "1"
-          NIGHTLY_WAIT_FOR_FLEET: "1"
-          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
-          OVERFLOW_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-          ADMISSION_RECEIPT_PATH: ${{ runner.temp }}/early-nightly-admission.json
-          SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
-          ROUTE_TOKEN: ${{ steps.early-route-token.outputs.token }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/nightly_linux_admission.py
+        env: *early-linux-admission-env
+        # The admission started in the background before the Mac picker, so their
+        # two 180 s windows overlap (run 41335987427 spent 6:12 in decide on them in
+        # turn). Its outputs, summary and exit status pass through unchanged; when
+        # nothing was started it runs here, as before.
+        run: |
+          set -uo pipefail
+          state="$RUNNER_TEMP/early-linux-admission"
+          if [ ! -s "$state.pid" ]; then
+            python3 scripts/ci/nightly_linux_admission.py
+            exit $?
+          fi
+          tail --pid="$(cat "$state.pid")" -f /dev/null
+          cat "$state.log"
+          cat "$state.out" >> "$GITHUB_OUTPUT"
+          cat "$state.summary" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          exit "$(cat "$state.rc" 2>/dev/null || echo 1)"
 
       - name: Record early nightly admission receipt
         if: always() && steps.place-early.outcome != 'skipped'
@@ -1674,9 +1707,10 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts/ci
 
+      # The all-nightly route reads runners only to offer its warm builder (CI_NIGHTLY_ONLY_BUILDER_RUNNER).
       - name: Mint the owned-pool routing token
         id: route-token
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro')
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER == '')
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1700,7 +1734,7 @@ jobs:
 
       - name: Mint the glaeda read token
         id: snapshot-read-token
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro')
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER == '')
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1719,6 +1753,8 @@ jobs:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # Enabled only after the all-nightly managed runner is enrolled.
           NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+          # build-nightly-app's warm runner per dedicated Mac, offered only while one is idle; unset keeps the plain label.
+          NIGHTLY_ONLY_BUILDER_LABEL: ${{ vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER }}
           # The older builder-only reservation remains an independent fallback.
           DEDICATED_LABEL: ${{ vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL }}
           TRUSTED_POOL: ${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
@@ -1984,6 +2020,7 @@ jobs:
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
           DECIDE_TRACK: ${{ needs.decide.outputs.track }}
           DECIDE_CHANNEL: ${{ needs.decide.outputs.channel }}
+          NIGHTLY_ONLY_BUILDER: ${{ vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER != '' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned == vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER }}
         run: bash scripts/ci/nightly-steps/app-start-release-derived-data-empty.sh
 
       # Reuse the unsigned app of an earlier nightly-next build on the same inputs
@@ -3443,6 +3480,8 @@ jobs:
         timeout-minutes: 2
         env:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          # The routing App's budget can run out (run 41335987427): a failed read retries with this.
+          SNAPSHOT_FALLBACK_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # Its `_dead` marks and live macos_26 member (nightly_sign_runner.py).
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
@@ -3455,6 +3494,7 @@ jobs:
         env:
           PLATFORM: linux
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          SNAPSHOT_FALLBACK_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.LINUX_RUNNER }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
         run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
@@ -3485,6 +3525,9 @@ jobs:
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+          # As the build pick: unread runners (run 41335987427's 403 rate limit on the routing App) queue the
+          # verify jobs on the watched owned pool, not blind on Blacksmith macOS.
+          UNREAD_OWNED_FALLBACK: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && '1' || '' }}
         run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py verify
 
       # Leo, 2026-10-28: the release signing jobs may run on owned Macs ("we can just read the code"). A mini
@@ -4897,7 +4940,23 @@ jobs:
       - name: Build the unsigned DMG
         id: dmg
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-dmg-image.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      # A mini's CreateArtifact can time out (ETIMEDOUT, run 41328689573), and a
+      # failed signer sends the run to the full re-sign and re-notarize (+10 min).
+      # Try the upload once more before that.
+      - id: upload-unsigned-dmg
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+      - if: steps.upload-unsigned-dmg.outcome == 'failure'
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
@@ -5217,6 +5276,7 @@ jobs:
             scripts/ci/nightly_next_canary_mode.py
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/nightly-steps/visual-gate-resolve-mode.sh
             scripts/ci/nightly-steps/visual-gate-pick-runner.sh
           sparse-checkout-cone-mode: false

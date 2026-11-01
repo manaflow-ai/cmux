@@ -300,7 +300,7 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
     test(`${engine}: a long multi-line paste stops at the cap and scrolls inside, its end in view`, async () => {
       const page = await open(engine, IDLE, 300);
       const start = await read(page);
-      // Under the chip's 20 lines and 2,000 characters (pastedText.ts): it goes in as text.
+      // Under the chip's 750 words and 10,000 characters (pastedText.ts): it goes in as text.
       const lines = Array.from({ length: 18 }, (_, index) => `line ${index + 1} ${"x".repeat(60)}`);
       await paste(page, lines.join("\n"));
       await page.waitForFunction(

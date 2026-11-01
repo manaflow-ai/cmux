@@ -372,6 +372,24 @@ jobs:
           python3 scripts/cmux-next/notices/test_check_bundle_notices.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
 
+  # build-nightly-app's static capability check (check-daemon-capabilities.sh
+  # --static-only) skips the capabilities identify_capabilities adds at runtime,
+  # from a hand list. A runtime capability the app lists and the list misses
+  # fails every nightly-next build: agent-session-login-v1 (#30214) kept the feed
+  # at one build for 90 minutes on 2026-11-01. In its own job so a red elsewhere
+  # in the release-notary group never hides it.
+  nightly-static-capabilities:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Every runtime-added app capability is skipped by the static check
+        run: python3 tests/test_cmux_next_static_capability_runtime_only.py
+
   # The nightly-next build generates the Rust third-party notices from the
   # tree (scripts/cmux-next/generate-third-party-notices.sh --tui-source tree).
   # A new path crate it cannot map failed the nightly publish (run 38359624385,

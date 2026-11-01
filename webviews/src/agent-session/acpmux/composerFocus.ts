@@ -39,10 +39,11 @@ export function shouldBlurComposerOnPress(target: Node | null, active: Element |
 /// context ring) and look radios under it. Those sit outside the box since Claude Code's split
 /// (#22285), and a press on one of their chips must leave the prompt focused, so the chip's menu
 /// hands the keyboard back to the prompt after a pick. A composer picker's menu drawn out of the box
-/// (`overBackdrop`, the + menu) sits in `.acpmux-picker-layer`: a press on its rows is the composer's
-/// too, or the blur closes the menu before the row takes the press.
+/// (`overBackdrop`, the + menu) sits in `.acpmux-picker-layer`, and the `/` and `@` lists in
+/// `.acpmux-composer-list-layer` (backdropLayer.tsx): a press on their rows is the composer's too, or
+/// the blur closes the menu before the row takes the press.
 const COMPOSER_CHROME =
-  ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-composer-under, .acpmux-picker-layer";
+  ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-composer-under, .acpmux-picker-layer, .acpmux-composer-list-layer";
 
 function blurActiveComposer(): void {
   const active = document.activeElement;
