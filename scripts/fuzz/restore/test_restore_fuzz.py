@@ -553,6 +553,17 @@ class AppCreateProbeDecisions(unittest.TestCase):
         again = dict(self.VIEW, notices=2, texts=['"disk is full"', '"disk is full"'])
         self.assertEqual(self.run_probe(views=[old, again, old])["verdict"], "pass")
 
+    def test_journal_out_of_disk_space_is_a_refusal_and_workspace_toast_is_not(self):
+        journal = {"error": '{"code":"disk_full","message":"the session journal is out of disk space; try again once there is room"}'}
+        self.assertEqual(self.run_probe(create=journal)["verdict"], "pass")
+        named = dict(self.VIEW, notices=1, texts=['"Renamed workspace to fz-3"'])
+        self.assertEqual(self.run_probe(views=[self.VIEW, named, self.VIEW])["verdict"], "fail")
+
+    def test_no_answer_relaunches_the_app(self):
+        app = self.App()
+        self.assertEqual(self.run_probe(action={"error": "timed out"}, app=app)["verdict"], "fail")
+        self.assertEqual(app.relaunched, 1)
+
     def test_no_time_left_is_not_run(self):
         saved = rf.opts.max_seconds
         rf.opts.max_seconds = 1

@@ -1465,8 +1465,9 @@ def app_view():
             "raw": {"toast": json.dumps(toast)[:600], "dialog": json.dumps(dialog)[:600]}}
 
 
-CREATE_REFUSAL_WORDS = re.compile(r"workspace|disk|space|create|storage", re.I)
-DISK_FULL = re.compile(r"disk is full|no space left|ENOSPC|SQLITE_FULL|disk full", re.I)
+# Refusal wording only: a toast that merely names a workspace is not the refusal ("space" must be a whole word).
+CREATE_REFUSAL_WORDS = re.compile(r"did not apply|\bdisk\b|\bspace\b|storage|refus|could not|couldn't|failed", re.I)
+DISK_FULL = re.compile(r"disk is full|out of disk space|no space left|ENOSPC|SQLITE_FULL|disk full", re.I)
 
 
 def new_refusal_texts(before, after):
@@ -1556,6 +1557,9 @@ def run_app_create_probe(vol):
     err = answer.get("error") if isinstance(answer, dict) else None
     if err is not None and not isinstance(err, dict):
         # rpc() gives a bare string for a socket timeout, a closed socket or bad output: the app hung or went away.
+        # Relaunch it so the iterations after the probe do not start on a hung app.
+        stop_build_processes(exclude=set(APP.daemon_pids()) | set(APP.acpmux_pids()))
+        APP.relaunch()
         return probe_record("fail", [f"the app gave no answer to New Workspace on the full disk: {str(err)[:200]}"],
                             before=before, action_answer=json.dumps(answer)[:400])
     if isinstance(answer, dict) and answer.get("performed") is False:
