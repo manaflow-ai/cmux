@@ -80,6 +80,22 @@ import Testing
         #expect(Set(MachineServerState.allCases.map(\.text)).count == MachineServerState.allCases.count)
     }
 
+    /// Inside a group, ready machines come first, then connecting, paused and offline ones (Leo, 2026-10-31:
+    /// "ready machines first, then paused, then offline"), each rank in the registry's order; this Mac stays first.
+    @Test func readyMachinesComeFirstThenPausedThenOffline() {
+        func cloud(_ id: String, connected: Bool = false, connecting: Bool = false, _ state: MachineServerState? = nil) -> MachineSectionRow {
+            MachineSectionRow(id: id, name: id, isConnected: connected, isLocal: false, kind: .cloud, isConnecting: connecting, serverState: state)
+        }
+        let given = [cloud("off1"), cloud("off2"), cloud("paused1", .paused), cloud("ready1", connected: true), cloud("failed1", .failed),
+                     cloud("paused2", .paused), cloud("resuming1", .resuming), cloud("ready2", connected: true)]
+        let order = ["ready1", "ready2", "resuming1", "paused1", "paused2", "off1", "off2", "failed1"]
+        for style in [MachineSectionStyle.compact, .grouped] {
+            let groups = style.groups(given + [Self.local])
+            #expect(groups.map { $0.rows.map(\.id) } == [["local"], order], "\(style)")
+        }
+        #expect(MachineSectionStyle.flat.groups(given + [Self.local]).first?.rows.map(\.id) == ["local"] + order)
+    }
+
     @Test func theFixtureHasEveryRemoteKindAndState() {
         let fixture = MachineSectionRow.fixtures
         #expect(Set(fixture.map(\.kind)) == [.cloud, .ssh, .server])
@@ -178,6 +194,14 @@ import Testing
         #expect(linkedView.snapshot?.menuOpen == true && linkedView.snapshot?.isLinked == true)
         #expect(meshView.snapshot?.busy == true && meshView.snapshot?.isLinked == false)
         #expect(linkedView.add.isEnabled && !meshView.add.isEnabled)
+        // The trailing workspace action is quiet at rest, then follows the row hover/menu state.
+        #expect(linkedView.add.alphaValue == 1) // the open menu keeps row actions revealed
+        view.update([Self.rows[0], mesh, linked], style: .compact, joined: .init())
+        #expect(linkedView.add.alphaValue == 0)
+        linkedView.setHovered(true)
+        #expect(linkedView.add.alphaValue == 1)
+        linkedView.setHovered(false)
+        #expect(linkedView.add.alphaValue == 0)
         _ = linkedView.more.pressMenu?()
         #expect(menus == ["m_1@h1"])
         // The store's state alone changing reaches the rows.
@@ -265,6 +289,32 @@ import Testing
             view.addRow.layoutSubtreeIfNeeded()
             starts.insert(view.addRow.label.frame.minX)
             #expect(starts.count == 1, "\(style): \(starts)")
+        }
+    }
+
+    /// A name too long for its column is shown whole (Leo's DEV build cut a long name mid-word,
+    /// "abc-defghi...-xyz"): it wraps, the row grows to hold it, and the rows below move down.
+    @Test func aLongNameWrapsWholeAndItsRowGrows() throws {
+        let long = MachineSectionRow(id: "c9", name: "an-uncommonly-long-machine-name-from-a-person", isConnected: false, isLocal: false,
+                                     kind: .cloud, serverState: .paused)
+        for style in MachineSectionStyle.allCases {
+            let view = Self.section()
+            view.frame.size.width = 220
+            view.update(Self.rows + [long], style: style)
+            view.layoutSubtreeIfNeeded()
+            let row = try #require(view.rowViews["c9"]), short = try #require(view.rowViews["c1"])
+            row.layoutSubtreeIfNeeded()
+            short.layoutSubtreeIfNeeded()
+            let label = row.nameLabel
+            #expect(label.maximumNumberOfLines == 0 && label.wraps, "\(style)")
+            #expect(label.frame.height > short.nameLabel.frame.height + 1, "\(style): the name takes more than one line")
+            #expect(label.frame.height <= label.size(forWidth: label.frame.width).height + 0.5, "\(style): every line shows")
+            #expect(row.frame.height > short.frame.height, "\(style)")
+            #expect(label.frame.maxX <= row.newButton.frame.minX, "\(style): the name stays clear of New Workspace")
+            if !row.stateLabel.isHidden, !style.showsStateLine {
+                #expect(label.frame.maxX <= row.stateLabel.frame.minX, "\(style): and of its state")
+            }
+            #expect(row.shownText.hasPrefix(long.name), "\(style)")
         }
     }
 

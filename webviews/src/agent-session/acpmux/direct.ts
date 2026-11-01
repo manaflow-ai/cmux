@@ -1380,6 +1380,18 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
+  /// An optimistic row has been accepted by an event: keep its id, but make the event its order.
+  adoptEventOrder(id: string): void {
+    if (!this.has(id)) return;
+    this.local.delete(id);
+    if (this.current !== undefined) {
+      this.order.set(id, this.current);
+      this.latest = Math.max(this.latest, this.current);
+    }
+    this.ordered = undefined;
+    this.snapshot = undefined;
+  }
+
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
@@ -1684,6 +1696,8 @@ export class AcpmuxDirectClient {
   private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
   private replayThrough?: number;
+  /// A `fed` client its page let go of (`dispose`).
+  private disposed = false;
   /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
   /// clock): the smallest arrival lag of a live event, since delays only make it larger.
   private clockOffset?: number;
@@ -1824,6 +1838,8 @@ export class AcpmuxDirectClient {
   private closed = false;
   /// Replay clients are intentionally detached from a socket but still publish seek snapshots.
   private replayMode = false;
+  /// A `fed` client (the guest page's) has no socket either, but draws what it is fed until `dispose`.
+  private fedMode = false;
   private selectionGeneration = 0;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
@@ -1855,7 +1871,7 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
-  /// `_acpmux/process_update` listeners (inspector/processes.ts).
+  /// `_acpmux/process_update` listeners (session-info/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
@@ -1920,6 +1936,58 @@ export class AcpmuxDirectClient {
         this.reduce(event);
       }
     this.emit("replay");
+  }
+
+  /// A client with no connection fed one chat's records from another source (the guest page's
+  /// room, guest/shareSocket.ts). `feed` folds them; nothing is ever sent.
+  static fed(sessionId: string, listener: Listener): AcpmuxDirectClient {
+    const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
+    client.closed = true;
+    client.fedMode = true;
+    // Not this page's chat to hand over or to read again when shown: no page listeners.
+    client.stopPageListeners();
+    return client;
+  }
+
+  /// Ends a `fed` client: nothing it was fed draws after this, a frame already asked for included.
+  dispose(): void {
+    this.disposed = true;
+    this.frameSnapshot = undefined;
+    this.stopPageListeners();
+  }
+
+  /// Folds one chat's records into a `fed` client (the source carries no other chat, so each is
+  /// taken as this client's). `snapshot` replaces what is held; `older` adds a page before it and
+  /// folds again from the start; `live` folds only records past the newest held, in seq order,
+  /// and draws once per display frame.
+  feed(events: EventRecord[], mode: "snapshot" | "older" | "live"): void {
+    const sessionId = this.selectedSessionId;
+    const own = events
+      .filter((event) => event.seq > 0)
+      .map((event) => ({ ...event, sessionId }))
+      .sort((a, b) => a.seq - b.seq);
+    if (this.disposed) return;
+    if (mode !== "live") {
+      const first = this.firstSeq ?? Number.POSITIVE_INFINITY;
+      this.events = mode === "snapshot" ? own : [...own.filter((event) => event.seq < first), ...this.events];
+      this.rebuild();
+      this.emit();
+      return;
+    }
+    for (const event of own) {
+      if (event.seq <= this.lastSeq) continue;
+      this.events.push(event);
+      this.lastSeq = event.seq;
+      this.firstSeq ??= event.seq;
+      this.reduce(event);
+    }
+    const schedule = AcpmuxDirectClient.scheduleFrame;
+    if (!schedule) return this.emit();
+    if (this.frameSnapshot !== undefined) return;
+    this.frameSnapshot = "connected";
+    schedule(() => {
+      if (this.frameSnapshot !== undefined && !this.disposed) this.emit();
+    });
   }
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
@@ -5207,6 +5275,7 @@ export class AcpmuxDirectClient {
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
         });
+        if (optimisticRowId) this.rows.adoptEventOrder(durableRowId);
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(durableRowId, attachments);
@@ -5746,7 +5815,7 @@ export class AcpmuxDirectClient {
   }
 
   private emitNow(connection: string): void {
-    if (this.closed && !this.replayMode) return;
+    if (this.closed && !this.replayMode && !(this.fedMode && !this.disposed)) return;
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
@@ -5983,7 +6052,8 @@ export class AcpmuxDirectClient {
   /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
-  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
+  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it. Without one,
+  /// a send into a shown chat binds the person's Enter or click to this prompt before any waits.
   /// `steer`: into the running turn, read when the agent's current step ends; an agent that
   /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
   /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`. No send carries
@@ -5994,14 +6064,26 @@ export class AcpmuxDirectClient {
     this.presence.typed(text, sessionId);
   }
 
+  /// Binds the person's current gesture to one prompt before the caller waits for a start or
+  /// persistence. The host still refuses frames without a ticket, so forged/script sends remain
+  /// denied; a ticket is scoped to this prompt id and can be spent only once.
+  bindSendGesture(
+    promptId: string = crypto.randomUUID(),
+  ): { promptId: string; ticket: Promise<string | undefined> } | undefined {
+    return { promptId, ticket: reservePromptGesture(promptId) };
+  }
+
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
-    ticket?: string,
+    ticket?: string | Promise<string | undefined>,
     steer = false,
+    /// Safe to close the page: acpmux has acknowledged this prompt, including a queued one.
+    onTaken?: () => void,
   ): Promise<string | undefined> {
+    const reserved = ticket ?? this.bindSendGesture(promptId)?.ticket;
     this.presence.stopTyping();
     this.untakenSends += 1;
     let untaken = true;
@@ -6010,7 +6092,7 @@ export class AcpmuxDirectClient {
       untaken = false;
     };
     try {
-      return await this.sendNow(input, attachments, promptId, accepted, ticket, steer, settle);
+      return await this.sendNow(input, attachments, promptId, accepted, reserved, steer, settle, onTaken);
     } finally {
       settle();
     }
@@ -6028,10 +6110,11 @@ export class AcpmuxDirectClient {
     attachments: ComposerAttachment[],
     promptId: string,
     accepted: (() => void) | undefined,
-    ticket: string | undefined,
+    ticket: string | Promise<string | undefined> | undefined,
     steer: boolean,
     /// acpmux took it: the page no longer holds the only copy.
     tookIt: () => void,
+    onTaken?: () => void,
   ): Promise<string | undefined> {
     const trustCancellation = this.trustCancellation;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
@@ -6206,6 +6289,7 @@ export class AcpmuxDirectClient {
       if (context) this.host = { ...this.host, workspaceContext: undefined };
       if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
       release();
+      onTaken?.();
     };
     this.promptAccepts.set(promptId, accept);
     this.sentPrompts.add(promptId);
@@ -6273,6 +6357,7 @@ export class AcpmuxDirectClient {
       ),
     );
     this.emit();
+    const gesture = await ticket;
     try {
       await this.request("session/prompt", {
         sessionId,
@@ -6287,7 +6372,7 @@ export class AcpmuxDirectClient {
             ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
             ...promptSurfaceMeta(),
           },
-          ...(ticket ? { cmuxGesture: ticket } : {}),
+          ...(gesture ? { cmuxGesture: gesture } : {}),
         },
       });
       accept();
@@ -8570,6 +8655,7 @@ export class AcpmuxDirectClient {
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
     this.replayMode = false;
+    this.fedMode = false;
     this.closed = true;
 
     clearTimeout(this.hiddenDraw);
@@ -8595,14 +8681,17 @@ export class AcpmuxDirectClient {
     this.stopSuperseded = false;
     this.stopOpenerSeen = false;
     this.stoppingEnded();
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
-    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
+    this.stopPageListeners();
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
     this.rejectPending();
+  }
+  private stopPageListeners(): void {
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
   }
   private rejectPending(): void {
     for (const request of this.pending.values()) {
@@ -8624,6 +8713,23 @@ export class AcpmuxDirectClient {
 }
 
 /// The params field that carries a pick's gesture ticket, or nothing without one.
+/// Reserves the person's current gesture for one prompt. A page or script without a trusted
+/// AppKit event gets no ticket; the host's normal gesture check then refuses its send.
+const reservePromptGesture = (promptId: string): Promise<string | undefined> => {
+  try {
+    return postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "session/prompt", params: { promptId } },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+  } catch {
+    // Tests and non-webview callers have no native host. They still send through the normal
+    // relay path; the absent ticket leaves the host's gesture guard in force.
+    return Promise.resolve(undefined);
+  }
+};
+
 const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticket } } : {});
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.

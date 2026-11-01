@@ -27,6 +27,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -812,12 +814,26 @@ class PathRoutingStructure(unittest.TestCase):
                         "needs.macos-placement.outputs.gui_runner": "stale-owned-label",
                         "needs.macos-placement.outputs.placed_attempt": "1",
                         "needs.macos-placement.outputs.retry_runner": "blacksmith-6vcpu-macos-26",
+                        "needs.macos-placement.outputs.retry_jobs": " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files ",
+                        "vars.CI_PR_POOL_OWNED": "1",
                     }
                     # GUI/session routes need a fresh reading on human reruns too. Discover the role
                     # consumer from the expression, so this also covers a newly added job.
                     routed_role = "needs.macos-placement.outputs.gui_runner" in expression
-                    allocated_side = "outputs.owned_jobs" in expression
-                    wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
+                    # A complete PR cascade can precede the unchanged push/display route.
+                    # Count owned allocation only in alternatives active for this event.
+                    from test_ci_runs_on_fallback import EXPRESSION, flat_alternatives, conjuncts, separate_pr_cascade
+                    alternatives = flat_alternatives(EXPRESSION.findall(expression)[0])
+                    allocated_side = any(
+                        "outputs.owned_jobs" in part
+                        and (event == "pull_request" or "github.event_name == 'pull_request'" not in conjuncts(part))
+                        for part in alternatives
+                    )
+                    if event == "pull_request" and any(separate_pr_cascade(part) for part in alternatives):
+                        # This fixture has a current retry allocation only on attempt 1.
+                        wanted = "blacksmith-6vcpu-macos-26" if attempt == 1 else "glaeda-side-std-xcode-26.6"
+                    else:
+                        wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
                         self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
@@ -1386,8 +1402,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         runs_on = cargo["runs-on"]
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
+        self.assertTrue(runs_on.endswith(blacksmith_route("cmux-next.yml", "fast-tier-cargo") + " }}"), runs_on)
         self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(
@@ -2141,6 +2157,7 @@ class ReservedLaneLabels(unittest.TestCase):
                 "needs.macos-placement.outputs.fast_runner": fast,
                 "needs.macos-placement.outputs.runner": side,
                 "needs.macos-placement.outputs.placed_attempt": str(attempt),
+                "needs.macos-placement.outputs.retry_jobs": " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files ",
             }
             values.update({f"needs.macos-placement.outputs.{key}": value for key, value in outputs.items()})
             return values
@@ -2169,46 +2186,29 @@ class ReservedLaneLabels(unittest.TestCase):
                                  "blacksmith-6vcpu-macos-26")
 
 
-# A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it
-# before any other route after the fork's hosted label).
-PLACED_THIS_ATTEMPT = "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
-FREE_ROLE_CLAUSE = (PLACED_THIS_ATTEMPT + "needs.macos-placement.outputs.free_session_runner || "
-                    + PLACED_THIS_ATTEMPT + "needs.macos-placement.outputs.free_gui_runner || ")
-SESSION_LANE_CLAUSE = (
-    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
-    "needs.macos-placement.outputs.session_lane_runner != '' && "
-    "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || "
-)
-# Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
-GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE + FREE_ROLE_CLAUSE
-    + "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
-    "&& (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
-    "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
-    "github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
-    + "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
-    "needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || "
-    "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& github.run_attempt == 1 "
-    "&& (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') "
-    "|| 'blacksmith-6vcpu-macos-26' }}"
-)
-
-
 class GeneratedFilesRunner(unittest.TestCase):
-    def test_the_session_lane_label_comes_after_the_fork_clause(self):
-        """vars.CI_SESSION_LANE_RUNNER gives generated files the light minis' session runners. A fork
-        pull request must take its hosted label before that variable is read, then a free owned Mac the
-        placement found (the queue rescue), and with the variable unset the route is the one the job had
-        before it. CMUX_NEXT_RUNNER restates runs-on."""
+    def test_session_lane_is_only_used_after_trust_checks_and_outside_prs(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["generated-files"]
-        runs_on = job["runs-on"]
-        self.assertIn(SESSION_LANE_CLAUSE, runs_on)
-        after_fork = runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE)
-        self.assertEqual(after_fork, runs_on.index(FREE_ROLE_CLAUSE))
-        self.assertEqual(after_fork + len(FREE_ROLE_CLAUSE), runs_on.index(SESSION_LANE_CLAUSE))
-        self.assertEqual(runs_on.replace(SESSION_LANE_CLAUSE, "", 1), GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE)
-        self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], runs_on)
+        context = {
+            "github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+            "github.event_name": "push", "github.run_attempt": 1,
+            "needs.macos-placement.outputs.placed_attempt": "1", "vars.CI_PR_POOL_OWNED": "1",
+            "vars.CI_SESSION_LANE_RUNNER": "glaeda-session-light-xcode-26.6",
+            "needs.macos-placement.outputs.session_lane_runner": "glaeda-session-light-xcode-26.6",
+            "needs.macos-placement.outputs.gui_runner": "glaeda-gui-std-xcode-26.6",
+            "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6",
+        }
+        self.assertEqual(evaluate(job["runs-on"], context), "glaeda-session-light-xcode-26.6")
+        context["needs.macos-placement.outputs.free_session_runner"] = "glaeda-session-std-xcode-26.6"
+        self.assertEqual(evaluate(job["runs-on"], context), "glaeda-session-std-xcode-26.6")
+        context["github.event_name"] = "pull_request"
+        context["github.event.pull_request.head.repo.full_name"] = "manaflow-ai/cmux"
+        self.assertEqual(evaluate(job["runs-on"], context), "glaeda-side-std-xcode-26.6")
+        context["github.event.pull_request.head.repo.full_name"] = "outside/cmux"
+        self.assertEqual(evaluate(job["runs-on"], context), "blacksmith-6vcpu-macos-26")
+        context["github.repository_owner"] = "outside"
+        self.assertEqual(evaluate(job["runs-on"], context), "macos-26")
+        self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], job["runs-on"])
 
 
 class _UnsetIsEmpty(dict):
@@ -2624,12 +2624,18 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         push = self.context("push", ref="refs/heads/feat-cmux-next")
         self.assertTrue(evaluate(self.jobs()["web-bundles"]["if"], push))
 
-    def test_the_cascade_counts_only_the_compiles_that_run(self):
+    def test_the_cascade_counts_pr_package_checks_and_the_compiles_that_run(self):
         place = next(step for step in self.jobs()["macos-placement"]["steps"] if step.get("id") == "place")
         expression = place["env"]["CASCADE_RUNS"]
-        self.assertEqual(set(evaluate(expression, self.context()).split()), {"fast-tier", "swift-canary"})
+        self.assertEqual(set(evaluate(expression, self.context()).split()),
+                         {"fast-tier", "swift-canary", "swift-test", "daemon-test"})
         self.assertEqual(set(evaluate(expression, self.context(labels=("full-ci",))).split()),
-                         {"fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile"})
+                         {"fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile", "swift-test", "daemon-test"})
+        generated = self.context()
+        generated["needs.path_route.outputs.generated_host"] = "generated-files"
+        self.assertIn("generated-files", evaluate(expression, generated).split())
+        generated["needs.path_route.outputs.tree_state"] = "pending"
+        self.assertNotIn("daemon-test", evaluate(expression, generated).split())
         push = self.context("push", ref="refs/heads/feat-cmux-next")
         self.assertEqual(set(evaluate(expression, push).split()),
                          {"fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile"})

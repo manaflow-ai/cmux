@@ -26,6 +26,18 @@ struct CloudStartChatMachineTests {
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
     }
 
+    /// Proof run on a fresh staging machine (2026-11-01): its image's older cmux-tui refused the
+    /// copy with `machine_outdated` and the first send failed with "Update the machine". That answer
+    /// (about the machine, never this Mac's side) updates the machine and copies again; nothing else does.
+    @Test func onlyTheMachinesOutdatedRefusalUpdatesItBeforeCopyingAgain() {
+        let outdated = CloudMoveStrings.outdatedCode
+        #expect(CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated)))
+        #expect(CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated, side: "target")))
+        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: outdated, side: "source")))
+        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: false, errorCode: "sync_failed")))
+        #expect(!CloudStartChat.updatesBeforeCopyingAgain(.init(ok: true)))
+    }
+
     /// The plan reads the send under its account and Mac workspace, only the machines the account's list
     /// named, and the ones made since (kept for a pin, never picked).
     /// Router review at f766845: a machine the server destroyed may stay in the store after the list dropped it. It is
@@ -34,7 +46,20 @@ struct CloudStartChatMachineTests {
         let machines = [CloudMachine(id: "vm-listed"), CloudMachine(id: "vm-new", status: .provisioning),
                         CloudMachine(id: "vm-destroyed", status: .destroyed), CloudMachine(id: "vm-failed", status: .failed),
                         CloudMachine(id: "vm-deleting", status: .deleting)]
-        #expect(CloudStartChat.stored(machines, listed: ["vm-listed"]) == ["vm-new"])
+        #expect(machines.keptForPin(listed: ["vm-listed"]) == ["vm-new"])
+    }
+
+    /// A listed machine's plan entry: its id, title, shown status and link, the known slug and pause reason, and its
+    /// chat count only when connected (a disconnected machine's entry has no `chats` key).
+    @Test func aListedMachinesPlanEntryNamesWhatThePickReads() {
+        let machine = CloudMachine(id: "vm-a", status: .paused, displayName: "Chats", slug: "kind-aqua", pauseReason: .idle)
+        let connected = machine.startChatPlanEntry(connected: true, chats: 2)
+        #expect(connected["id"] as? String == "vm-a" && connected["title"] as? String == "Chats")
+        #expect(connected["status"] as? String == "paused" && connected["connected"] as? Bool == true)
+        #expect(connected["slug"] as? String == "kind-aqua" && connected["pause_reason"] as? String == "idle")
+        #expect(connected["chats"] as? Int == 2 && connected["created_by"] == nil)
+        let away = CloudMachine(id: "vm-b").startChatPlanEntry(connected: false, chats: nil)
+        #expect(away["connected"] as? Bool == false && away["chats"] == nil && away["slug"] == nil && away["pause_reason"] == nil)
     }
 
     @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {

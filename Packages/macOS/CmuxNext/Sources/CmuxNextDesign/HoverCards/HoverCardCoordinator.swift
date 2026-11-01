@@ -179,7 +179,10 @@ public final class HoverCardCoordinator {
         let inGap = card.map { panel?.escapeGeometry?.zone(at: now) == .gap || besideTarget(now, card: $0) } ?? false
         let bridging = hit == nil && !mouseButtonDown()
             && (onCard || (escaped == nil && (inGap ? aiming : bridges(at: now))))
-        send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
+        // A card that hides on leave holds for a pointer aiming into it only beside its row (a
+        // sidebar row's card): a tab's card below its strip still swaps at once, as in Chrome.
+        let holdsAim = machine.shownTarget?.leave.hidesAtOnce != true || panel?.escapeGeometry != nil
+        send(.hit(hit?.target, moved: true, aiming: aiming && holdsAim, bridging: bridging))
     }
 
     /// `point` is between the shown target's own frame and its card, beside the card (a sidebar

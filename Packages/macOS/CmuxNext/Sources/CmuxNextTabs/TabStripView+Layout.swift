@@ -376,6 +376,9 @@ extension TabStripView {
 }
 
 extension TabStripView: MotionAnimating {
+    /// Autoscroll has no end state: out of sight it just stops.
+    public func motionSettle() {}
+
     /// One autoscroll frame; false when no drag sits in an edge fade and no recorded move travels.
     public func motionStep(_ dt: Double) -> Bool {
         let scrolling = autoscrollDuringDrag(CGFloat(dt))
