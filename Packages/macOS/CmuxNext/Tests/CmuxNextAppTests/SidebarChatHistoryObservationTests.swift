@@ -9,7 +9,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct SidebarChatHistoryObservationTests {
     private static let host = "install:chat-history-harness"
-    private final class Counter: @unchecked Sendable {
+    private nonisolated final class Counter: @unchecked Sendable {
         var value = 0
     }
 
