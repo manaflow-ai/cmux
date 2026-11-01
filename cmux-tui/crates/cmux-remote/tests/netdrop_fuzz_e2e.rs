@@ -494,6 +494,9 @@ struct OutputChecker {
     skip_partial_line: bool,
     gaps: u32,
     gap_reasons: Vec<String>,
+    /// When each signalled gap reached the client: an echo of a write sent
+    /// before it may be in the dropped range.
+    gap_at: Vec<Instant>,
     lines: u64,
     problems: Vec<(Instant, String)>,
 }
@@ -508,17 +511,17 @@ impl OutputChecker {
                 match data.decode() {
                     Ok(bytes) => self.bytes(now, &bytes),
                     Err(error) => {
-                        self.problems.push((now, format!("output-undecodable {error:?}")))
+                        self.problems.push((now, format!("output-undecodable {error:?}")));
                     }
                 }
             }
             ProcessEvent::OutputTruncated { reason, .. } => {
                 self.sequence(now, event.sequence);
-                self.gap(format!("output-truncated {reason:?}"));
+                self.gap(now, format!("output-truncated {reason:?}"));
             }
             ProcessEvent::ReplayGap { requested_after, range, .. } => {
                 // `RpcEvent.sequence` is the latest known sequence here, not a new event.
-                self.gap(format!("replay-gap after {requested_after} range {range:?}"));
+                self.gap(now, format!("replay-gap after {requested_after} range {range:?}"));
             }
             ProcessEvent::Exit { .. } => {
                 self.sequence(now, event.sequence);
@@ -550,8 +553,9 @@ impl OutputChecker {
         true
     }
 
-    fn gap(&mut self, reason: String) {
+    fn gap(&mut self, now: Instant, reason: String) {
         self.gaps += 1;
+        self.gap_at.push(now);
         self.gap_reasons.push(reason);
         self.event_gap = true;
         self.line_gap = true;
@@ -683,6 +687,8 @@ struct Shared {
     checker: OutputChecker,
     requests: Vec<RequestRecord>,
     acked: BTreeSet<u64>,
+    /// When each write was first sent: its echo can be produced from then on.
+    first_sent: BTreeMap<u64, Instant>,
     /// Writes the daemon refused with a typed idempotency error.
     typed_write_errors: BTreeMap<u64, String>,
     /// Every other API error: (when, code, message).
@@ -704,6 +710,8 @@ struct FaultWindow {
     settled: Option<Instant>,
     terminal: Option<TerminalObservation>,
     checks_done: Instant,
+    /// Carriers the client dialled from the fault's start to `checks_done`.
+    dials: usize,
 }
 
 struct TerminalObservation {
@@ -1091,6 +1099,7 @@ async fn write_input(
         let data = ByteString::from_bytes(format!("{write_id}\n").as_bytes());
         loop {
             let start = Instant::now();
+            lock(&shared).first_sent.entry(write_id).or_insert(start);
             let result = workspace
                 .request(WorkspaceRequest::WriteProcess {
                     process,
@@ -1308,6 +1317,7 @@ async fn run_fault(
     // The generation read just before the last cut: a reconnect that
     // commits after the cut moves past it, one that committed before is cut.
     let mut generation_at_restore = generation_before;
+    let dials_before = proxy.accepted();
     let start = Instant::now();
     match step.fault {
         Fault::Cut => proxy.cut(),
@@ -1355,7 +1365,10 @@ async fn run_fault(
         if let Some(tunnel) = tunnel {
             let reconnected = side.client.snapshot().await.generation > generation_before;
             match echo(&tunnel, b"after", TUNNEL_BOUND).await {
-                Echo::Echoed | Echo::Ended(_) => {}
+                Echo::Echoed => {}
+                Echo::Ended(why) => report.notes.push(format!(
+                    "{label}: a tunnel opened before the fault ended explicitly: {why}"
+                )),
                 Echo::Mismatch(received) => report.violation(
                     t0,
                     Instant::now(),
@@ -1420,7 +1433,43 @@ async fn run_fault(
         settled,
         terminal,
         checks_done: Instant::now(),
+        dials: proxy.accepted().saturating_sub(dials_before),
     }
+}
+
+/// Whether a signalled gap may hold the echo of a write first sent at `sent`:
+/// any gap that reached the client at or after the send (the dropped range
+/// can hold output produced from the send on). An unknown send time counts.
+fn echo_may_be_in_a_gap(sent: Option<Instant>, gaps: &[Instant]) -> bool {
+    sent.is_none_or(|sent| gaps.iter().any(|&gap| gap >= sent))
+}
+
+/// Dials one severed carrier may make in `window` under [`reconnect_policy`]:
+/// the first dial, then one per backoff delay that fits (delays double from
+/// `initial_delay` up to `maximum_delay`; each attempt takes at least no time).
+fn dials_within(window: Duration) -> usize {
+    let policy = reconnect_policy();
+    let mut delay = policy.initial_delay;
+    let mut spent = Duration::ZERO;
+    let mut dials = 1;
+    while spent + delay <= window {
+        spent += delay;
+        dials += 1;
+        delay = (delay * 2).min(policy.maximum_delay);
+    }
+    dials
+}
+
+/// The most dials a fault may cause before it is a redial storm: per carrier
+/// the fault severs (each cut of a burst; a freeze or a half cut may end one
+/// carrier by the dead-peer timeout), what the backoff allows in the window,
+/// plus one for a race at the window's edge.
+fn dial_bound(fault: Fault, window: Duration) -> usize {
+    let severed = match fault {
+        Fault::CutBurst { cuts, .. } => usize::try_from(cuts).unwrap_or(usize::MAX),
+        Fault::Cut | Fault::Freeze { .. } | Fault::HalfFreeze { .. } | Fault::Slow { .. } => 1,
+    };
+    severed.saturating_mul(dials_within(window)).saturating_add(1)
 }
 
 // ---------------------------------------------------------------- one seed
@@ -1611,9 +1660,10 @@ async fn read_after_terminal(
                 }
             }
             Ok(WorkspaceResponse::ProcessReplayGap { requested_after, range, .. }) => {
-                lock(shared)
-                    .checker
-                    .gap(format!("replay-gap after {requested_after} range {range:?}"));
+                lock(shared).checker.gap(
+                    Instant::now(),
+                    format!("replay-gap after {requested_after} range {range:?}"),
+                );
                 after = range
                     .first_available
                     .map_or(range.last_produced, |first| first.saturating_sub(1));
@@ -1730,7 +1780,14 @@ fn evaluate(
         if checker.inputs.contains_key(write_id) {
             continue;
         }
-        if verifiable && !matches!(shared.reader_end, Some((_, ReaderEnd::Error(_)))) {
+        // A gap signalled at or after the write was sent may hold its echo:
+        // that is a signalled loss of output, not a lost input.
+        let echo_in_a_gap =
+            echo_may_be_in_a_gap(shared.first_sent.get(write_id).copied(), &checker.gap_at);
+        if verifiable
+            && !echo_in_a_gap
+            && !matches!(shared.reader_end, Some((_, ReaderEnd::Error(_))))
+        {
             report.violation(
                 t0,
                 Instant::now(),
@@ -1746,6 +1803,20 @@ fn evaluate(
     let samples = &shared.samples;
     for window in windows {
         let label = window.fault.label();
+        // No redial storm while the fault lasts, not only after a terminal state.
+        let bound =
+            dial_bound(window.fault, window.checks_done.saturating_duration_since(window.start));
+        if window.dials > bound {
+            report.violation(
+                t0,
+                window.checks_done,
+                &label,
+                format!(
+                    "redial-storm: {} dials during the fault, the backoff allows at most {bound}",
+                    window.dials
+                ),
+            );
+        }
         let left_at = samples
             .iter()
             .filter(|sample| sample.at >= window.start && sample.at <= window.checks_done)
@@ -2100,6 +2171,33 @@ fn netdrop_requested() -> bool {
         || std::env::var_os("CMUX_NETDROP_FUZZ").is_some()
 }
 
+/// The oracle's own rules, checked before any seed runs (review FIX at
+/// 5f7245b4c64, #30383): a run with a wrong oracle gives no verdict.
+fn oracle_self_checks() {
+    let t = Instant::now();
+    let later = t + Duration::from_millis(5);
+    // A gap signalled after the send may hold the echo: unverified, not lost.
+    assert!(echo_may_be_in_a_gap(Some(t), &[later]));
+    assert!(echo_may_be_in_a_gap(Some(t), &[t]));
+    assert!(echo_may_be_in_a_gap(None, &[]));
+    // A gap before the send cannot hold it: a missing echo is a lost input.
+    assert!(!echo_may_be_in_a_gap(Some(later), &[t]));
+    assert!(!echo_may_be_in_a_gap(Some(t), &[]));
+    // Backoff 20, 40, 80, 160, then 250 ms: 1 dial at 0 ms, 5 by 300 ms.
+    assert_eq!(dials_within(Duration::ZERO), 1);
+    assert_eq!(dials_within(Duration::from_millis(300)), 5);
+    assert_eq!(dials_within(Duration::from_millis(550)), 6);
+    // A 3-cut burst may dial 3 times what one cut may, plus 1.
+    let window = Duration::from_secs(3);
+    assert_eq!(
+        dial_bound(Fault::CutBurst { cuts: 3, gap_ms: 50 }, window),
+        3 * dials_within(window) + 1
+    );
+    // A client that redials every 2 ms for 3 s is a storm.
+    assert!(1_500 > dial_bound(Fault::CutBurst { cuts: 3, gap_ms: 50 }, window));
+    println!("NETDROP ORACLE self-checks passed");
+}
+
 #[test]
 fn netdrop_fuzz_seeded_network_faults_never_lose_data_silently() {
     if !netdrop_requested() {
@@ -2109,6 +2207,7 @@ fn netdrop_fuzz_seeded_network_faults_never_lose_data_silently() {
         );
         return;
     }
+    oracle_self_checks();
     let started = std::time::Instant::now();
     let mut configs = SEEDS.iter().map(|&seed| SeedConfig::seeded(seed)).collect::<Vec<_>>();
     configs.push(SeedConfig::expiry(EXPIRY_SEED));
