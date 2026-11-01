@@ -8,6 +8,8 @@ import tempfile
 import sys
 import unittest
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 import yaml
 
@@ -16,7 +18,7 @@ from test_ci_fork_runner_routing import parse_expression
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
-DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
+DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs and their Linux picker.
 SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
 TAIL_CONTROL_JOBS = (
@@ -252,7 +254,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertEqual(helper(**changes), 'blacksmith-6vcpu-macos-26')
         self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(helper(**{'github.repository_owner': 'someone'}), 'macos-26')
-        self.assertNotIn('macos-15', WORKFLOW_FILE.read_text())
+        self.assertNotIn('macos-15', nightly_expand(WORKFLOW_FILE.read_text()))
 
     def test_next_build_and_prepare_never_name_a_hosted_mac_past_the_fork_branch(self):
         for name in ('build-nightly-app',):
