@@ -181619,6 +181619,186 @@
         }
       }
     },
+    "settings.group.chiefSubagents": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء الفرعيون"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-agents"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        }
+      }
+    },
+    "settings.chief.autoRouteSubagents": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route Subagents to the Best Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントを最適なエージェントに振り分ける"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توجيه الوكلاء الفرعيين إلى أفضل وكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten an den besten Agenten leiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar los subagentes al mejor agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confier les sous-agents au meilleur agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트를 가장 알맞은 에이전트로 보내기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将子代理分派给最合适的代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將子代理分派給最合適的代理"
+          }
+        }
+      }
+    },
+    "settings.chief.autoRouteSubagents.help": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief が各サブエージェントの実行先を選びます。たとえば長いコーディング作業には Codex、文章や UI には Claude を使います。Chief 自身が別のエージェントで動いていても同様です。オフにすると、サブエージェントは Chief と同じエージェントで動きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يختار Chief الوكيل الذي يعمل عليه كل وكيل فرعي، مثل Codex للبرمجة الطويلة وClaude للكتابة والواجهة، حتى عندما يعمل Chief نفسه على وكيل آخر. عند الإيقاف، يعمل الوكلاء الفرعيون على وكيل Chief نفسه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chief wählt für jeden Subagenten den Agenten, auf dem er läuft, etwa Codex für lange Programmierarbeit und Claude für Texte und UI, auch wenn der Chief selbst auf einem anderen läuft. Aus: Subagenten laufen auf dem Agenten des Chiefs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Chief elige el agente de cada subagente, como Codex para trabajos largos de código y Claude para redacción e interfaz, aunque el Chief use otro. Desactivado, los subagentes usan el agente del Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Chief choisit l'agent de chaque sous-agent, par exemple Codex pour les longs travaux de code et Claude pour la rédaction et l'interface, même s'il tourne lui-même sur un autre. Désactivé, les sous-agents tournent sur l'agent du Chief."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 각 하위 에이전트가 실행될 에이전트를 고릅니다. 예를 들어 긴 코딩 작업에는 Codex, 글쓰기와 UI에는 Claude를 씁니다. Chief 자신이 다른 에이전트에서 실행될 때도 마찬가지입니다. 끄면 하위 에이전트는 Chief의 에이전트에서 실행됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 会为每个子代理挑选运行的代理，例如长时间的编程工作用 Codex，写作和界面用 Claude，即使 Chief 本身使用其他代理。关闭时，子代理使用 Chief 自己的代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 會為每個子代理挑選執行的代理，例如長時間的程式工作用 Codex，寫作與介面用 Claude，即使 Chief 本身使用其他代理。關閉時，子代理使用 Chief 自己的代理。"
+          }
+        }
+      }
+    },
     "settings.chief.reactionsCanWake": {
       "comment": "Chief reaction classifier (a416).",
       "extractionState": "manual",
