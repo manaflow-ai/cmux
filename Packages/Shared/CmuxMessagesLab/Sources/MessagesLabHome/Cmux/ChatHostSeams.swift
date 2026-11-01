@@ -59,6 +59,11 @@ protocol ChatIntents: AnyObject {
     func canRetrySend(_ message: ID) -> Bool
     /// Try Again: the send goes again (`HomeStore.retry`).
     func retrySend(_ message: ID)
+    /// A committed person message in a Chief conversation can ask the Chief
+    /// to answer that message again. This is separate from `retrySend`, which
+    /// resends a failed local upload.
+    func canRetryChiefTurn(_ message: ID) -> Bool
+    func retryChiefTurn(_ message: ID)
     /// Delete: the failed send goes (`HomeStore.discardFailed`).
     func deleteFailedSend(_ message: ID)
     /// Forward… is offered (the host routes a bubble's text to another chat).
@@ -101,6 +106,9 @@ extension ChatIntents {
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}
+    /// Hosts without a Chief control path do not expose turn retry.
+    func canRetryChiefTurn(_ message: ID) -> Bool { false }
+    func retryChiefTurn(_ message: ID) {}
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,

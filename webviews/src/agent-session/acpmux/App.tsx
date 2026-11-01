@@ -672,6 +672,8 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
+import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
+import { chatSwitchMotion } from "./chatSwitch.experiment";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -1292,18 +1294,22 @@ const MessageRow = memo(
           )}
           {envelope || row.from === "chief" ? (
             <>
-              <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
-              <PromptActions
-                row={row}
+              <ChiefPromptBubble
                 text={envelope ? envelope.task : (row.text ?? "")}
-                pending={
-                  !readOnly && steerControls(row)
-                    ? (actions) => (
-                        <PendingSteer row={row} send={editQueued}>
-                          {actions}
-                        </PendingSteer>
-                      )
-                    : undefined
+                actions={
+                  <PromptActions
+                    row={row}
+                    text={envelope ? envelope.task : (row.text ?? "")}
+                    pending={
+                      !readOnly && steerControls(row)
+                        ? (actions) => (
+                            <PendingSteer row={row} send={editQueued}>
+                              {actions}
+                            </PendingSteer>
+                          )
+                        : undefined
+                    }
+                  />
                 }
               />
             </>
@@ -3297,6 +3303,8 @@ export function VirtualTranscript({
   useEffect(() => () => stopReadingAloud(), [sessionId]);
   // A cold open's rows fade in on the first frame that draws them, before that frame paints.
   const fadedOpen = useRef<number | undefined>(undefined);
+  /// The chat switch motion's arm, read once per transcript (a changed arm applies on reload).
+  const [switchArm] = useState(() => experimentArm(chatSwitchMotion));
   /// The fade running on this transcript. The transcript stays mounted across a switch, so a fade
   /// ends with the chat it was for: a cached chat opened mid-fade shows whole on its first frame,
   /// not under the last chat's fade, and a transcript that unmounts leaves none running.
@@ -3308,11 +3316,38 @@ export function VirtualTranscript({
     },
     [sessionId],
   );
+  // CHAT SWITCH MOTION (experiment chat-switch-motion, off by default): opening another chat plays
+  // its rows, title and Session Info in as one movement, on the first frame the new chat's rows draw
+  // (cached: the frame the switch lands; cold: when its rows arrive). Not the first chat a page shows,
+  // and not an empty chat's first send. This effect only notes the switch (before the cold-open fade
+  // below reads it); the play runs in the transcript's last layout effect, after the new chat's rows
+  // are placed and scrolled (search "CHAT SWITCH PLAY"). The play's animations end on their own; the
+  // next switch starts from where they are, and the transcript unmounting cancels them.
+  const switchPlay = useRef<ChatSwitchPlay | undefined>(undefined);
+  const switchFrom = useRef(sessionId);
+  const switchPending = useRef(false);
+  const hasRows = rows.length > 0;
+  useLayoutEffect(() => {
+    if (switchArm === "off" || switchFrom.current === sessionId) return;
+    // A chat with no rows and none on the way (coldOpen undefined) is an empty chat: its first send
+    // is not a switch.
+    switchPending.current =
+      switchFrom.current !== undefined && sessionId !== undefined && (hasRows || coldOpen !== undefined);
+    switchFrom.current = sessionId;
+  }, [sessionId, hasRows, coldOpen, switchArm]);
+  useLayoutEffect(
+    () => () => {
+      switchPlay.current?.stop();
+      switchPlay.current = undefined;
+    },
+    [],
+  );
   useLayoutEffect(() => {
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
     openFade.current?.cancel();
-    openFade.current = fadeInOpenedChat(ref.current);
+    // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead.
+    openFade.current = switchPending.current ? undefined : fadeInOpenedChat(ref.current);
     onColdOpenShown?.(coldOpen);
   }, [coldOpen, rows.length, onColdOpenShown]);
   const previousSession = useRef(sessionId);
@@ -5160,6 +5195,13 @@ export function VirtualTranscript({
   if (seeking || renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
   const behind = jumpShown.current;
+  // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
+  // they will be drawn when the play picks the visible ones (CHAT SWITCH MOTION above).
+  useLayoutEffect(() => {
+    if (!switchPending.current || !hasRows) return;
+    switchPending.current = false;
+    switchPlay.current = playChatSwitch(ref.current, switchArm, switchPlay.current);
+  }, [sessionId, hasRows, switchArm]);
   // The prompt rail's own box: the view's height, less the bottom stack at its smallest at this
   // height (the composer at rest). A composer that grows a line, a tray or bar that opens over the
   // view, or the lift a followed view takes leaves the rail where it is; a new view height, another
@@ -10020,7 +10062,15 @@ function AcpmuxPane() {
           },
           // A switch that is likely next (a hover over a chat's row in the host's lists): its newest
           // page is read now, so the switch draws it from memory (direct.ts `prefetch`).
-          "chat.prefetch": async ({ sessionId, sessionIds }) => {
+          // `hover`: the native sidebar's pointer is on that chat's row (no sessionId: on none). The
+          // page decides whether it rests there long enough to read (hoverPrefetch.ts).
+          "chat.prefetch": async ({ sessionId, sessionIds, hover, lowPower }) => {
+            if (hover === true) {
+              client.hoverPrefetch(typeof sessionId === "string" && sessionId ? sessionId : undefined, {
+                lowPower: lowPower === true,
+              });
+              return;
+            }
             const ids = Array.isArray(sessionIds) ? sessionIds : [sessionId];
             for (const id of ids) if (id) client.prefetch(String(id));
           },
