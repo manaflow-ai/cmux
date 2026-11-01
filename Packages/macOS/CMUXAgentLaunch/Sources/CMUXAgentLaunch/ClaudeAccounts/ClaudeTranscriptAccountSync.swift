@@ -76,11 +76,15 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
 public struct ClaudeTranscriptAccountSync: Sendable {
     public init() {}
 
-    /// Performs discovery and copying off the caller's executor.
+    /// Performs discovery and copying off the caller's actor; the switch calls this from the
+    /// main actor.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     public func sync(_ request: ClaudeTranscriptAccountSyncRequest) async throws -> ClaudeTranscriptAccountSyncOutcome {
-        try await Task.detached(priority: .userInitiated) {
-            try Self.syncSynchronously(request)
-        }.value
+        try Self.syncSynchronously(request)
     }
 
     private static func syncSynchronously(
