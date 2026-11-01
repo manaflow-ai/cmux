@@ -5,15 +5,15 @@ A pushed ref's own changes are those of the commits the remote does not have yet
 remote has: the ref's remote head (pre-push stdin, or a --base), the remote-tracking ref of the pushed ref name
 (refs/remotes/<remote>/<name>: the last head this clone saw there), this clone's origin/feat-cmux-next (the shared
 base every branch rebases onto or merges in), the remote's HEAD (refs/remotes/<remote>/HEAD, main: a main-based
-branch, a tag on main), each ref in this clone's `git config --get-all cmux.prepushExtraUpstream` (a long-lived
-shared branch that task branches merge in; none when unset), and the integration branch the pushed branch was cut
-from:
+branch, a tag on main), and the integration branch the pushed branch was cut from:
 - its configured upstream (`<branch>@{upstream}`), when that is a remote-tracking ref of the pushed remote:
   `git worktree add -b topic origin/perf/chrome-parity` and `git checkout -b topic origin/x` record it, so it
   names any long-lived branch;
 - the known integration refs (INTEGRATION_REFS: origin/perf/chrome-parity, origin/main), for a branch cut with
   --no-track or whose upstream `git push -u` has since moved to its own name. A new long-lived integration branch
-  gets an entry in INTEGRATION_REFS, so a branch cut from it without an upstream is not judged over all of it.
+  gets an entry in INTEGRATION_REFS, so a branch cut from it without an upstream is not judged over all of it;
+- each ref in this clone's `git config --get-all cmux.prepushExtraUpstream` (a long-lived shared branch that task
+  branches merge in; none when unset), under the same rules as the upstream.
 Every one of them is only another `--not` of the walk below, so no rule picks among them: git stops the walk at
 the first commit any of them reaches, which is the nearest integration branch by history, the fact of where the
 branch left it (2026-10-29: a branch cut from perf, 9,426 commits ahead of feat-cmux-next, was judged over all of
@@ -319,8 +319,14 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
         tracked_ref is not None and _full_ref(tracked_ref) in {_full_ref(ref) for ref in integration})
     known_refs = {_full_ref(ref) for ref in (upstream_ref, remote_head, tracked_ref) if ref}
     branch_upstream = None if landing else upstream_of(repo, local_ref or head, name)
+    # `git config --add cmux.prepushExtraUpstream <ref>` names more integration branches (a long-lived branch on
+    # the remote that task branches merge in). Each is a cut-from ref like the upstream: none on a push onto an
+    # integration branch, and only a remote-tracking ref of the pushed remote, so none hides a commit nobody pushed.
+    code, configured = _git(repo, "config", "--get-all", "cmux.prepushExtraUpstream")
+    extra = [_full_ref(ref) for ref in (configured.split() if code == 0 else [])]
+    extra = [ref for ref in extra if name and ref.startswith(f"refs/remotes/{name}/")]
     cut_from = [] if landing else list(dict.fromkeys(
-        ref for ref in (branch_upstream, *INTEGRATION_REFS) if ref and _full_ref(ref) not in known_refs))
+        ref for ref in (branch_upstream, *INTEGRATION_REFS, *extra) if ref and _full_ref(ref) not in known_refs))
     # Every revision in one rev-parse (it was one each: 4 or more git processes per push).
     resolved = commits_of(repo, [head, *known, tracked_ref, upstream_ref, remote_head, *cut_from])
     tip, known_shas = resolved[0], resolved[1:1 + len(known)]
@@ -336,12 +342,6 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
     if tracked is not None:
         pushed_before.append(tracked)
     shared = [sha for sha in (upstream_sha, remote_head_sha, *cut_from_shas) if sha is not None]
-    # `git config --add cmux.prepushExtraUpstream <ref>` names more shared bases, such as a long-lived feature
-    # branch on the remote that a task branch merged in. Its commits are already on the remote, so the branch is
-    # judged over what it adds, as for origin/feat-cmux-next. Unset: only the refs above.
-    code, extra = _git(repo, "config", "--get-all", "cmux.prepushExtraUpstream")
-    if code == 0 and extra:
-        shared += [sha for sha in commits_of(repo, extra.split()) if sha is not None and sha not in shared]
     negatives = list(dict.fromkeys(pushed_before + shared))
     present = [ref for ref, sha in zip(cut_from, cut_from_shas) if sha is not None]
     every_ref = f"--remotes={name}" if name else "--remotes"
