@@ -150,6 +150,20 @@ class RoutingTableTests(unittest.TestCase):
             policy.write_text(json.dumps({"job_classes": {}, "hosted_light_jobs": {}}))
             self.assertEqual(table.hosted_light_policy(policy, workflows), ([], []))
 
+    def test_hosted_light_policy_accepts_next_only_hosted_fallback(self):
+        import yaml
+        route = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_resolve_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); workflows = root / "workflows"; workflows.mkdir()
+            policy = root / "runners.json"
+            policy.write_text(json.dumps({"job_classes": {"portable-checks": {"needs": "any"}},
+                "hosted_light_jobs": {"nightly.yml#resolve": {"class": "portable-checks", "reason": "routing"}}}))
+            (workflows / "nightly.yml").write_text(yaml.safe_dump({"jobs": {"resolve": {
+                "runs-on": route, "steps": [{"run": "python3 resolve.py"}]}}}, sort_keys=False, width=10000))
+            problems, allowed = table.hosted_light_policy(policy, workflows)
+            self.assertEqual(problems, [])
+            self.assertEqual(len(allowed), 1)
+
     def test_hosted_light_policy_checks_inherited_workflow_environment(self):
         import yaml
         route = "${{ github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}"
