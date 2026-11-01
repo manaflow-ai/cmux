@@ -4400,23 +4400,18 @@ a.cv-sha:focus-visible {
 .acpmux-scroll[data-fade-bottom],
 .acpmux-scroll[data-docked] {
   --acpmux-view-foot: calc(100% - var(--acpmux-dock-space, 0px));
+  --acpmux-view-mask: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-fade-top, 0px),
+    #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+    transparent var(--acpmux-view-foot)
+  );
   -webkit-mask-image:
-    linear-gradient(
-      to bottom,
-      transparent,
-      #000 var(--acpmux-fade-top, 0px),
-      #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
-      transparent var(--acpmux-view-foot)
-    ),
+    var(--acpmux-view-mask),
     linear-gradient(#000, #000);
   mask-image:
-    linear-gradient(
-      to bottom,
-      transparent,
-      #000 var(--acpmux-fade-top, 0px),
-      #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
-      transparent var(--acpmux-view-foot)
-    ),
+    var(--acpmux-view-mask),
     linear-gradient(#000, #000);
   -webkit-mask-size:
     100% 100%,
@@ -4432,6 +4427,48 @@ a.cv-sha:focus-visible {
     100% 0;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+}
+/* The prompt rail's lane (threadMinimap.css): the gutter beside the rows on the rail's side, where
+   rows never reach (they sit --cv-inset in), keeps full ink too. The rail sits in the scroller, so
+   without it a composer that grows over the view's foot, or a fade that comes and goes, would wash
+   out its bottom ticks; the rail's box does not follow the stack (VirtualTranscript `railBox`), and
+   nothing over it changes how it draws (Leo, 2026-11-01: "the left side scroll rail needs to not
+   really get affected by most other layout things"). */
+.acpmux-scroll:has(> .acpmux-minimap):is([data-fade-top], [data-fade-bottom], [data-docked]) {
+  -webkit-mask-image:
+    var(--acpmux-view-mask),
+    linear-gradient(#000, #000),
+    linear-gradient(#000, #000);
+  mask-image:
+    var(--acpmux-view-mask),
+    linear-gradient(#000, #000),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--acpmux-scrollbar-lane, 16px) 100%,
+    var(--cv-inset) 100%;
+  mask-size:
+    100% 100%,
+    var(--acpmux-scrollbar-lane, 16px) 100%,
+    var(--cv-inset) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0,
+    0 0;
+  mask-position:
+    0 0,
+    100% 0,
+    0 0;
+}
+.acpmux-scroll:has(> .acpmux-minimap [data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
+  -webkit-mask-position:
+    0 0,
+    100% 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0,
+    100% 0;
 }
 /* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
