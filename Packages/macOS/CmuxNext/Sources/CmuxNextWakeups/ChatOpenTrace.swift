@@ -104,6 +104,8 @@ public final class ChatOpenTrace {
         /// Each change of the bound pane's surface: uptime, surface.
         var frames: [(TimeInterval, Surface)] = []
         public internal(set) var frameCount = 0
+        /// Free text a step of the open left (why the prewarmed spare was not adopted, say).
+        public internal(set) var note: String?
         /// When sampling stopped (finish or ``frameCap``): an empty run still on screen then ends here.
         var endedAt: TimeInterval?
 
@@ -179,6 +181,12 @@ public final class ChatOpenTrace {
         guard isArmed, current?.marks[mark.rawValue] == nil else { return }
         current?.marks[mark.rawValue] = Self.now()
         if mark == .loadingLeft || mark == .holdEnd { resumeIfShown() }
+    }
+
+    /// Records `text` as the running trace's note, the first one only.
+    public func note(_ text: String) {
+        guard isArmed, current?.note == nil else { return }
+        current?.note = text
     }
 
     /// Records `mark` of `page` (an agent page): the first one to mark binds the trace.

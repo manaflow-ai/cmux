@@ -157,7 +157,7 @@ final class NewTabSparePool {
         services.agentTabs.takeConnectedSpare = { [weak self] in
             guard let self else { return nil }
             guard let spare = slot.peek,
-                  let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else {
+                  let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
                 Self.traceSpare(.spareEmpty)
                 return nil
             }
@@ -262,9 +262,10 @@ final class NewTabSparePool {
     }
 
     /// The chat-open trace's account of what an existing chat's open found in the pool (bench builds).
-    static func traceSpare(_ mark: ChatOpenTrace.Mark) {
+    static func traceSpare(_ mark: ChatOpenTrace.Mark, note: @autoclosure () -> String? = nil) {
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(mark)
+        if let note = note() { ChatOpenTrace.shared.note(note) }
         #endif
     }
 
