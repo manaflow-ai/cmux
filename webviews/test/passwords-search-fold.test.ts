@@ -17,7 +17,11 @@ const password = (id: string, site: string, username: string): SavedPassword => 
 });
 
 test("a plain i query finds a username or site written with İ, and İ finds i", () => {
-  const rows = [password("1", "example.com", "İstanbul"), password("2", "İzmir.example", "ada"), password("3", "x.com", "bob")];
+  const rows = [
+    password("1", "example.com", "İstanbul"),
+    password("2", "İzmir.example", "ada"),
+    password("3", "x.com", "bob"),
+  ];
   expect(filterPasswords(rows, "istanbul").map((row) => row.id)).toEqual(["1"]);
   expect(filterPasswords(rows, "izmir").map((row) => row.id)).toEqual(["2"]);
   expect(filterPasswords(rows, "İSTANBUL").map((row) => row.id)).toEqual(["1"]);
