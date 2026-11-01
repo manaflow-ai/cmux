@@ -103,18 +103,34 @@ class CodeModeCancellationTests(unittest.TestCase):
             os.close(fd)
 
     def ready(self):
-        connection, _ = self.server.accept()
-        with connection:
-            connection.settimeout(5)
-            data = b""
-            while not data.endswith(b"\n"):
-                chunk = connection.recv(4096)
-                self.assertTrue(chunk, "script closed before its readiness request")
-                data += chunk
-            self.assertEqual(json.loads(data)["id"], "ready")
-            self.record_descendants(self.process.pid)
-            self.assertGreater(len(self.owned), 2, "runner and sandbox were not observed")
-            connection.sendall(b'{"type":"response","id":"ready"}\n')
+        # run.ts eagerly opens its SDK connection as well as the script's
+        # readiness connection. Wait for data on either without assuming order.
+        connections = {}
+        deadline = time.monotonic() + 8
+        while True:
+            readable, _, _ = select.select(
+                [self.server, *connections], [], [], max(0, deadline - time.monotonic())
+            )
+            self.assertTrue(readable, "sandbox did not send its readiness request")
+            for stream in readable:
+                if stream is self.server:
+                    connection, _ = self.server.accept()
+                    self.addCleanup(connection.close)
+                    connections[connection] = b""
+                    continue
+                chunk = stream.recv(4096)
+                if not chunk:
+                    del connections[stream]
+                    stream.close()
+                    continue
+                connections[stream] += chunk
+                if b"\n" not in connections[stream]:
+                    continue
+                self.assertEqual(json.loads(connections[stream])["id"], "ready")
+                self.record_descendants(self.process.pid)
+                self.assertGreater(len(self.owned), 2, "runner and sandbox were not observed")
+                stream.sendall(b'{"type":"response","id":"ready"}\n')
+                return
 
     def send(self, message):
         self.process.stdin.write(json.dumps(message).encode() + b"\n")
