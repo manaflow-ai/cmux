@@ -11,8 +11,8 @@ use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
 use super::{
     Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
-    origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad, valid_environment,
-    valid_key, valid_repo, valid_workspace,
+    origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad,
+    valid_environment, valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
@@ -1340,6 +1340,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(answer["ok"], json!(true), "{answer}");
     assert_eq!(answer["machine"], json!("vm-hot"));
     assert_eq!(answer["ensured"]["environment"], json!({"id": "denv_1", "status": "ready"}));
+    assert_eq!(answer["ensured"]["environment_id"], json!("denv_1"));
+    assert_eq!(answer["ensured"]["setup"], json!({"state": "done", "status": "ready"}));
     assert_eq!(answer["repo"], json!("me/paint"));
     assert_eq!(
         asked.borrow().as_slice(),
@@ -1407,7 +1409,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
 }
 
 #[test]
-fn setup_state_distinguishes_a_ran_install_from_a_snapshot_and_no_script() {
+fn setup_state_distinguishes_ran_cached_running_failed_and_no_script() {
     let ran = setup_state(
         &json!({"status": "building", "steps": [
             {"id": "install", "state": "done", "started_at": 1000, "finished_at": 3500}
@@ -1420,8 +1422,19 @@ fn setup_state_distinguishes_a_ran_install_from_a_snapshot_and_no_script() {
     let cached = setup_state(&json!({"status": "ready", "steps": []}), true).unwrap();
     assert_eq!(cached, json!({"state": "done", "status": "ready"}));
 
-    let none = setup_state(&json!({"status": "building", "steps": []}), false).unwrap();
-    assert_eq!(none, json!({"state": "skipped", "has_script": false}));
+    let running = setup_state(&json!({"status": "building", "steps": []}), false).unwrap();
+    assert_eq!(running, json!({"state": "running", "status": "building"}));
+
+    let failed = setup_state(
+        &json!({"status": "failed", "steps": [
+            {"id": "install", "state": "failed", "detail": "setup exited 1"}
+        ]}),
+        false,
+    )
+    .unwrap();
+    assert_eq!(failed, json!({"state": "failed", "status": "failed", "error": "setup exited 1"}));
+
+    assert_eq!(setup_state(&json!({"status": "ready", "steps": []}), false), None);
 }
 /// The copy's answer carries how the push went: a seed, or the copy with why
 /// and the GitHub App's install link, and the files left on this Mac.

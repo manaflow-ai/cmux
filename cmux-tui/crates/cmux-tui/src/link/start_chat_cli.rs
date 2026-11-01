@@ -332,6 +332,7 @@ pub(super) fn plan_with(
                     json!({"ok": true, "machine": id, "ensured": {
                         "created": line.get("created"), "snapshot": line.get("snapshot"),
                         "environment": line.get("environment"),
+                        "environment_id": line.get("environment_id"), "setup": line.get("setup"),
                     }})
                 }
                 // The platform made no machine: the App makes it, as before.
@@ -564,7 +565,8 @@ impl Ensure {
         // already being admitted.
         if let Some(environment_id) = body.pointer("/environment/id").and_then(Value::as_str) {
             let path = format!("/v1/environments/{}", percent_segment(environment_id));
-            if let Ok(environment) = platform.get(&path)
+            if let Ok(environment) =
+                platform.get_with_timeout(&path, std::time::Duration::from_secs(10))
                 && let Some(setup) = setup_state(&environment, has_snapshot(body.get("snapshot")))
                 && let Some(object) = body.as_object_mut()
             {
@@ -581,18 +583,19 @@ fn has_snapshot(value: Option<&Value>) -> bool {
 
 /// Convert the environment endpoint's ordered step record into the small wire used by the
 /// startup checklist. `done` install means the script ran; a snapshot boot is cached; no install
-/// step means there is no setup script to report.
+/// step means there is no setup script to report, unless the environment is still building.
 pub(super) fn setup_state(environment: &Value, snapshot: bool) -> Option<Value> {
     let status = environment.get("status").and_then(Value::as_str);
     let install = environment.get("steps").and_then(Value::as_array).and_then(|steps| {
         steps.iter().find(|step| step.get("id").and_then(Value::as_str) == Some("install"))
     });
     let install_state = install.and_then(|step| step.get("state").and_then(Value::as_str));
-    if snapshot || (status == Some("ready") && install_state != Some("done")) {
+    if snapshot {
         return Some(json!({"state": "done", "status": "ready"}));
     }
     let Some(install) = install else {
-        return Some(json!({"state": "skipped", "has_script": false}));
+        return (status == Some("building") || status == Some("pending"))
+            .then(|| json!({"state": "running", "status": "building"}));
     };
     let mut setup = serde_json::Map::new();
     match install_state {
@@ -607,9 +610,7 @@ pub(super) fn setup_state(environment: &Value, snapshot: bool) -> Option<Value> 
             setup.insert("state".into(), json!("failed"));
             setup.insert("status".into(), json!("failed"));
         }
-        Some("skipped") | None => {
-            return Some(json!({"state": "skipped", "has_script": false}));
-        }
+        Some("skipped") | None => return None,
         Some(_) => return None,
     }
     for (source, target) in [("started_at", "started_at"), ("finished_at", "finished_at")] {
