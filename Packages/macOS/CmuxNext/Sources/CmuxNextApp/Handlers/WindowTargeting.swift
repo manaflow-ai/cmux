@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The cmux window a window action (Zoom, Select Next/Previous Window, Close
 /// All Windows) acts on: the key window, else the frontmost cmux window,
@@ -36,11 +37,9 @@ struct WindowTargeting {
         return list[((current + offset) % list.count + list.count) % list.count]
     }
 
-    /// Closes `window` the way its close button would (its delegate's
-    /// `windowShouldClose` decides), also when the window has no close button.
+    /// Closes `window` as its close button would, also with no close button; never under its sheet.
     @MainActor
     static func close(_ window: NSWindow) {
-        guard window.delegate?.windowShouldClose?(window) ?? true else { return }
-        window.close()
+        window.closeWithoutButtonFlash(requiresCloseButton: false)
     }
 }

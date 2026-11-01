@@ -7,8 +7,8 @@ import CmuxNextDesign
 nonisolated enum WindowKeyBehavior: Equatable, Sendable {
     /// The action runs as usual (against the last main window's focus).
     case run
-    /// Close the root window (`performClose`, so its delegate may decline,
-    /// as with its close button).
+    /// Close the root window (`closeFromCloseKey`: its delegate may decline,
+    /// as with its close button, and the button never flashes).
     case closeWindow
     /// Nothing runs and nothing beeps: a sheet or panel over a window of
     /// its own got a close shortcut.
@@ -94,7 +94,7 @@ struct WindowKeyTable {
                   let key = services.keyWindowRole else { return nil }
             switch table.behavior(for: id, close: key.close, overRoot: key.overRoot) {
             case .run: return nil
-            case .closeWindow: return .run { [weak root = key.root] in root?.performClose(nil) }
+            case .closeWindow: return .run { [weak root = key.root] in root?.closeFromCloseKey() }
             case .consume: return .run {}
             case .disabled(let reason): return .disabled(reason: reason)
             }
