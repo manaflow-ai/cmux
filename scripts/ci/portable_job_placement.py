@@ -131,6 +131,13 @@ def eligible(env: Mapping[str, str]) -> str:
     if attempt != "1" and not (attempt == "2" and actor in pool.RESCUE_ACTORS):
         return f"attempt {attempt} keeps its Blacksmith route"
     label = (env.get("SIDE_LABEL") or "").strip()
+    jobs = set((env.get("JOBS") or "").split())
+    linux_only = set((env.get("LINUX_ONLY") or "").split())
+    # A Linux-only picker (for example the cmux-tui daemon marker) has no
+    # owned-Mac leg. It must still read the live Linux group even when the
+    # caller has no side-pool label to offer.
+    if jobs and jobs.issubset(linux_only):
+        return ""
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return f"`{label or 'no label'}` is not an owned side label"
     if label.startswith("glaeda-aws-"):
@@ -144,10 +151,20 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     mac_first = set((env.get("MAC_FIRST") or "").split())
     linux_only = set((env.get("LINUX_ONLY") or "").split())
     linux = fleet_linux(env.get("FLEET_LINUX", ""))
+    live_linux_missing = False
+    if linux and env.get("REQUIRE_LIVE_CAPACITY") == "1":
+        # A configured label is only a candidate. Emit it for this run when a
+        # live runner listing proves at least one online member; otherwise the
+        # caller's measured Blacksmith branch remains the bounded fallback.
+        if not runners or pool.live_online(runners, [linux]).get(linux, 0) == 0:
+            live_linux_missing = True
+            linux = ""
     linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
     notes = [f"{', '.join(linux_jobs)} take fleet Linux `{linux}`"] if linux_jobs else []
-    if not linux:
+    if live_linux_missing:
+        notes.append("no live runner carries the requested fleet Linux label; take Blacksmith")
+    if not linux and not live_linux_missing:
         notes.append("vars.LINUX_RUNNER names no fleet Linux runner")
 
     def done(why: str, mini: str = "", mini_jobs: tuple[str, ...] = ()) -> Placement:

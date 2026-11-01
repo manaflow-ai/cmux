@@ -45,6 +45,11 @@ def runner(name: str, label: str = SIDE, *, busy: bool = False, status: str = "o
             "labels": [{"name": item} for item in ("self-hosted", owned, label)]}
 
 
+def fleet_runner(name: str = "cmux-fleet-1", *, busy: bool = False, status: str = "online") -> dict:
+    return {"name": name, "status": status, "busy": busy,
+            "labels": [{"name": item} for item in ("self-hosted", "cmux-fleet-linux-x64")]}
+
+
 def snapshot(pools: dict | None = None, *, age_minutes: int = 2) -> dict:
     generated = (NOW - dt.timedelta(minutes=age_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"generated_at": generated, "pools": pools or {}}
@@ -173,6 +178,23 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed.linux_jobs, tuple(JOBS.split()))
         self.assertEqual(placed.mini_jobs, ())
 
+    def test_live_capacity_requirement_rejects_an_unserved_fleet_label(self):
+        config = env(JOBS="cmux-next-daemon-tests", LINUX_ONLY="cmux-next-daemon-tests",
+                     FLEET_LINUX="cmux-fleet-linux-x64", REQUIRE_LIVE_CAPACITY="1")
+        for runners in (None, [], [fleet_runner(status="offline")]):
+            with self.subTest(runners=runners):
+                placed = placement.decide(config, runners, snapshot(), NOW)
+                self.assertEqual(placed.linux_runner, "")
+                self.assertEqual(placed.linux_jobs, ())
+                self.assertIn("Blacksmith", placed.why)
+
+    def test_live_capacity_requirement_emits_the_registered_fleet_label(self):
+        config = env(JOBS="cmux-next-daemon-tests", LINUX_ONLY="cmux-next-daemon-tests",
+                     FLEET_LINUX="cmux-fleet-linux-x64", REQUIRE_LIVE_CAPACITY="1")
+        placed = placement.decide(config, [fleet_runner()], snapshot(), NOW)
+        self.assertEqual(placed.linux_runner, "cmux-fleet-linux-x64")
+        self.assertEqual(placed.linux_jobs, ("cmux-next-daemon-tests",))
+
     def test_a_mac_first_job_takes_a_mini_before_fleet_linux(self):
         placed = placement.decide(env(FLEET_LINUX="gcp-linux-32", MAC_FIRST="tooling-tests"),
                                   idle(1), snapshot(), NOW)
@@ -268,6 +290,22 @@ class Decide(unittest.TestCase):
             self.assertEqual(placement.main(environment), 0)
             self.assertIn("mini_runner=\nmini_jobs=\n", output.read_text())
 
+    def test_linux_picker_without_route_token_keeps_measured_overflow(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch) / "out"
+            summary = Path(scratch) / "summary"
+            environment = {
+                **env(JOBS="cmux-next-daemon-tests", LINUX_ONLY="cmux-next-daemon-tests",
+                      FLEET_LINUX="cmux-fleet-linux-x64", REQUIRE_LIVE_CAPACITY="1"),
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+            }
+            self.assertEqual(placement.main(environment), 0)
+            text = output.read_text()
+            self.assertIn("linux_runner=\n", text)
+            self.assertIn("no live runner carries the requested fleet Linux label; take Blacksmith", summary.read_text())
+
 
 def jobs(name: str) -> dict:
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"]
@@ -333,6 +371,21 @@ class Wiring(unittest.TestCase):
         self.assertEqual(build["darwin_mac_runner"], "${{ needs.tree-preflight.outputs.darwin_mac_runner }}")
         plan = (WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
         self.assertIn('target["runner"] = darwin_mac_runner', plan)
+
+    def test_cmux_tui_daemon_uses_live_gcp_output_before_measured_overflow(self):
+        workflow = jobs("cmux-tui-artifacts.yml")
+        preflight = workflow["tree-preflight"]
+        picker = next(step for step in preflight["steps"] if step.get("id") == "linux-placement")
+        self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-fleet-linux-x64")
+        self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
+        daemon = workflow["cmux-next-daemon-tests"]["runs-on"]
+        live = daemon.index("needs.tree-preflight.outputs.linux_runner")
+        fallback = daemon.index("'blacksmith-4vcpu-ubuntu-2404'")
+        self.assertLess(live, fallback)
+        self.assertEqual(workflow["tree-preflight"]["outputs"]["linux_runner"],
+                         "${{ steps.linux-placement.outputs.linux_runner }}")
+        self.assertEqual(workflow["build"]["with"]["linux_runner"],
+                         "${{ needs.tree-preflight.outputs.linux_runner }}")
 
     def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_blacksmith(self):
         nightly = jobs("nightly.yml")

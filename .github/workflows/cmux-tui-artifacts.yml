@@ -180,6 +180,10 @@ jobs:
       # skipped and the build starts one runner queue earlier.
       owns_key: ${{ steps.inspect.outputs.owns_key }}
       stale: ${{ steps.stale.outputs.stale }}
+      # The live GCP Linux label, only when the routing App saw an online
+      # member; empty sends downstream jobs to their measured overflow.
+      linux_runner: ${{ steps.linux-placement.outputs.linux_runner }}
+      linux_jobs: ${{ steps.linux-placement.outputs.linux_jobs }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -298,6 +302,26 @@ jobs:
           MINI_ALL_OR_NONE: "1"
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+
+      # The artifact daemon is Linux-only. Reuse the existing routing App token
+      # and emit its label only when a live member is present; an empty output
+      # keeps the measured Blacksmith fallback.
+      - name: Pick a live Linux runner for the artifact daemon
+        id: linux-placement
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          JOBS: cmux-next-daemon-tests
+          LINUX_ONLY: cmux-next-daemon-tests
+          FLEET_LINUX: cmux-fleet-linux-x64
+          REQUIRE_LIVE_CAPACITY: "1"
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.read-token.outputs.token }}
+          ROUTE_TOKEN_FALLBACK: ${{ github.token }}
           SNAPSHOT_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
         run: python3 scripts/ci/portable_job_placement.py
 
@@ -1170,6 +1194,7 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       darwin_mac_runner: ${{ needs.tree-preflight.outputs.darwin_mac_runner }}
+      linux_runner: ${{ needs.tree-preflight.outputs.linux_runner }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -1212,6 +1237,7 @@ jobs:
       # relay has no Windows PTY backend yet; no misleading Windows relay,
       # machine package or manifest entry).
       include_windows: true
+      linux_runner: ${{ needs.tree-preflight.outputs.linux_runner }}
       # Optional: a failed Windows build publishes the macOS and Linux tree
       # without it (a ::warning names it); the key gets the Windows daemon on
       # a later republication (cmux-tui-pin-* push or dispatch), and
@@ -1372,7 +1398,7 @@ jobs:
     # job holding one runs in an environment (tests/test_supplychain_security.py).
     # ci-routing-agent is the one the other glaeda-route readers use.
     environment: ci-routing-agent
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
