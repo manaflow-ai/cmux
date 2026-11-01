@@ -186,6 +186,7 @@ jobs:
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.route-token.outputs.token }}
+          CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           JOBS: launch-smoke
           CASCADE_JOBS: launch-smoke

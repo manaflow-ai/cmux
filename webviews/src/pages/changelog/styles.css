@@ -106,8 +106,7 @@ html[data-cmux-page="changelog"] body {
 .cl-button:hover { background: var(--page-selection); }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); letter-spacing: var(--text-body--letter-spacing); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more,
-    .cl-reel):focus-visible {
+:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
@@ -198,8 +197,7 @@ html[data-cmux-page="changelog"] body {
 /* The number is the agent pane's reference chip (chips.css .cv-chip.is-ref); both open the shared
    pull request hover card (ChangePullRequest.tsx). */
 .cl-pr { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
-.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.cl-pr:hover { cursor: pointer; }
+.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: default; }
 /* The chip and its card draw in the agent pane's tokens (chips.css, linkCard.css), mapped here to
    the page theme. */
 html[data-cmux-page="changelog"] {
@@ -242,90 +240,6 @@ html[data-cmux-page="changelog"] {
 }
 .cl-build { user-select: all; }
 .cl-maintenance { margin: 12px 0 0; color: var(--page-text-2); }
-
-/* The span's reels as one video card on glass: the reel's first frame with a play button and its
-   length, its title under it, then a row of nightly chips (and the open link when it cannot play). */
-.cl-reel-player { margin: 16px 0 8px; }
-.cl-reel-card {
-  max-width: 640px;
-  margin: 0 0 10px;
-  padding: 8px 8px 12px;
-  border-radius: 14px;
-  background: var(--page-hover);
-  box-shadow: inset 0 0 0 1px var(--page-separator);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
-}
-.cl-reel-stage { position: relative; aspect-ratio: 16 / 10; border-radius: 8px; overflow: hidden; }
-.cl-reel-stage video { display: block; width: 100%; height: 100%; object-fit: cover; background: transparent; }
-.cl-reel-play {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #fff;
-  cursor: pointer;
-}
-.cl-reel-play svg {
-  box-sizing: content-box;
-  width: 24px;
-  height: 24px;
-  padding: 16px;
-  border-radius: 50%;
-  fill: currentColor;
-  background: rgb(0 0 0 / 0.45);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
-  transition: transform 120ms ease, background-color 120ms ease;
-}
-.cl-reel-play:hover svg { transform: scale(1.06); background: rgb(0 0 0 / 0.6); }
-.cl-reel-play:focus-visible { outline: none; }
-.cl-reel-play:focus-visible svg { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 3px; }
-.cl-reel-length {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  padding: 0 4px;
-  border-radius: 5px;
-  background: rgb(0 0 0 / 0.55);
-  color: #fff;
-  font-size: var(--text-caption);
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-}
-.cl-reel-title { margin: 10px 4px 0; font-size: var(--text-body); font-weight: 600; color: var(--page-text); }
-.cl-reel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.cl-reel-picker { display: flex; flex-wrap: wrap; gap: 6px; }
-.cl-reel-chip {
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--page-separator);
-  border-radius: 12px;
-  background: transparent;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.cl-reel-chip:hover { background: var(--page-hover); color: var(--page-text); }
-.cl-reel-chip[aria-pressed="true"] { background: var(--page-selection); color: var(--page-text); }
-.cl-reel {
-  margin-left: auto;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  text-decoration: none;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.cl-reel::after { content: " ↗"; }
-.cl-reel:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-.cl-reel-chip:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 
 .cl-updated { margin: 0 0 16px; font-size: var(--text-heading); line-height: var(--text-heading--line-height); font-weight: 600; letter-spacing: var(--text-heading--letter-spacing); }
 .cl-muted { color: var(--page-text-3); }
@@ -668,3 +582,41 @@ html[data-cmux-page="changelog"] {
   .cln-clips-alternate .cln-clip { grid-template-columns: minmax(0, 1fr); }
   .cln-clips-alternate .cln-clip:nth-child(even) .cln-clip-media { order: 0; }
 }
+
+/* ---------- The What's New sheet (default; SheetPage.tsx, 2026-10-31) ----------
+   An Apple app's What's New sheet: a centered bold title, then each release day, newest first,
+   under a small date heading; each change a row of an accent glyph, a bold title and one muted
+   line. One column of reading width, no rules between days, no motion. */
+.cls {
+  --cls-column: 560px;
+  padding-block: calc(var(--ds-space-6) * 1.5) calc(var(--ds-space-6) * 3);
+  padding-inline: max(var(--ds-space-6), calc((100% - var(--cls-column)) / 2));
+}
+.cls-title {
+  margin: 0 0 32px;
+  font-size: 1.85em; /* the page's one large text, relative to the body step */
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-align: center;
+  text-wrap: balance;
+}
+.cls .cls-day { padding-bottom: 0; margin-bottom: 32px; border-bottom: 0; }
+.cls-date {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cls-rows { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.cls-row { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
+.cls-icon { display: grid; place-items: center; width: 28px; height: 28px; color: var(--cmux-accent, var(--page-text)); }
+.cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.cls-row-text { min-width: 0; padding-top: 4px; }
+.cls-row-title { color: var(--page-text); font-weight: 600; }
+.cls-row-line { margin-top: 2px; color: var(--page-text-2); }

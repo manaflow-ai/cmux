@@ -28,6 +28,7 @@ export function routeCurrentTrustRefusal<Client>(
 export type PendingTrustRefusal<Client> = TrustRefusalOwner<Client> & {
   error: unknown;
   again?: () => void;
+  declined?: () => void;
 };
 
 function sameOwner<Client>(left: TrustRefusalOwner<Client>, right: TrustRefusalOwner<Client>): boolean {
@@ -49,6 +50,7 @@ export function routeOwnedTrustRefusal<Client>(
   error: unknown,
   again: (() => void) | undefined,
   deliver: () => boolean,
+  declined?: () => void,
 ): boolean {
   if (!sameOwner(owner, current)) return false;
   const held = pending.current;
@@ -57,9 +59,10 @@ export function routeOwnedTrustRefusal<Client>(
   if (held && sameOwner(held, owner) && heldError?.reason === refusal.reason && heldError?.cwd === refusal.cwd) {
     // Keep the send's replay when the direct client already queued this same refusal.
     held.again = again;
+    held.declined = declined;
     return true;
   }
   if (rendered && sameOwner(rendered, owner)) return deliver();
-  pending.current = { ...owner, error, again };
+  pending.current = { ...owner, error, again, declined };
   return true;
 }

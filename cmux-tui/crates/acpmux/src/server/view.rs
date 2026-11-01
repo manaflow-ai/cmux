@@ -159,7 +159,7 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
 /// `_acpmux/markUnread {sessionId}` (cx-ncc.78): the person marks a chat unread; it stays so until
 /// a client shows it again after hiding it (`hub/seen.rs`).
 pub(super) fn mark_unread(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
-    hub.mark_unread(&*hub.resolve(session_key(params)?)?);
+    hub.mark_unread_answered(&*hub.resolve(session_key(params)?)?)?;
     Ok(json!({}))
 }
 

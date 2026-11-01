@@ -1,4 +1,6 @@
+import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextSidebar
 import CmuxNextDesign
 
@@ -105,39 +107,42 @@ struct PersonalGroupLife {
     /// The delete goes only to the groups `recheck` still names once the
     /// command landed, read from the latest personal state: a member
     /// another window or client placed meanwhile keeps its group.
-    /// `failed` runs when a command fails (the caller re-syncs).
+    /// `failed` runs when a command fails, with why (the caller re-syncs and says so).
     /// `applied` runs once the home store holds the command's result
     /// (read-your-writes): a sidebar pending edit settles there (cx-odqn).
+    /// `completed` runs last, with whether the command and its cleanup applied.
     /// `landed` gets the command's value as soon as it replied.
     func commit<Value: Sendable>(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
-                                 failed: @escaping @MainActor () -> Void, applied: (@MainActor () -> Void)? = nil,
+                                 failed: @escaping @MainActor (ActionWorkFailure) -> Void, applied: (@MainActor () -> Void)? = nil,
                                  completed: (@MainActor (Bool) -> Void)? = nil,
                                  landed: @escaping @MainActor (Value) -> Void = { _ in },
                                  _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> Value) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
-        let transaction = ClientTransactionID.generate()
         personal.endingGroups.formUnion(ending)
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
-            let result: (value: Value, completed: Bool)? = await home.request(label, transaction: transaction) { connection, _ in
-                let value = try await body(connection)
-                // Keep cleanup on the reply's connection and wait for the primary
-                // event before deciding whether the source group is now empty.
-                guard await home.appliedThroughReply(on: connection, after: label) else { throw DaemonError.notConnected }
-                await landed(value)
-                if let applied { await applied() }
-                let still = await MainActor.run { Set(recheck()) }
-                let doomed = ending.filter(still.contains)
-                for group in doomed {
-                    if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) }
-                    else { try await connection.deletePersonalGroup(group) }
+            let result: (value: Value, completed: Bool)
+            do {
+                // `perform`, not `request`: a failure comes back with why, for the caller to say (#26382).
+                result = try await home.perform(label) { connection in
+                    let value = try await body(connection)
+                    // Keep cleanup on the reply's connection and wait for the primary
+                    // event before deciding whether the source group is now empty.
+                    guard await home.appliedThroughReply(on: connection, after: label) else { throw DaemonError.notConnected }
+                    await landed(value)
+                    if let applied { await applied() }
+                    let still = await MainActor.run { Set(recheck()) }
+                    let doomed = ending.filter(still.contains)
+                    for group in doomed {
+                        if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) }
+                        else { try await connection.deletePersonalGroup(group) }
+                    }
+                    return (value, true)
                 }
-                return (value, true)
-            }
-            guard let result else {
+            } catch {
                 end()
-                failed()
+                failed(ActionWorkFailure(label, error))
                 completed?(false)
                 return
             }
@@ -147,7 +152,7 @@ struct PersonalGroupLife {
     }
 
     /// Deletes `group` when it is still an unpinned group with no live member.
-    func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor () -> Void) {
+    func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void) {
         guard isEmptyUnpinned(group) else { return }
         let life = self
         commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }

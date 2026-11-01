@@ -61,11 +61,7 @@ extension TabStripView {
     /// the traffic lights and the window's titlebar accessory where they lie
     /// over its `shown` part (pure).
     static func windowControlsInset(strip: CGRect, shown: CGRect, lights: CGRect?, accessory: CGRect?, padding: CGFloat) -> CGFloat {
-        let visible = strip.intersection(shown)
-        let obstacles = [lights, accessory].compactMap { $0 }.filter { frame in
-            !visible.isNull && visible.minY < frame.maxY && visible.maxY > frame.minY && visible.minX < frame.maxX && visible.maxX > frame.minX
-        }
-        guard let right = obstacles.map(\.maxX).max() else { return 0 }
+        guard let right = WindowTitlebar.windowControlsMaxX(over: strip, shown: shown, lights: lights, accessory: accessory) else { return 0 }
         let clear = right + Metrics.space3 - strip.minX - padding
         return max(0, (clear * 2).rounded(.up) / 2)
     }
