@@ -374,3 +374,26 @@ async fn an_adopted_running_turn_is_never_logged_ready() {
         .collect();
     assert!(!statuses.iter().any(|s| *s == "ready"), "statuses after adoption: {statuses:?}");
 }
+
+/// A chat saved `waiting` with nothing left to ask (the previous daemon sent the answer and
+/// stopped before it logged `ready`) is `ready` once its idle host is adopted: the adoption
+/// replaces a loaded status that nothing it recovered set, as a turn's end does.
+#[tokio::test]
+async fn an_adopted_idle_chat_saved_waiting_with_nothing_asked_is_ready() {
+    let mut daemon = Daemon::new("adopt-waiting", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    assert_eq!(rpc.call("session/prompt", prompt).await["stopReason"], "end_turn");
+    drop(rpc);
+    daemon.sigkill();
+    let path = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta["status"] = json!("waiting");
+    std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host adoption", |e| e["kind"] == "host_adopted");
+    let attached =
+        daemon.rpc().await.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(attached["session"]["status"], "ready", "{attached:#}");
+}
