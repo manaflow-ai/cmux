@@ -328,7 +328,7 @@ pub(crate) fn handle(mux: &Mux, cmd: &str, args: &Value) -> Value {
             }
             _ => Err(Failure::new(
                 "seed.bad_request",
-                "Update cmux and retry the repository action.",
+                "Run `cmux cloud repo --help` and choose a supported repository action.",
             )),
         }
     })();

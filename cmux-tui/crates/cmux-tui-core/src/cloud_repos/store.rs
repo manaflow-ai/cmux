@@ -21,7 +21,7 @@ fn load(mux: &Mux) -> Result<(Value, u64), Failure> {
         }
         Some(_) => Err(Failure::new(
             "seed.bad_request",
-            "Update cmux to read this machine's repository records.",
+            "Use the matching machine CLI to read this version of its repository records.",
         )),
         None => Ok((json!({"local":[], "chats":{}, "recent":[], "jobs":{}}), 0)),
     }
