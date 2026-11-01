@@ -61,7 +61,7 @@ class DedicatedMini(unittest.TestCase):
         steps = {step.get("id"): step for step in DOC["jobs"]["decide"]["steps"]}
         values = context(**{"steps.decide.outputs.track": "nightly-next",
                             "steps.decide.outputs.should_build": "true"})
-        for name in ("place-early", "place-early-mac"):
+        for name in ("start-early-linux", "place-early", "place-early-mac"):
             condition = steps[name]["if"].removeprefix("${{").removesuffix("}}")
             self.assertFalse(evaluate(parse_expression(condition), values))
             self.assertTrue(evaluate(parse_expression(condition), {**values, VARIABLE: ""}))
