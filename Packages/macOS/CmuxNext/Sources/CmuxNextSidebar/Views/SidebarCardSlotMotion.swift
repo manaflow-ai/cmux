@@ -55,6 +55,14 @@ final class SidebarCardSlotMotion: MotionAnimating {
         return height.value
     }
 
+    /// The window went out of sight: the slot takes its final height now.
+    func motionSettle() {
+        guard var height else { return }
+        height.snap()
+        self.height = height
+        view?.needsLayout = true
+    }
+
     func motionStep(_ dt: Double) -> Bool {
         guard var height, let view else { return false }
         // Room opens on `appear` and closes on the quicker `disappear`.

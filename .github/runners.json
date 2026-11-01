@@ -321,10 +321,17 @@
     "nightly-next-launch-smoke.yml#smoke": "apple-gui",
     "nightly-next-train.yml#build": "apple-app-build",
     "nightly.yml#build-nightly-app": "apple-app-build",
-    "nightly.yml#decide": {
-      "class": "portable-checks",
-      "picker_followup": "the run's first job, so no picker can run before it: attempt 1 of a nightly-next push takes the owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and the owned-pool rescue moves it to the Blacksmith Linux set when no slot takes it"
-    },
+    "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks"},
+    "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
+    "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks"},
+    "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
+    "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks"},
+    "nightly.yml#decide": {"class": "portable-checks"},
+    "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks"},
+    "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks"},
+    "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks"},
+    "nightly.yml#build-nightly-inputs": {"class": "portable-checks"},
+    "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks"},
     "nightly.yml#build-nightly-remote-daemon": "portable-checks",
     "nightly.yml#await-nightly-tree-marker": "portable-checks",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
@@ -423,5 +430,22 @@
     },
     "test-ios.yml#ios-simulator-build": "apple-ios",
     "test-ios.yml#mobile-core-package": "apple-ios"
+  },
+  "hosted_light_jobs": {
+    "$comment": [
+      "allowed_secrets names every secret each job may reference, including inherited workflow env; omitted means none.",
+      "Same-repository nightly jobs may use GitHub-hosted Ubuntu only during their declared bootstrap route.",
+      "The route still prefers a verified fleet reservation and measured Blacksmith overflow; this table never permits release/signing operations, credentialed visual-gate routing or artifact publication on hosted Ubuntu."
+    ],
+    "nightly.yml#decide": {"class": "portable-checks", "reason": "routing bootstrap", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
+    "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks", "reason": "runner picker", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
+    "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks", "reason": "client reuse lookup"},
+    "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks", "reason": "helper reuse lookup"},
+    "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks", "reason": "recovery lookup"},
+    "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks", "reason": "visual verdict bookkeeping"},
+    "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks", "reason": "visual report bookkeeping"},
+    "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks", "reason": "publication state bookkeeping"},
+    "nightly.yml#report-nightly-failure": {"class": "portable-checks", "reason": "failure report bookkeeping"},
+    "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks", "reason": "failure issue bookkeeping"}
   }
 }

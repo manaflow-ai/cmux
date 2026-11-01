@@ -1,7 +1,7 @@
 // The tray of running work at the foot of the chat (runningTray.ts): a part of the bottom stack
 // right above the composer (bottomStack.css), so it never scrolls away with history and the
 // transcript keeps its last row above it. It is the one place running background work shows, in a
-// turn and between turns. Each running subagent, background command (inspector/processes.ts
+// turn and between turns. Each running subagent, background command (session-info/processes.ts
 // `backgroundCommands`, the process registry's merged with the transcript's) and chat the agent
 // started is one line (AgentLine.tsx, the summary card's rows too): its icon in the theme's accent,
 // its name, what it does now, how long it has run (ticking) and its state, Running or Waiting. A
@@ -18,7 +18,7 @@
 // header counts exactly the lines under it: what runs or waits on the person. The chat's subagents
 // and the chats its agent started are all "subagents" (Leo 2026-10-21: "SHOULDN'T THIS SAY
 // SUBAGENTS?"). What ended stays as compact status cards after them, never counted. A command is
-// named by what its call says it does (inspector/processes.ts `commandLabel`), a chat by its title
+// named by what its call says it does (session-info/processes.ts `commandLabel`), a chat by its title
 // and what its turn does now. Up to three lines show under it; more start folded to the header so
 // the tray never takes the transcript's room, and the chevron opens them. Its
 // glass is the user bubble's: the theme's text at a low strength over the backdrop, with the
@@ -56,8 +56,8 @@ import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
-import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
+import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../session-info/processes";
+import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
