@@ -163,13 +163,13 @@ pub(crate) fn command_cwd(report: &str) -> Option<String> {
 /// A command line as stored: trimmed, without control characters, cut to
 /// [`MAX_COMMAND_BYTES`] at a character boundary; `None` when empty.
 pub(crate) fn clean_command(text: &str) -> Option<String> {
-    let visible: String = text.chars().filter(|character| !character.is_control()).collect();
     // Leading-space history entries are commonly used for commands a person
     // does not want retained. Drop them before trimming so suggestion ranking
     // cannot accidentally reintroduce a deliberately hidden command.
-    if visible.chars().next().is_some_and(|character| character.is_whitespace()) {
+    if text.chars().next().is_some_and(|character| character.is_whitespace()) {
         return None;
     }
+    let visible: String = text.chars().filter(|character| !character.is_control()).collect();
     let trimmed = visible.trim();
     if trimmed.is_empty() {
         return None;
