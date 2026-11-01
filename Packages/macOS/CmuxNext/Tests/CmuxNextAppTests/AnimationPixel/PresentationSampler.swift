@@ -17,6 +17,9 @@ final class PresentationSampler: NSObject {
     }
 
     private(set) var samples: [Sample] = []
+    /// Each view's model frame at the previous refresh: a presentation frame may show it (the
+    /// commit of a change made in this refresh comes after this tick).
+    private var previousModel: [String: CGRect] = [:]
     private var link: CADisplayLink?
     private let views: () -> [String: NSView]
 
@@ -38,13 +41,17 @@ final class PresentationSampler: NSObject {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
-        var rects: [String: CGRect] = [:], implicit: [String] = []
+        var rects: [String: CGRect] = [:], implicit: [String] = [], models: [String: CGRect] = [:]
         for (name, view) in views() where view.window != nil && !view.isHiddenOrHasHiddenAncestor {
             rects[name] = view.convert(view.bounds, to: nil)
-            if let layer = view.layer, let shown = layer.presentation(), shown.frame != layer.frame || shown.bounds != layer.bounds {
+            guard let layer = view.layer else { continue }
+            models[name] = layer.frame
+            // A presentation frame that is neither this refresh's model nor the last one's is an animation in flight.
+            if let shown = layer.presentation()?.frame, shown != layer.frame, shown != previousModel[name] {
                 implicit.append(name)
             }
         }
+        previousModel = models
         samples.append(Sample(time: link.timestamp, rects: rects, implicit: implicit))
     }
 

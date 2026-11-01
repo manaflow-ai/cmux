@@ -14,12 +14,12 @@ import ScreenCaptureKit
 @available(macOS 14.4, *)
 // crash-allow: every mutable field is read and written under `lock`, and ScreenCaptureKit calls back on `queue` only.
 nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    struct Failure: Error, CustomStringConvertible {
+    nonisolated struct Failure: Error, CustomStringConvertible {
         let description: String
     }
 
     /// One complete frame.
-    struct Frame: Sendable {
+    nonisolated struct Frame: Sendable {
         /// Host time in seconds (CACurrentMediaTime's clock) the frame was shown at.
         let time: Double
         /// The pixels of row `rowY`, left to right.
@@ -29,7 +29,7 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
     }
 
     /// What ScreenCaptureKit said about the frames' size and scaling.
-    struct Shape: Sendable, Equatable {
+    nonisolated struct Shape: Sendable, Equatable {
         let width: Int
         let height: Int
         let scaleFactor: Double
@@ -37,7 +37,7 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
     }
 
     /// One whole frame: `pixels[y * width + x]`, BGRA.
-    struct Image: Sendable {
+    nonisolated struct Image: Sendable {
         let width: Int
         let height: Int
         let pixels: [UInt32]
@@ -87,6 +87,10 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
         configuration.showsCursor = false
         configuration.queueDepth = 8
         configuration.captureResolution = .best
+        // A narrower window (a resize test) is drawn 1:1, never scaled to the output size.
+        configuration.scalesToFit = false
+        // Past a narrower window the frame is transparent, so a resize test reads the window's width.
+        configuration.backgroundColor = CGColor.clear
         configuration.ignoreShadowsSingleWindow = true
         let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: target), configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)

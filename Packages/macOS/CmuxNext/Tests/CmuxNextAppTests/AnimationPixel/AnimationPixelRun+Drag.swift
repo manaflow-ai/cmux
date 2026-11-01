@@ -59,17 +59,18 @@ extension AnimationPixelRun {
         let release = driver.releaseTime ?? .infinity
         let moves = driver.moves, final = moves.last?.offset ?? 0
         let gains = tracked.dropLast().indices.map { moving($0, tracked) ? Double(scale) : 0 }
-        let judged = tracked.enumerated().map { index, element in
-            let shift = { (boundary: Int) in boundary < gains.count ? gains[boundary] * final : 0 }
-            return ScanlineElement(label: element.label, before: element.before,
-                                   after: (element.before.start + (index > 0 ? shift(index - 1) : 0), element.before.end + shift(index)),
-                                   exactLength: element.exactLength, free: element.free)
+        func shift(_ boundary: Int) -> Double { boundary >= 0 && boundary < gains.count ? gains[boundary] * final : 0 }
+        var judged: [ScanlineElement] = []
+        for (index, element) in tracked.enumerated() {
+            judged.append(ScanlineElement(label: element.label, before: element.before,
+                                          after: (start: element.before.start + shift(index - 1), end: element.before.end + shift(index)),
+                                          exactLength: element.exactLength, free: element.free))
         }
-        let starts = judged.dropLast().map(\.before.end)
+        let starts: [Double] = judged.dropLast().map { $0.before.end }
         let oracle = ScanlineOracle(name: "pointer path (\(moves.count) moves)", boundaries: { elapsed in
             let offset = moves.last { $0.time <= trigger + elapsed }?.offset ?? 0
             return zip(starts, gains).map { $0 + $1 * offset }
-        }, originWindow: 0...5 * fixture.display.refreshPeriod, overshoot: starts.map { _ in 0 })
+        }, originWindow: 0...5 * fixture.display.refreshPeriod, overshoot: [Double](repeating: 0, count: starts.count))
         let judge = ScanlineJudge(oracle: oracle, elements: judged, trigger: trigger, period: fixture.display.refreshPeriod)
         let all = stream.captured.map { (time: $0.time, line: axis == .row ? $0.row : $0.column) }
         // The drag's frames: those shown before the release was sent (the band goes with the release).
@@ -84,7 +85,7 @@ extension AnimationPixelRun {
         if let last = all.last {
             let runs = palette.runs(last.line)
             let expected = landed.dropLast().map { Int($0.end.rounded()) }
-            if runs.map(\.label) != landed.map(\.label) || runs.dropLast().map(\.end) != expected {
+            if runs.map(\.name) != landed.map(\.label) || Array(runs.dropLast().map(\.end)) != expected {
                 failures.append("after the release the last frame reads \(runs), the final layout is "
                     + "\(landed.map { "\($0.label)[\($0.start)..<\($0.end)]" })")
             }
@@ -98,7 +99,7 @@ extension AnimationPixelRun {
 
     /// The scanline's elements with the pressed divider `band` as a free zone measured on the
     /// pressed frame: from the last pixel of the element before it to the first of the element after.
-    private func bandElements(_ geometry: [(label: String, start: Double, end: Double, exactLength: Int?)], band: String,
+    private func bandElements(_ geometry: [ScanlineSpan], band: String,
                               line: [UInt32], palette: ScanlinePalette) throws -> [ScanlineElement] {
         guard let index = geometry.firstIndex(where: { $0.label == band }), index > 0, index + 1 < geometry.count else {
             throw Failure(description: "\(name): the scanline does not cross \(band) between two elements: \(geometry.map(\.label))")
@@ -114,10 +115,10 @@ extension AnimationPixelRun {
         for (position, element) in geometry.enumerated() {
             let span: (start: Double, end: Double)
             switch position {
-            case index - 1: span = (element.start, Double(left.end))
-            case index: span = (Double(left.end), Double(right.start))
-            case index + 1: span = (Double(right.start), element.end)
-            default: span = (element.start, element.end)
+            case index - 1: span = (start: element.start, end: Double(left.end))
+            case index: span = (start: Double(left.end), end: Double(right.start))
+            case index + 1: span = (start: Double(right.start), end: element.end)
+            default: span = (start: element.start, end: element.end)
             }
             zoned.append(ScanlineElement(label: element.label, before: span, after: span,
                                             exactLength: position == index ? right.start - left.end : element.exactLength,

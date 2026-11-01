@@ -18,6 +18,8 @@ struct ScanlinePalette {
         /// One past its last device pixel.
         let end: Int
         var length: Int { end - start }
+        /// The label, or a name no learned color has.
+        var name: String { label ?? "<unnamed>" }
         var description: String { "\(label ?? "?")[\(start)..<\(end)]" }
     }
 
@@ -28,6 +30,9 @@ struct ScanlinePalette {
     mutating func learn(_ label: String, _ color: UInt32) throws {
         if let clash = entries.first(where: { $0.label != label && Self.matches($0.color, color) }) {
             throw Clash(description: "\(label) (\(Self.hex(color))) cannot be told from \(clash.label) (\(Self.hex(clash.color)))")
+        }
+        if let known = entries.first(where: { $0.label == label }), !Self.matches(known.color, color) {
+            throw Clash(description: "\(label) shows two colors at rest: \(Self.hex(known.color)) and \(Self.hex(color))")
         }
         entries.removeAll { $0.label == label }
         entries.append((label, color))

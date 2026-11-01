@@ -1,5 +1,38 @@
 import Foundation
 
+/// The axis a scanline reads: a row (pane edges along x) or a column (edges along y).
+enum ScanlineAxis {
+    case row
+    case column
+}
+
+/// One thing a scanline crosses at one moment, in device pixels along the scanline.
+struct ScanlineSpan {
+    let label: String
+    let start: Double
+    let end: Double
+    /// A separator's exact width in pixels; nil for a pane or the background.
+    let exactLength: Int?
+
+    /// `spans` cut to 0..<length, in order, with "background" spans filling what lies between
+    /// and around them: the whole scanline.
+    static func tile(_ spans: [ScanlineSpan], length: Int) -> [ScanlineSpan] {
+        let inside = spans.compactMap { span -> ScanlineSpan? in
+            let start = max(span.start, 0), end = min(span.end, Double(length))
+            return end > start ? ScanlineSpan(label: span.label, start: start, end: end, exactLength: span.exactLength) : nil
+        }.sorted { $0.start < $1.start }
+        var tiled: [ScanlineSpan] = []
+        var cursor = 0.0
+        for span in inside {
+            if span.start > cursor + 0.01 { tiled.append(ScanlineSpan(label: "background", start: cursor, end: span.start, exactLength: nil)) }
+            tiled.append(span)
+            cursor = span.end
+        }
+        if Double(length) > cursor + 0.01 { tiled.append(ScanlineSpan(label: "background", start: cursor, end: Double(length), exactLength: nil)) }
+        return tiled
+    }
+}
+
 /// One thing a scanline crosses (a pane, a divider line, a gap) and where it is, in device
 /// pixels along the scanline, before and after the change. The elements of a scanline tile it.
 struct ScanlineElement {
@@ -58,6 +91,10 @@ struct ScanlineJudge {
     static let curveTolerance = 1.0
     /// A moving change shows at least this many frames between its start and end layouts.
     static let minimumMotionFrames = 8
+    /// A change of structure (a pane added or closed): the scanline before the change, as labels
+    /// and rounded boundaries. Frames that show it must show it exactly and come before every
+    /// frame of the new structure.
+    var previous: (labels: [String], boundaries: [Int])?
 
     typealias Shown = (time: Double, boundaries: [Int])
 
@@ -80,6 +117,15 @@ struct ScanlineJudge {
         for (index, frame) in frames.enumerated() where frame.time >= trigger - 3 * period {
             let runs = palette.runs(frame.line)
             let at = "frame \(index) (t=\(Self.ms(frame.time - trigger)) ms)"
+            if let previous, runs.map(\.name) == previous.labels {
+                let shown = Array(runs.dropLast().map(\.end))
+                if !valid.isEmpty {
+                    verdict.failures.append("\(at): the layout before the change shows again after the new one")
+                } else if shown != previous.boundaries {
+                    verdict.failures.append("\(at): the layout before the change shows at \(shown), not where it was, \(previous.boundaries)")
+                }
+                continue
+            }
             guard let spans = match(runs) else {
                 if let blend = runs.first(where: { $0.label == nil }) {
                     let colors = frame.line[blend.start..<min(blend.end, blend.start + 4)].map(ScanlinePalette.hex)
@@ -93,7 +139,7 @@ struct ScanlineJudge {
             for (span, element) in zip(spans, elements) where element.exactLength.map({ $0 != span.end - span.start }) == true {
                 verdict.failures.append("\(at): \(element.label) is \(span.end - span.start) px, not \(element.exactLength ?? 0)")
             }
-            valid.append((frame.time, spans.dropLast().map(\.end)))
+            valid.append((time: frame.time, boundaries: spans.dropLast().map { $0.end }))
         }
         guard let last = valid.last, frames.last.map({ $0.time == last.time }) == true else {
             verdict.failures.append("the last captured frame is not a valid frame of the layout (\(frames.count) frames)")
@@ -116,10 +162,10 @@ struct ScanlineJudge {
                 let next = position + 1 < elements.count ? elements[position + 1].label : nil
                 let start = runs[index].start
                 while index < runs.count, next == nil || runs[index].label != next { index += 1 }
-                spans.append((start, index < runs.count ? runs[index].start : runs[runs.count - 1].end))
+                spans.append((start: start, end: index < runs.count ? runs[index].start : runs[runs.count - 1].end))
             } else {
                 guard runs[index].label == element.label else { return nil }
-                spans.append((runs[index].start, runs[index].end))
+                spans.append((start: runs[index].start, end: runs[index].end))
                 index += 1
             }
         }
@@ -133,7 +179,7 @@ struct ScanlineJudge {
         for frame in valid where frame.time >= trigger {
             if frame.boundaries == finalBoundaries {
                 landed = true
-            } else if landed || frame.boundaries != startBoundaries {
+            } else if landed || previous != nil || frame.boundaries != startBoundaries {
                 verdict.failures.append("t=\(Self.ms(frame.time - trigger)) ms: boundaries \(frame.boundaries) are neither the start "
                     + "\(startBoundaries) nor the final \(finalBoundaries) layout with animations off")
             }
@@ -148,7 +194,7 @@ struct ScanlineJudge {
         var origin = trigger + oracle.originWindow.lowerBound
         while origin <= trigger + oracle.originWindow.upperBound {
             let error = valid.map { maxError($0, origin: origin) }.max() ?? .infinity
-            if error < best.error { best = (origin, error) }
+            if error < best.error { best = (origin: origin, error: error) }
             origin += 0.0001
         }
         let moving = valid.filter { $0.boundaries != startBoundaries && $0.boundaries != finalBoundaries }
