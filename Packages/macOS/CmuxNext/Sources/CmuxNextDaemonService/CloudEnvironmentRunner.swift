@@ -1,5 +1,6 @@
+public import CmuxNextAgentPane
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// Runs the native Cloud environment request after the app supplies its signed-in token.
 public enum CloudEnvironmentRunner {
