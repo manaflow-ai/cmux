@@ -1676,6 +1676,8 @@ async fn dispatch_request(
             // deny-all is a lockdown: every chat without a policy of its own follows it.
             if policy == PermissionPolicy::DenyAll {
                 hub.follow_default_policy().await;
+            } else if policy == PermissionPolicy::ApproveAll {
+                hub.approve_pending_default_tools().await;
             }
             Ok(json!({"policy":policy.to_string()}))
         }
