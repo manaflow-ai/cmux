@@ -114,6 +114,10 @@ test("a copy's files and bytes, its fallback and an https install link reach the
     fallback: "seed.needs_github",
     installUrl: "https://github.com/apps/cmux/installations/new",
   });
-  const unsafe = cloudStartPushed(begun(), { key: "k-1", step: "folder", clone: { state: "running", install_url: "javascript:alert(1)" } });
+  const unsafe = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: { state: "running", install_url: "javascript:alert(1)" },
+  });
   expect(unsafe?.clone?.installUrl).toBeUndefined();
 });

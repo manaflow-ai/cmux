@@ -95,9 +95,9 @@ test("clone status keeps seed phase and object progress in the row", () => {
 test("the clone row words each part of a seed and of a copy", () => {
   const row = (clone: NonNullable<CloudStartProgress["clone"]>) =>
     startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone }, undefined, 0, "en")[1];
-  expect(row({ state: "running", phase: "upload", progress: { receivedBytes: 1024, bytesTotal: 12 * 1024 * 1024 } })?.detail).toBe(
-    "Sending your changes (12 MB)",
-  );
+  expect(
+    row({ state: "running", phase: "upload", progress: { receivedBytes: 1024, bytesTotal: 12 * 1024 * 1024 } })?.detail,
+  ).toBe("Sending your changes (12 MB)");
   expect(row({ state: "running", phase: "clone", progress: { objects: 41, totalObjects: 100 } })?.detail).toBe(
     "Cloning from GitHub · 41%",
   );
@@ -121,7 +121,12 @@ test("a seed that needs the GitHub App links its install from the clone row", ()
       task: "hi",
       state: "starting",
       hasRepository: true,
-      clone: { state: "running", phase: "copy", fallback: "seed.needs_github", installUrl: "https://github.com/apps/cmux/installations/new" },
+      clone: {
+        state: "running",
+        phase: "copy",
+        fallback: "seed.needs_github",
+        installUrl: "https://github.com/apps/cmux/installations/new",
+      },
     },
     undefined,
     0,
