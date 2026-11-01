@@ -25,7 +25,7 @@ import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
-import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
+import { codePath, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -145,16 +145,19 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i++;
       continue;
     }
-    const fence = line.match(/^\s*```([^\s`]*)[^`]*$/);
+    // A fence is three or more backticks and closes on a line of at least as many (a reply that
+    // quotes Markdown opens with four to show its own three).
+    const fence = line.match(/^\s*(`{3,})([^\s`]*)[^`]*$/);
     if (fence) {
       const body: string[] = [];
+      const closer = new RegExp(`^\\s*\`{${fence[1]!.length},}\\s*$`);
       i++;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i++]);
+      while (i < lines.length && !closer.test(lines[i])) body.push(lines[i++]);
       const open = i >= lines.length;
       i++;
       out.push({
         type: "code",
-        lang: fence[1] || "text",
+        lang: fence[2] || "text",
         code: body.join("\n"),
         ...(open ? { open: true as const } : {}),
       });
@@ -197,13 +200,14 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i + 1 < lines.length &&
       /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])
     ) {
+      // An escaped pipe (`\|`) is a literal one inside its cell, not a column break.
       const cells = (l: string) =>
         l
           .trim()
           .replace(/^\|/, "")
-          .replace(/\|$/, "")
-          .split("|")
-          .map((c) => c.trim());
+          .replace(/(?<!\\)\|$/, "")
+          .split(/(?<!\\)\|/)
+          .map((c) => c.replace(/\\\|/g, "|").trim());
       const header = cells(line);
       const align = cells(lines[i + 1]).map<Align>((c) =>
         c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : c.startsWith(":") ? "left" : null,
@@ -648,6 +652,9 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             {renderInline(lm[1], labelOpts)}
           </a>,
         );
+      // A template (`${variant}.png`) names no file: its text.
+      else if (!href && isTemplatePath(lm[2]))
+        out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file">

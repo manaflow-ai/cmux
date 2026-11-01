@@ -9,6 +9,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "../src/agent-session/acpmux/ComposerPickers";
 import { contextBreakdown, ContextSection } from "../src/agent-session/acpmux/inspector/ContextSection";
+import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
+import { COMPACT_PROMPT, compactThrough } from "../src/agent-session/acpmux/conversation/turnActions";
 
 const BREAKDOWN = {
   categories: [
@@ -183,13 +185,13 @@ test("the composer ring keeps Claude's breakdown details and uses a compact tool
   expect(plain.querySelector(".acpmux-context-card-bar")).not.toBeNull();
 });
 
-// Leo, 2026-10-28: "You don't have the compact session." Compact in Session Info's Context: only
-// where the App hands a compact (the agent lists /compact and the chat can be sent to), off while a
-// turn runs. The composer ring's card has none (Leo, 2026-10-31: "JUST F***ING REMOVE COMPACT FROM
-// THE F***ING POPOVER").
+// Leo, 2026-10-28: "You don't have the compact session." Compact session in Session Info's Context:
+// only where the App hands a compact (the agent lists /compact and the chat can be sent to).
+// The composer ring's card has none (Leo, 2026-10-31: "JUST F***ING REMOVE COMPACT FROM THE F***ING
+// POPOVER").
 const compactButton = (container: ParentNode) =>
   [...container.querySelectorAll<HTMLButtonElement>(".acpmux-chat-inspector-context__actions button")].find(
-    (button) => button.textContent === "Compact",
+    (button) => button.textContent === "Compact session",
   );
 
 test("Session Info's Context offers Compact only with a compact, and sends it on a click", async () => {
@@ -209,25 +211,55 @@ test("Session Info's Context offers Compact only with a compact, and sends it on
   expect(sent).toEqual(["compact"]);
 });
 
-test("Session Info's Compact is off while a turn runs", async () => {
+test("Session Info's Compact session stays live while a turn runs, and its click sends /compact", async () => {
+  // Leo, 2026-10-31: "COMPACT BUTTON LITERALLY DOESN'T EVEN F***IN WORK". It was disabled while a
+  // turn ran, and his chats nearly always run; the /compact now queues behind the turn as one typed
+  // in the composer does. The click goes through App.tsx's own path: compactThrough's chat.send.
   const container = installDom();
   root = createRoot(container);
-  const sent: string[] = [];
+  const calls: Array<[string, Record<string, unknown>]> = [];
+  const callNative = async (method: string, params: Record<string, unknown>) => {
+    calls.push([method, params]);
+  };
   await act(async () =>
     root!.render(
-      <ContextSection
-        usage={{ used: 94_000, size: 200_000 }}
-        percent={47}
-        breakdown={BREAKDOWN}
-        onCompact={() => sent.push("compact")}
-        working
+      // ChatInspector takes no working state at all: nothing a running turn sets can turn Compact off.
+      <ChatInspector
+        summary={{ usage: { used: 94_000, size: 200_000 } } as never}
+        sections={{ context: true } as never}
+        onCompact={compactThrough(callNative)}
       />,
     ),
   );
-  const button = compactButton(container)!;
-  expect(button.disabled).toBe(true);
+  const button = container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-context__compact")!;
+  expect(button.textContent).toBe("Compact session");
+  expect(button.disabled).toBe(false);
   await act(async () => button.click());
-  expect(sent).toEqual([]);
+  expect(calls).toEqual([["chat.send", { text: COMPACT_PROMPT }]]);
+  expect(COMPACT_PROMPT).toBe("/compact");
+});
+
+test("with Claude's /context, the tokens until auto-compact sit beside Compact session", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <ContextSection
+        usage={{ used: 171_500, size: 400_000 }}
+        percent={43}
+        breakdown={BREAKDOWN}
+        onCompact={() => {}}
+      />,
+    ),
+  );
+  const actions = container.querySelector(".acpmux-chat-inspector-context__actions")!;
+  expect(actions.querySelector(".acpmux-chat-inspector-context__until")?.textContent).toBe("146.7K until auto-compact");
+  // Without a buffer row the harness does not say when it compacts: the button alone.
+  await act(async () =>
+    root!.render(<ContextSection usage={{ used: 94_000, size: 200_000 }} percent={47} onCompact={() => {}} />),
+  );
+  expect(container.querySelector(".acpmux-chat-inspector-context__until")).toBeNull();
+  expect(container.querySelector(".acpmux-chat-inspector-context__compact")).not.toBeNull();
 });
 
 test("the composer ring's card has no Compact, only Details", async () => {
