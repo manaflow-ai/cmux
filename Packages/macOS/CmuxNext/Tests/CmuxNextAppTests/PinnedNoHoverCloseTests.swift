@@ -33,7 +33,6 @@ import Testing
     static func hover(_ view: NSView, in harness: SidebarHomePinnedDragHarness) {
         let middle = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
         PointerHover.setDebugPointer(middle, in: harness.window)
-        harness.list.updateHover(middle)
         view.needsLayout = true
         view.layoutSubtreeIfNeeded()
     }
@@ -85,6 +84,7 @@ import Testing
         for (id, isPinned) in [(pinned, true), (unpinned, false)] {
             harness.list.setHovered(.workspace(id))
             let row = try #require(harness.list.rowViews[.workspace(id)] as? WorkspaceRowView)
+            row.wire(id, in: harness.list) // the menu provider came after the row's first wiring
             row.needsLayout = true
             row.layoutSubtreeIfNeeded()
             let closeShown = !row.closeButton.isHidden && row.closeButton.alphaValue > 0

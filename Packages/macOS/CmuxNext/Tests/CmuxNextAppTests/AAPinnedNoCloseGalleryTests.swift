@@ -60,7 +60,6 @@ import Testing
         PinnedNoHoverCloseTests.hover(pinned, in: harness)
         let pinnedCrop = try crop(root, root.convert(pinned.bounds, from: pinned))
         PointerHover.setDebugPointer(nil, in: harness.window)
-        harness.list.updateHover(NSPoint(x: -100, y: -100))
         let id = SidebarHomePinnedDragHarness.loose[0]
         harness.list.setHovered(.workspace(id))
         let row = try #require(harness.list.rowViews[.workspace(id)])
