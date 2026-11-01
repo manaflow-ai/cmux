@@ -154,7 +154,13 @@ class LinuxPick(unittest.TestCase):
     """Release-pool signer jobs stay on the trusted Blacksmith Linux set."""
 
     def test_linux_picker_rotates_a_stalled_size(self) -> None:
-        snap = snapshot({LINUX4: 4, LINUX16: 2})
+        snap = snapshot({LINUX4: 4, LINUX16: 2}, age_minutes=0)
+        self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
+
+    def test_linux_picker_counts_snapshot_age_toward_stall(self) -> None:
+        # A queue that was two minutes old in a fourteen-minute-old snapshot
+        # has long passed the three-minute overflow threshold.
+        snap = snapshot({LINUX4: 2}, age_minutes=14)
         self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
 
     def test_linux_picker_never_uses_a_hosted_or_unlisted_label(self) -> None:

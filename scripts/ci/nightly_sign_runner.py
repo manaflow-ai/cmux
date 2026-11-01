@@ -96,7 +96,12 @@ def linux_stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt
     fresh = cascade._fresh(snapshot, now)  # noqa: SLF001 - use the shared snapshot age rule
     if fresh is None:
         return None
-    _, pools = fresh
+    age, pools = fresh
+    # `oldest_queued_minutes` is measured when the snapshot was generated.  A
+    # queued job therefore keeps aging while the picker is reading the
+    # snapshot; ignoring that age can keep selecting a label that has already
+    # exceeded the three-minute overflow threshold.
+    age = max(0.0, age)
     out: set[str] = set()
     for label in labels:
         entry = (pools or {}).get(label) or {}
@@ -105,7 +110,7 @@ def linux_stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt
             oldest = float(entry.get("oldest_queued_minutes") or 0)
         except (TypeError, ValueError):
             continue
-        if queued and oldest >= LINUX_STALL_MINUTES:
+        if queued and oldest + age >= LINUX_STALL_MINUTES:
             out.add(label)
     return out
 
