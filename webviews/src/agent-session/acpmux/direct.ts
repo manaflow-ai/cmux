@@ -8150,15 +8150,18 @@ export class AcpmuxDirectClient {
   /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
   /// older than the held rows (`earlierPrompts`). Each step is `loadOlder`, with its guards; a step
   /// that moves nothing, or another chat, ends it.
-  async loadThrough(seq: number): Promise<void> {
+  /// Resolves true once the prompt is held, false when the read stopped short of it.
+  async loadThrough(seq: number): Promise<boolean> {
     const generation = this.selectionGeneration;
+    const held = () => generation === this.selectionGeneration && this.firstSeq !== undefined && this.firstSeq <= seq;
     for (let pages = 0; pages < 200; pages++) {
       const from = this.firstSeq;
-      if (generation !== this.selectionGeneration || from === undefined || from <= seq || !this.seqHistoryLeft())
-        return;
+      if (held()) return true;
+      if (generation !== this.selectionGeneration || from === undefined || !this.seqHistoryLeft()) return false;
       await this.loadOlder();
-      if (this.firstSeq === from) return;
+      if (this.firstSeq === from) return held();
     }
+    return held();
   }
 
   /// Pages older transcript events in without reattaching, so the live summary,

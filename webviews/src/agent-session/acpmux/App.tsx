@@ -2386,7 +2386,7 @@ export function VirtualTranscript({
   /// them out from the first frame, so it never grows or shifts as history pages in.
   earlier?: readonly AcpmuxRow[];
   /// Pages history in until the prompt at `seq` is held (a click on an earlier prompt's tick).
-  loadThrough?: (seq: number) => Promise<void>;
+  loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
   /// Where the transcript opens instead of the latest message, when that row is loaded.
   openAt?: ScrollAnchor;
@@ -11351,7 +11351,8 @@ function AcpmuxPane() {
                                                   loadThrough={
                                                     !childRows
                                                       ? (seq) =>
-                                                          directClient.current?.loadThrough(seq) ?? Promise.resolve()
+                                                          directClient.current?.loadThrough(seq) ??
+                                                          Promise.resolve(false)
                                                       : undefined
                                                   }
                                                   sourceRows={childRows ? undefined : sourceRows}
