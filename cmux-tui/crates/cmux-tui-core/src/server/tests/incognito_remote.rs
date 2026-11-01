@@ -389,3 +389,39 @@ fn a_remote_device_never_lists_an_incognito_workspaces_notification_or_pins_it()
     assert!(!layout.to_string().contains("itm_private"), "the phone pinned it: {layout}");
     mux.shutdown();
 }
+
+#[test]
+fn a_queued_remote_command_is_judged_again_when_it_runs() {
+    let mux = test_mux();
+    let app = app(&mux);
+    let normal = create(&mux, &app, "normal-space", false);
+    let normal_index = mux.with_state(|state| {
+        state.workspaces.iter().position(|w| w.public_id.as_str() == normal).unwrap()
+    });
+    let selected =
+        line(&mux, &app, json!({"id": "s", "cmd": "select-workspace", "index": normal_index}));
+    assert_eq!(selected["ok"], true, "{selected}");
+    let phone = phone(&mux);
+    // A target-less command arrives while the current workspace is normal,
+    // and is still queued when the Mac opens and selects an incognito one.
+    let message = json!({"id": "t", "cmd": "new-tab"}).to_string();
+    let mut request = serde_json::from_str::<Request>(&message).unwrap();
+    request.remote_line = super::super::incognito_remote::line_to_recheck(&mux, phone.0, &message);
+    let private = create(&mux, &app, "private-space", true);
+    let private_index = mux.with_state(|state| {
+        state.workspaces.iter().position(|w| w.public_id.as_str() == private).unwrap()
+    });
+    let selected =
+        line(&mux, &app, json!({"id": "s", "cmd": "select-workspace", "index": private_index}));
+    assert_eq!(selected["ok"], true, "{selected}");
+    let tabs = |mux: &Arc<Mux>| mux.with_state(|state| state.surfaces.len());
+    let before = tabs(&mux);
+    assert!(handle_request(&mux, phone.0, request, &phone.1));
+    let reply = pop_json(&phone.2);
+    assert_eq!(
+        reply["ok"], false,
+        "the queued new-tab must not open in the incognito workspace: {reply}"
+    );
+    assert_eq!(tabs(&mux), before, "no tab opened");
+    mux.shutdown();
+}
