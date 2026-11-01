@@ -749,10 +749,6 @@ linux_suite_setup() {
 # accepts only [A-Za-z0-9_./:-] in a filter, so '.' is its one regex metacharacter (no |, *, [, (,
 # ^, $, +, ?, \). macOS passes FILTER as is.
 swift_filter() {
-  if [ "$1" = ClassicOrderProbe ]; then
-    printf '%s' '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.(?!BranchStateResourcesTests)|FirstLaunchTests|ClassicImportTests|ClassicMigrationTests|ClassicUpgradeSimulationTests'
-    return
-  fi
   if [ "$lane_os" = Linux ]; then
     printf '^%s($|[./(])' "${1//./\\.}"
   else
