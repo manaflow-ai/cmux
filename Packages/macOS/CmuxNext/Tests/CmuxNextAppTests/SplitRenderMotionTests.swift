@@ -150,13 +150,22 @@ struct SplitRenderMotionTests {
     }
 
     /// Seconds a spring from rest takes to cover `progress` of its way (cmux-motion's closed form, which the
-    /// render-server spring matches within 0.25 pt, RenderSpringParityTests).
+    /// render-server spring matches within 0.25 pt, RenderSpringParityTests). Solved to a microsecond: a
+    /// coarser step overshoots, and near half way a split spring covers about 9 times its travel per
+    /// second, so a 0.5 ms step put the sample 0.23 % past the midpoint, 1.35 pt on a 600 pt move.
     static func time(toProgress progress: Double, _ spring: SpringParameters) -> Double {
-        var time = 0.0
-        while time < 5, 1 - SpringValue.solve(displacement: 1, velocity: 0, time: time, parameters: spring).displacement < progress {
-            time += 0.0005
+        func covered(_ time: Double) -> Double {
+            1 - SpringValue.solve(displacement: 1, velocity: 0, time: time, parameters: spring).displacement
         }
-        return time
+        // Before the first time it covers `progress` (an underdamped spring passes it more than once).
+        var high = 0.0
+        while high < 5, covered(high) < progress { high += 0.001 }
+        var low = max(0, high - 0.001)
+        while high - low > 1e-6 {
+            let mid = (low + high) / 2
+            if covered(mid) < progress { low = mid } else { high = mid }
+        }
+        return high
     }
 
     /// Waits until `condition` holds, checking every 10 ms (the render server's landings come on the run
