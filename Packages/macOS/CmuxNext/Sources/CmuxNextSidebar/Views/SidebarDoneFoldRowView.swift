@@ -6,6 +6,15 @@ import CmuxNextIcons
 /// the folder header's quiet style. A click opens or folds the rows it holds; it is no drop target and has no menu of
 /// its own (its list's menu shows).
 final class SidebarDoneFoldRowView: SidebarRowView {
+    var isKeyboardFocused = false {
+        didSet {
+            performWithTheme {
+                layer?.borderColor = Palette.focusRing.cgColor
+                layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+            }
+            needsDisplay = true
+        }
+    }
     private let chevron = DecorativeImageView()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     var onToggle: (() -> Bool)?
@@ -63,6 +72,8 @@ final class SidebarDoneFoldRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
+            layer?.borderColor = Palette.focusRing.cgColor
+            layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
             name.setColor(Palette.textSecondary)
             chevron.contentTintColor = Palette.textSecondary
         }

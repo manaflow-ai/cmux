@@ -73,6 +73,7 @@
   "cloudResumeMachine": "uses the Cloud, a remote machine, a phone or computer use",
   "cloudSSH": "uses the Cloud, a remote machine, a phone or computer use",
   "cloudSetIdlePause": "uses the Cloud, a remote machine, a phone or computer use",
+  "cloudSetNetworkAccess": "uses the Cloud, a remote machine, a phone or computer use",
   "cloudSetupGitHub": "opens another app, a web site or changes system defaults",
   "cloudTunnelAttach": "uses the Cloud, a remote machine, a phone or computer use",
   "cloudTunnelDetach": "uses the Cloud, a remote machine, a phone or computer use",

@@ -12,6 +12,7 @@ import type { HandDO } from "./hand-do.ts"
 import type { WireTicketDO } from "./wire-ticket.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
 import type { CloudDO } from "./cloud-do.ts"
+import type { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
@@ -87,6 +88,10 @@ export interface Env {
   readonly HAND_RELEASE_COMMIT?: string
   /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
   readonly WIRE_TICKET_DO: DurableObjectNamespace<WireTicketDO>
+  /** ACP chat trajectories kept outside Cloud VMs, one object per team and machine (cloud-trajectory.ts, #25584). */
+  readonly TRAJECTORY_DO: DurableObjectNamespace<TrajectoryDO>
+  /** "1": the trajectory routes answer (development, tests). Unset: 404 cloud.trajectory.disabled. */
+  readonly CLOUD_TRAJECTORIES_ENABLED?: string
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
   readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
   /**
@@ -165,6 +170,10 @@ export interface Env {
   readonly PLATFORM_MACHINES?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
+  readonly PLATFORM?: Fetcher
+  /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
+  readonly PLATFORM_SURFACES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.

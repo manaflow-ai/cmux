@@ -317,6 +317,12 @@ const GROUPS: &[Group] = &[
                 "Delete a firewall rule",
                 "ファイアウォールルールを削除",
             ),
+            verb(
+                "set-network-access",
+                "{target} --access full|trusted|none",
+                "Set a machine's internet access",
+                "マシンのインターネットアクセスを設定",
+            ),
             verb("domain-list", "", "List domains", "ドメインを一覧表示"),
             verb("publication-list", "", "List publications", "公開設定を一覧表示"),
             verb(
