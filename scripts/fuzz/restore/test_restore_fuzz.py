@@ -289,6 +289,38 @@ class TypedErrors(unittest.TestCase):
         self.assertFalse(rf.typed_error({"error": "no answer within 10 s", "stall": True}))
 
 
+class VisibleState(unittest.TestCase):
+    """Row h: during a slow restore the app must show a designed state (restore-journey's RecoverySampler rule)."""
+
+    def sample(self, shows="content", link="connected", blank=0):
+        return ({"connection": "connected", "windows": [{"id": "w1", "shows": shows}]},
+                {"blank_panes": blank, "windows": [{"panes": [{"pane": "p1", "kind": "terminal", "presence": "visible",
+                                                                "link": link}]}]})
+
+    def test_designed_states_pass(self):
+        for shows, link in (("content", "connected"), ("connecting", "restoring"),
+                            ("content", "disconnected:eof:reconnecting")):
+            st, su = self.sample(shows, link)
+            self.assertEqual(rf.visible_problems(st, su), ([], []))
+
+    def test_blank_and_dead_are_reported(self):
+        st, su = self.sample(blank=1)
+        self.assertTrue(rf.visible_problems(st, su)[0])
+        st, su = self.sample(shows="nothing")
+        self.assertTrue(rf.visible_problems(st, su)[0])
+        st, su = self.sample(link="disconnected:eof")
+        self.assertTrue(rf.visible_problems(st, su)[1])
+
+    def test_judge_needs_one_second_dead_and_answers(self):
+        good = [(0.25 * i,) + self.sample() for i in range(8)]
+        self.assertEqual(rf.judge_visible(good, killed=0.0, end=2.0), [])
+        dead = [(0.25 * i,) + self.sample(link="disconnected:eof") for i in range(8)]
+        self.assertTrue(any("since" in v for v in rf.judge_visible(dead, killed=0.0, end=2.0)))
+        silent = [(0.0,) + self.sample(), (1.9,) + self.sample()]
+        silent[1] = (1.9, None, None)
+        self.assertTrue(any("did not answer" in v for v in rf.judge_visible(silent, killed=0.0, end=2.0)))
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).

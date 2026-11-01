@@ -64,6 +64,8 @@ ap.add_argument("--seed", type=int, default=None, help="the run's seed (default:
 ap.add_argument("--iterations", type=int, default=0, help="at most this many (0: until --max-seconds)")
 ap.add_argument("--targets", default="app,daemon,acpmux")
 ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "fdsoft", "slowdisk", "exec", "diskfull"])
+ap.add_argument("--visible", action="store_true", help="judge the visible state (debug.daemon, debug.surfaces) "
+                "from each kill to the settle: no blank pane, every window shows content or the connecting view")
 ap.add_argument("--disk-image-mb", type=int, default=512, help="diskfull: size of the image mounted at the daemon's state dir")
 ap.add_argument("--disk-margin-mb", type=int, default=2, help="diskfull: free space left on that image")
 ap.add_argument("--disk-recover-every", type=int, default=8, help="diskfull: every Nth iteration runs with the filler removed")
@@ -691,6 +693,86 @@ def safe_evidence(tag):
         return []
 
 
+# ---- visible state during a restore (the rule of restore-journey.py RecoverySampler) ---------------
+
+VISIBLE_GAP = 1.0      # s without an answer from debug.daemon or debug.surfaces after the kill
+VISIBLE_DEAD = 1.0     # s a shown terminal may be disconnected for good
+
+
+def visible_problems(state, surfaces):
+    """(hard, dead) of one sample: a window that shows neither content nor the connecting view, a blank pane;
+    a shown terminal that is not connected, restoring, or disconnected and reconnecting."""
+    hard, dead = [], []
+    for window in (state or {}).get("windows") or []:
+        if window.get("shows") not in ("content", "connecting"):
+            hard.append(f"window {window.get('id')} shows {window.get('shows')}")
+    if isinstance(surfaces, dict) and "error" not in surfaces:
+        if surfaces.get("blank_panes"):
+            hard.append(f"{surfaces.get('blank_panes')} blank pane(s)")
+        for window in surfaces.get("windows") or []:
+            for pane in window.get("panes") or []:
+                if pane.get("kind") != "terminal" or pane.get("presence") != "visible":
+                    continue
+                link = str(pane.get("link"))
+                if link in ("connected", "restoring") or (link.startswith("disconnected:") and link.endswith(":reconnecting")):
+                    continue
+                dead.append(f"pane {pane.get('pane')} {link}")
+    return hard, dead
+
+
+def judge_visible(samples, killed, end):
+    """Problems of a kill-to-settle window of samples [(at, debug.daemon, debug.surfaces)]."""
+    problems, dead_since = [], None
+    for at, state, surfaces in samples:
+        hard, dead = visible_problems(state, surfaces)
+        problems += [f"{at:.2f} s: {h}" for h in hard]
+        if dead:
+            dead_since = at if dead_since is None else dead_since
+            if at - dead_since > VISIBLE_DEAD:
+                problems.append(f"{at:.2f} s: {', '.join(dead)} since {dead_since:.2f} s")
+                dead_since = at  # report each further second once
+        else:
+            dead_since = None
+    for name, answered in (("debug.daemon", lambda st, su: bool(st)),
+                           ("debug.surfaces", lambda st, su: isinstance(su, dict) and "error" not in su)):
+        last, worst = killed, 0.0
+        for at, state, surfaces in samples:
+            if at >= killed and answered(state, surfaces):
+                worst, last = max(worst, at - last), at
+        worst = max(worst, end - last)
+        if worst > VISIBLE_GAP:
+            problems.append(f"{name} did not answer for {worst:.2f} s")
+    return problems
+
+
+class VisibleSampler:
+    """Samples debug.daemon and debug.surfaces every 250 ms from the kill to the settle."""
+
+    def __init__(self):
+        self.samples, self.stop, self.t0 = [], threading.Event(), time.time()
+
+        def run():
+            while not self.stop.is_set():
+                at = time.time() - self.t0
+                st = rpc("debug.daemon", timeout=VISIBLE_GAP)
+                su = rpc("debug.surfaces", timeout=VISIBLE_GAP)
+                self.samples.append((at, st if isinstance(st, dict) and "error" not in st else None, su))
+                self.stop.wait(0.25)
+        self.thread = threading.Thread(target=run, daemon=True)
+        self.thread.start()
+
+    def finish(self, target):
+        self.stop.set()
+        self.thread.join(2 * VISIBLE_GAP + 2)
+        end = time.time() - self.t0
+        # The app's own kill: no app answers until the relaunch; judge from the first answer of the new app.
+        killed = 0.0
+        if target == "app":
+            first = next((at for at, st, _ in self.samples if st), None)
+            killed = first if first is not None else end
+        return judge_visible(self.samples, killed, end), len(self.samples)
+
+
 def restore(target, killed_at, old_daemons):
     """Brings the build back after the kill and waits for it to settle; (state, timings, problem)."""
     timings = {}
@@ -879,7 +961,13 @@ def iteration(seed, targets, keep=None, label="i"):
         rec["problems"].append(f"no {target} process of this build to kill")
         return rec
     say(f"  iter seed {seed}: {len(rec['actions'])} actions, SIGKILL {target} {pids} ({rec['point']})")
+    sampler = VisibleSampler() if opts.visible else None
     state, timings, problem = restore(target, killed_at, old_daemons)
+    if sampler:
+        seen, n = sampler.finish(target)
+        rec["visible_samples"] = n
+        if seen:
+            rec["problems"].append(f"no designed visible state during the restore: {'; '.join(seen[:4])}")
     rec["timings"] = timings
     log_daemon_env(f"after-restore-{target}")
     rec["hosts_after_restore"] = log_hosts(f"after-restore-{target}")["hosts"]

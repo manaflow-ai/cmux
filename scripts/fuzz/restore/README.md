@@ -44,6 +44,8 @@ Output: `iterations.jsonl`, `violations.json` (with the shrink attempts), `journ
 
 ## Tests
 
+`--visible` samples debug.daemon and debug.surfaces every 250 ms from each kill to the settle, with the rule of restore-journey.py RecoverySampler: no blank pane, each window shows content or the connecting view, a shown terminal is connected, restoring or reconnecting (dead for at most 1 s), and both calls answer (no gap over 1 s; for an app kill, from the new app's first answer).
+
 `python3 scripts/fuzz/restore/test_restore_fuzz.py` (oracle helpers and the verdict reader; no app).
 
 A failed iteration (restore or judge) writes a new `evidence-NNN-<iter|shrinkK>-<seed>/` (the bundle processes, the daemon and app state, and each crash report since the run began whose process path is in this slot build).
