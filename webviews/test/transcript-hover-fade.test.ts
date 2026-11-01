@@ -88,6 +88,12 @@ function subjectClasses(selector: string): string[] {
 
 type Control = { name: string; hidden: Rule[]; shown: Rule[]; fadesOut: boolean; fadesInOnHover: boolean };
 
+// The running subagent Stop is an intentional immediate reveal. Its per-row control is kept
+// transparent at rest so a tray does not repeat a lit Stop on every line; subagent-stop-hover.test.tsx
+// pins that contract. It is the settled exception in the chat-transcript action rules, not a blink
+// in the fade-enabled message and tool controls covered here.
+const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop"]);
+
 /// Every hover-revealed control in `sheets` and whether it takes the shared fade.
 function hoverControls(sheets: { file: string; source: string }[]): Control[] {
   const controls = new Map<string, Control>();
@@ -129,7 +135,7 @@ const where = (rule: Rule) => `${path.relative(ACPMUX, rule.file)}:${rule.line}`
 /// The controls that blink, as `.name (hidden at …, shown at …): what is missing`.
 function blinking(controls: Control[]): string[] {
   return controls
-    .filter((one) => !one.fadesOut || !one.fadesInOnHover)
+    .filter((one) => !IMMEDIATE_REVEALS.has(one.name) && (!one.fadesOut || !one.fadesInOnHover))
     .map((one) => {
       const missing = [
         !one.fadesOut && "no opacity transition on var(--cv-actions-out) at rest",
@@ -145,19 +151,19 @@ describe("transcript hover-revealed controls fade", () => {
   const sheets = transcriptSheets().map((file) => ({ file, source: readFileSync(file, "utf8") }));
   const controls = hoverControls(sheets);
 
-  test("every hover-revealed transcript control fades in and out on the shared tokens", () => {
+  test("every fade-enabled hover-revealed transcript control uses the shared tokens", () => {
     expect(blinking(controls)).toEqual([]);
   });
 
   test("the scan sees the hover rows Leo pointed at", () => {
-    // A received message's row (its age, Copy, Pin, ⋯), its Reply and "Read after this step", a
-    // finished call's check and time, a tool output's corner actions, Open chat on a message line.
+    // A received message's hover slot, its Reply, a finished call's check and time, and corner actions.
+    // Chat-opening controls are always shown, so they have no hover reveal to fade.
     const names = controls.map((one) => one.name);
     for (const name of [
       "cv-user__actions",
       "cv-received-actions",
       "cv-received__reply",
-      "cv-received__queued",
+      "cv-received__hover",
       "cv-reply-actions",
       "cv-turn-actions",
       "cv-command__ok",
@@ -165,8 +171,8 @@ describe("transcript hover-revealed controls fade", () => {
       "cv-tool-output__actions",
       "cv-sent-actions",
       "cv-table-tools",
-      "cv-disclosure__open",
       "cv-media__actions",
+      "cv-subagent__stop",
     ])
       expect(names).toContain(name);
   });

@@ -163,6 +163,7 @@ pub struct CloudConnectInfo {
     pub gateway: Option<CloudConnectInfoGateway>,
     pub services: Vec<CloudConnectInfoServicesItem>,
     pub daemon: CloudConnectInfoDaemon,
+    pub vm_kind: CloudConnectInfoVmKind,
     pub revision: Revision,
 }
 
@@ -194,6 +195,13 @@ wire_enum! {
 pub struct CloudConnectInfoDaemon {
     pub version: Option<String>,
     pub capabilities: Vec<String>,
+}
+
+wire_enum! {
+    CloudConnectInfoVmKind {
+        Owner = "owner",
+        Team = "team",
+    }
 }
 
 pub type CloudConnectServices = Vec<CloudConnectServicesInnerItem>;
@@ -342,6 +350,10 @@ pub struct CloudMachine {
     pub error: Option<CloudMachineError>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub pause_reason: Option<Option<CloudMachinePauseReason>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub hourly_rate_usd: Option<Option<WireNumber>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub running_since: Option<Option<i64>>,
     pub revision: Revision,
 }
 
@@ -416,7 +428,7 @@ pub struct CloudPlanLimits {
 pub struct CloudPlanUsage {
     pub active: i64,
     pub saved: i64,
-    pub vm_hours_used: WireNumber,
+    pub vm_hours_used: Option<WireNumber>,
     pub period_end: i64,
 }
 

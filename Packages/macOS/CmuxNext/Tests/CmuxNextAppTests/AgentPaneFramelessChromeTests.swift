@@ -51,6 +51,31 @@ import Testing
         #expect(host.chrome.showsRing, "a regular pane lost its configured focus frame after a chat")
     }
 
+    /// While a paint hold keeps the outgoing chat shown, the pane's native tools follow the selected
+    /// (incoming) chat: they never show or invoke the outgoing tab's tools.
+    @Test func nativeToolsFollowTheSelectedChatDuringAPaintHold() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "chat-tools-hold-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body>Chat</body></html>".utf8).write(to: file)
+        let outgoing = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        defer { outgoing.close() }
+        let incoming = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        defer { incoming.close() }
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
+                                   reveal: LaunchReveal(deadline: .zero))
+        pane.show(outgoing)
+        outgoing.model.markPainted()
+        #expect(pane.displayedAgentPaneView === outgoing)
+        pane.show(incoming)
+        try #require(pane.paintHold.kept === outgoing)
+        #expect(pane.displayedAgentPaneView === incoming, "the toolbar follows the incoming selected chat during the paint hold")
+        incoming.model.markPainted()
+        #expect(pane.paintHold.kept == nil)
+        #expect(pane.displayedAgentPaneView === incoming)
+    }
+
     private func updateChrome(_ host: PaneHostView) {
         var ring = FocusRingSettings()
         ring.enabled = true

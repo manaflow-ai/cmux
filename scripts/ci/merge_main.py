@@ -20,6 +20,11 @@ scripts/merge-main.sh is the entry point; agents use it instead of a raw
    for that main commit settles it without a rerun; otherwise the failed
    steps rerun in a temporary worktree of the main commit.
 
+`--base <branch>` merges another base branch instead of main, for a pull request
+into it (feat-cmux-next). Only main's pushes run the CI fast guards whose verdict
+picks the commit, and a feat-cmux-next merge never waits on a base red, so any
+other base merges its tip.
+
 Guard failures do not fail the command: the merge is done either way, and the
 labels say what to fix. `--strict` exits 3 when the branch introduced one.
 
@@ -50,6 +55,9 @@ import last_green_base  # noqa: E402
 
 CMUX_REMOTE_RE = re.compile(r"github\.com[:/]manaflow-ai/cmux(?:\.git)?/?$")
 BASE_BRANCH = "main"
+# The branches whose pushes run ci-fast-guards.yml (its `on: push: branches`): the only bases with a CI
+# fast guards verdict. A merge from any other base takes its tip.
+GREEN_PICK_BRANCHES = frozenset({"main"})
 
 
 class MergeMainError(Exception):
@@ -298,6 +306,7 @@ class Options:
     strict: bool = False
     limit: int = last_green_base.DEFAULT_LIMIT
     fetch: bool = True
+    base: str = BASE_BRANCH
 
 
 def merge_main(options: Options, source: last_green_base.VerdictSource | None = None,
@@ -307,15 +316,26 @@ def merge_main(options: Options, source: last_green_base.VerdictSource | None = 
     if not options.dry_run and git(repo, "status", "--porcelain", "--untracked-files=no"):
         raise MergeMainError("the working tree has uncommitted changes; commit or set them aside first")
     branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
-    if branch == BASE_BRANCH:
-        raise MergeMainError(f"HEAD is {BASE_BRANCH} itself; run this on a feature branch")
+    base_branch = options.base
+    if branch == base_branch:
+        raise MergeMainError(f"HEAD is {base_branch} itself; run this on a feature branch")
     remote = options.remote or cmux_remote(repo)
-    ref = f"refs/remotes/{remote}/{BASE_BRANCH}"
+    ref = f"refs/remotes/{remote}/{base_branch}"
     if options.fetch:
-        git(repo, "fetch", "--quiet", "--no-tags", remote, f"+refs/heads/{BASE_BRANCH}:{ref}")
+        git(repo, "fetch", "--quiet", "--no-tags", remote, f"+refs/heads/{base_branch}:{ref}")
 
-    source = source or last_green_base.github_verdicts(branch=BASE_BRANCH)
     subject = lambda sha: git(repo, "log", "-1", "--format=%s", sha)  # noqa: E731
+    if base_branch not in GREEN_PICK_BRANCHES:
+        tip = git(repo, "rev-parse", ref)
+        if subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", tip, "HEAD"]).returncode == 0:
+            output(f"merge-main: the branch already contains {base_branch}'s tip {tip[:11]}")
+            return 0
+        output(f"merge-main: {base_branch} has no CI fast guards verdict (they run on pushes to main only), "
+               f"and its base reds never hold a merge: merging its tip {tip[:11]}")
+        selection = last_green_base.Selection(tip=tip, chosen=tip, candidates=1, skipped=[])
+        return finish_merge(options, repo, branch, remote, base_branch, selection, subject, guard_command,
+                            output, stamps)
+    source = source or last_green_base.github_verdicts(branch=base_branch)
     try:
         selection = last_green_base.select(repo, ref, source, options.limit)
     except last_green_base.SelectionError as error:
@@ -330,12 +350,22 @@ def merge_main(options: Options, source: last_green_base.VerdictSource | None = 
             output(line)
     if selection.up_to_date:
         return 0
+    return finish_merge(options, repo, branch, remote, base_branch, selection, subject, guard_command, output,
+                        stamps)
+
+
+def finish_merge(options: Options, repo: Path, branch: str, remote: str, base_branch: str,
+                 selection: last_green_base.Selection, subject: Callable[[str], str],
+                 guard_command: GuardCommand | None, output: Callable[[str], None], stamps: Path | None) -> int:
     base = selection.tip if options.tip else selection.chosen
     if base is None:
         output("merge-main: nothing merged. Wait for a green main commit, or pass --tip to merge the red tip"
                " (its failures will show on this branch).")
         return 1
-    base_verdict = "success" if base == selection.chosen else dict(selection.skipped).get(base, "missing")
+    # A base outside GREEN_PICK_BRANCHES merges its tip with no CI fast guards verdict at all ("missing"), never a
+    # "success" the guard report would read as "main's guards passed on that commit".
+    base_verdict = ("missing" if base_branch not in GREEN_PICK_BRANCHES
+                    else "success" if base == selection.chosen else dict(selection.skipped).get(base, "missing"))
     if options.tip and base != selection.chosen:
         output(f"merge-main: merging main's tip {base[:11]} ({base_verdict}) as asked with --tip")
     if options.dry_run:
@@ -343,11 +373,11 @@ def merge_main(options: Options, source: last_green_base.VerdictSource | None = 
         return 0
 
     skipped = len(selection.skipped) if base == selection.chosen else 0
-    note = (f"Merged by scripts/merge-main.sh: {remote}/{BASE_BRANCH} at {base[:12]}"
+    note = (f"Merged by scripts/merge-main.sh: {remote}/{base_branch} at {base[:12]}"
             + (f", the newest commit with green CI fast guards ({skipped} newer skipped)." if skipped else "."))
     result = merge_main_resolver.merge_and_resolve(
         repo, base, merge_main_resolver.DEFAULT_TOOLS_ROOT, note,
-        title=f"Merge {BASE_BRANCH} ({base[:12]}) into {branch}")
+        title=f"Merge {base_branch} ({base[:12]}) into {branch}")
     if result.status == "blocked":
         output("merge-main: merge aborted; these paths conflict and need a person:")
         for item in result.blocking:
@@ -393,12 +423,14 @@ def main(argv: list[str]) -> int:
                         help="exit 3 when the branch introduced a guard failure (implies --guards)")
     parser.add_argument("--limit", type=int, default=last_green_base.DEFAULT_LIMIT,
                         help="newest main commits to consider")
+    parser.add_argument("--base", default=BASE_BRANCH,
+                        help="base branch to merge (default main); feat-cmux-next for a pull request into it")
     args = parser.parse_args(argv)
     try:
         repo = Path(git(Path(args.repo), "rev-parse", "--show-toplevel"))
         options = Options(repo=repo, remote=args.remote, tip=args.tip, dry_run=args.dry_run,
                           guards=(args.guards or args.all_guards or args.strict) and not args.no_guards, all_guards=args.all_guards, strict=args.strict,
-                          limit=args.limit)
+                          limit=args.limit, base=args.base)
         return merge_main(options)
     except (MergeMainError, merge_main_resolver.MergeResolverError) as error:
         print(f"merge-main: {error}", file=sys.stderr)

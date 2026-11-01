@@ -44,28 +44,19 @@ enum ChildPageGeometry {
         return [Host(pane: pane, screenRect: devTools.page), Host(pane: "\(pane) devtools", screenRect: docked)]
     }
 
-    /// The window's Chromium hosts (visible, in this window) and page windows now.
+    /// The window's Chromium hosts (visible panes showing any child-window page: a New Tab page too, G1) and page windows now.
     static func sample(_ controller: WindowController) -> (hosts: [Host], pages: [CGRect]) {
         guard let window = controller.window else { return ([], []) }
         var hosts: [Host] = []
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
-            guard case .browser(let entry)? = pane.currentContent, entry.tab.presentation == .childWindow else { continue }
-            let content = entry.tab.contentView
+            guard let page = pane.currentContent?.childWindowTab else { continue }
+            let content = page.contentView
             guard content.window === window, !content.isHiddenOrHasHiddenAncestor, !content.bounds.isEmpty else { continue }
             let contentRect = window.convertToScreen(content.convert(content.bounds, to: nil))
-            let devTools = (entry.tab as? CEFTab)?.devToolsDiagnosticFrames
+            let devTools = (page as? CEFTab)?.devToolsDiagnosticFrames
             hosts += expectedHosts(pane: pane.paneKey, contentRect: contentRect, devTools: devTools)
         }
-        let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame) : []
+        let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame).filter { page in NSScreen.screens.contains { $0.frame.intersects(page) } || hosts.contains { distance(page, $0.screenRect) <= tolerance } } : [] // off every screen (the New Tab spare): covers nothing; at its host's rect (a pane past the display edge): kept
         return (hosts, pages)
-    }
-
-    /// Violations across every cmux window (for `debug.layers` and the input
-    /// invariant monitor).
-    static func check(_ services: AppServices) -> [String] {
-        services.windows.controllers.flatMap { controller -> [String] in
-            let (hosts, pages) = sample(controller)
-            return mismatches(hosts: hosts, pages: pages).map { "window \(controller.state.id): \($0)" }
-        }
     }
 }

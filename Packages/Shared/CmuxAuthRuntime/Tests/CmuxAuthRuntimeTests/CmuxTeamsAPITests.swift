@@ -69,6 +69,27 @@ import Testing
         #expect(stub.requests.map(\.bodyText) == [#"{"displayName":"New Team"}"#, #"{"displayName":"Renamed"}"#])
     }
 
+    /// Invite to Team (Home's dialog, `home.inviteToTeam`): one POST with the addresses and the
+    /// role, and the server's sent and refused addresses read back.
+    @Test func inviteSendsTheAddressesAndReadsSentAndRefused() async throws {
+        let stub = TeamsStub.make()
+        stub.answer("POST /api/teams/t1/invitations", 200, """
+        {"invitations":[{"id":"i1","email":"leo@cmux.com","role":"member","expiresAt":"2026-11-05T10:00:00.000Z"}],
+         "failed":[{"email":"sam@example.com","code":"already_member"}]}
+        """)
+
+        let result = try await stub.api.invite(teamID: "t1", emails: ["leo@cmux.com", "sam@example.com"])
+
+        #expect(stub.requests.map(\.line) == ["POST /api/teams/t1/invitations"])
+        let body = try JSONSerialization.jsonObject(with: Data(try #require(stub.requests.first).bodyText.utf8)) as? [String: Any]
+        #expect(body?["emails"] as? [String] == ["leo@cmux.com", "sam@example.com"])
+        #expect(body?["role"] as? String == "member")
+        #expect(body?.count == 2, "the server's schema is strict: no other key")
+        #expect(result.invitations.map(\.email) == ["leo@cmux.com"])
+        #expect(result.failed == [.init(email: "sam@example.com", code: "already_member")])
+        #expect(result.failed.first?.isAlreadyMember == true)
+    }
+
     @Test func aNameOutOfRangeSendsNothing() async throws {
         let stub = TeamsStub.make()
 

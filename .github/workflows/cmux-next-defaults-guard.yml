@@ -61,6 +61,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/defaults_guard.py
+            scripts/ci/pr_status.py
             .github/defaults-call-owners.json
           sparse-checkout-cone-mode: false
 
@@ -114,7 +115,11 @@ jobs:
             Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift
           sparse-checkout-cone-mode: false
 
+      # Advisory since cmuxterm-hq#5745: the guard still comments every changed default for the
+      # reviewer, but a missing approval no longer turns the check red. It passed on the same SHIP
+      # receipt the lander already requires at the head, so its reds were only waits for that review.
       - name: Judge the default changes
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
