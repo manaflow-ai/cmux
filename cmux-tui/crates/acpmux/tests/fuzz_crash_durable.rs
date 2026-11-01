@@ -1839,3 +1839,15 @@ fn fuzz_g_oracle_two_daemons_with_one_tag_get_two_homes() {
     let (a, b) = (Daemon::new("same"), Daemon::new("same"));
     assert_ne!(a.home, b.home);
 }
+
+/// A request the daemon dropped by exiting by itself (no kill in this epoch) waited until it
+/// learned that, not 0 ms: the last kill was an earlier epoch's, before the request was sent.
+/// Review note (d) of #29103.
+#[test]
+fn fuzz_g_oracle_a_request_cut_by_a_self_exit_keeps_its_wait() {
+    let model = Mutex::new(Model::default());
+    let sent = Instant::now() - Duration::from_millis(2_500);
+    model.lock().unwrap().killed_at = Some(sent - Duration::from_secs(10));
+    let ms = cut_ms(&model, sent);
+    assert!(ms >= 2_400, "a cut request with an older kill counted {ms} ms");
+}
