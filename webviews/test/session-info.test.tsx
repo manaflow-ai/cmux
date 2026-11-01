@@ -26,6 +26,7 @@ import {
   SessionInfo,
   sessionInfoTopOffset,
   sessionInfoOverChat,
+  sessionInfoPushes,
   pushedWidth,
   pushes,
   useSessionInfo,
@@ -532,10 +533,24 @@ test("the running line's counts open a closed Session Info with Subagents or Bac
   expect(sessionInfoState().sections.subagents).toBe(true);
 });
 
-test("it floats outside the chat's layout in every pane, and pushes only with Settings Push always", async () => {
-  // Leo, 2026-10-24: "it was never supposed to be a sidebar; y'all kept doing sidebars".
+test("it floats while the right gutter holds it, and pushes the chat left where it cannot", async () => {
+  // Leo, 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need to???";
+  // 2026-11-01: "why does the session info not push the layout left ever anymore".
   expect(pushes("overlay")).toBe(false);
   expect(pushes("push")).toBe(true);
+  const tall = (width: number) => ({ width, height: 700 });
+  // A 1600px pane's gutter holds it: nothing moves.
+  expect(sessionInfoPushes("overlay", tall(1600), 320)).toBe(false);
+  // A 1200px pane's or a split's gutter cannot: it takes its column and the chat moves left.
+  expect(sessionInfoPushes("overlay", tall(1200), 320)).toBe(true);
+  expect(sessionInfoPushes("overlay", tall(720), 320)).toBe(true);
+  // A short pane keeps it a popover over the chat; a handoff review's form never pushes.
+  expect(sessionInfoPushes("overlay", { width: 720, height: 440 }, 320)).toBe(false);
+  expect(sessionInfoPushes("overlay", tall(1200), 320, undefined, true)).toBe(false);
+  // Unmeasured, it is nowhere yet.
+  expect(sessionInfoPushes("overlay", { width: 0, height: 0 }, 320)).toBe(false);
+  // Settings Push always: even in a wide pane.
+  expect(sessionInfoPushes("push", tall(1600), 320)).toBe(true);
   // Pushed, it narrows to keep a readable chat and its 8px margin, down to its own narrowest width.
   expect(pushedWidth(1200, 320)).toBe(320);
   expect(pushedWidth(720, 320)).toBe(272);
@@ -548,21 +563,23 @@ test("it floats outside the chat's layout in every pane, and pushes only with Se
   // A wide pane: floating in the gutter, so opening it never reflows the chat.
   expect(panel(container)?.dataset.placement).toBe("overlay");
   expect(panel(container)?.style.width).toBe("320px");
-  // Narrower panes, where it used to take a column: it still floats, at its own width.
+  // Narrower panes: it takes its column, so the chat moves left instead of lying under it.
   for (const width of [1200, 720]) {
     await act(async () => {
       paneWidth = width;
       for (const observer of observers) observer();
     });
-    expect(panel(container)?.dataset.placement).toBe("overlay");
-    expect(panel(container)?.style.width).toBe("320px");
+    expect(panel(container)?.dataset.placement).toBe("push");
+    expect(panel(container)?.style.width).toBe(`${pushedWidth(width, 320)}px`);
   }
-  // Settings > Agent Chat > Session Info: Push, even in a wide pane.
+  // Back to a wide pane, it floats again.
   await act(async () => {
     paneWidth = 1600;
     for (const observer of observers) observer();
-    setChatDisplay({ [SESSION_INFO_PLACEMENT_KEY]: "push" });
   });
+  expect(panel(container)?.dataset.placement).toBe("overlay");
+  // Settings > Agent Chat > Session Info: Push, even in a wide pane.
+  await act(async () => setChatDisplay({ [SESSION_INFO_PLACEMENT_KEY]: "push" }));
   expect(panel(container)?.dataset.placement).toBe("push");
   // Back to the default.
   await act(async () => setChatDisplay({ [SESSION_INFO_PLACEMENT_KEY]: "overlay" }));
@@ -570,11 +587,10 @@ test("it floats outside the chat's layout in every pane, and pushes only with Se
   paneWidth = 0;
 });
 
-test("the panel lies over the chat only when the right gutter cannot hold it; the chat never moves for it", () => {
-  // Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the fucking layout". A
-  // 1600px pane's 400px gutter holds 320px and its two 8px margins: it floats beside the column.
+test("the right gutter holds the panel only in a wide pane", () => {
+  // A 1600px pane's 400px gutter holds 320px and its two 8px margins: it floats beside the column.
   expect(sessionInfoOverChat(1600, 320)).toBe(false);
-  // 1200px: a 225px gutter cannot hold it, and the column stays put: it floats over the chat.
+  // 1200px: a 225px gutter cannot hold it.
   expect(sessionInfoOverChat(1200, 320)).toBe(true);
   expect(sessionInfoOverChat(720, 320)).toBe(true);
   // Unmeasured, it is nowhere yet.
@@ -623,7 +639,7 @@ test("an output whose diff split leaves no room to push the chat closes Session 
   paneWidth = 0;
 });
 
-test("floating, an output's diff split beside the chat leaves Session Info open", async () => {
+test("by default, an output's diff split beside the chat leaves Session Info open", async () => {
   setChatDisplay({ [SESSION_INFO_PLACEMENT_KEY]: "overlay" });
   const container = installDom(true);
   paneWidth = 1200;
@@ -632,12 +648,12 @@ test("floating, an output's diff split beside the chat leaves Session Info open"
     ...section(container, "outputs")!.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-row"),
   ];
   await click(files[0]!);
-  // The diff opens beside the chat and halves the pane: the floating panel takes no room, so it stays.
+  // The diff opens beside the chat and halves the pane: the panel stays, pushed at its narrowest.
   await act(async () => {
     paneWidth = 600;
     for (const observer of observers) observer();
   });
-  expect(panel(container)?.dataset.placement).toBe("overlay");
+  expect(panel(container)?.dataset.placement).toBe("push");
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
   paneWidth = 0;
 });
