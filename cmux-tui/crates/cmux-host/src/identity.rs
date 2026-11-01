@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::cloud::client::Store;
-use crate::cloud::wire::{BIND_FILE, BOUND_FILE, INSTALL_KEY_FILE};
+use crate::cloud::wire::{BIND_FILE, INSTALL_KEY_FILE};
 use crate::config::Paths;
 
 pub const SOCKET: &str = "/run/cmux-host/identity.sock";
