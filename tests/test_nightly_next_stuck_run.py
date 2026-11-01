@@ -152,6 +152,20 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(gh.writes(), [])
         self.assertIn("started, waiting on a runner", out)
 
+    def test_an_in_progress_job_with_started_at_also_protects_the_run(self):
+        started = job("build-nightly-app", status="in_progress", runner="mini", started_at=ago(40))
+        queued = job("signer-build", minutes=40)
+        gh = FakeGh(runs=[run(7)], jobs={7: [started, queued]})
+        tick(gh)
+        self.assertEqual(gh.writes(), [])
+
+    def test_a_skipped_job_does_not_count_as_started_work(self):
+        skipped = job("build-nightly-app", status="completed", conclusion="skipped", started_at=ago(40))
+        queued = job("signer-build", minutes=40)
+        gh = FakeGh(runs=[run(7)], jobs={7: [skipped, queued]})
+        tick(gh)
+        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
+
     def test_a_timed_out_started_job_is_still_cancellable(self):
         timed_out = job("build-nightly-app", status="completed", conclusion="timed_out", runner="mini",
                         started_at=ago(80))
