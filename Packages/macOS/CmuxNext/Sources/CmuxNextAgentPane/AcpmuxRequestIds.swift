@@ -13,6 +13,9 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     private static let observedNotificationMarkers = [
         "\"_acpmux/prompt_accepted\"", "\"_acpmux/event\"", "\"_acpmux/permission_pending\"",
     ]
+    private static let eventObserverMarkers = [
+        "\"permission_request\"", "\"permission_reissued\"", "\"permission_decision\"",
+    ]
 
     private nonisolated struct Entry {
         var pageID: String
@@ -115,8 +118,16 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         // parse for the usual `session/update` payloads while retaining the parsed object for the
         // three notifications read by host observers.
         if Self.hasTopLevelMethod(text) {
-            guard Self.observedNotificationMarkers.contains(where: text.contains),
-                  let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+            guard Self.observedNotificationMarkers.contains(where: text.contains) else {
+                return .page(text, object: nil, replyTo: nil)
+            }
+            // Most `_acpmux/event` frames are transcript chunks. The host only reads permission
+            // records from that stream; pacing for turn boundaries uses the raw text path below.
+            if text.contains("\"_acpmux/event\"") &&
+                !Self.eventObserverMarkers.contains(where: text.contains) {
+                return .page(text, object: nil, replyTo: "_acpmux/event")
+            }
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
             else { return .page(text, object: nil, replyTo: nil) }
             let method = object["method"] as? String
             if method == "_acpmux/prompt_accepted", let promptAccepted,
