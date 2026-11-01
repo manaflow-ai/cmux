@@ -201,10 +201,10 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(showMore: showMore, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        if markReplacesStatus, columnMark?.view !== agentMark {
+        if markReplacesStatus, columnMark?.status !== agentMark {
             agentMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = agentMark.frame.minX - Metrics.space2
-        } else if activity.showsGlyph, columnMark?.view !== activity {
+        } else if activity.showsGlyph, columnMark?.status !== activity {
             activity.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = activity.frame.minX - Metrics.space2
         }
@@ -218,7 +218,7 @@ extension WorkspaceRowView {
             // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
             // box). It never gives way to the hover controls: while they show it sits just left of them, so a person
             // who hovers the row can still point at it and read its tooltip.
-            let onColumn = columnMark?.view === usageWarningMark
+            let onColumn = columnMark?.status === usageWarningMark
             let end = onColumn ? usageWarningMark.frame.maxX : trailing
             let shown = overlayStart.map { min(end, $0 - Metrics.space1) } ?? end
             if !onColumn || shown < end { usageWarningMark.frame = statusGlyphFrame(trailing: shown, centerY: cy) }

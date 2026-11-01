@@ -67,4 +67,24 @@ import Testing
             #expect(abs(row.closeButton.frame.midX - row.chiefMark.frame.midX) < 0.5)
         }
     }
+
+    @Test func workingSpinnerStaysInTheSlotBesideChief() throws {
+        let (model, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
+        defer { window.close() }
+        var workspace = SidebarWorkspace(id: SidebarRowCloseSpotTests.shown, title: "Chief task")
+        workspace.activity = .working
+        workspace.chiefAvatar = .text("SC")
+        model.sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [.workspace(workspace)])]
+        model.rowBadgeStyle = .trailing
+        sidebar.list.reload(animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+        let row = try #require(sidebar.list.rowViews[.workspace(workspace.id)] as? WorkspaceRowView)
+        row.isHovered = false
+        row.needsLayout = true
+        row.layoutSubtreeIfNeeded()
+        #expect(row.activity.showsGlyph)
+        #expect(abs(row.activity.frame.midX - (row.chiefMark.frame.midX - SidebarStyle.trailingSlotPitch)) < 0.5)
+        #expect(!row.activity.frame.intersects(row.chiefMark.frame))
+    }
+
 }

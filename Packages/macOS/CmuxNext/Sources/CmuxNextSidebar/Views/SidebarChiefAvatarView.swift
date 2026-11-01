@@ -12,6 +12,11 @@ final class SidebarChiefAvatarView: NSView {
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     private func load() {
         loading?.cancel()
         picture = nil

@@ -27,7 +27,7 @@ public final class AgentLaneStore {
             withMutation(keyPath: \.lanes) { storage = newValue }
             syncCells()
             let identities = Dictionary(newValue.values.compactMap { lane -> (String, String)? in
-                guard let key = lane.chiefChildren, let chief = lane.chiefParticipant else { return nil }
+                guard lane.peer == nil, let key = lane.chiefChildren, let chief = lane.chiefParticipant else { return nil }
                 return (key, chief)
             }, uniquingKeysWith: { first, _ in first })
             if chiefParticipants != identities { chiefParticipants = identities }
