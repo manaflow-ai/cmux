@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4134553248001",
+  "notes": "notes/4134553248001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31265,
+      "title": "base red: arch app_lines, move the input invariants (observation, model, transition and world checks) to CmuxNextFocus",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31249,
+      "title": "cmux-next: preserve first agent message gestures through slow starts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31272,
+      "title": "ci: keep cmux-tui reads off routing App",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31269,
+      "title": "ci: isolate nightly smoke reads from routing App",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
