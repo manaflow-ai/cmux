@@ -29,6 +29,13 @@ lines are compared with commit shas masked, so a real red that names each run's 
 """
 from __future__ import annotations
 
+# This check is a deterministic version comparison. Blacksmith's Actions log
+# exposes only the generic exit annotation, so there is no useful output line
+# for the normal signature matcher to compare. Its failed step is the stable
+# failure identity; compare that step on the base just like a test name.
+CHROMIUM_CURRENCY_JOB = "Shipped Chromium is at most one stable milestone behind"
+CHROMIUM_CURRENCY_STEP = "Pinned Chromium against Chrome stable"
+
 import argparse
 import importlib.util
 import json
@@ -42,19 +49,13 @@ _spec.loader.exec_module(_evidence)
 Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidence.latest_checks
 
 
-# gh 2.6x and later refuse `gh api` output holding terminal escape sequences (a job log's ANSI colours)
-# unless given ESCAPE_FLAG. A gh too old to know the flag (Ubuntu 24.04's 2.45) refuses the flag itself,
-# reads nothing, and says exactly UNKNOWN_ESCAPE_FLAG on its first stderr line; that gh also prints escape
-# sequences unasked, so that one answer, and no other, is asked again without the flag. Any other failure
-# (HTTP, auth, quota, timeout, a different unknown flag) still refuses: 2026-10-30, every job log read on
-# a gh 2.45 host failed after #28397 added the flag, so no red there could be compared with the base.
 ESCAPE_FLAG = "--allow-escape-sequences"
 UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
-REQUEST_FAILED = "GitHub evidence request failed: "  # main_fix_evidence.GitHub.run's prefix to gh's stderr
+REQUEST_FAILED = "GitHub evidence request failed: "
 
 
 def escape_flag_unknown(stderr: str) -> bool:
-    """True only when gh's STDERR is an old gh's refusal of ESCAPE_FLAG itself (its first line, exactly)."""
+    """Whether an old gh rejected the optional ANSI-output flag itself."""
     lines = (stderr or "").strip().splitlines()
     return bool(lines) and lines[0].strip() == UNKNOWN_ESCAPE_FLAG
 
@@ -65,9 +66,9 @@ class GitHub(_evidence.GitHub):
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
         # endpoint serves a finished job while sibling jobs remain queued.
-        # gh refuses to print a log holding escape sequences (ANSI colours) unless asked;
-        # a gh too old to know the flag is asked again without it (escape_flag_unknown).
         route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
+        # Request ANSI-capable output first; old gh versions reject the flag, while modern
+        # versions reject coloured output without it. Either way, normalize bytes in Python.
         try:
             return self.run(["api", ESCAPE_FLAG, route])
         except Refused as error:
@@ -137,6 +138,28 @@ SUITES = {
     "cmux NEXT DEV daily": frozenset(),
 }
 TIP_SUITE_JOB_READS = 6
+# The jobs of the cmux-tui tree tiers (cmux_next_tree_notify.TIERS: daemon, scheme). A tip daemon suite or base tier
+# dispatch whose tree has not published yet skips them and leaves them to the same-tree run its publish dispatches,
+# which carries the same `<title><tested sha>` name. So a suite run with a newer run of the same name (queued,
+# running or done) is that first run: it is skipped unread for these jobs and never spends a job-list read. On
+# 2026-10-31 the base tier's six newest completed dispatches were all such first runs, and the tip daemon suite
+# run with the verdict, behind them, was never read: no pull request's daemon-test red could be compared.
+TREE_JOBS = frozenset({"cmux-next daemon tests", "cmux app scheme compile (Debug)", "cmux-next crash ends the app"})
+
+
+def deferred_first_runs(runs: list[dict]) -> set[int]:
+    """The ids of suite runs in RUNS (newest first) that have a newer run of the same name: first runs whose
+    tree jobs went to that later same-tree run."""
+    seen: set[str] = set()
+    deferred: set[int] = set()
+    for run in runs:
+        title = run.get("display_title") or ""
+        if not suite_jobs(run):
+            continue
+        if title in seen:
+            deferred.add(run["id"])
+        seen.add(title)
+    return deferred
 
 
 def suite_jobs(run: dict) -> frozenset[str] | None:
@@ -150,8 +173,16 @@ def suite_jobs(run: dict) -> frozenset[str] | None:
 SUITE_JOBS = frozenset().union(*SUITES.values())
 
 
+# A cancelled base tier run is one the base tier kick found superseded before any of its Mac jobs started
+# (cmux_next_base_tier.py cancel_superseded): it has no verdict, and read here it would only spend the
+# lookup limits that reach the run that has one.
+BASE_TIER_TITLE = "cmux-next base tier · "
+
+
 def never_carries(run: dict, name: str) -> bool:
     """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
+    if run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE):
+        return True
     jobs = suite_jobs(run)
     return name in SUITE_JOBS and jobs is not None and name not in jobs
 
@@ -163,10 +194,19 @@ def tested_sha(run: dict) -> str:
     return match.group(1) if match else str(run.get("head_sha") or "")
 
 
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
+# Release-notary helpers report successful validations as `ok: ... (error: ...)`.
+# The parenthesized diagnostic is expected output, not a failed check; only
+# error annotations outside a successful `ok:` wrapper are evidence.
+SUCCESS_DIAGNOSTIC = re.compile(r"^\s*ok:\s+.*\berror:", re.IGNORECASE)
 # Summaries carry counts, and a test's own lines already name it.
 GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
+SUMMARY_FAILURE = re.compile(
+    r"(?i)\b(?:changed|stale|missing|mismatch|not stamped|not found|out of date|invalid|unavailable|"
+    r"cannot|could not|failure|failed|fail|does not match|not match)\b"
+)
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 # SwiftPM's line for a killed test helper, and the hang sampler's ::error lines for it.
 CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
@@ -189,6 +229,14 @@ NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for 
                         r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
+# The shared generated-files check only reads the verdict produced by the Swift or daemon job that built
+# the package.  A failed prerequisite (especially a cancelled-before-start runner job) leaves that value
+# empty, so this check has no result of its own.  It must be rerun together with its host job; comparing its
+# fail-closed diagnostic with the base would turn missing evidence into an apparent PR red.
+GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
+GENERATED_NO_VERDICT = re.compile(
+    r"^##\[error\]\s*(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
+)
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
@@ -340,7 +388,7 @@ def lines_of(log: str) -> list[str]:
         # `gh run view --log` prefixes each line with job and step columns.
         # The job-log API does not; preserve tabs in raw command output.
         text = parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line
-        found.append(STAMP.sub("", text).strip())
+        found.append(ANSI.sub("", STAMP.sub("", text)).strip())
     return found
 
 
@@ -356,7 +404,12 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     for n, text in enumerate(lines_of(log)):
         if n in skip:
             continue
-        if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text):
+        if ((ERROR.search(text)
+             or (not tests and ("default" in job.get("name", "").lower()
+                                or "snapshot" in job.get("name", "").lower())
+                 and SUMMARY_FAILURE.search(text)))
+                and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text)
+                and not SUCCESS_DIAGNOSTIC.search(text)):
             errors.add(re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip())))
     return steps, tests, errors
 
@@ -364,6 +417,15 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
+
+
+def generated_no_verdict(log: str) -> str | None:
+    """The shared generated-files check's fail-closed prerequisite diagnostic, if it printed one.
+
+    ``test_reds.lines_of`` removes the runner's echoed shell script, which also contains the ``echo
+    ::error::`` branch.  Only the live annotation is evidence that the prerequisite produced no verdict.
+    """
+    return next((text for text in test_reds.lines_of(log) if GENERATED_NO_VERDICT.match(text)), None)
 
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
@@ -596,10 +658,14 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
 def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
                       base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
     """The newest completed suite run of BASE with a verdict for job NAME, and that job."""
+    # Every status, so a first run's same-tree run is seen while it still queues or runs (TREE_JOBS).
     listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
-                         f"&status=completed&per_page={BASE_RUNS_PAGE}")
-    candidates = [run for run in listed.get("workflow_runs") or []
-                  if run.get("conclusion") != "skipped" and not never_carries(run, name)]
+                         f"&per_page={BASE_RUNS_PAGE}")
+    runs = listed.get("workflow_runs") or []
+    deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
+    candidates = [run for run in runs
+                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
+                  and not never_carries(run, name) and run["id"] not in deferred]
     for run in candidates[:TIP_SUITE_JOB_READS]:
         if run["id"] not in base_jobs:
             base_jobs[run["id"]] = [found for page in github.json(
@@ -630,6 +696,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head_log = github.log(repo, job)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+        if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
+            raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
+                          "re-run its prerequisite and this dependent job together")
         if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
             proof = compile_pass_at(repo, sha, github)
             if proof is None:
@@ -637,8 +706,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                               "a no-verdict compile is never a base red; re-run it once the fleet answers")
             audit.append(f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed")
             continue
+        head_steps, head_tests, head_errors = signature(job, head_log)
+        chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
+                                        and CHROMIUM_CURRENCY_STEP in head_steps
+                                        and not (head_tests or head_errors or crash_signals(head_log)))
         own = test_reds.read(head_log)
-        if test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
+        if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
@@ -675,10 +748,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
-        if not head_tests and not head_errors and not head_crash:
+        if not head_tests and not head_errors and not head_crash and not chromium_without_diagnostics:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
+        if chromium_without_diagnostics and (base_tests or base_errors or crash_signals(base_log)):
+            raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         verdict = test_reds.classify(head_log, base_log, name, f"{base} run {base_run['id']}")
         if verdict is not None and verdict.own:
             raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])

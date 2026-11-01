@@ -20,3 +20,7 @@ e94edf9ced072267bb1544d2f77d266a28476fb1e127a80b3fbe995f61cc9e0a glaeda 444f239a
 3b7fc168de010536643ec01c34592c5487ff9a89776b434fa32b6db39aaf63f5 glaeda 63ace48b: runner-hook: a signing job its claim gate would refuse is refused before it drains the mini (#1761)
 5d5ce6e83393f6412d09d76bcb211fb454afd639f274258a619810fef0644cd1 glaeda e3582de4: runner-hook: a lock holder keeps its locks while its owner's start token is unreadable (#1763)
 f612f5a83b9c4519e8bfa911b94c192c0fcb614b8bbc160e441f8cd3dbf8dac7 glaeda 485d1dcc: runner-hook: copy cmux's warm-start receipt into the job record (warm_start) (#1764)
+49b5d9f59f582bed21bdc3014d35b187ab2ccc19f01d4eb53ba57dd5449fa3ef glaeda 1cd373c3: runner-hook: a nightly signing drain outlasts the running jobs, and a handed job never fails for a fleet waiter (#1768)
+df0e90b42c73838e01855a51636b7ed5c47fd918faf76ab815b5ce78aec54e57 glaeda 548d71ae: runner hook: a borrower whose repack finds its store damaged is reset and borrows again once (#1770)
+091eec20d4c4e6873354564b1bd25c96785c210ef8b6dbc16514279f99e1a493 glaeda #1775, nightly control jobs on an owned Mac take the light class
+524d682ff9f47140f61649264cba73694330af56ff2681b4749f95505083c6f4 glaeda #1779 + #1780, nightly promote and publish jobs take the exclusive claim; promotion lease helper

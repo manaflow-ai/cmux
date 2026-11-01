@@ -490,10 +490,10 @@ extension AgentPaneTransport {
             localAppToken = nil
         } else {
             noteSent(facts, relayID: relayID)
-            // The switch's queued prompt goes out: the switch has ended, its tickets with it.
-            // A prompt went out: a seed ticket it did not redeem and the start's credit end too.
+            // The switch's queued prompt goes out: its pick tickets end, but each other prompt
+            // keeps its own send proof for the rapid-send case.
             if facts.method == "session/prompt" {
-                gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+                gestures.clearTicketsKeepingPrompts(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
         // Whether this answer carries this Mac's signed allow, by its page id (one request at a

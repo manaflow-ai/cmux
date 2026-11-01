@@ -66,7 +66,7 @@ async fn a_turn_whose_end_was_under_way_at_a_restart_is_continued_by_the_next_da
     };
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
     assert!(s.turn().is_none(), "the end took the turn before the shutdown");
-    hub.shutdown_all().await;
+    hub.shutdown_all_with_auto_resume(true).await;
     let _ = release.send(());
     let answer = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
     assert!(answer.is_err(), "{answer:?}");
@@ -147,7 +147,7 @@ async fn a_turn_answered_after_the_shutdown_writes_nothing_and_is_continued() {
         tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
     };
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
-    hub.shutdown_all().await;
+    hub.shutdown_all_with_auto_resume(true).await;
     let _ = release.send(());
     let answer = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
     assert!(answer.is_ok(), "{answer:?}");

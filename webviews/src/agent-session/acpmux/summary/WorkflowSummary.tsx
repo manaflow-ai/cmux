@@ -229,7 +229,6 @@ export function WorkflowSummaryRow({
                         )}
                       </span>
                       <span className="acpmux-summary-meta">{localizedState(t, agent.state)}</span>
-                      {agent.tokens !== undefined && <span className="acpmux-summary-meta">{agent.tokens}</span>}
                       {workflowDetailRequest(workflow, agent) && (
                         <button
                           type="button"

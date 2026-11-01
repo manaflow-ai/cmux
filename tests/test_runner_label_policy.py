@@ -14,6 +14,7 @@ days because nothing reads variable values.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -224,6 +225,61 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         )
 
 
+class RunnerPoolsVariable(unittest.TestCase):
+    def test_json_pool_members_reject_hosted_macs_and_fleet_labels(self) -> None:
+        for value in (
+            '{"macos_26":"macos-26"}',
+            '{"linux":"glaeda-std-xcode-26.6"}',
+            '{"linux":"self-hosted"}',
+            '{"linux":["self-hosted","Linux"]}',
+            '{"linux":"macOS"}',
+        ):
+            with self.subTest(value=value):
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                                 ["RUNNER_POOLS"])
+
+    def test_json_pool_members_allow_trusted_blacksmith_labels_and_metadata(self) -> None:
+        value = '{"linux":"blacksmith-16vcpu-ubuntu-2404","macos_26":"blacksmith-6vcpu-macos-26","_dead":{"x":"2026-11-01T00:00:00Z"}}'
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": ""}), [])
+
+    def test_nested_pool_values_reject_all_hosted_mac_variants(self) -> None:
+        for label in ("macos-15", "macos-latest", "macos-15-xlarge", "MACOS-15"):
+            value = json.dumps({"mac": {"labels": ["blacksmith-6vcpu-macos-26", {"runner": label}]}})
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                    ["RUNNER_POOLS"],
+                )
+
+    def test_nested_valid_pool_values_and_blanks_are_allowed(self) -> None:
+        value = json.dumps({
+            "linux": ["", {"label": "blacksmith-32vcpu-ubuntu-2404"}],
+            "mac": {"labels": ["blacksmith-6vcpu-macos-26", {"note": "macos-15 is documentation"}]},
+            "_dead": {"macos": "macos-15"},
+        })
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+
+    def test_nested_metadata_keys_other_than_dead_are_checked(self) -> None:
+        value = json.dumps({"mac": {"_labels": ["macos-15"]}})
+        self.assertEqual(
+            [name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+            ["RUNNER_POOLS"],
+        )
+
+    def test_non_string_pool_members_are_rejected(self) -> None:
+        for value in ('{"linux":null}', '{"linux":false}', '{"linux":[0]}'):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                    ["RUNNER_POOLS"],
+                )
+
+    def test_invalid_pool_json_fails_closed(self) -> None:
+        self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": "not-json"})],
+                         ["RUNNER_POOLS"])
+
+
 class NightlyNextBuildVariable(unittest.TestCase):
     def test_an_owned_side_or_dev_label_or_blacksmith_is_allowed(self) -> None:
         name = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
@@ -349,11 +405,12 @@ class NightlyRunnerVariable(unittest.TestCase):
                 )
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-runner-cmux15-glaeda"}))
 
-    def test_nightly_no_longer_asks_for_a_single_trusted_runner(self) -> None:
+    def test_nightly_uses_the_next_trusted_pair_only_through_the_picker(self) -> None:
         text = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
         self.assertIn("vars.CI_SIDE_LANE_RUNNER", text)
         self.assertNotIn("vars.CI_NIGHTLY_TRUSTED_RUNNER", text)
-        self.assertNotIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", text)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_POOL", text)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", text)
 
 
 
