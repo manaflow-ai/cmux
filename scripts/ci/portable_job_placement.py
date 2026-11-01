@@ -153,7 +153,13 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
             str(runner.get("os", "")).lower() == "linux" for runner in matching)
         idle = sum(runner.get("status") == "online" and runner.get("busy") is False
                    for runner in matching)
-        if problem or not linux_members or idle <= queued_on(snapshot, linux):
+        # The macOS pool snapshot may omit Linux job demand entirely. An omitted
+        # pool is *unknown*, never zero queued: routing behind unseen Linux jobs
+        # breaks the live-capacity guarantee (cmux#30680).
+        entry = ((snapshot or {}).get("pools") or {}).get(linux)
+        queued = entry.get("queued") if isinstance(entry, Mapping) else None
+        known_queue = type(queued) is int and queued >= 0
+        if problem or not linux_members or not known_queue or idle <= queued:
             linux = ""
     linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
