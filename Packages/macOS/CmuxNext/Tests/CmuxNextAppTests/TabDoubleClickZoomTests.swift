@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
 /// (Toggle Pane Zoom, Cmd-Shift-Return's action) and again restores the layout; while the pane is
 /// zoomed its selected tab shows the zoom indicator, whose click restores the layout. The indicator
 /// is inside the tab, so a zoom never narrows the strip and no tab moves.
-@MainActor @Suite(.serialized) struct TabDoubleClickZoomTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabDoubleClickZoomTests {
     final class StripHarness {
         let model: TabStripModel
         let strip: TabStripView
@@ -72,7 +73,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
 
         var zooms: [ZoomStripID] { intents.compactMap { if case .toggleZoom(let id) = $0 { id } else { nil } } }
 
-        func tearDown() { window.orderOut(nil) }
+        func tearDown() { window.closeAfterTest() }
     }
 
     // MARK: The double-click
@@ -292,7 +293,14 @@ typealias ZoomStripID = CmuxNextTabs.TabID
     final class Toolbar {
         let registry = ActionRegistry.standard()
         private(set) var zooms: [ActionInvocation] = []
-        private(set) lazy var toolbar = PaneToolbar(registry: { [registry] in registry }, newTabMenu: { nil })
+        private(set) lazy var toolbar: PaneToolbar = {
+            let registry = self.registry
+            let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+            // A pane's bar has room for its buttons: a zero-width bar hides every button that does not fit and
+            // "…" offers it instead (#26132), which is not what these cases are about.
+            toolbar.view.frame = NSRect(x: 0, y: 0, width: 240, height: TabStripView.preferredHeight)
+            return toolbar
+        }()
 
         init() {
             registry.bind("toggleSplitZoom", invoke: { [unowned self] in zooms.append($0) })

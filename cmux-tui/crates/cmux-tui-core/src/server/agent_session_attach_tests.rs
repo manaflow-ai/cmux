@@ -154,6 +154,16 @@ pub(super) struct Fixture {
     pub(super) history_later: Arc<Mutex<Vec<Value>>>,
     /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
     pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// `_acpmux/sessions` answers its list in two pages, as acpmux does past its
+    /// largest reply: the first rows with a `nextCursor`, the rest from that cursor.
+    pub(super) sessions_pages: bool,
+    /// The watch answers only its first row with a `nextCursor`; `_acpmux/sessions`
+    /// from that cursor answers the rest ([`Fixture::watch`]).
+    pub(super) watch_pages: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor lists no sessions.
+    pub(super) watch_bad_page: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor is an error.
+    pub(super) watch_page_error: bool,
     /// When set, each history page and each prompt's acceptance waits for one message on it (at
     /// most [`WAIT`], or until its sender is gone).
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
@@ -199,11 +209,34 @@ fn serve(
             }
             "_acpmux/watch" => {
                 let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
-                sessions.extend(fixture.watch.iter().cloned());
-                Some(json!({"sessions": sessions}))
+                if fixture.watch_pages {
+                    Some(json!({"sessions": sessions, "nextCursor": "w1"}))
+                } else {
+                    sessions.extend(fixture.watch.iter().cloned());
+                    Some(json!({"sessions": sessions}))
+                }
+            }
+            "_acpmux/sessions" if params["cursor"] == json!("w1") => {
+                Some(if fixture.watch_bad_page {
+                    json!({"nextCursor": null})
+                } else if fixture.watch_page_error {
+                    json!({FAKE_ERROR: "list.paced"})
+                } else {
+                    json!({"sessions": fixture.watch})
+                })
             }
             // The machine's whole list: the attached session's family and others
-            // (agent_session_children_tests.rs).
+            // (agent_session_children_tests.rs), its older rows first, as acpmux's byte
+            // pages (in no time order) can come.
+            "_acpmux/sessions" if fixture.sessions_pages => {
+                let mut rows = machine_sessions()["sessions"].as_array().unwrap().clone();
+                let older = rows.split_off(3);
+                Some(if params["cursor"] == json!("c1") {
+                    json!({"sessions": rows})
+                } else {
+                    json!({"sessions": older, "nextCursor": "c1"})
+                })
+            }
             "_acpmux/sessions" => Some(machine_sessions()),
             "_acpmux/info" => Some(json!({
                 "sessionId": params["sessionId"],

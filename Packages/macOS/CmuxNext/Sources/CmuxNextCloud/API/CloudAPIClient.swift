@@ -317,6 +317,28 @@ public struct CloudAPIClient: Sendable {
         return try await send("GET", "/api/vm/publications", as: List.self).publications
     }
 
+    /// `POST /api/vm/apis`: publishes `port` of the machine behind cmux sign-in and mints an
+    /// API key for it in one call. Calling it again for the same port reuses the publication
+    /// and mints another key.
+    public func provisionAPI(machineID: String, port: Int, accessMode: String? = nil, keyName: String? = nil) async throws -> CloudProvisionedAPI {
+        var body: [String: any Sendable] = ["vmId": machineID, "port": port]
+        if let accessMode { body["accessMode"] = accessMode }
+        if let keyName { body["name"] = keyName }
+        return try await send("POST", "/api/vm/apis", body: body, timeout: .seconds(120), as: CloudProvisionedAPI.self)
+    }
+
+    /// The live API keys of a publication, named by its id or hostname.
+    public func listPublicationAPIKeys(_ publication: String) async throws -> [CloudPublicationAPIKey] {
+        struct List: Decodable { var apiKeys: [CloudPublicationAPIKey] }
+        return try await send("GET", "/api/vm/publications/\(queryComponent(publication))/api-keys", as: List.self).apiKeys
+    }
+
+    /// Revokes one key; its next request is refused at the edge.
+    public func revokePublicationAPIKey(_ publication: String, keyID: String) async throws -> CloudPublicationAPIKey {
+        struct Revoked: Decodable { var apiKey: CloudPublicationAPIKey }
+        return try await send("DELETE", "/api/vm/publications/\(queryComponent(publication))/api-keys/\(queryComponent(keyID))", as: Revoked.self).apiKey
+    }
+
     func query(_ value: String) -> String {
         // Keep guest path separators readable, but never let a path inject a
         // second query item or fragment into the request URL.

@@ -16,6 +16,19 @@ public struct AgentPaneMoveTarget: Equatable, Sendable {
         self.status = status
     }
 
+    /// Whether a title-menu move for `requested` may run on a tab now showing `shown`: only the
+    /// chat whose menu was opened moves; a tab with no chat or another chat moves nothing.
+    public nonisolated static func tabStillShows(_ shown: String?, requested: String) -> Bool {
+        guard let shown, !requested.isEmpty else { return false }
+        return shown == requested
+    }
+
+    /// Whether the title menu may list Cloud move targets: signed in, with the machine list loaded
+    /// for the account signed in now (the App's `CloudService.hasLoadedCurrentMachines`).
+    public nonisolated static func offered(signedIn: Bool, loadedCurrent: Bool) -> Bool {
+        signedIn && loadedCurrent
+    }
+
     var reply: [String: Any] {
         var value: [String: Any] = ["id": id, "label": label]
         if !status.isEmpty { value["status"] = status }

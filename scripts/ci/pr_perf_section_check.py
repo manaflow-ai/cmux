@@ -15,7 +15,11 @@ cell filled in (placeholders such as `<before>`, `TBD`, `-` or `?` are empty). W
 numbers to record (the change is not about speed), a line `No perf numbers: <why>` inside the
 Performance section says so instead.
 
-A docs-only change (every path under docs/ or a Markdown file) is exempt. Prints GitHub annotations
+A docs-only change (every path under docs/ or a Markdown file) is exempt, and so is a small one
+(--additions/--deletions): a removal (at most REMOVAL_MAX_ADDED added lines, no more than
+REMOVAL_ADD_RATIO of its deletions) or at most SMALL_MAX_LINES changed lines. Process scales with the
+change, and a small change takes the light path with no perf table (Leo, 2026-10-31: "YOU NEED TO 0-1
+INSTEAD OF EXHAUSTING ALL THIS"; leo-workspace tools/change_size.py holds the same bounds). Prints GitHub annotations
 and, on a failure, the template. Exits 1 on a missing or incomplete section, 0 otherwise (2 on bad
 input).
 """
@@ -27,6 +31,8 @@ import sys
 from pathlib import Path
 
 PERF_LABELS = {"perf", "performance"}
+# The light path's size bounds (leo-workspace tools/change_size.py).
+REMOVAL_MAX_ADDED, REMOVAL_ADD_RATIO, SMALL_MAX_LINES = 20, 0.10, 120
 # The one list of trigger words. Each entry is a regex matched as a whole word, case-insensitively.
 TRIGGER_WORDS = (
     r"perf",
@@ -183,9 +189,20 @@ def problems(text: str) -> list[str]:
     return (columned or found)[0]
 
 
-def check(title: str, body: str, labels: set[str], paths: list[str]) -> tuple[int, str]:
+def small(additions: int | None, deletions: int | None) -> bool:
+    """The diff is small enough for the light path: a removal's shape, or at most SMALL_MAX_LINES changed lines."""
+    if additions is None or deletions is None:
+        return False
+    return (additions + deletions <= SMALL_MAX_LINES
+            or (deletions > 0 and additions <= REMOVAL_MAX_ADDED and additions <= REMOVAL_ADD_RATIO * deletions))
+
+
+def check(title: str, body: str, labels: set[str], paths: list[str],
+          additions: int | None = None, deletions: int | None = None) -> tuple[int, str]:
     if is_docs_only(paths):
         return 0, "Docs-only change: no Performance table needed."
+    if small(additions, deletions):
+        return 0, f"Small change (+{additions}/-{deletions}, the light path): no Performance table needed."
     why = trigger(title, body, labels)
     if not why:
         return 0, "Not a performance change: no Performance table needed."
@@ -206,6 +223,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--paths-file", type=Path, required=True)
     ap.add_argument("--title", default="")
     ap.add_argument("--labels", default="")
+    ap.add_argument("--additions", type=lambda v: int(v) if v.strip() else None, default=None)
+    ap.add_argument("--deletions", type=lambda v: int(v) if v.strip() else None, default=None)
     a = ap.parse_args(argv)
     try:
         body = a.body_file.read_text(encoding="utf-8")
@@ -214,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::error::pr perf section check: {error}")
         return 2
     labels = {l.strip() for l in a.labels.split(",") if l.strip()}
-    code, message = check(a.title, body, labels, paths)
+    code, message = check(a.title, body, labels, paths, a.additions, a.deletions)
     if code == 0:
         print(message)
         return 0
