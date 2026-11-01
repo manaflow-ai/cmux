@@ -115,7 +115,7 @@ fn process_page_params(params: &Value) -> Result<Option<(usize, Option<&str>)>, 
         .as_u64()
         .filter(|&n| n > 0)
         .ok_or_else(|| RpcError::invalid_params("limit must be a positive integer"))?;
-    let bounded = usize::try_from(limit).unwrap_or(usize::MAX).min(crate::hub::process_page_limit());
+    let bounded = usize::try_from(limit).unwrap_or(usize::MAX).min(1_000);
     Ok(Some((bounded, cursor)))
 }
 
