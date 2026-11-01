@@ -1380,7 +1380,7 @@ console.log(JSON.stringify({ seen, ok, missing, down, garbled, cut, moved, redir
 def test_quota_reset_retry_waits_once_without_polling_or_retrying_writes() -> None:
     script = r"""
 const guard = await import(process.env.GUARD);
-const run = async ({status = 403, remaining = '0', reset = '1841', method = 'GET', alwaysFails = false} = {}) => {
+const run = async ({status = 403, remaining = '0', reset = '1100', method = 'GET', alwaysFails = false} = {}) => {
   const waits = [], warnings = [];
   let calls = 0;
   const error = Object.assign(new Error('API rate limit exceeded for installation'), {
@@ -1414,14 +1414,15 @@ for (const options of [{status: 401}, {remaining: '1'}, {remaining: undefined, r
                             env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
     out = json.loads(result.stdout)
     assert out["recovered"]["calls"] == 2 and not out["recovered"]["failed"], out
-    assert out["recovered"]["waits"] == [842000], out
+    assert out["recovered"]["waits"] == [101000], out
     assert len(out["recovered"]["warnings"]) == 1, out
     assert all(case["calls"] == 1 and case["failed"] and not case["waits"] for case in out["refused"]), out
     assert out["exhausted"]["calls"] == 2 and out["exhausted"]["failed"], out
-    assert out["exhausted"]["waits"] == [842000], out
+    assert out["exhausted"]["waits"] == [101000], out
     assert out["clockSkew"]["waits"] == [1000], out
-    # A reset beyond the three-minute bound fails over to the caller's
-    # alternate read route instead of sleeping until the hourly reset.
+    # A reset beyond the three-minute bound returns to the caller without
+    # sleeping until the hourly reset; the workflow's read-token fallback
+    # keeps the decision on a separate bucket when it is available.
     assert out["capped"]["calls"] == 1 and out["capped"]["failed"] and not out["capped"]["waits"], out
 
 
