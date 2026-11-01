@@ -50,20 +50,41 @@ class FakeMCP:
 
 
 class FakeActivity:
-    def __init__(self, stale=False, expired=False):
+    def __init__(self, stale=False, expired=False, history=None,
+                 missing_before=False, replace_session=False):
         self.calls = []
+        self.requests = []
         self.stale = stale
         self.expired = expired
+        self.history = copy.deepcopy(history or [])
+        self.before_seq = max((row["seq"] for row in self.history), default=0) + 1
+        self.missing_before = missing_before
+        self.replace_session = replace_session
+        self.session_reads = 0
+        self.timeline_reads = 0
 
     def read(self, method, args):
         self.calls.append(method)
+        self.requests.append((method, copy.deepcopy(args)))
         if method == "activity_sessions_list":
-            return {"sessions": [SESSION]}
+            self.session_reads += 1
+            session = copy.deepcopy(SESSION)
+            if self.replace_session and self.session_reads > 1:
+                session["id"] = "replacement-session"
+            return {"sessions": [session]}
         if method == "activity_frame":
             return {"mime": "image/png", "data_base64": base64.b64encode(PNG).decode()}
-        rows = [event(1, "get_window_state")]
-        if "after_seq" in args and not self.stale:
-            rows = [event(2, "click"), event(3, "get_window_state")]
+        self.timeline_reads += 1
+        if self.timeline_reads == 1:
+            rows = self.history
+        elif self.timeline_reads == 2:
+            # A stale service may ignore after_seq; it must not turn an old matching
+            # observation into evidence for the new screenshot.
+            rows = self.history if self.missing_before else [event(self.before_seq, "get_window_state")]
+        elif self.stale:
+            rows = [event(self.before_seq, "get_window_state")]
+        else:
+            rows = [event(self.before_seq + 1, "click"), event(self.before_seq + 2, "get_window_state")]
         return {"events": rows, "frames": {"blob": {"expired": self.expired}}}
 
 
@@ -89,6 +110,34 @@ class NativeTests(unittest.TestCase):
         with self.assertRaises(native.Unavailable):
             native.perform(STEP, CONFIG, FakeMCP(), FakeActivity(stale=True))
 
+    def test_historical_matching_observation_is_excluded_by_watermark(self):
+        activity = FakeActivity(history=[event(7, "get_window_state")])
+        result = native.perform(STEP, CONFIG, FakeMCP(), activity)
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual([row["seq"] for row in result["event_refs"]], [8, 9, 10])
+        timelines = [args for method, args in activity.requests if method == "activity_timeline"]
+        self.assertEqual(timelines, [
+            {"id": "session-1", "limit": 5000},
+            {"id": "session-1", "after_seq": 7, "limit": 5000},
+            {"id": "session-1", "after_seq": 8, "limit": 100},
+        ])
+
+    def test_missing_fresh_before_observation_rejects_historical_match(self):
+        mcp = FakeMCP()
+        activity = FakeActivity(history=[event(7, "get_window_state")], missing_before=True)
+        with self.assertRaises(native.Unavailable):
+            native.perform(STEP, CONFIG, mcp, activity)
+        self.assertEqual(mcp.calls, ["check_permissions", "get_window_state"])
+        self.assertNotIn("activity_frame", activity.calls)
+
+    def test_session_replaced_after_observation_stops_before_mutation(self):
+        mcp, activity = FakeMCP(), FakeActivity(replace_session=True)
+        with self.assertRaises(native.Unavailable):
+            native.perform(STEP, CONFIG, mcp, activity)
+        self.assertEqual(mcp.calls, ["check_permissions", "get_window_state"])
+        self.assertEqual(activity.calls, ["activity_sessions_list", "activity_timeline",
+                                         "activity_sessions_list"])
+
     def test_refused_action_stops_without_another_observation_or_activity_read(self):
         mcp, activity = FakeMCP(), FakeActivity()
         call = mcp.call
@@ -103,7 +152,8 @@ class NativeTests(unittest.TestCase):
         with self.assertRaises(native.Unavailable):
             native.perform(STEP, CONFIG, mcp, activity)
         self.assertEqual(mcp.calls, ["check_permissions", "get_window_state", "click"])
-        self.assertEqual(activity.calls, ["activity_sessions_list", "activity_sessions_list", "activity_timeline", "activity_frame"])
+        self.assertEqual(activity.calls, ["activity_sessions_list", "activity_timeline",
+                                         "activity_sessions_list", "activity_timeline", "activity_frame"])
 
     def test_event_from_another_target_is_not_evidence(self):
         wrong = event(2, "click")

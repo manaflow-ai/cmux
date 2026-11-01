@@ -309,18 +309,30 @@ def perform(step, config, mcp, activity, out=None, progress=None):
     if grants.get("accessibility") is not True or grants.get("screen_recording") is not True:
         raise Unavailable("CUA consent is required; finish setup in the app")
     # Probe the existing activity service before any mutation. This never starts a recorder.
-    activity.read("activity_sessions_list", {"status": "live", "limit": 500})
+    sessions = activity.read("activity_sessions_list", {"status": "live", "limit": 500}).get("sessions", [])
+    owned = [row for row in sessions if (row.get("agent") or {}).get("proxy_pid") == mcp.proc.pid]
+    if len(owned) > 1:
+        raise Unavailable("CUA activity does not identify this MCP proxy uniquely")
+    prior_session = owned[0]["id"] if owned else None
+    before_seq = 0
+    if prior_session is not None:
+        prior = activity.read("activity_timeline", {"id": prior_session, "limit": 5000})
+        if len(prior.get("events", [])) >= 5000:
+            raise Unavailable("CUA activity timeline exceeds the bounded step reader")
+        before_seq = max((row["seq"] for row in prior.get("events", [])), default=0)
     before = mcp.call("get_window_state", {**window, "include_screenshot": True})
     sessions = activity.read("activity_sessions_list", {"status": "live", "limit": 500}).get("sessions", [])
     owned = [row for row in sessions if (row.get("agent") or {}).get("proxy_pid") == mcp.proc.pid]
     if len(owned) != 1:
         raise Unavailable("CUA activity does not identify this MCP proxy uniquely")
     session = owned[0]
-    page = activity.read("activity_timeline", {"id": session["id"], "limit": 5000})
+    if prior_session is not None and session["id"] != prior_session:
+        raise Unavailable("CUA activity session changed during observation")
+    page = activity.read("activity_timeline", {"id": session["id"], "after_seq": before_seq, "limit": 5000})
     if len(page.get("events", [])) >= 5000:
         raise Unavailable("CUA activity timeline exceeds the bounded step reader")
     after_seq = max((row["seq"] for row in page.get("events", [])), default=0)
-    before_event = correlated(page, session, 0, "get_window_state", window)
+    before_event = correlated(page, session, before_seq, "get_window_state", window)
     before_frame = frame_ref(activity, page, session, before_event, out, "before")
     before_state, before_ax = semantic(before, target)
     before_evidence = {"screenshot": before_frame, "ax_digest": before_ax, "state": before_state}
