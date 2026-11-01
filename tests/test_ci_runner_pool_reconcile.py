@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import runner_pool_reconcile as reconcile
 
 POLICY_ROOT = os.environ.get("RUNNER_POOL_POLICY_ROOT")
-WORKFLOW_ROOT = Path(os.environ.get("RUNNER_POOL_WORKFLOW_ROOT", Path(__file__).resolve().parents[1]))
 NOW = dt.datetime(2026, 11, 1, 12, tzinfo=dt.timezone.utc)
 SMALL = "blacksmith-4vcpu-ubuntu-2404"
 LARGE = "blacksmith-16vcpu-ubuntu-2404"
@@ -24,7 +23,7 @@ LARGE = "blacksmith-16vcpu-ubuntu-2404"
 
 class SecretRouteBoundary(unittest.TestCase):
     def test_routing_keys_never_follow_the_secretless_pool(self):
-        root = WORKFLOW_ROOT
+        root = Path(__file__).resolve().parents[1]
         for name, job in (("ci.yml", "changes"), ("cmux-next-ios-kit.yml", "runner")):
             with self.subTest(workflow=name, job=job):
                 text = (root / ".github/workflows" / name).read_text()
