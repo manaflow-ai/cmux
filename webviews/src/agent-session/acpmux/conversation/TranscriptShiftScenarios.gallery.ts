@@ -44,9 +44,13 @@ function turn(index: number, minutes: number): AcpmuxRow[] {
 
 const rows = Array.from({ length: 8 }, (_, index) => turn(index + 1, 60 - index * 6)).flat();
 const SCROLLER = { selector: ".acpmux-scroll" };
+/** A Codex chat: each finished turn folds its work under one "Worked for" line (turns.ts). */
+const codexChat = () => chat(rows, { harness: "codex", model: "gpt-6-astra" });
 
-/** The tool row toggle of turn `index` (1-based). */
-const toolToggle = (index: number) => ({ selector: `button.cv-tool[data-tool-id="shift-${index}-test"]` });
+/** The "Worked for" toggle of turn `index` (1-based). */
+const workedToggle = (index: number) => ({ selector: `[data-row-id="worked-shift-${index}-user"] button.cv-worked` });
+const opened = (ctx: PlayContext, index: number) =>
+  ctx.waitFor(() => ctx.document.querySelector(`${workedToggle(index).selector}[aria-expanded="true"]`));
 
 const atBottom = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="shift-8-summary"]'));
@@ -68,30 +72,30 @@ export default agentPaneEntry({
   variants: {
     "open-chat": {
       note: "Opening a finished chat: the transcript and the composer draw their final layout once (the load is measured).",
-      snapshot: chat(rows),
+      snapshot: codexChat(),
     },
     "tool-expand-bottom": {
-      note: "Play: at the bottom of the chat, open the last turn's command. Rows above it stay where they are; nothing scrolls them up.",
-      snapshot: chat(rows),
+      note: "Play: at the bottom of the chat, open the last turn's Worked for. Rows above it stay where they are; nothing scrolls them up.",
+      snapshot: codexChat(),
       play: async (ctx) => {
         await atBottom(ctx);
-        await ctx.click(toolToggle(8));
-        await ctx.waitFor(() => ctx.document.querySelector(`${toolToggle(8).selector}[aria-expanded="true"]`));
+        await ctx.click(workedToggle(8));
+        await opened(ctx, 8);
       },
     },
     "tool-expand-mid": {
-      note: "Play: scrolled into the middle of the chat, open a command there. Rows above it stay; rows under it move down only.",
-      snapshot: chat(rows),
+      note: "Play: scrolled into the middle of the chat, open a turn's Worked for there. Rows above it stay; rows under it move down only.",
+      snapshot: codexChat(),
       play: async (ctx) => {
         await atBottom(ctx);
         await ctx.scroll(SCROLLER, 900);
-        await ctx.click(toolToggle(4));
-        await ctx.waitFor(() => ctx.document.querySelector(`${toolToggle(4).selector}[aria-expanded="true"]`));
+        await ctx.click(workedToggle(4));
+        await opened(ctx, 4);
       },
     },
     "pane-resize": {
       note: "Play: the pane narrows and widens again, as the sidebar toggle resizes it. Each row moves once to its new place, with no bounce.",
-      snapshot: chat(rows),
+      snapshot: codexChat(),
       play: async (ctx) => {
         await atBottom(ctx);
         await ctx.resize(520);
@@ -100,7 +104,7 @@ export default agentPaneEntry({
     },
     "model-menu-open": {
       note: "Play: open the composer's model menu. The menu opens in one frame; the composer and the transcript stay put.",
-      snapshot: chat(rows),
+      snapshot: codexChat(),
       play: async (ctx) => {
         await atBottom(ctx);
         await ctx.click({ selector: ".acpmux-model" });
@@ -116,12 +120,16 @@ export default agentPaneEntry({
         const view = ctx.document.defaultView as unknown as { cmuxAcpmuxDebug?: Debug };
         await ctx.waitFor(() => view.cmuxAcpmuxDebug);
         // The debug socket's load_seed: a long chat recorded in the mock daemon and opened through
-        // the real client, so it pages in as a chat on acpmux does (mockPaging.test.ts).
-        void view.cmuxAcpmuxDebug!.loadSeed(240);
-        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-row-id]").length > 20, { capMs: 15_000 });
-        const before = ctx.document.querySelectorAll("[data-row-id]").length;
+        // the real client, so it pages in as a chat on acpmux does (mockPaging.test.ts). It
+        // resolves once the open has settled; the wait is measured for shift with the open.
+        let seeded = false;
+        void view.cmuxAcpmuxDebug!.loadSeed(80).then(() => (seeded = true));
+        await ctx.waitFor(() => seeded, { capMs: 30_000 });
+        const first = () => ctx.document.querySelector(".acpmux-scroll [data-row-id]")?.getAttribute("data-row-id");
+        const before = first();
         await ctx.scroll(SCROLLER, "top");
-        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-row-id]").length > before, { capMs: 10_000 });
+        // An older page arrives above: the first row is another one.
+        await ctx.waitFor(() => first() !== before, { capMs: 10_000 });
       },
     },
   },

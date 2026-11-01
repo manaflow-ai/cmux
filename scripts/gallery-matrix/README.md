@@ -112,6 +112,18 @@ one kind; a broken state's reason is its kind) is a warning and the shard passes
 state, a crashed render, a missing or cut-short `health.json`, a base render with no whole result,
 and any red on a push still fail.
 
+## Layout shift gate
+
+Gallery health also judges the layout shift of every state it renders against
+`shift-baseline.json` (`shift-baseline.ts`), and fails the PR that adds a shift (a red the base
+shares is a warning, as for broken states): the state's load plus each play step, scored from the
+browser's layout-shift entries and from the tracked rows' boxes frame by frame
+(`webviews/src/gallery/shift.ts`), whichever is larger. A row of 0 fails on any shift past
+rounding; a non-zero row fails past a quarter again. A state with no row only warns, and a shift
+must show on every retry to count. Rows only go down: download a run's `gallery-health-*`
+artifacts and run `bun shift-baseline.ts --from <dir>`; `--add` writes rows for states that have
+none.
+
 ## Geometry audit
 
 `geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active
