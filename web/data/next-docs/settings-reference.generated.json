@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 536,
+  "count": 546,
   "sections": [
     {
       "id": "general",
@@ -15,7 +15,8 @@
           "group": "Agent Chat",
           "values": [
             "inline",
-            "strip"
+            "strip",
+            "both"
           ]
         },
         {
@@ -227,7 +228,7 @@
           "title": "Open Sub-sessions per Session",
           "help": "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
           "kind": "number",
-          "default": 50,
+          "default": 1000,
           "group": "Sub-sessions",
           "range": {
             "min": 1,
@@ -253,7 +254,7 @@
           "title": "Running Sub-sessions per Session",
           "help": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
           "kind": "number",
-          "default": 16,
+          "default": 1000,
           "group": "Sub-sessions",
           "range": {
             "min": 1,
@@ -364,6 +365,19 @@
           "group": "Tabs"
         },
         {
+          "key": "appearance.metrics.tabFontSize",
+          "title": "Tab Text Size",
+          "help": "Text size of tab titles. Unset, tabs follow the interface size.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 10,
+            "max": 18,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.tabMaxWidth",
           "title": "Maximum Tab Width",
           "help": "Widest a tab gets when the strip has room.",
@@ -412,6 +426,19 @@
           "range": {
             "min": 24,
             "max": 120,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.tabStripHeight",
+          "title": "Tab Bar Height",
+          "help": "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 22,
+            "max": 44,
             "unit": "points"
           }
         },
@@ -1472,6 +1499,19 @@
           "kind": "toggle",
           "default": true,
           "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.hibernation.hiddenSpaceMinutes",
+          "title": "Hibernate Hidden Spaces After",
+          "help": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+          "kind": "number",
+          "default": 15,
+          "group": "Hibernation",
+          "range": {
+            "min": 5,
+            "max": 1440,
+            "unit": "minutes"
+          }
         },
         {
           "key": "workspaces.hibernation.idleMinutes",
@@ -3097,6 +3137,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.chromeGroups",
+          "title": "Chrome-Style Groups",
+          "help": "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.cmd9",
           "title": "Command-9",
           "help": "Goes to the last item, as in browsers, or to the ninth.",
@@ -3170,7 +3218,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 1300,
+          "default": 400,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3539,6 +3587,14 @@
           ]
         },
         {
+          "key": "sidebar.sideBySide",
+          "title": "Workspaces Side by Side",
+          "help": "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.spacesPosition",
           "title": "Spaces Position",
           "help": "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.",
@@ -3739,6 +3795,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspacesAsTabs",
+          "title": "Workspaces as Tabs",
+          "help": "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
         },
         {
           "key": "status.inferCommandBusy",
@@ -5084,6 +5148,14 @@
       "title": "Home",
       "rows": [
         {
+          "key": "chief.autoRouteSubagents",
+          "title": "Route Subagents to the Best Agent",
+          "help": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Subagents"
+        },
+        {
           "key": "chief.reactionClassifier.harness",
           "title": "Reaction Classifier Harness",
           "help": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -5212,17 +5284,29 @@
           "default": "orb",
           "group": "Chief Pet",
           "values": [
-            "orb",
-            "orb-spark",
-            "orb-hood",
+            "fox",
             "machine",
             "machine-cyan",
             "machine-blue",
             "moon",
             "moon-blue",
-            "fox",
-            "mochi"
+            "mochi",
+            "fox-arctic",
+            "machine-violet",
+            "machine-gold",
+            "moon-rose",
+            "orb",
+            "orb-spark",
+            "orb-hood"
           ]
+        },
+        {
+          "key": "home.feedInChief",
+          "title": "Show the Feed in Chief",
+          "help": "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Chat"
         },
         {
           "key": "home.server",
@@ -5753,6 +5837,26 @@
           "kind": "string_map",
           "default": {},
           "group": "Machine Colors"
+        },
+        {
+          "key": "cloud.newWorkspaceFolder",
+          "title": "New Cloud Workspaces Start In",
+          "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+          "kind": "choice",
+          "default": "inherit",
+          "group": "Cloud Workspaces",
+          "values": [
+            "inherit",
+            "empty"
+          ]
+        },
+        {
+          "key": "cloud.newWorkspacesInCloud",
+          "title": "Run New Workspaces in Cloud",
+          "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
         },
         {
           "key": "phone.allowConnections",

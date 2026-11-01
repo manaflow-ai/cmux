@@ -69,17 +69,66 @@ public enum WorkspaceSlot: Hashable, Sendable {
     /// section, `top`/`bottom` fell back to its loose rows and a grouped
     /// workspace left its group (a notification's move to the top did that).
     public func position(moving: Set<String>, besides anchor: String, in sections: [SidebarRowSection]) -> DropPosition? {
-        let home = sections.first { section in
+        guard let home = Self.section(listing: anchor, in: sections) else { return nil }
+        return position(moving: moving, section: home, in: sections)
+    }
+
+    /// Why Move Workspace Above/Below cannot drop a row (``beside(_:below:moving:in:onDocument:)``).
+    public enum BesideRefusal: Error, Equatable {
+        /// `moving` is `anchor`, or the sidebar does not list both in one section (a move across
+        /// sections is a pin or a section change, which have their own verbs).
+        case elsewhere
+        /// Both are in Pinned or a custom section, which reorder only on the sidebar document
+        /// (off it, a reorder there would pin the rows).
+        case needsDocument
+    }
+
+    /// Move Workspace Above/Below (cmux#29907): where `moving` drops right before
+    /// (`below` false) or after `anchor`, in the anchor's container (its group, else
+    /// the loose rows), as a row drag drops it.
+    public static func beside(_ anchor: String, below: Bool, moving: String, in sections: [SidebarRowSection],
+                              onDocument: Bool) -> Result<DropPosition, BesideRefusal> {
+        guard moving != anchor,
+              let home = section(listing: anchor, in: sections), section(listing: moving, in: sections) == home
+        else { return .failure(.elsewhere) }
+        if case .machine = home {} else if !onDocument { return .failure(.needsDocument) }
+        let slot: WorkspaceSlot = below ? .below(anchor) : .above(anchor)
+        return slot.position(moving: [moving], section: home, in: sections).map { .success($0) } ?? .failure(.elsewhere)
+    }
+
+    /// The Move Workspace verbs' reorder: `ids` (rows of `anchor`'s section, in sidebar
+    /// order; the others stay) as one block at this slot of `anchor`'s container, or
+    /// just `anchor` when none of `ids` is there. Nil when `sections` do not list
+    /// `anchor` (the move would land it loose, out of its group), or the section is
+    /// Pinned or a custom one while the sidebar document is off.
+    public func reorder(_ ids: [String], anchor: String, in sections: [SidebarRowSection], onDocument: Bool)
+        -> (moving: [SidebarWorkspaceID], position: DropPosition)? {
+        guard let home = SidebarEdits.locate(SidebarWorkspaceID(anchor), in: sections)?.section else { return nil }
+        var moving = SidebarEdits.treeOrder(ids.map(SidebarWorkspaceID.init), in: sections).filter {
+            SidebarEdits.locate($0, in: sections)?.section == home
+        }
+        if moving.isEmpty { moving = [SidebarWorkspaceID(anchor)] }
+        guard let position = position(moving: Set(moving.map(\.rawValue)), besides: anchor, in: sections),
+              sections[home].machine != nil || onDocument else { return nil }
+        return (moving, position)
+    }
+
+    /// The group that lists workspace `id` in `sections`, if any.
+    public static func group(listing id: String, in sections: [SidebarRowSection]) -> SidebarGroup? {
+        sections.lazy.compactMap { group(containing: id, in: $0.nodes) }.first
+    }
+
+    /// The section that lists workspace `id`, loose or in a group.
+    private static func section(listing id: String, in sections: [SidebarRowSection]) -> SectionID? {
+        sections.first { section in
             section.nodes.contains { node in
                 switch node {
-                case let .workspace(workspace): workspace.id.rawValue == anchor
-                case let .group(group): group.workspaces.contains { $0.id.rawValue == anchor }
+                case let .workspace(workspace): workspace.id.rawValue == id
+                case let .group(group): group.workspaces.contains { $0.id.rawValue == id }
                 case .item: false
                 }
             }
-        }
-        guard let home else { return nil }
-        return position(moving: moving, section: home.id, in: sections)
+        }?.id
     }
 
     /// Right below `anchor` when `sections` list it in a group, so a new workspace joins that group (an

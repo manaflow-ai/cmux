@@ -56,7 +56,7 @@ enum ChildPageGeometry {
             let devTools = (page as? CEFTab)?.devToolsDiagnosticFrames
             hosts += expectedHosts(pane: pane.paneKey, contentRect: contentRect, devTools: devTools)
         }
-        let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame) : []
+        let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame).filter { page in NSScreen.screens.contains { $0.frame.intersects(page) } || hosts.contains { distance(page, $0.screenRect) <= tolerance } } : [] // off every screen (the New Tab spare): covers nothing; at its host's rect (a pane past the display edge): kept
         return (hosts, pages)
     }
 }

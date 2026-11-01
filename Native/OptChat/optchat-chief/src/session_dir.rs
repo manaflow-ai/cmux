@@ -9,14 +9,15 @@
 //! turns auto-memory and CLAUDE.md files off (its system prompt carries the
 //! instructions), and this directory's project settings turn hooks off, so
 //! the user's own ~/.claude/CLAUDE.md, hooks and project memory never reach
-//! a turn. What stays outside our control: Claude Code's own system prompt
+//! a turn, except the hooks and skills the user names in cmux.json
+//! (`chief.turnHooks`, `chief.turnSkills`: turn_user_extras.rs). What stays outside our control: Claude Code's own system prompt
 //! (with its date and environment lines), the user's other settings and
 //! any machine-wide managed settings.
 //!
 //! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
 //! gives every agent chat its own agent tools instead (cmux, cmux-cua,
-//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps cmux and acpmux,
-//! `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
+//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps cmux, its folded
+//! acpmux server and agent memory, `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
 //! MCP servers reaches no harness. The Chief's own `optchat` server, which
 //! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
 //! project settings, which Claude Code harnesses read.
@@ -232,7 +233,7 @@ pub const SUBAGENT_DENIED_TOOLS: [&str; 5] = [
 /// tool a later Claude Code adds is not offered. This
 /// list stays as the second guard, for an acpmux older than that preset
 /// arg (the preset is then installed without it).
-pub const TURN_DENIED_TOOLS: [&str; 25] = [
+pub const TURN_DENIED_TOOLS: [&str; 24] = [
     "Task",
     "Agent",
     "AskUserQuestion",
@@ -251,7 +252,6 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "ReportFindings",
     "ScheduleWakeup",
     "SendMessage",
-    "Skill",
     "TaskCreate",
     "TaskGet",
     "TaskList",
@@ -306,7 +306,11 @@ pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
 /// same, cx-4a5w2). In the app, whose bundle has `cmux-cua`, the computer
 /// use and secret servers' 43 tool names and instructions came after the
 /// turn's cache mark: 1,440 of its 2,905 uncached tokens, every turn.
-pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,acpmux");
+/// The agent memory server (`cmux-agent-memory`, acpmux
+/// `MEMORY_SERVER_NAME`) stays too: acpmux adds it only when cmux.json sets
+/// `agents.memory.enabled`, and its three tools wait behind ToolSearch
+/// (measured 2026-10-31: 158 tokens).
+pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,acpmux,cmux-agent-memory");
 
 /// The turn presets' env that limits acpmux's `cmux` MCP server to
 /// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
@@ -656,6 +660,8 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         settings["env"][key] = json!(value);
     }
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
+    // The hooks and skills the user names in cmux.json, bundled skills off.
+    crate::turn_user_extras::apply(&mut settings, &paths.session);
     let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),

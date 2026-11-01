@@ -7,6 +7,8 @@ public import Foundation
 /// Pure: the App gathers one ``Candidate`` per workspace it holds anything for, reads the clock once,
 /// and hibernates ``Plan/due``. A workspace never hibernates while it is shown, pinned, running a
 /// command or an agent turn, waiting on the person, kept awake by the person, or already hibernated.
+/// A workspace of a space no window shows (``Candidate/inHiddenSpace``) waits the shorter
+/// ``Policy/hiddenSpaceIdleMinutes`` instead (leo-workspace design/spaces.md, "Hibernation and the perf plan").
 ///
 /// ```swift
 /// let plan = WorkspaceHibernationPlanner().plan(candidates, policy: .init(idleMinutes: 60), pressure: .normal, now: Date())
@@ -22,19 +24,25 @@ public nonisolated struct WorkspaceHibernationPlanner: Sendable {
         public var enabled: Bool
         /// Minutes a workspace stays idle before it hibernates at normal memory pressure.
         public var idleMinutes: Double
+        /// Minutes a workspace of a space no window shows stays idle before it hibernates (the shorter
+        /// of this and ``idleMinutes`` applies).
+        public var hiddenSpaceIdleMinutes: Double
 
         /// - Parameters:
         ///   - enabled: whether workspaces hibernate on their own (default on).
         ///   - idleMinutes: the idle time at normal pressure (default 60).
-        public init(enabled: Bool = true, idleMinutes: Double = 60) {
+        ///   - hiddenSpaceIdleMinutes: the idle time of a hidden space's workspace (default the setting's).
+        public init(enabled: Bool = true, idleMinutes: Double = 60,
+                    hiddenSpaceIdleMinutes: Double = WorkspaceHibernationSettings.hiddenSpaceMinutesDefault) {
             self.enabled = enabled
             self.idleMinutes = idleMinutes
+            self.hiddenSpaceIdleMinutes = hiddenSpaceIdleMinutes
         }
 
         /// The policy cmux.json's `workspaces.hibernation.*` sets; nil (no settings yet) takes the defaults.
         public init(_ settings: WorkspaceHibernationSettings?) {
             let settings = settings ?? WorkspaceHibernationSettings()
-            self.init(enabled: settings.enabled, idleMinutes: settings.idleMinutes)
+            self.init(enabled: settings.enabled, idleMinutes: settings.idleMinutes, hiddenSpaceIdleMinutes: settings.hiddenSpaceMinutes)
         }
     }
 
@@ -57,10 +65,12 @@ public nonisolated struct WorkspaceHibernationPlanner: Sendable {
         public var keptAwake: Bool
         /// Already hibernated (nothing of it is in memory).
         public var hibernated: Bool
+        /// No window shows any space it is in: it waits ``Policy/hiddenSpaceIdleMinutes``.
+        public var inHiddenSpace: Bool
 
-        /// Every flag defaults to false: an idle, unpinned, awake workspace.
+        /// Every flag defaults to false: an idle, unpinned, awake workspace of a shown space.
         public init(workspace: String, lastActive: Date?, shown: Bool = false, pinned: Bool = false, running: Bool = false,
-                    needsAttention: Bool = false, keptAwake: Bool = false, hibernated: Bool = false) {
+                    needsAttention: Bool = false, keptAwake: Bool = false, hibernated: Bool = false, inHiddenSpace: Bool = false) {
             self.workspace = workspace
             self.lastActive = lastActive
             self.shown = shown
@@ -69,6 +79,7 @@ public nonisolated struct WorkspaceHibernationPlanner: Sendable {
             self.needsAttention = needsAttention
             self.keptAwake = keptAwake
             self.hibernated = hibernated
+            self.inHiddenSpace = inHiddenSpace
         }
 
         /// Whether anything keeps it awake whatever its age.
@@ -99,9 +110,11 @@ public nonisolated struct WorkspaceHibernationPlanner: Sendable {
     public static let criticalIdle: TimeInterval = 60
 
     /// Seconds a workspace must stay idle under `pressure`, or nil when nothing hibernates on its own.
-    public func idleSeconds(_ policy: Policy, pressure: MemoryPressureLevel) -> TimeInterval? {
+    /// `hiddenSpace`: the workspace's space is shown in no window, so the shorter hidden-space setting applies.
+    public func idleSeconds(_ policy: Policy, pressure: MemoryPressureLevel, hiddenSpace: Bool = false) -> TimeInterval? {
         guard policy.enabled else { return nil }
-        let normal = max(policy.idleMinutes, 1) * 60
+        let minutes = hiddenSpace ? min(policy.idleMinutes, policy.hiddenSpaceIdleMinutes) : policy.idleMinutes
+        let normal = max(minutes, 1) * 60
         return switch pressure {
         case .normal: normal
         case .warning: min(normal, Self.warningIdle)
@@ -111,12 +124,13 @@ public nonisolated struct WorkspaceHibernationPlanner: Sendable {
 
     /// The plan for `candidates` at `now`.
     public func plan(_ candidates: [Candidate], policy: Policy, pressure: MemoryPressureLevel, now: Date) -> Plan {
-        guard let idle = idleSeconds(policy, pressure: pressure) else { return Plan() }
+        guard let idle = idleSeconds(policy, pressure: pressure),
+              let hiddenIdle = idleSeconds(policy, pressure: pressure, hiddenSpace: true) else { return Plan() }
         var due: [(String, TimeInterval)] = []
         var next: Date?
         for candidate in candidates where !candidate.isKept {
             guard let lastActive = candidate.lastActive else { continue }
-            let deadline = lastActive.addingTimeInterval(idle)
+            let deadline = lastActive.addingTimeInterval(candidate.inHiddenSpace ? hiddenIdle : idle)
             if deadline <= now {
                 due.append((candidate.workspace, now.timeIntervalSince(lastActive)))
             } else if next.map({ deadline < $0 }) ?? true {

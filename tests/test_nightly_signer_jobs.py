@@ -16,6 +16,7 @@ verify-final-dmg-nightly, which publish needs anyway.
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 import shutil
@@ -130,12 +131,48 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 if name in SECRET_JOBS:
                     self.assertEqual(job["environment"], "${{ needs.decide.outputs.environment }}")
-                    self.assertIn("ubuntu", job["runs-on"])
+                    self.assertIn("needs.pick-nightly-sign-runner.outputs.linux", job["runs-on"])
+                    self.assertIn("linux_alternate", job["runs-on"])
                     self.assertNotIn("macos", job["runs-on"])
                     self.assertNotIn("secrets.", yaml.safe_dump(job.get("env") or {}))
                 else:
                     self.assertNotIn("environment", job)
                     self.assertNotIn("secrets.", text)
+
+    def test_signer_compiler_uses_the_blacksmith_linux_set(self):
+        runs_on = JOBS["signer-build"]["runs-on"]
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt", runs_on)
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.linux_alternate", runs_on)
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.linux", runs_on)
+        self.assertIn("contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]')", runs_on)
+        self.assertIn("pick-nightly-sign-runner", needs(JOBS["signer-build"]))
+
+    def test_production_signers_never_use_hosted_or_single_label_routes(self):
+        """Every credentialed signer reads the reconciled Blacksmith pool."""
+        runner_map = json.loads((ROOT / ".github/runners.json").read_text())
+        linux_set = runner_map["fleets"]["blacksmith"]
+        self.assertEqual(
+            {linux_set["linux"], linux_set["linux_16"], linux_set["linux_32"]},
+            {
+                "blacksmith-4vcpu-ubuntu-2404",
+                "blacksmith-16vcpu-ubuntu-2404",
+                "blacksmith-32vcpu-ubuntu-2404",
+            },
+        )
+        for name in ("signer-build", "signer-app", "signer-app-notary", "signer-dmg"):
+            runs_on = JOBS[name]["runs-on"]
+            with self.subTest(job=name):
+                self.assertIn("needs.pick-nightly-sign-runner.outputs.linux", runs_on)
+                # Fork/manual runs have no repository variables; the owner
+                # guard keeps their expression from evaluating RUNNER_POOLS.
+                # The production branch after that guard must never use hosted
+                # Ubuntu or a fixed Linux label.
+                owner_guard = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' ||"
+                self.assertIn(owner_guard, runs_on)
+                self.assertNotIn("ubuntu-24.04", runs_on.split(owner_guard, 1)[1])
+                self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+                self.assertIn("blacksmith-16vcpu-ubuntu-2404", runs_on)
+                self.assertIn("blacksmith-32vcpu-ubuntu-2404", runs_on)
 
     def test_the_helper_is_notarized_first_and_every_signer_call_is_checked(self):
         steps = {step.get("name"): step for step in JOBS["signer-app"]["steps"]}
@@ -228,8 +265,15 @@ class Wiring(unittest.TestCase):
             self.assertIn(mode, image[finish]["run"])
         self.assertNotIn("continue-on-error", image[finish])
         self.assertNotIn("if", image[finish])
-        image_uploads = [s["with"]["name"] for s in image if "upload-artifact" in str(s.get("uses", ""))]
-        self.assertEqual(image_uploads, ["cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"])
+        image_uploads = [s for s in image if "upload-artifact" in str(s.get("uses", ""))]
+        dmg_artifact = "cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
+        self.assertEqual([s["with"]["name"] for s in image_uploads], [dmg_artifact, dmg_artifact])
+        # One retry of a timed-out upload, only when the first one failed, with the same inputs.
+        first, retry = image_uploads
+        self.assertEqual(first.get("continue-on-error"), True)
+        self.assertEqual(retry.get("if"), f"steps.{first['id']}.outcome == 'failure'")
+        self.assertEqual(first["with"], retry["with"])
+        self.assertNotIn("continue-on-error", retry)
         app_upload = next(s for s in JOBS["signer-app"]["steps"] if "upload-artifact" in str(s.get("uses", "")))
         self.assertEqual(app_upload["with"]["compression-level"], 6)
         # verify-signed-nightly's checks, by the commands it runs.

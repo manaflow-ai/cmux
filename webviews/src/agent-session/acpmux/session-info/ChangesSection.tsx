@@ -322,7 +322,7 @@ function PullRequestRow({
         href={pr.url}
         anchor={anchor}
         hover={hover}
-        mark={<GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />}
+        mark={<GitHubMark size={14} className="cv-chip__icon cv-chip__icon--gh" />}
         siteTitle={site?.title}
         pullRequest={{ repo: pr.repo, number: pr.number, title: title || undefined, state }}
         side="top"

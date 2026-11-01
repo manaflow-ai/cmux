@@ -175,9 +175,9 @@ public struct LiveCallScreen: View {
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08),
                                          .init(color: .black, location: 0.94), .init(color: .clear, location: 1)],
                                  startPoint: .top, endPoint: .bottom))
-            .onChange(of: session.lines.last?.text) { _, _ in
-                withAnimation(theme.motion.smooth.animation) { proxy.scrollTo("end", anchor: .bottom) }
-            }
+            // A caption growing word by word stays on the bottom through the size-change
+            // anchor above; an animated scroll per word fought it (and each one ran a scroll
+            // animation for every token). A new line still scrolls into view once.
             .onChange(of: session.lines.count) { _, _ in
                 withAnimation(theme.motion.smooth.animation) { proxy.scrollTo("end", anchor: .bottom) }
             }

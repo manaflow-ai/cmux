@@ -21,6 +21,7 @@ two cannot drift apart.
 
 from __future__ import annotations
 
+import json
 import re
 from functools import cache
 from pathlib import Path
@@ -142,7 +143,10 @@ SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
 # The light minis' side label for the smallest side-lane jobs (attempt 1);
 # held to the same rule as CI_SIDE_LANE_RUNNER.
 LIGHT_LANE_VARIABLE = "CI_LIGHT_LANE_RUNNER"
-SIDE_LANE_VARIABLES = (SIDE_LANE_VARIABLE, LIGHT_LANE_VARIABLE)
+# The owned-mini member the no-kernel Linux gates (ci.yml admission, preflight and status gates, ci-web.yml's webview jobs) take
+# ahead of Blacksmith when set: a side label too, for a Blacksmith backlog (2026-11-01).
+LINUX_GATE_OWNED_VARIABLE = "CI_LINUX_GATE_OWNED_RUNNER"
+SIDE_LANE_VARIABLES = (SIDE_LANE_VARIABLE, LIGHT_LANE_VARIABLE, LINUX_GATE_OWNED_VARIABLE)
 SIDE_LANE_PREFIX = "glaeda-side-"
 
 
@@ -332,10 +336,62 @@ def forbidden_reason(label: str) -> str | None:
 # SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO".
 NO_HOSTED_MAC_VARIABLES = frozenset({
     "CI_CONTROL_RUNNER", "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
-    "LINUX_RUNNER",
+    "LINUX_RUNNER", "CI_NIGHTLY_ONLY_RUNNER", "CI_NIGHTLY_ONLY_BUILDER_RUNNER",
+    "RUNNER_POOLS",
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
 })
 HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
+
+
+def runner_pools_reason(value: str) -> str | None:
+    """Validate the label values in the structured RUNNER_POOLS variable.
+
+    RUNNER_POOLS is JSON rather than a scalar runner label.  Its `_dead`
+    metadata is timestamps and is deliberately ignored; every other pool
+    member is a runner label and must not smuggle in a hosted Mac or a
+    self-hosted fleet label.
+    """
+    if not value.strip():
+        return None
+    try:
+        pools = json.loads(value)
+    except (TypeError, ValueError):
+        return "is not valid JSON, so its runner labels cannot be checked"
+    if not isinstance(pools, dict):
+        return "is not a JSON object of runner pool labels"
+
+    def check(pool: object, value: object) -> str | None:
+        if isinstance(value, str):
+            if not value.strip():
+                return None
+            original = value.strip()
+            if HOSTED_MAC_LABEL.fullmatch(original.lower()):
+                return f"pool `{pool}` names a GitHub-hosted Mac `{original}`"
+            reason = forbidden_reason(original)
+            return f"pool `{pool}` {reason}" if reason is not None else None
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key == "_dead":
+                    continue
+                reason = check(pool, child)
+                if reason is not None:
+                    return reason
+            return None
+        if isinstance(value, list):
+            for child in value:
+                reason = check(pool, child)
+                if reason is not None:
+                    return reason
+            return None
+        return f"pool `{pool}` is not a string runner label"
+
+    for pool, label in pools.items():
+        if pool == "_dead":
+            continue
+        reason = check(pool, label)
+        if reason is not None:
+            return reason
+    return None
 
 
 def drifted_runner_variables(
@@ -350,11 +406,22 @@ def drifted_runner_variables(
     for name, value in variables.items():
         if not isinstance(value, str):
             continue
+        if name == "RUNNER_POOLS":
+            reason = runner_pools_reason(value)
+            if reason is not None:
+                drifted.append((name, value.strip(), reason))
+            continue
         if name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL.fullmatch(value.strip().lower()):
             drifted.append((name, value.strip(), "names a GitHub-hosted Mac; the nightly path takes the fleet, then Blacksmith"))
             continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())
+        elif name == "CI_NIGHTLY_ONLY_RUNNER":
+            reason = (None if value.strip() in ("", "glaeda-nightly-only-m4pro") else
+                      "must name the enrolled all-nightly reservation or be unset")
+        elif name == "CI_NIGHTLY_ONLY_BUILDER_RUNNER":
+            reason = (None if value.strip() in ("", "glaeda-nightly-only-m4pro-builder") else
+                      "must name the all-nightly reservation's warm builder or be unset")
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
         elif name == NIGHTLY_NEXT_BUILD_VARIABLE:

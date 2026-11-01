@@ -59,6 +59,7 @@ DEV = "cmux-next-dev"
 RING_CHANNELS = ("cmux-next-stable", NIGHTLY, "cmux-next-canary", DEV)
 MODES = ("on", "off")
 LEGACY_DEV_ITEMS = 5
+CMUX_NS = "https://cmux.com/xml-namespaces/cmux"
 
 ITEM = re.compile(r"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*([^<]*?)\s*</sparkle:version>")
@@ -170,6 +171,12 @@ def legacy(new: str, current: str | None, mode: str, verdict_of) -> tuple[str, d
             prefix = declaration.group(1)
             if re.search(rf"\bxmlns:{re.escape(prefix)}\s*=", opening) is None:
                 opening = opening[:-1] + declaration.group(0) + ">"
+        text = text[:new_root.start()] + opening + text[new_root.end():]
+    # A copied item may use cmux: without the old root declaring it (the live
+    # feed of 2026-11-01): bind it on the new root so the feed still parses.
+    new_root = re.search(r"<rss\b[^>]*>", text)
+    if new_root and "<cmux:" in text and re.search(r"\sxmlns:cmux\s*=", new_root.group(0)) is None:
+        opening = new_root.group(0)[:-1] + f' xmlns:cmux="{CMUX_NS}">'
         text = text[:new_root.start()] + opening + text[new_root.end():]
     return text, {"channels": {build: channels[build] for build in kept},
                   "dropped": [build for build in ordered if build not in kept]}

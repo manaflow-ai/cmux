@@ -123,6 +123,7 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 export function ThreadMinimap({
   rows,
   earlier = EMPTY_EARLIER,
+  promptCount,
   loadThrough,
   sessionId,
   layout,
@@ -130,6 +131,7 @@ export function ThreadMinimap({
   scrollTop,
   viewportHeight,
   foot,
+  railBox,
   scrolls,
   width,
   columnWidth = width,
@@ -139,6 +141,10 @@ export function ThreadMinimap({
   rows: readonly AcpmuxRow[];
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
   earlier?: readonly AcpmuxRow[];
+  /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
+  /// `promptCount`): the rail's box is that many prompts tall from the first frame, and the held
+  /// prompts' ticks sit at the rows they keep once the rest arrive.
+  promptCount?: number;
   loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
   layout: ConversationLayout;
@@ -148,6 +154,12 @@ export function ThreadMinimap({
   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
   foot?: number;
+  /// The rail's own vertical box, when the transcript gives one: the scroller's height and the foot of
+  /// its resting bottom stack (VirtualTranscript `railBox`). The rail's height and top read only this,
+  /// so a composer that grows, a tray that opens or a followed view's lift never move it (Leo,
+  /// 2026-11-01: "the left side scroll rail needs to not really get affected by most other layout
+  /// things it shouldn't really shift much at all"). Without one, `viewportHeight` and `foot`.
+  railBox?: { height: number; foot: number };
   /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
   scrolls: boolean;
   width: number;
@@ -283,7 +295,6 @@ export function ThreadMinimap({
   /// scrolls under a still pointer, the hovered row is the one now under it.
   const pointerY = useRef<number | undefined>(undefined);
   const swallowClick = useRef(false);
-  const windowHeight = globalThis.innerHeight || viewportHeight;
   /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
   /// frame or two late (React schedules a scroll's render), so the band of lit rows read it here
   /// instead and follows the reader on the scroll's own frame.
@@ -303,15 +314,35 @@ export function ThreadMinimap({
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight, loadedStart);
-  /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
-  const height = railHeight(
-    turns.length,
+  const boxHeight = railBox?.height ?? viewportHeight;
+  const boxFoot = railBox?.foot ?? foot;
+  /// The window the rail's 92% cap reads. Without one (no layout), the rail's own box stands in, not
+  /// `viewportHeight`: that is the view less the room under the last row (the stack plus the rest
+  /// gap, #30297), so a composer that grows would shorten the rail (Leo, 2026-11-01: "the left side
+  /// scroll rail needs to not really get affected by most other layout things").
+  const windowHeight = globalThis.innerHeight || boxHeight;
+  /// Every prompt the chat has, held or not yet: the rail's box is this many prompts tall from the first
+  /// frame (Leo, 2026-11-01: "i also want the left scroll rail to be starting off to its max height if
+  /// there truly are that many prompts in the chat and also for it to shift less on load").
+  const known = Math.max(turns.length, promptCount ?? 0);
+  /// The box: never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
+  const boxRail = railHeight(
+    known,
     windowHeight,
-    viewportHeight,
-    foot,
+    boxHeight,
+    boxFoot,
     onScreen.last - onScreen.first + 1,
     railHeightConfig(heightArm),
   );
+  /// The rows above the held ticks that the prompts still to come take: the held ones are the chat's
+  /// latest, so they sit where they will be once the rest arrive (at the end of a full list's view).
+  /// A full list that fits ends at its last row; one longer than the box scrolls to the box's end.
+  const lead = Math.max(0, Math.min(known * ROW_PITCH, boxRail) - turns.length * ROW_PITCH);
+  /// The list's own height, under the lead (the whole box once every prompt is held).
+  const height = boxRail - lead;
+  const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
+  /// Where the list's first row draws in the view.
+  const railTop = boxTop + lead;
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
   // Session Info's chat shift; only its own pane-width inset changes.
   // Its edge (railSide.ts): on the right it is the same rail mirrored, `placement.left` in from the
@@ -322,13 +353,18 @@ export function ThreadMinimap({
   const edge = placement.reserve + placement.left;
   const [cardFocus, setCardFocus] = useState(false);
   const railVisible = !placement.overlapsText || railRevealed || domFocus !== undefined || cardFocus || scrubbing;
-  const railWidth = placement.overlapsText && railVisible ? ROW_WIDTH : placement.width;
+  // A rail compressed narrower than a magnified tick and its dot (TICK_BOX + 4 px) widens over the text
+  // while it is in use (hovered, focused, scrubbed or revealed), so those ticks draw whole; at rest it
+  // keeps its gutter.
+  const inUse = railRevealed || hovered !== undefined || domFocus !== undefined || cardFocus || scrubbing;
+  const widens = (placement.overlapsText && railVisible) || (inUse && placement.width < TICK_BOX + 4);
+  const railWidth = widens ? ROW_WIDTH : placement.width;
   // The occluded rail's hover strip reaches the text edge and no further, so clicks, links and
   // selection drags on the text stay the text's; it keeps at least the pane-edge inset at any width.
   const stripWidth = Math.max(placement.left, Math.min(placement.left + placement.width, placement.gutter));
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. At
   // narrow widths the pane-edge strip stays live even while the visual rail is occluded by text.
-  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && height >= ROW_PITCH;
+  const shown = arm === "compact" && known >= MIN_PROMPTS && turns.length > 0 && height >= ROW_PITCH;
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
@@ -601,7 +637,6 @@ export function ThreadMinimap({
     anchor.current = undefined;
     holding.current = false;
     if (!shown || !turns.length) return;
-    const railTop = railTopAt(height, viewportHeight, foot);
     let scrolled = listTop;
     if (added !== undefined && was) {
       holding.current = true;
@@ -875,7 +910,6 @@ export function ThreadMinimap({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const railTop = railTopAt(height, viewportHeight, foot);
   const fades = railFades(onScreen, turns.length, height, listTop);
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
@@ -897,9 +931,9 @@ export function ThreadMinimap({
           data-side={side}
           style={{
             ...railEdge(side, placement.reserve),
-            top: railTop,
+            top: boxTop,
             width: railVisible ? placement.left : stripWidth,
-            height,
+            height: boxRail,
           }}
           onPointerEnter={() => {
             overStrip.current = true;
@@ -919,9 +953,9 @@ export function ThreadMinimap({
           style={
             {
               ...railEdge(side, edge),
-              top: railTop,
+              top: boxTop,
               width: railWidth,
-              height,
+              height: boxRail,
               "--acpmux-minimap-lit": lit,
               "--acpmux-minimap-mark": mark.bar,
               "--acpmux-minimap-mark-dot": mark.dot,
@@ -929,6 +963,8 @@ export function ThreadMinimap({
           }
           data-hovering={hovered !== undefined || undefined}
           data-occluded={!railVisible || undefined}
+          // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
+          data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
           data-snap={snap || undefined}
@@ -968,6 +1004,8 @@ export function ThreadMinimap({
             {...(overflow ? { [RAIL_SCROLLS_ATTRIBUTE]: "" } : {})}
             style={
               {
+                // Under the rows the prompts still to come take (`lead`), at the rows it keeps.
+                ...(lead > 0 ? { marginTop: lead, height } : {}),
                 "--acpmux-minimap-fade": `${railFade(height)}px`,
                 // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css). Each
                 // tick keeps its own place from its mount (Tick), so a scroll changes nothing the list's

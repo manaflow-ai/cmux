@@ -42,9 +42,16 @@ pub struct ChiefSettings {
     /// refused for Chief to cut (`replies.maxWords`, chief_kernel::replies);
     /// 0 turns the gate off. Default 45.
     pub reply_max_words: usize,
+    /// Whether the host pauses cloud VMs on its own (`cloud.autoPause`):
+    /// a pool VM after `cloud.autoPauseIdleSeconds` with no live subagent, a
+    /// subagent's own VM when its run ends, and every idle one when the host
+    /// stops. Default false: no auto pause (Leo, 2026-10-30: "we're saying
+    /// no auto pausing of the freestyle vms for now"). Pausing by hand is
+    /// unchanged.
+    pub cloud_auto_pause: bool,
     /// Seconds a cloud VM waits with no live cloud subagent before the host
-    /// pauses it (`cloud.autoPauseIdleSeconds`, cloud-subagents-DESIGN.md
-    /// B4). Default 60.
+    /// pauses it, when `cloud.autoPause` is on (`cloud.autoPauseIdleSeconds`,
+    /// cloud-subagents-DESIGN.md B4). Default 60.
     pub cloud_auto_pause_idle_secs: u64,
     /// Days a finished subagent's own VM stays paused (for a later tell)
     /// before the host deletes it (`cloud.deleteAfterPausedDays`,
@@ -96,6 +103,7 @@ impl Default for ChiefSettings {
             show_subagent_workspaces: false,
             trace_full: false,
             reply_max_words: chief_kernel::replies::REPLY_MAX_WORDS,
+            cloud_auto_pause: false,
             cloud_auto_pause_idle_secs: 60,
             cloud_delete_after_paused_days: 7,
         }
@@ -122,6 +130,9 @@ pub const REPLY_MAX_WORDS: &str = "replies.maxWords";
 
 /// The key of `ChiefSettings::trace_full`.
 pub const TRACE_FULL: &str = "trace.full";
+
+/// The key of `ChiefSettings::cloud_auto_pause`.
+pub const CLOUD_AUTO_PAUSE: &str = "cloud.autoPause";
 
 /// The key of `ChiefSettings::cloud_auto_pause_idle_secs`.
 pub const CLOUD_AUTO_PAUSE_IDLE_SECONDS: &str = "cloud.autoPauseIdleSeconds";
@@ -151,6 +162,7 @@ impl ChiefSettings {
                 .as_u64()
                 .map(|n| n as usize)
                 .unwrap_or(chief_kernel::replies::REPLY_MAX_WORDS),
+            cloud_auto_pause: value["cloud"]["autoPause"].as_bool().unwrap_or(false),
             cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
                 .as_u64()
                 .unwrap_or(60),
@@ -176,6 +188,7 @@ impl ChiefSettings {
             value["trace"] = json!({"full": true});
         }
         value["cloud"] = json!({
+            "autoPause": self.cloud_auto_pause,
             "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
             "deleteAfterPausedDays": self.cloud_delete_after_paused_days,
         });

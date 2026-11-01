@@ -1,6 +1,6 @@
 public import CmuxNextDesign
 public import CmuxNextIcons
-import Foundation
+public import Foundation
 
 /// What a workspace's tab is (`SidebarTab.kind`).
 public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
@@ -42,9 +42,21 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var state: StatusIndicatorState = .idle
     /// The tab's folder, shortened as the row's is ("~", "~/src/cmux").
     public var folder: String?
+    /// What the tab's agent chat runs below its turn now (acpmux's `subagentsRunning` and
+    /// `commandsRunning`): the hover card's tab row counts them (Leo 2026-11-01: "this hover
+    /// preview being able to see the # of associated subagents and whatnot").
+    public var subagentsRunning = 0
+    public var commandsRunning = 0
+    /// A browser tab's page host ("github.com"); nil for a blank page and every other kind.
+    public var host: String?
+    /// The terminal's git branch; nil outside a repository.
+    public var branch: String?
+    /// The tab's newest agent update or notification; nil without one.
+    public var lastActivity: Date?
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
-                favicon: SidebarFavicon? = nil, folder: String? = nil, state: StatusIndicatorState = .idle) {
+                favicon: SidebarFavicon? = nil, folder: String? = nil, state: StatusIndicatorState = .idle,
+                host: String? = nil, branch: String? = nil, lastActivity: Date? = nil) {
         self.id = id
         self.title = title
         self.kind = kind
@@ -53,5 +65,8 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
         self.favicon = favicon
         self.folder = folder
         self.state = state
+        self.host = host
+        self.branch = branch
+        self.lastActivity = lastActivity
     }
 }

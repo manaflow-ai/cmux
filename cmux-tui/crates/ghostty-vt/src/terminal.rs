@@ -2007,6 +2007,20 @@ impl Terminal {
         self.vt_replay_bounded_with_palette(max_bytes, true)
     }
 
+    /// Tests: [`Self::vt_replay_bounded_with_palette`] with the second text
+    /// layout always run, as before the one-pass reuse, as the reference.
+    #[cfg(test)]
+    pub(crate) fn vt_replay_bounded_two_pass_for_test(
+        &mut self,
+        max_bytes: usize,
+        include_palette: bool,
+    ) -> Result<VtReplay> {
+        FORCE_TWO_PASS.with(|force| force.set(true));
+        let replay = self.vt_replay_bounded_with_palette(max_bytes, include_palette);
+        FORCE_TWO_PASS.with(|force| force.set(false));
+        replay
+    }
+
     /// Theme-portable replay for process-separated renderers.
     ///
     /// This reproduces cells, styles, modes, cursor, history, and Kitty
@@ -2123,12 +2137,23 @@ impl Terminal {
             active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
 
         let text_budget = remaining.saturating_sub(visible_cost);
-        let text = self.vt_replay_text_layout_bounded(
-            text_budget,
-            catalog.placement_rows(),
-            active_start,
-            include_palette,
-        )?;
+        // With no visible image to make room for, the budget is the one the
+        // text was just laid out with, and the layout (a read of the screen
+        // with the same arguments) is the same: no second formatter pass.
+        #[cfg(test)]
+        let reuse = text_budget == remaining && !FORCE_TWO_PASS.with(std::cell::Cell::get);
+        #[cfg(not(test))]
+        let reuse = text_budget == remaining;
+        let text = if reuse {
+            active_text
+        } else {
+            self.vt_replay_text_layout_bounded(
+                text_budget,
+                catalog.placement_rows(),
+                active_start,
+                include_palette,
+            )?
+        };
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
         let graphics = catalog.plan(text.range, graphics_budget, false);
         let reset_before_images = text.range.is_none();
@@ -2178,6 +2203,8 @@ impl Terminal {
         minimum_start: Option<u64>,
         include_palette: bool,
     ) -> Result<ReplayText> {
+        #[cfg(test)]
+        REPLAY_TEXT_LAYOUTS.with(|count| count.set(count.get() + 1));
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(ReplayText::minimal(max_bytes));
         };
@@ -3122,6 +3149,18 @@ impl Drop for Terminal {
         }
     }
 }
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: text layouts (formatter passes) since the thread started.
+    static REPLAY_TEXT_LAYOUTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Tests: lay the text out twice, as before the reuse.
+    static FORCE_TWO_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+#[path = "replay_layout_tests.rs"]
+mod replay_layout_tests;
 
 #[path = "terminal_history.rs"]
 mod history;

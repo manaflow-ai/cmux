@@ -199,6 +199,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "--empty",
                 "--ephemeral",
                 "--focus",
+                "--top",
                 "--name",
                 "empty",
                 "--correlation-key",
