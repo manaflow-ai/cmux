@@ -55,9 +55,10 @@ struct ChatWorkspaceShowsAtOnceTests {
     }
 
     /// The stand-in can be closed before the daemon answers (an agent opened a chat; the person closes its row at
-    /// once). That close runs after the daemon's create, in the same lane, so it closes what the daemon made: no
-    /// workspace and no tab are left, in the store or the daemon, and the row does not come back. Without the lane the
-    /// close was sent for a workspace the daemon did not have yet, failed, and the daemon's create then listed it again.
+    /// once). The open's task sends create-workspace before any close of the stand-in can be sent, on the same
+    /// connection, so the close lands after it: it closes what the daemon made, or makes the open's tab fail on a
+    /// closed workspace (the stand-in then goes). Either way no workspace or tab is left, in the store or the daemon,
+    /// and the row does not come back. A guard: the base keeps this order (red 3 at d9193990 passed without a lane).
     @Test func aCloseOfTheStandInBeforeTheDaemonAnswersLeavesNothing() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
