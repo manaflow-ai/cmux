@@ -387,8 +387,7 @@ extension AgentTabStore {
                 }
             }
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
-            if host.cloudMachineID != nil, services.cloud.configuration.linkSource == .appServer,
-               daemon.supports(DaemonCapability.agentSessionTurnRewind.rawValue) {
+            if host.cloudMachineID != nil, services.cloud.configuration.linkSource == .appServer {
                 host.cloudTurn = Self.turnForwarder(tab: key, services: services)
             }
             if started {

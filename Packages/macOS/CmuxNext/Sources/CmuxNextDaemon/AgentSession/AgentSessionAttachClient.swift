@@ -77,6 +77,7 @@ public actor AgentSessionAttachClient {
     /// What ``transport``'s daemon serves, read from its own `identify` on that connection and
     /// replaced only together with it.
     private var served = Served()
+    public private(set) var supportsCloudTurns = false
     /// Counts the connections this client began to make (``connect(quiet:)``).
     private var connectsBegun = 0
     /// The newest connection made: its number in ``connectsBegun`` and whether its close tells
@@ -140,7 +141,9 @@ public actor AgentSessionAttachClient {
             return try await self.call(command, params)
         }
         attachTail = Task { _ = await task.result }
-        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        supportsCloudTurns = ((try? JSONSerialization.jsonObject(with: result)) as? [String: Any])?["cloud_turn_supported"] as? Bool == true
+        return result
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
@@ -520,6 +523,7 @@ public actor AgentSessionAttachClient {
     }
 
     private func connect(quiet: Bool) async throws -> (LineTransport, Served) {
+        supportsCloudTurns = false
         connectsBegun += 1
         let number = connectsBegun
         let transport: LineTransport

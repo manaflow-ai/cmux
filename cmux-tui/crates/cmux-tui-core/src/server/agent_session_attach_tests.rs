@@ -169,6 +169,7 @@ pub(super) struct Fixture {
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) turn_prepare_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    pub(super) turn_unsupported: bool,
 }
 
 fn serve(
@@ -187,6 +188,8 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "initialize" => Some(json!({"_meta":{"acpmux":{"capabilities":
+                if fixture.turn_unsupported { vec![] } else { vec!["cloud-turn-prepare-v1"] }}}})),
             "agent-session-turn-prepare" => {
                 let answer = json!({"session":SESSION,"turn":"turn_1"});
                 if let Some(gate) = fixture.turn_prepare_gate.clone() {

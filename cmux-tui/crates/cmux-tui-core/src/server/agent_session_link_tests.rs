@@ -65,7 +65,11 @@ fn closing_a_link_releases_a_queued_turn_without_a_reply() {
     let pending = link.clone();
     let (done, result) = std::sync::mpsc::channel();
     let waiter = std::thread::spawn(move || {
-        let _ = done.send(pending.call_until_closed("agent-session-turn-prepare", json!({})));
+        let _ = done.send(pending.call(
+            "agent-session-turn-prepare",
+            json!({}),
+            Duration::from_secs(120),
+        ));
     });
     request.recv_timeout(WAIT).unwrap();
     link.close();

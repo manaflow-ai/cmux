@@ -88,7 +88,6 @@ runtime_only = {
     "agent-inventory-watch-admission-v1", "agent-inventory-watch-v1",
     "agent-session-attach-v1", "agent-session-children-v1", "agent-session-folders-v1", "agent-session-observe-v1",
     "agent-session-presence-v1", "agent-session-start-keyed-reason-v1", "agent-session-start-v1",
-    "agent-session-turn-rewind-v1",
     "agent-session-start-vm-kind-v1", "agent-session-start-model-v1", "agent-session-trust-v1", "agent-session-trust-vm-kind-v1",
     "cloud-attachments-v1", "cloud-chief-live-v1",
     "cloud-conversation-runs-v1", "cloud-conversation-typing-v1", "cloud-conversations-v1",
@@ -113,8 +112,6 @@ chmod 700 "$root/state"
 run_binary() {
   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$root/home" TMPDIR="$root" \
     CMUX_TUI_STATE_DIR="$root/state" CMUX_TUI_CONFIG="$root/home/no-config.toml" \
-    CMUX_PLATFORM_ORIGIN=https://platform-capability-probe.invalid \
-    CMUX_PLATFORM_WORKSPACE_ID=workspace-capability-probe CMUX_PLATFORM_MACHINE_ID=machine-capability-probe \
     "$binary" --session "$session" --json "$@"
 }
 cleanup() {
@@ -136,8 +133,6 @@ trap cleanup EXIT
 # unknown-option error) is probed unbound; the trap still stops it. Any other
 # failure fails the check with the bound attempt's error.
 ensure=(server ensure --terminal-reap-grace-seconds 30)
-# This capability exists only on a configured new-platform workspace machine. The
-# isolated probe needs a synthetic binding; it makes no requests to that origin.
 unknown_option='--exit-with-pid needs a value, or is not an option of this action|unknown flag --exit-with-pid'
 if ! ensured="$(run_binary "${ensure[@]}" --exit-with-pid "$$" 2>"$root/ensure.err")" \
   && ! { grep -qE -- "$unknown_option" "$root/ensure.err" \

@@ -14,6 +14,8 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func events(_ page: AgentSessionPage) async throws -> Data
     /// Sends one text prompt; answers `{prompt_id, turn_id, queued}` once acpmux recorded it.
     func prompt(id: String, text: String) async throws -> Data
+    /// Proven by this attachment's actual acpmux, not just a configured socket path.
+    func supportsCloudTurns() async -> Bool
     /// Allocates the immutable turn id before the native owner captures this machine.
     func prepareCloudTurn(id: String, scope: Data) async throws -> Data
     func abandonCloudTurn(id: String) async throws
@@ -46,6 +48,7 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
 }
 
 extension AgentSessionRemoteClient {
+    public func supportsCloudTurns() async -> Bool { false }
     public func prepareCloudTurn(id: String, scope: Data) async throws -> Data { throw Self.turnUnsupported }
     public func abandonCloudTurn(id: String) async throws { throw Self.turnUnsupported }
     public func prompt(id: String, text: String, cloudTurn: Data) async throws -> Data { throw Self.turnUnsupported }

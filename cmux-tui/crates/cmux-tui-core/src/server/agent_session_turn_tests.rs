@@ -56,18 +56,23 @@ fn cloud_turn_transport_is_conditional_and_preserves_scope_and_capability() {
     let mux = mux_with(&fake, "turn-bridge");
     assert!(!capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     configure_turns(&mux);
-    assert!(capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
+    assert!(!capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "turn-bridge");
     assert_eq!(attach(&mut client, surface)["ok"], true);
+    assert_eq!(fake.frame()["method"], "initialize");
     let _ = fake.frame();
+    assert!(capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     let reply = client.request(json!({"cmd":"agent-session-turn-prepare","surface":surface,
         "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3}));
     assert_eq!(reply["data"], json!({"session":SESSION,"turn":"turn_1"}));
     let frame = fake.frame();
     assert_eq!(frame["method"], "agent-session-turn-prepare");
+    assert!(frame["params"]["deadline_ms"].as_u64().is_some());
+    let mut sent = frame["params"].clone();
+    sent.as_object_mut().unwrap().remove("deadline_ms");
     assert_eq!(
-        frame["params"],
+        sent,
         json!({"sessionId":SESSION,"prompt_id":"p1",
         "workspace":"ws_one","machine":"vm_logical","generation":3})
     );
@@ -88,17 +93,24 @@ fn cloud_turn_transport_is_conditional_and_preserves_scope_and_capability() {
 }
 
 #[test]
-fn cloud_turn_transport_refuses_missing_malformed_or_wrong_scope_without_dispatch() {
+fn cloud_turn_transport_keeps_legacy_prompts_and_refuses_malformed_or_wrong_scope() {
     let fake = FakeAcpmux::start("turn-refusal");
     let mux = mux_with(&fake, "turn-refusal");
     configure_turns(&mux);
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "turn-refusal");
     assert_eq!(attach(&mut client, surface)["ok"], true);
+    assert_eq!(fake.frame()["method"], "initialize");
     let _ = fake.frame();
     let mut wrong = turn_capability();
     wrong["machine"] = json!("other");
-    for envelope in [None, Some(Value::Null), Some(json!({})), Some(wrong)] {
+    assert_eq!(
+        client.request(json!({"cmd":"agent-session-prompt","surface":surface,
+        "prompt_id":"legacy","text":"hello"}))["ok"],
+        true
+    );
+    assert!(fake.frame()["params"].get("cloud_turn").is_none());
+    for envelope in [Some(Value::Null), Some(json!({})), Some(wrong)] {
         let mut frame =
             json!({"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"});
         if let Some(envelope) = envelope {
@@ -132,6 +144,7 @@ fn cloud_turn_wait_does_not_block_cancel_on_the_same_native_connection() {
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "turn-wait");
     assert_eq!(attach(&mut client, surface)["ok"], true);
+    assert_eq!(fake.frame()["method"], "initialize");
     let _ = fake.frame();
     let prepared = client.send(json!({"cmd":"agent-session-turn-prepare","surface":surface,
         "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3}));
@@ -140,4 +153,54 @@ fn cloud_turn_wait_does_not_block_cancel_on_the_same_native_connection() {
     assert_eq!(fake.frame()["method"], "session/cancel");
     release.send(()).unwrap();
     assert_eq!(client.answer(prepared)["data"]["turn"], "turn_1");
+}
+
+#[test]
+fn cloud_turn_prepare_refuses_expired_or_unbounded_deadlines() {
+    let fake = FakeAcpmux::start("turn-deadline");
+    let mux = mux_with(&fake, "turn-deadline");
+    configure_turns(&mux);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "turn-deadline");
+    assert_eq!(attach(&mut client, surface)["ok"], true);
+    assert_eq!(fake.frame()["method"], "initialize");
+    let _ = fake.frame();
+    for deadline in [0, u64::MAX] {
+        assert_code(
+            &client.request(json!({"cmd":"agent-session-turn-prepare","surface":surface,
+            "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3,
+            "deadline_ms":deadline})),
+            "agent_session.bad_request",
+        );
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn configured_machine_with_old_acpmux_keeps_plain_prompts_without_advertising_rewind() {
+    let fake = FakeAcpmux::start_with(
+        "turn-old",
+        Fixture { turn_unsupported: true, ..Fixture::default() },
+    );
+    let mux = mux_with(&fake, "turn-old");
+    configure_turns(&mux);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "turn-old");
+    let attached = attach(&mut client, surface);
+    assert_eq!(attached["data"]["cloud_turn_supported"], false);
+    assert_eq!(fake.frame()["method"], "initialize");
+    let _ = fake.frame();
+    assert!(!capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
+    assert_eq!(
+        client.request(json!({"cmd":"agent-session-prompt","surface":surface,
+        "prompt_id":"legacy","text":"hello"}))["ok"],
+        true
+    );
+    assert_eq!(fake.frame()["method"], "session/prompt");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-turn-prepare","surface":surface,
+        "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3})),
+        "agent_session.unavailable",
+    );
+    fake.no_frame();
 }

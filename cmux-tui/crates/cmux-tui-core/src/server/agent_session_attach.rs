@@ -203,6 +203,7 @@ impl AgentSessions {
 
 /// One attached tab: its acpmux link and the client stream it feeds.
 struct Attachment {
+    cloud_turn_supported: bool,
     author: Option<Value>,
     client: u64,
     surface: SurfaceId,
@@ -1130,6 +1131,10 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
+                .map(|mut page| {
+                    page["cloud_turn_supported"] = json!(attachment.cloud_turn_supported);
+                    page
+                })
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();

@@ -129,25 +129,6 @@ impl AcpmuxLink {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, LinkError> {
-        self.call_wait(method, params, Some(timeout))
-    }
-
-    /// A queued turn's preparation has no wall-clock deadline. Its bounded attachment worker
-    /// ends on response or link close; cancellation is handled by another connection worker.
-    pub(crate) fn call_until_closed(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, LinkError> {
-        self.call_wait(method, params, None)
-    }
-
-    fn call_wait(
-        &self,
-        method: &str,
-        params: Value,
-        timeout: Option<Duration>,
-    ) -> Result<Value, LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::Closed);
         }
@@ -170,10 +151,7 @@ impl AcpmuxLink {
             self.forget(id);
             return Err(LinkError::Closed);
         }
-        let result = match timeout {
-            Some(timeout) => receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout)),
-            None => receiver.recv().unwrap_or(Err(LinkError::Closed)),
-        };
+        let result = receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout));
         self.forget(id);
         result
     }

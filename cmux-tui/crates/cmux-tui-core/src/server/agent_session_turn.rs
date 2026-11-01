@@ -3,6 +3,8 @@ use super::*;
 use serde::Serialize;
 
 pub const CAPABILITY: &str = "agent-session-turn-rewind-v1";
+const DEFAULT_PREPARE_WINDOW_MS: u64 = 120_000;
+const MAX_PREPARE_WINDOW_MS: u64 = 600_000;
 
 #[derive(Clone)]
 pub struct CloudTurnConfig {
@@ -57,6 +59,8 @@ pub(super) struct Prepare {
     workspace: String,
     machine: String,
     generation: u64,
+    #[serde(default)]
+    deadline_ms: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -92,6 +96,9 @@ fn configured(attachment: &Attachment) -> Result<CloudTurnConfig, Refusal> {
     if attachment.author.is_some() {
         return Err(Refusal::NotTrusted);
     }
+    if !attachment.cloud_turn_supported {
+        return Err(Refusal::Unavailable);
+    }
     let mux = attachment.mux.upgrade().ok_or(Refusal::Unavailable)?;
     let result = mux
         .control_clients
@@ -112,12 +119,22 @@ pub(super) fn prepare(attachment: &Attachment, request: Prepare) -> Result<Value
     {
         return Err(Refusal::BadRequest);
     }
-    // This waits on a bounded attachment worker; cancel and other frames stay responsive.
-    // Closing the attachment closes its dedicated acpmux link and releases this wait.
-    attachment.link.call_until_closed("agent-session-turn-prepare", json!({
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| Refusal::Unavailable)?
+        .as_millis() as u64;
+    let deadline = request.deadline_ms.unwrap_or(now.saturating_add(DEFAULT_PREPARE_WINDOW_MS));
+    let remaining = deadline
+        .checked_sub(now)
+        .filter(|ms| *ms > 0 && *ms <= MAX_PREPARE_WINDOW_MS)
+        .ok_or(Refusal::BadRequest)?;
+    // The daemon expires this exact reservation at the same deadline. The bounded worker
+    // releases on deadline or attachment close; cancel remains responsive on another worker.
+    attachment.link.call("agent-session-turn-prepare", json!({
         "sessionId": attachment.session, "prompt_id": request.prompt_id,
         "workspace": request.workspace, "machine": request.machine, "generation": request.generation,
-    })).map_err(Refusal::of)
+        "deadline_ms": deadline,
+    }), Duration::from_millis(remaining)).map_err(Refusal::of)
 }
 
 pub(super) fn abandon(attachment: &Attachment, request: Abandon) -> Result<Value, Refusal> {
@@ -150,9 +167,12 @@ pub(super) fn prompt_envelope(
             .clone()
     });
     match (config, envelope) {
-        (None, None) => Ok(None),
+        // Legacy and shared clients keep their existing prompt path. Only an explicit
+        // envelope opts this request into the native capture/rewind protocol.
+        (_, None) => Ok(None),
         (Some(config), Some(value))
             if attachment.author.is_none()
+                && attachment.cloud_turn_supported
                 && value.workspace == config.workspace
                 && value.machine == config.machine
                 && value.session == attachment.session
@@ -179,6 +199,9 @@ impl Mux {
     }
     pub(crate) fn serves_cloud_turns(&self) -> bool {
         self.serves_agent_session_attach()
+            && self.control_clients.agent_sessions.lock().attachments.values().any(|attachment| {
+                attachment.cloud_turn_supported && !attachment.ended.load(Ordering::Acquire)
+            })
             && self
                 .control_clients
                 .agent_sessions

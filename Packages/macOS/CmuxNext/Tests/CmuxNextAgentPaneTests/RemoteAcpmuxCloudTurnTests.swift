@@ -9,7 +9,11 @@ import Testing
         let isReadOnly = false
         let replay: Bool
         let submissionFails: Bool
-        init(replay: Bool = false, submissionFails: Bool = false) { self.replay = replay; self.submissionFails = submissionFails }
+        let turnsSupported: Bool
+        func supportsCloudTurns() async -> Bool { turnsSupported }
+        init(replay: Bool = false, submissionFails: Bool = false, turnsSupported: Bool = true) {
+            self.replay = replay; self.submissionFails = submissionFails; self.turnsSupported = turnsSupported
+        }
         func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data { Data("{}".utf8) }
         func events(_ page: AgentSessionPage) async throws -> Data { Data("{}".utf8) }
         func prompt(id: String, text: String) async throws -> Data {
@@ -33,6 +37,20 @@ import Testing
         func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?, personDecision: String?) async throws {}
         func detach() async {}
         func close() async {}
+    }
+
+    @Test func olderAcpmuxKeepsOrdinaryPromptWithoutOwnerCapture() async throws {
+        let client = Client(turnsSupported: false), frames = RemoteAcpmuxObserverTests.Frames()
+        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: {
+            Issue.record("An older acpmux must not start the capture handshake")
+            throw CancellationError()
+        }, capture: { _, _, _, _ in throw CancellationError() }))
+        try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
+        wire.send(#"{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{"sessionId":"session_1","prompt":[{"type":"text","text":"hello"}]}}"#) { _ in }
+        try await waitForReply(frames)
+        #expect(client.calls.withLock { $0 } == ["unfenced"])
+        #expect(frames.reply(7)?["result"] != nil)
+        wire.cancel(code: 1000, reason: "test complete")
     }
 
     @Test func cloudPromptUsesPreparedCapabilityWithoutPublishingIt() async throws {
