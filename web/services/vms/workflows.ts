@@ -49,6 +49,7 @@ import {
   type VmBillingGatewayShape,
 } from "./billingGateway";
 import { vmCreateDisabledReason } from "./config";
+import { VM_FORK_METHOD_METADATA_KEY, readVmForkMethod, type PersistedVmForkMethod } from "./forkMethod";
 import {
   DEFAULT_VM_RESOURCE_RESERVATION,
   VM_DISK_MB_MAX,
@@ -220,6 +221,8 @@ export type VmEntry = {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion: string | null;
+  /** Recorded copy method for fork children; absent on ordinary/legacy rows. */
+  readonly forkMethod?: PersistedVmForkMethod;
   readonly status: CloudVmStatus;
   readonly createdAt: number;
   /** The row's `updated_at` (epoch ms): the freshness clock for `vms` sync publication. */
@@ -1241,6 +1244,8 @@ type CreateVmInput = {
   readonly resourceReservation?: VmResourceReservation;
   /** How the machine came to exist; analytics only. Defaults to `create`. */
   readonly origin?: VmCreateOrigin;
+  /** Set only for fork-created rows; persisted with the initial VM reservation. */
+  readonly forkMethod?: PersistedVmForkMethod;
   /**
    * Wires the machine to coderouter. Provisioned after the row exists (its id
    * is the token binding) and before the provider call; a failure fails the
@@ -1489,7 +1494,10 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        providerMetadata: {
+          ...(handle.providerMetadata ?? create.vm.providerMetadata),
+          ...(input.forkMethod ? { [VM_FORK_METHOD_METADATA_KEY]: input.forkMethod } : {}),
+        },
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -2939,7 +2947,10 @@ function nativeForkOperation(providers: VmProviderGatewayShape, provider: Provid
   return providers.fork;
 }
 
-/** Fork a source VM after validating its captured or measured reservation. */
+/** Fork a source VM after validating its captured or measured reservation.
+ * The method receipt describes what actually happened. Cached retries lack a
+ * saved method, so report unknown instead of confusing null snapshot with a
+ * native fork. */
 export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -2971,7 +2982,7 @@ export function forkVm(input: {
         return yield* Effect.fail(new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }));
       }
       const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existingRetry, existingRetry.providerVmId);
-      return { snapshot: null, fork: vmEntryFromRow(existingWithReservation) };
+      return { snapshot: null, fork: vmEntryFromRow(existingWithReservation), forkMethod: readVmForkMethod(existingWithReservation.providerMetadata) };
     }
     yield* requireGoMetadataShape(input.billingPlanId, source.providerMetadata);
     yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId);
@@ -3052,6 +3063,7 @@ export function forkVm(input: {
           : {}),
         billingPlanId: input.billingPlanId,
         idempotencyKey: input.idempotencyKey,
+        forkMethod: "native-live" as const,
         agentUpdates: vmAgentUpdatesFromRow(source),
         timing: input.timing,
       });
@@ -3076,7 +3088,7 @@ export function forkVm(input: {
         // allocation remains subject to the source-shape and pool checks
         // above.
         const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId);
-        return { snapshot: null, fork: vmEntryFromRow(existingWithReservation) };
+        return { snapshot: null, fork: vmEntryFromRow(existingWithReservation), forkMethod: readVmForkMethod(existingWithReservation.providerMetadata) };
       }
 
       const creditReservation = yield* reserveCreateCredit(billing, repo, {
@@ -3146,7 +3158,8 @@ export function forkVm(input: {
             providerVmId: handle.providerVmId,
             image: source.imageId,
             imageVersion: source.imageVersion,
-            providerMetadata: handle.providerMetadata ?? source.providerMetadata,
+            providerMetadata: { ...(handle.providerMetadata ?? source.providerMetadata),
+              [VM_FORK_METHOD_METADATA_KEY]: "native-live" },
           }),
         );
       }).pipe(
@@ -3196,7 +3209,7 @@ export function forkVm(input: {
           idempotencyKeySet: !!input.idempotencyKey,
         },
       }).pipe(Effect.catchAll(() => Effect.void));
-      return { snapshot: null, fork };
+      return { snapshot: null, fork, forkMethod: "native-live" as const };
     }
 
     const snapshot = yield* snapshotVm({
@@ -3226,6 +3239,7 @@ export function forkVm(input: {
       ...(sourceReservation ? { resourceReservation: sourceReservation } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
+      forkMethod: "snapshot-create",
       modelPlane: input.modelPlane,
       ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),
       agentUpdates: vmAgentUpdatesFromRow(source),
@@ -3248,7 +3262,7 @@ export function forkVm(input: {
       },
     }).pipe(Effect.catchAll(() => Effect.void));
     yield* afterResponseOrNow(forkedEvent, input.deferAfterResponse);
-    return { snapshot, fork };
+    return { snapshot, fork, forkMethod: "snapshot-create" as const };
   });
 }
 
@@ -6777,6 +6791,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     throw new Error(`VM row has no provider VM id: ${row.id}`);
   }
   const metadata = row.providerMetadata ?? {};
+  const forkMethod = readVmForkMethod(metadata);
   const addressIpv4 = metadata["networkIpv4"];
   const addressIpv6 = metadata["networkIpv6"];
   return {
@@ -6784,6 +6799,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     provider: row.provider,
     image: row.imageId,
     imageVersion: row.imageVersion,
+    ...(forkMethod === "unknown" ? {} : { forkMethod }),
     status: row.status,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),

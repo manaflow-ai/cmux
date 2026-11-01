@@ -108,4 +108,47 @@ describe("forkVm provider capability", () => {
       .toBe("VmProviderOperationError:snapshot");
     expect(calls).toEqual(["snapshot"]);
   });
+  test("cached fork replies keep copy method unknown instead of guessing from null snapshot", async () => {
+    const now = new Date("2026-10-29T00:00:00Z");
+    const metadata = { cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 } };
+    const source = {
+      id: "source-row", userId: "user-fork", billingTeamId: "team-fork", ownerTeamId: "team-fork",
+      billingPlanId: "pro", provider: "freestyle" as const, providerVmId: "vm-source",
+      imageId: "base-image", imageVersion: null, status: "running" as const,
+      providerMetadata: metadata, createdAt: now, updatedAt: now,
+    };
+    const child = { ...source, id: "child-row", providerVmId: "vm-child" };
+    let recordedMethod: "snapshot-create" | undefined;
+    const repo = {
+      findUserVm: () => Effect.succeed(source),
+      findCreateByIdempotencyKey: () => Effect.succeed({ ...child, providerMetadata: {
+        ...metadata, ...(recordedMethod ? { cmuxForkMethod: recordedMethod } : {}),
+      } }),
+    } as unknown as VmRepositoryShape;
+    const provider = {
+      fork: () => { throw new Error("idempotent retry must not fork"); },
+      snapshot: () => { throw new Error("idempotent retry must not snapshot"); },
+    } as unknown as VmProviderGatewayShape;
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+    const replay = () => Effect.runPromise(forkVm({
+      userId: source.userId, billingCustomerType: "team", billingTeamId: source.billingTeamId,
+      teamIds: [source.billingTeamId], billingPlanId: "pro", maxActiveVms: 5,
+      providerVmId: source.providerVmId, idempotencyKey: "same-request",
+    }).pipe(Effect.provide(layer)));
+    const legacy = await replay();
+    expect(legacy.snapshot).toBeNull();
+    expect(legacy.fork.providerVmId).toBe("vm-child");
+    expect(legacy.forkMethod).toBe("unknown");
+    expect(legacy.fork.forkMethod).toBeUndefined();
+    recordedMethod = "snapshot-create";
+    const newReceipt = await replay();
+    expect(newReceipt.snapshot).toBeNull();
+    expect(newReceipt.forkMethod).toBe("snapshot-create");
+    expect(newReceipt.fork.forkMethod).toBe("snapshot-create");
+  });
+
 });
