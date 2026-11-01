@@ -470,8 +470,9 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   const run = (items: unknown[]) => [
     { id: "run", version: 1, at: 0, kind: "activity", settled: true, foldRun: true, items },
   ];
-  // On the grid a run adds no margin of its own (grid.md 5.5): its lines are 28 rows.
-  const lines = (n: number) => n * gridLength("row");
+  // On the grid a run adds no margin of its own (grid.md 5.5): its lines are 28 rows, stacked with the
+  // block gap `.cv-tools`, `.cv-tool-run` and `.cv-tool-group` draw between them (conversation.css).
+  const lines = (n: number) => n * gridLength("row") + (n - 1) * gridLength("gap-block");
   // Plain work still folds to its one summary line.
   expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
   // A send between two commands: a line each.
