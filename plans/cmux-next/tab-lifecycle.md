@@ -68,10 +68,12 @@ tab's page window covers the pane (`foreign_pages`).
   its layout view leaves the window but its panes stay in the keep-alive
   band (mounted, paused, never evicted). Switching back swaps the view in
   within the frame: no pane controller rebuild, no surface re-attach, no
-  blank frame. Budget: at most 8 parked workspaces per window and as many
-  parked panes in total as the terminal warm set (4 to 12); pressure warning
-  one workspace of up to 2 panes, critical none. Many small workspaces stay
-  warm; a few large ones do not crowd memory.
+  blank frame. Budget (`ParkedWorkspaceBudget`): the 32 most recently shown
+  workspaces per window stay parked; an older one leaves (controller, tree,
+  panes, strips) and mounts again when shown, so visiting hundreds keeps the
+  footprint bounded (issue 26046). Their hidden GPU surfaces share the one
+  terminal LRU (`WarmSetBudget`); critical pressure releases every parked
+  workspace except the one under a top page and multi-view companions.
 - No screenshot or PNG decode on the main thread on hide.
 
 Bench: `scripts/cmux-next/bench-tab-switch.sh <tag>` (Ctrl-Tab held over 20

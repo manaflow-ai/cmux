@@ -1,16 +1,25 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct NativePopupReplacementTests {
+/// The popup hosts' `hide()` only orders their panels out, so each test closes every window it opened
+/// (its page window, the host's panel and its children): `.closesItsWindows` fails a suite on any left open.
+@MainActor func closeTheWindowsThisTestOpened() {
+    guard let test = Test.current else { return }
+    WindowLeaks.openWindows(ofSuite: WindowLeaks.suiteKey(of: test.id)).forEach { $0.closeAfterTest() }
+}
+
+@MainActor @Suite(.serialized, .closesItsWindows) struct NativePopupReplacementTests {
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func replacementDiscardsOldCompositionWithAReusedSearchID() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView = page
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var events: [[String: Any]] = []
         let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
         defer { host.hide() }
@@ -47,12 +56,13 @@ import Testing
 
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty }, arguments: ["remove", "disable", "kind"])
     func retiredComposingFieldCannotWriteIntoAReusedIdentity(_ replacementKind: String) throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
                                      side: .bottom, align: .start, width: 320, rows: [],
@@ -90,12 +100,13 @@ import Testing
 
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func deferredCommitKeepsItsOriginatingRevision() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView = page
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var events: [[String: Any]] = []
         let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
         defer { host.hide() }
@@ -122,12 +133,13 @@ import Testing
     }
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func childReopeningKeepsEditSequencesMonotonicBeforeAcknowledgment() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView = page
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var events: [[String: Any]] = []
         let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
         defer { host.hide() }
@@ -174,6 +186,7 @@ import Testing
     }
 
     @Test func retiredRowsAndReentrantSliderCommitCannotActOnReplacement() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let content = NativePopupContent()
         let descriptor = NativePopupSlider(stops: [NativePopupSliderStop(value: "low", label: "Low"),
                                                    NativePopupSliderStop(value: "high", label: "High")], selectedValue: "low")
@@ -222,6 +235,7 @@ import Testing
 
     @Test(arguments: [false, true])
     func sliderEchoKeepsControlAndEnterDismissal(_ structural: Bool) throws {
+        defer { closeTheWindowsThisTestOpened() }
         let content = NativePopupContent()
         let spec = NativePopupSlider(stops: [NativePopupSliderStop(value: "low", label: "Low"),
                                             NativePopupSliderStop(value: "high", label: "High")], selectedValue: "low")
@@ -248,12 +262,13 @@ import Testing
 
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func replacementDismissalCannotOverwriteAReentrantPresentation() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView = page
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = NativePopupModel(schemaVersion: 1, id: "old", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
                                      side: .bottom, align: .start, width: 320, rows: [])
@@ -275,12 +290,13 @@ import Testing
 
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func actionEchoStillDismissesTheSameOpening() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView = page
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
                                      side: .bottom, align: .start, width: 320,
@@ -305,12 +321,13 @@ import Testing
 
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty }, arguments: ["replace", "dismiss", "legacy", "hide", "owner"])
     func legacyReplacementCannotOverwriteAReentrantDeclaration(_ operation: String) throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView = page
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         func declaration(_ id: String) throws -> WebPopupHost.Model {
             try #require(WebPopupHost.Model([
                 "schemaVersion": 1, "id": id, "revision": 1,
@@ -347,12 +364,13 @@ import Testing
 
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func declarativeOwnerDismissalPreservesReentrantLegacyMenu() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView = page
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let declaration = try #require(WebPopupHost.Model([
             "schemaVersion": 1, "id": "old", "revision": 1,
             "anchor": ["left": 0, "top": 0, "right": 20, "bottom": 20],
@@ -375,6 +393,7 @@ import Testing
     }
 
     @Test func newerDescriptorRetiresAnObsoleteDeferredComposition() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let content = NativePopupContent()
         var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),

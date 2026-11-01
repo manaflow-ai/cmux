@@ -9536,6 +9536,24 @@ agent runs. The app checks the person's gesture (and its full-access rule)
 before it sends one; an app without the capability says the pick needs that
 machine's cmux-tui updated.
 
+### agent-session-login
+
+`agent-session-login-v1` (advertised with `agent-session-attach-v1`): a Cloud
+chat's own sign-in on this machine, from the app's sign-in card. On an attached
+tab, `{id, cmd:"agent-session-login", surface, op, ...}` sends acpmux's
+`_acpmux/agent_login/<op>`: `op:"start"` with `agent` (`claude` or `codex`)
+sends `{agent, sessionId}`; `op:"finish"` with `login_id` and optionally Claude's `code`
+sends `{loginId, sessionId, code?}` and may wait up to 15 minutes (Codex waits
+for the person's approval); `op:"api_key"` with `agent` and `key` sends `{agent,
+key, sessionId}`; `op:"cancel"` with `login_id` sends `{loginId,
+sessionId}`. `sessionId` is always the tab's own session. acpmux's result comes back unchanged; its
+refusal comes back as an answer, `{refused:{reason}}` with its `data.reason`
+(`unsupported` from an acpmux without the method). A missing or oversized field,
+another agent, another `op` or any other param is `agent_session.bad_request`.
+An observation attachment gets `agent_session.read_only`, and a teammate's or
+link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
+its agent in. The code and key are never logged.
+
 ### agent-session-proxy-bind, agent-session-of
 
 A shared chat (`cmux host share`, chat multiplayer) reaches a teammate through

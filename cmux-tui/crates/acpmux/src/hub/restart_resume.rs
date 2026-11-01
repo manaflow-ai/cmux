@@ -346,6 +346,11 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmissi
     })
 }
 
+/// The opening of a move's continuation when the move did not happen ([`Cut::unmoved`]).
+const STAYED: &str = "This chat did not move: a move to another machine stopped your previous \
+                      turn and then did not happen. You are still on this machine, with the same \
+                      files; processes you started may have ended with the turn.";
+
 /// What cut the turn off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::hub) enum Cut {
@@ -368,6 +373,13 @@ impl Cut {
     /// cut turn and is no waiting retry (`queue.rs`, `auto_resume/restore.rs`).
     pub(in crate::hub) fn queued(reason: Option<&str>) -> bool {
         matches!(reason, Some("daemon_restart" | "moved"))
+    }
+
+    /// A [`Cut::Move`] continuation's text for a move that did not happen (`transfer_out.rs`
+    /// `queue_carried`): the same turn, told it is still on this machine. `None` for any other
+    /// text.
+    pub(in crate::hub) fn unmoved(text: &str) -> Option<String> {
+        text.strip_prefix(Cut::Move.opening()).map(|rest| format!("{STAYED}{rest}"))
     }
 
     fn opening(self) -> &'static str {

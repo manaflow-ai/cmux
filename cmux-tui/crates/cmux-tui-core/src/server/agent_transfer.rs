@@ -80,7 +80,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
-use super::agent_session_attach::agent_session_start::vm_word;
+use super::agent_session_attach::agent_session_start::{self, vm_word};
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
@@ -850,7 +850,15 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
     if let Prepared::Answer(answer) = prepared {
         return Ok(answer);
     }
-    let link = match AcpmuxLink::connect(socket, |_| {}) {
+    // A receive brings a chat here, so it starts acpmux once when nothing listens, as
+    // `agent-session-start` does: a Cloud machine that has run no chat yet has none up, and the
+    // move would stop there. Every other verb belongs to a move already under way.
+    let opened = if matches!(prepared, Prepared::Receive { .. }) {
+        agent_session_start::connect(mux, socket).map_err(drop)
+    } else {
+        AcpmuxLink::connect(socket, |_| {}).map_err(drop)
+    };
+    let link = match opened {
         Ok(link) => link,
         Err(_) => {
             if let Prepared::Forget { receive_id, live, .. } = prepared {

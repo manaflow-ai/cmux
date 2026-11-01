@@ -617,6 +617,10 @@ impl Platform for LinuxPlatform {
                     id,
                 )
                 .ok()
+            })
+            .or_else(|| {
+                let mut store = crate::cloud::role::FileStore::new(self.cfg.paths.clone());
+                crate::identity::scoped(&mut store, &self.cfg.paths).ok()
             });
         if let Some(listener) = &mut self.identity {
             listener.reply(identity.as_ref());
