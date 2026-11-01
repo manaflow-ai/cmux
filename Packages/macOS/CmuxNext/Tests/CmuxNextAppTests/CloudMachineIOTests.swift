@@ -1,4 +1,5 @@
 @testable import CmuxNextCloud
+@testable import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -136,4 +137,21 @@ struct CloudMachineIOTests {
         #expect(try await second.speaksMachineIO())
         #expect(asked() == 2, "another instance asks the binary itself")
     }
+
+    #if DEBUG
+    /// The app calls the machine routes from main-actor handlers: the probe's stat, the temp file and the
+    /// answer's read and parse run off the main thread, so the blocking detector records nothing there.
+    @MainActor @Test func aMainActorCallerNeverBlocksTheMainThread() async throws {
+        let (binary, folder) = try fakeCLI(printing: #"{"route":"direct","status":200,"code":null,"body":{"path":"/a","dataBase64":"aGk=","size":2}}"#)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let api = client(binary, folder)
+        let table = BlockingViolationTable(mode: .record)
+        let read = try await BlockingViolationTable.$scoped.withValue(table) {
+            try await api.readFile("vm_abcdefghij0123456789", path: "/a")
+        }
+        await table.flush()
+        #expect(read.dataBase64 == "aGk=")
+        #expect(BlockingDetector(table: table).sites.isEmpty)
+    }
+    #endif
 }
