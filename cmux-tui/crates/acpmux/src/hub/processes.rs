@@ -38,7 +38,6 @@ const TAIL_MAX: u64 = 1 << 20;
 /// Leave ample room for JSON-RPC framing and a potentially long cursor. A page never
 /// constructs or sends the full completed-process history.
 const PROCESS_PAGE_BUDGET: usize = crate::rpc::MAX_MESSAGE_BYTES - (64 << 10);
-pub(super) const PROCESS_PAGE_MAX: usize = 1_000;
 
 /// Where a process is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -366,11 +365,14 @@ fn process_page_values(
     let (mut used, mut last_id, mut next) = (64_usize, None::<String>, has_more);
     for mut process in processes {
         let id = process.id.clone();
+        let cursor_bytes = serde_json::to_string(&id)
+            .map_err(|e| RpcError::internal(format!("cannot encode process cursor: {e}")))?
+            .len();
         process.output_bytes = process.output_file.as_deref().map(output_len);
         let mut row = serde_json::to_value(process)
             .map_err(|e| RpcError::internal(format!("cannot encode process row: {e}")))?;
         let mut bytes = row.to_string().len();
-        if bytes.saturating_add(id.len()).saturating_add(64) > budget {
+        if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
             let full_bytes = bytes;
             row = json!({
                 "id": row["id"], "sessionId": row["sessionId"],
@@ -381,11 +383,11 @@ fn process_page_values(
                 "omitted": {"reason": "too_large", "bytes": full_bytes}
             });
             bytes = row.to_string().len();
-            if bytes.saturating_add(id.len()).saturating_add(64) > budget {
+            if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
                 return Err(RpcError::too_large(full_bytes));
             }
         }
-        if !rows.is_empty() && used.saturating_add(bytes).saturating_add(id.len() + 1) > budget {
+        if !rows.is_empty() && used.saturating_add(bytes).saturating_add(cursor_bytes) > budget {
             next = true;
             break;
         }
@@ -761,11 +763,6 @@ impl Hub {
             }
         }
     }
-}
-
-/// The largest number of rows one opt-in process-list page examines.
-pub(crate) const fn process_page_limit() -> usize {
-    PROCESS_PAGE_MAX
 }
 
 /// Whether `_acpmux/process/background` moves the foreground work of a
