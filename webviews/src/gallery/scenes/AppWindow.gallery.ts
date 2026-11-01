@@ -164,8 +164,8 @@ async function openEffortLevels(ctx: PlayContext) {
   );
 }
 
-/// Session Info open beside the chat: it opens by default for a first chat; if this pane has it
-/// closed, the header's toggle opens it, as a person would.
+/// Session Info open beside the chat: it starts closed (inspectorState.ts), so the header's toggle
+/// opens it, as a person would, unless this pane already shows it.
 async function showSessionInfo(ctx: PlayContext) {
   const shown = () => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]");
   await ctx.waitFor(() => shown() ?? ctx.document.querySelector('[aria-label="Session Info"]'), { capMs: 5000 });

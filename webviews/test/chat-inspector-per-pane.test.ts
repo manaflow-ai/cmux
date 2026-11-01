@@ -87,8 +87,10 @@ await requireBrowserLane("chat-inspector-per-pane.test.ts", async () => {
       try {
         const left = await pane!.open();
         const right = await pane!.open();
+        // Session Info starts closed (issue 29874): each pane opens its own first.
         for (const page of [left, right]) {
           await offer(page);
+          await toggle(page).click({ timeout: 10_000 });
           await shown(page).waitFor({ timeout: 10_000 });
         }
         await toggle(left).click();

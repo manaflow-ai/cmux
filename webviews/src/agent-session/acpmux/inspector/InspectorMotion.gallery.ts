@@ -2,8 +2,8 @@
 // The Session Info opening and closing (Leo 2026-10-20, directional motion, ui/presence.ts): it slides
 // in from the pane's right edge, inside the pane, and back out the way it came. Over the chat (the
 // default) it travels a few points; pushing the chat aside, its own width, so the chat lays out
-// once. The Inspector is open by default (inspectorState.ts), so a chat is drawn with it shown: the
-// plays click the header's Inspector toggle to close it, and again to open it. Pushing, the chat
+// once. Session Info is closed until a person opens it (inspectorState.ts), so each play first clicks
+// the header's Session Info toggle to open it, then clicks it to close it, and again to open it. Pushing, the chat
 // narrows and widens with the panel on the same frames, so neither ends with a jump (Lawrence:
 // "animation at end is jumpy"); `long-chat` is a chat with forty turns, whose column re-wraps as it
 // narrows (in a pane under about 1120px wide, where the panel pushes). The resize gallery keeps the
@@ -11,6 +11,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { openSessionInfo } from "../../../gallery/fixtures/sessionInfo";
 
 const snapshot = chat([
   user("Write the release notes for the sidebar work", 6),
@@ -30,8 +31,13 @@ const native = { "pane.tabState": { inspector: true } };
 
 const inspector = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-chat-inspector");
 
+const shown = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]");
+
+/// Opens Session Info as a person would (it starts closed), unless this pane already shows it.
+const open: Play = (ctx) => openSessionInfo(ctx);
+
 const close: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]"), { capMs: 3000 });
+  await open(ctx);
   await ctx.click({ role: "button", name: "Session Info" });
   await ctx.waitFor(() => !inspector(ctx), { capMs: 3000 });
 };
@@ -39,7 +45,7 @@ const close: Play = async (ctx) => {
 const closeThenOpen: Play = async (ctx) => {
   await close(ctx);
   await ctx.click({ role: "button", name: "Session Info" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]"), { capMs: 3000 });
+  await ctx.waitFor(() => shown(ctx), { capMs: 3000 });
 };
 
 export default agentPaneEntry({
@@ -71,6 +77,7 @@ export default agentPaneEntry({
       note: "A pane resize: Session Info keeps floating at the pane's right edge and the chat's column never moves for it.",
       snapshot: longChat,
       native,
+      play: open,
     },
   },
 });
