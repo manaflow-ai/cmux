@@ -5079,28 +5079,3 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   background: var(--agent-control);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
 }
-
-.cv-repo-recovery {
-  /* The repository choices are a <fieldset> (a named group): no fieldset border, padding or min width. */
-  border: 0;
-  padding: 0;
-  min-inline-size: 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 2px 0 8px 28px;
-  color: color-mix(in srgb, var(--agent-text) 72%, transparent);
-  font-size: var(--text-detail);
-}
-.cv-repo-recovery--quiet { color: color-mix(in srgb, var(--agent-text) 55%, transparent); }
-.cv-repo-recovery--error { color: var(--agent-error, #d66); }
-.cv-repo-recovery--done { color: var(--agent-success, #5aaf83); }
-.cv-repo-recovery button {
-  border: 0;
-  border-radius: 5px;
-  padding: 4px 8px;
-  color: var(--agent-text);
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
-}
-.cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
