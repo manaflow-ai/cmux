@@ -62,7 +62,20 @@ pub(in crate::server) async fn new_on(
 ) -> Result<Value, RpcError> {
     let method = crate::rpc::method::SESSION_NEW;
     let web = via_web(&p);
-    peer.request(method, p).await.map_err(|e| {
+    // Creation is interactive (New Tab and composer), unlike a prompt's unbounded turn.
+    // Dropping the request at the deadline removes its pending reply through ForgetPending;
+    // it cannot undo a session the remote daemon may already have created.
+    const START_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+    let result = tokio::time::timeout(START_BUDGET, peer.request(method, p))
+        .await
+        .map_err(|_| {
+            RpcError::internal(format!(
+                "session/new on peer {} did not answer within {} seconds; the session may still start there. Check that host's sessions before retrying",
+                peer.name, START_BUDGET.as_secs()
+            ))
+            .with_data(json!({"reason": "peer_start_timeout", "host": peer.name}))
+        })?;
+    result.map_err(|e| {
         let (build, served_peer) =
             (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
         update_first(&e, &peer.name, build.as_deref(), served_peer && !web, params)

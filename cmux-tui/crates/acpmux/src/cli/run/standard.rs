@@ -168,8 +168,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Last { session, count } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let replies = last_replies(&client, &id, count).await?;
+            // One budget includes resolution and every transcript page. Each forwarded read
+            // has its own bound too, but many slow pages must not multiply this CLI's wait.
+            let (id, replies) = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                let id = resolve_id(&client, &session).await?;
+                let replies = last_replies(&client, &id, count).await?;
+                Ok::<_, anyhow::Error>((id, replies))
+            })
+            .await
+            .map_err(|_| anyhow!(
+                "reading last replies for {session:?} did not finish within 30 seconds; check the peer connection and retry this read (the session may still be running)"
+            ))??;
             if json_out {
                 print_json(&json!({"sessionId": id, "replies": replies}));
             } else {

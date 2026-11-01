@@ -529,7 +529,18 @@ async fn forward_inner(
         // must reach the peer even when its client is gone.
         // A page goes on the link it is labelled with, or fails.
         let on = pages.then_some(link).or(resume_link.flatten());
-        let result = if crate::peer::waits_on_turn(m) {
+        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
+            // History reads answer from the current snapshot, even during a running turn.
+            // A connected link can still have a stuck handler; do not inherit its ten-minute
+            // generic deadline. Dropping this future releases its pending reply entry. Attach
+            // keeps its existing lifecycle: it installs a live subscription before replying.
+            tokio::time::timeout(std::time::Duration::from_secs(30), peer.request_on(m, p, on))
+                .await
+                .unwrap_or_else(|_| Err(RpcError::internal(format!(
+                    "reading {m} from peer {} did not finish within 30 seconds; check the peer connection and retry this read",
+                    peer.name
+                )).with_data(json!({"reason": "peer_read_timeout", "peer": peer.name, "method": m}))))
+        } else if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,
                 () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
