@@ -58,6 +58,8 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 | The Macs that may allow prompts here | `acpmux machine approvals` |
 | Turn off a paired machine's Full access | `acpmux machine ticket full-access mini-2 off` |
 | Whether a machine is dedicated: agents run with no per-session sandbox, the VM is the boundary | `acpmux machine dedicated [NAME] [on\|off]` |
+| This machine's load now, one JSON object (cmux Cloud sizes its machines from it) | `acpmux machine load --json` |
+| Add one muted line to every live chat here | `acpmux machine notice --text TEXT` |
 
 Screen and control consent, an allow, and turning Full access on are the person's: the daemon takes
 them only from the cmux app, never from a shell or an agent.
