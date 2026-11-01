@@ -761,8 +761,15 @@ test "$daemon_pid" = fixture
     const dockerfile = readScript("../services/vms/images/devbox/Dockerfile");
     expect(dockerfile).toContain("build-essential");
     expect(dockerfile).toContain("pkg-config");
+    expect(dockerfile).toContain("locales");
     expect(dockerfile).toContain("LANG=C.UTF-8");
     expect(dockerfile).toContain("cmux ALL=(ALL) NOPASSWD:ALL");
+    expect(freestyleScript).toContain("pkg-config locales");
+    expect(freestyleScript).toContain("locale-gen C.UTF-8");
+    const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
+    expect(workUser).toContain("91-cmux-work-user");
+    expect(workUser).toContain("NOPASSWD:ALL");
+    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiServiceInstallCommand");
   });
 
   test("the cmux-tui units never give up after repeated failed starts", () => {

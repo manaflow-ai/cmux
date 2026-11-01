@@ -389,7 +389,7 @@ function acpmuxInstallSteps(source: CmuxTuiSource): string[] {
     `CMUX_TUI_ACPMUX_BIN="$(dirname "$CMUX_TUI_BIN")/acpmux"`,
     `CMUX_TUI_ACPMUX_TMP="$CMUX_TUI_ACPMUX_BIN.tmp"`,
     `if [ -x ${ACPMUX_BIN} ] && ${pinnedFile(source.acpmuxSha256, ACPMUX_BIN)}; then :; else ${fetchTo(ACPMUX_TMP, source.acpmuxUrl)} && ${pinnedFile(source.acpmuxSha256, ACPMUX_TMP)} && chmod 755 ${ACPMUX_TMP} && mv -f ${ACPMUX_TMP} ${ACPMUX_BIN}; fi`,
-    `ln -sfn ${ACPMUX_BIN} /usr/local/bin/acpmux`,
+    `mkdir -p "$CMUX_TUI_HOME/.local/bin" && ln -sfn ${ACPMUX_BIN} "$CMUX_TUI_HOME/.local/bin/acpmux" && ln -sfn ${ACPMUX_BIN} /usr/local/bin/acpmux`,
     `${ACPMUX_BIN} --version`,
   ];
 }
