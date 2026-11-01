@@ -111,6 +111,10 @@ import {
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
@@ -125,6 +129,7 @@ import {
   DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
+  devboxTeamKindDefaultCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   emitBakeResult,
@@ -300,12 +305,16 @@ try {
   // Cloud terminal.
   await step("work-user", devboxWorkUserSetupCommand());
 
-  // The Dockerfile's devtools list, bubblewrap included: codex's Linux sandbox
-  // prerequisite, so codex uses the distro's bwrap instead of warning on every
-  // launch that it is falling back to its bundled copy.
+  // The Dockerfile's devtools list.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
+  );
+
+  // Muse needs the pinned upstream bubblewrap, rather than Ubuntu's 0.9.0.
+  await step(
+    "bubblewrap",
+    devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion()),
   );
 
   await step(
@@ -348,10 +357,9 @@ try {
     `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
   );
 
-  // Claude Code machine policy. The first-run answers themselves are seeded
-  // per shell by agent-config.sh from the model-plane env, not baked: the
-  // bake's own login probes would otherwise freeze a seed that predates the
-  // env and ship it in the snapshot.
+  // Claude Code machine policy. Fresh first-run answers are seeded below,
+  // after the final public model-plane env exists; login and team-launch
+  // paths use the same helper for any later fresh config home.
   await step(
     "claude-managed-settings",
     `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
@@ -370,7 +378,11 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
-  await step("vm-kind-default", "echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
+  // agent-config.sh keeps a caller's model-plane env only on an `owner` record (an absent or
+  // team record is shared). The agent-config and agent-hooks checks below prove
+  // that owner path before /etc/cmux/model-plane.env exists. The bake holds
+  // `owner` through both checks, then writes the `team` boot default.
+  await step("vm-kind-bake-owner", "echo owner > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
@@ -390,6 +402,7 @@ try {
   );
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
+  await put("claude-onboarding.py", "/etc/cmux/claude-onboarding.py");
   // Agent sign-in launchers (Dockerfile parity): /usr/local/bin/<agent> is
   // /etc/cmux/<agent>, which resolves the team or own-login mode per launch
   // (agent-auth.sh) and execs /usr/local/libexec/cmux-<agent>-real. The base's
@@ -551,6 +564,15 @@ try {
       "echo agent-hooks-ok",
     ].join(" && "),
   );
+  // The record every machine boots with (cmux-vm-kind-sync and the create replace it).
+  // It comes after agent-hooks: that step's hook-merge login shell needs the
+  // owner path too (a team record keeps no provider block).
+  // On a team record a login shell keeps none of a caller's model-plane env
+  // (cmux_prepare_shared_machine_model_env).
+  await step(
+    "vm-kind-default",
+    devboxTeamKindDefaultCommand(),
+  );
 
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
   // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
@@ -697,11 +719,12 @@ try {
   // not with the base's boot as `freestyle-vm`.
   // The interactive bake probes above ran login shells for root and the work
   // user before the model-plane env was baked, so their ~/.claude.json seeds
-  // lack the placeholder key approval. Drop them: each machine's first shell
-  // seeds its own from the env. (The static codex config those shells wrote
+  // lack the placeholder key approval. Replace those bake-owned seeds using
+  // the final public model env, including Claude's isolated team config home.
+  // (The static codex config those shells wrote
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
-  await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
+  await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
   // After the bake's last shell: the timer is enabled but stopped and the
   // bake pass's files are gone, so a clone runs no pass until its re-arm.
   await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);

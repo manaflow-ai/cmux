@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::session::sidebar_doc::SIDEBAR_DOC_CAPABILITY;
+use cmux_json::JsonSet as _;
 use cmux_tui_core::server::OPEN_DEVICE_KINDS_CAPABILITY;
 use cmux_tui_core::server::PLACEMENT_SHIFT_CAPABILITY;
 
@@ -184,16 +185,19 @@ impl RemoteSession {
         // how we were installed, so it can translate for us or name our
         // update command when it refuses (server/api_revision_wire.rs).
         if ident.get("api_revision").is_some() {
-            use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
-            client_info["api_revision"] = json!(
-                self.api_revision()
-                    .unwrap_or_else(|| cmux_tui_core::server::api_revision_range().0)
+            use crate::version_report::{DISTRIBUTION_VERSION, InstallChannel};
+            client_info.set(
+                "api_revision",
+                json!(
+                    self.api_revision()
+                        .unwrap_or_else(|| cmux_tui_core::server::api_revision_range().0)
+                ),
             );
-            client_info["version"] = json!(DISTRIBUTION_VERSION);
-            client_info["install"] = json!(InstallChannel::current().as_str());
+            client_info.set("version", json!(DISTRIBUTION_VERSION));
+            client_info.set("install", json!(InstallChannel::current().as_str()));
         }
         if let Some(hostname) = local_hostname() {
-            client_info["name"] = json!(hostname);
+            client_info.set("name", json!(hostname));
         }
         let mut negotiated = Vec::new();
         if self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY) {
@@ -223,9 +227,9 @@ impl RemoteSession {
             // One cmux-tui install per host, so the host name is also the
             // stable device id that keeps two hosts' priority keys apart.
             let host = local_hostname().unwrap_or_else(|| "cmux-tui".to_string());
-            client_info["device_kind"] = json!("tui");
-            client_info["device_name"] = json!(host);
-            client_info["device_id"] = json!(host);
+            client_info.set("device_kind", json!("tui"));
+            client_info.set("device_name", json!(host));
+            client_info.set("device_id", json!(host));
         }
         // Replays are applied with colors written after them, so the
         // daemon's incomplete sequence must arrive separately.
@@ -243,7 +247,7 @@ impl RemoteSession {
             negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
         }
         if !negotiated.is_empty() {
-            client_info["capabilities"] = json!(negotiated);
+            client_info.set("capabilities", json!(negotiated));
         }
         self.request(client_info)?;
         if subscribe {

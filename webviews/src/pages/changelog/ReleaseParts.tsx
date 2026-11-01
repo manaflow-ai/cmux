@@ -1,15 +1,14 @@
 // The pieces every changelog design shares (cx-urd.61): release meta, the hero, the grouped
 // change rows and the folded commit list by area. Colors are theme tokens, sizes the type scale
 // (styles.css); nothing here knows which design it sits in.
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, IndexEntry, NewsLayout, WhatsNewCategory } from "./types";
-import { cardVersion } from "./UpdateSurfaces";
+import type { ChangeItem, NewsLayout, WhatsNewCategory } from "./types";
 import { ChangePullRequest } from "./ChangePullRequest";
 
 export interface PartsContext {
@@ -43,12 +42,12 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
   const src = scheme === "dark" ? media.dark : media.light;
   const [open, setOpen] = useState(false);
   const picture = media.video ? (
-    <video key={src} src={src} aria-label={media.alt} muted loop playsInline autoPlay preload="none" />
+    <LazyVideo key={src} src={src} alt={media.alt} />
   ) : (
     <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
   );
   return (
-    <figure className={`cl-media${className ? ` ${className}` : ""}`}>
+    <figure className={`cl-media ui-glass${className ? ` ${className}` : ""}`}>
       {strings ? (
         <button
           type="button"
@@ -65,6 +64,42 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
       )}
       {strings && open && <MediaLightbox media={media} src={src} strings={strings} onClose={() => setOpen(false)} />}
     </figure>
+  );
+}
+
+/** Autoplay overrides preload in browsers, so withhold the source until the clip is nearby. */
+function LazyVideo({ src, alt }: { src: string; alt: string }) {
+  const player = useRef<HTMLVideoElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const element = player.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setNear(true);
+      },
+      { rootMargin: "200px 0px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <video
+      ref={player}
+      src={near ? src : undefined}
+      aria-label={alt}
+      muted
+      loop
+      playsInline
+      autoPlay={near}
+      preload="none"
+    />
   );
 }
 
@@ -172,9 +207,13 @@ export function Hero({
   return (
     <>
       {titled ? (
-        <Heading className="cl-headline">{item.title}</Heading>
+        <Heading className="cl-headline">
+          {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+        </Heading>
       ) : (
-        <h3 className="cl-row-title cll-lead">{item.title}</h3>
+        <h3 className="cl-row-title cll-lead">
+          {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+        </h3>
       )}
       {item.summary
         .split(/\n{2,}/)
@@ -217,7 +256,11 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
           ) : (
             <li key={`${item.id}-${index}`}>
               <span className="cl-row-text">
-                <span className="cl-row-title">{item.title}</span>
+                {item.pr ? (
+                  <ChangePullRequest pr={item.pr} title={item.title} />
+                ) : (
+                  <span className="cl-row-title">{item.title}</span>
+                )}
                 {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
               </span>
               <RowActions item={item} ctx={ctx} />
@@ -243,7 +286,11 @@ function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   return (
     <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
       <div className="cl-row-text">
-        <span className="cl-row-title">{item.title}</span>
+        {item.pr ? (
+          <ChangePullRequest pr={item.pr} title={item.title} />
+        ) : (
+          <span className="cl-row-title">{item.title}</span>
+        )}
         {paragraphs.length === 0 && actions}
         {paragraphs.map((p, i) => (
           <p key={i} className="cl-row-summary">
@@ -321,66 +368,6 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 }
 
 const CHANGES_PAGE = 20;
-
-/** The span's nightly reels as ONE player (Leo 2026-10-21: one reel inline, not a row per
-    nightly): the newest reel plays in place, muted with controls, and a row of nightly chips picks
-    another. Under it a link opens the video as links do (the host's link setting), which is also
-    all that shows when the video cannot play here. Only an https reel is shown. */
-export function ReelPlayer({
-  builds,
-  reels,
-  strings,
-}: {
-  builds: IndexEntry[];
-  reels: Record<string, string>;
-  strings: Strings;
-}) {
-  const [picked, setPicked] = useState<string | undefined>();
-  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
-  const shown = builds.filter((b) => reels[b.build]?.startsWith("https://"));
-  const current = shown.find((b) => b.build === picked) ?? shown[0];
-  if (!current) return null;
-  const url = reels[current.build]!;
-  const label = strings.format("changelog.page.watchReel", cardVersion(current.shortVersion));
-  return (
-    <div className="cl-reel-player">
-      {!broken.has(url) && (
-        <figure className="cl-media cl-reel-video">
-          <video
-            key={url}
-            src={url}
-            aria-label={label}
-            controls
-            muted
-            playsInline
-            preload="metadata"
-            onError={() => setBroken((set) => new Set(set).add(url))}
-          />
-        </figure>
-      )}
-      <div className="cl-reel-bar">
-        {shown.length > 1 && (
-          <div className="cl-reel-picker">
-            {shown.map((b) => (
-              <button
-                key={b.build}
-                type="button"
-                className="cl-reel-chip"
-                aria-pressed={b === current}
-                onClick={() => setPicked(b.build)}
-              >
-                {cardVersion(b.shortVersion)}
-              </button>
-            ))}
-          </div>
-        )}
-        <a className="cl-reel" href={url} rel="noreferrer">
-          {label}
-        </a>
-      </div>
-    </div>
-  );
-}
 
 /** A run of builds with no change a person would notice: one quiet line, never a blank row. */
 export function Maintenance({ strings }: { strings: Strings }) {

@@ -11,15 +11,29 @@ import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 
-/// A started Claude Code chat in a project: the transcript over the composer.
-const startedChat = () =>
-  chat([
+/// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
+/// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
+const startedChat = () => {
+  const snapshot = chat([
     user("Add retries to the fetch helper, with a backoff.", 12),
     assistant(
       "Added `withRetry` to `fetchJson`: three tries with jittered backoff, and only for network errors and 5xx answers. The tests cover a 503 that recovers and a 404 that does not retry.",
       11,
     ),
   ]);
+  snapshot.summary = {
+    ...snapshot.summary!,
+    modes: {
+      currentModeId: "default",
+      availableModes: [
+        { id: "default", name: "Ask before edits", description: "Review changes before they run" },
+        { id: "acceptEdits", name: "Edit automatically", description: "Make edits without asking" },
+        { id: "plan", name: "Plan", description: "Plan before making changes" },
+      ],
+    },
+  };
+  return snapshot;
+};
 
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
@@ -148,6 +162,25 @@ const ALT_TEXT_ROW = `
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
 
+/// The send control's designs (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS", then "THIS IS THE
+/// BUTTON FOR CLAUDE BUT / WE CAN THINK ABOUT WHAT'S BEST"). The pick, one control in both looks: a
+/// slot that is Stop while a turn runs and the prompt is empty, and Send (steer or queue, as Return
+/// does) from the first letter. Claude's look draws it before the mic with Claude desktop's ↵ (the
+/// mic keeps the right edge through a turn); Codex's draws Send's ↑ after the mic, as Codex does.
+/// The alternates are gallery-only CSS over it. Stop beside a second send control (the two-button
+/// state this replaced) is never drawn.
+const runningChat = () => {
+  const snapshot = startedChat();
+  return { ...snapshot, isWorking: true, summary: { ...snapshot.summary!, steering: true } };
+};
+const DRAFT = { draft: "Also cover the 503 path" };
+const ALT_AFTER_MIC = `
+.acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel) { order: 1; }`;
+const ALT_FILLED_DISC = `
+.acpmux-composer-actions > .acpmux-send.acpmux-send-ready:not(.acpmux-cancel) {
+  border-radius: 999px; background: var(--agent-text); color: var(--agent-bg, Canvas);
+}`;
+
 const chatHeight = 360;
 
 export default agentPaneEntry({
@@ -260,6 +293,40 @@ export default agentPaneEntry({
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat(),
       play: (ctx) => look(ctx, "codex", ALT_TEXT_ROW),
+    },
+    "send-one-slot-claude-running": {
+      note: "The pick, Claude's look: a turn running with an empty prompt, the one send slot before the mic is Stop; the mic keeps the right edge.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "send-one-slot-claude-typed": {
+      note: "The pick, Claude's look: the first letter turns Stop's slot into Send, Claude desktop's ↵, which steers the turn as Return does (⌘Return queues). One send control, never two.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "send-one-slot-codex-running": {
+      note: "The pick, Codex's look: the same one slot after the mic, Stop while the prompt is empty.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "send-one-slot-codex-typed": {
+      note: "The pick, Codex's look: Send in the same slot once a prompt is typed.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "send-alt-after-mic-claude": {
+      note: "Alternate (not shipped): Claude's look with the slot after the mic, as Codex's. Not picked: the mic would step left each time a turn starts or a prompt is typed.",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "claude", ALT_AFTER_MIC),
+    },
+    "send-alt-filled-disc": {
+      note: "Alternate (not shipped): Codex's filled disc after the mic. Not picked: the composer draws plain glyphs, no discs (Leo 2026-10-21).",
+      snapshot: runningChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_FILLED_DISC),
     },
     "newtab-claude": {
       note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",

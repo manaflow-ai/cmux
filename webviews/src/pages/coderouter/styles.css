@@ -40,6 +40,7 @@
   align-items: center;
   gap: 6px;
   margin-right: auto;
+  font-size: 12px;
   color: var(--page-text-2);
 }
 
@@ -47,7 +48,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--page-text-3);
+  background: var(--page-text-2);
 }
 
 .cr-status.ok .cr-dot {
@@ -66,8 +67,8 @@
 }
 
 .cr-section h2 {
-  margin: 16px 0 6px;
-  font-size: 12px;
+  margin: 14px 0 5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--page-text-2);
 }
@@ -94,7 +95,14 @@
 
 .cr-provider-name,
 .cr-linked-label {
+  font-size: var(--text-body);
   font-weight: 500;
+}
+
+.cr-muted,
+.cr-provider > .cr-muted,
+.cr-linked-row > .cr-muted {
+  font-size: var(--text-detail);
 }
 
 .cr-provider-actions {
@@ -108,7 +116,15 @@
   border-radius: 4px;
   border: 1px solid var(--page-separator);
   color: var(--page-text-2);
-  font-size: 11px;
+  font-size: var(--text-detail);
+}
+
+.cr-linked-empty {
+  display: flex;
+  align-items: center;
+  min-height: calc(var(--cmux-control-height) + var(--text-detail));
+  margin: 0;
+  padding-block: var(--text-detail);
 }
 
 .cr-button {

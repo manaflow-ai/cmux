@@ -1,9 +1,9 @@
 import CoreGraphics
 
-/// Which keys of the key bar's scrolling middle row are really on screen.
+/// Which keys of the key row's scroller are really on screen.
 ///
-/// The middle row scrolls under the pinned esc / ctrl / alt group and the
-/// joystick. A key scrolled under them is clipped from view, but its
+/// The scroller passes under the pinned keyboard key, joystick and compose
+/// key. A key scrolled under them is clipped from view, but its
 /// accessibility frame stays where it was: activating "Left Arrow" by its
 /// frame landed on ctrl. An activation lands on the frame's center, so a key
 /// whose center is outside the row's visible bounds is hidden from
@@ -28,35 +28,25 @@ public struct KeyBarClipping: Sendable {
     }
 }
 
-/// The key bar scroller's edge fades (SPEC B2): 12 pt gradient masks, the
-/// leading one only once the row is scrolled (at rest the first key starts
-/// at a hard edge), the trailing one while more keys wait to the right.
-public struct KeyBarScrollEdges: Equatable, Sendable {
-    public static let fade: CGFloat = 12
-    /// The trailing fade, 12 pt as specified (R2-4). It shows only while the
-    /// row moves: at rest the row draws whole keys only, so the last one is
-    /// at full brightness.
-    public static let trailingFade: CGFloat = 12
+/// The key row's leading fade (classic cmux iOS's edge fade): keys dissolve
+/// over `width` points as they reach the pinned keys. At rest nothing fades;
+/// the edge's alpha falls to 0 as the row scrolls its first `width` points.
+public struct KeyRowFade: Sendable {
+    public static let width: CGFloat = 24
 
-    public var offset: CGFloat
-    public var contentWidth: CGFloat
-    public var visibleWidth: CGFloat
+    public init() {}
 
-    public init(offset: CGFloat = 0, contentWidth: CGFloat = 0, visibleWidth: CGFloat = 0) {
-        self.offset = offset
-        self.contentWidth = contentWidth
-        self.visibleWidth = visibleWidth
+    public func leadingEdgeAlpha(scrolled: CGFloat) -> Double {
+        Double(1 - min(1, max(0, scrolled / Self.width)))
     }
-
-    public var fadesLeading: Bool { offset > 0.5 }
-    public var fadesTrailing: Bool { offset + visibleWidth < contentWidth - 0.5 }
 }
 
-/// One rule for when the key bar shows (SPEC M4), in mock and live alike:
-/// whenever the terminal or its composer has focus, with the soft keyboard
-/// or a hardware keyboard (esc, ctrl, ^C and the arrows matter most on a
-/// hardware keyboard without them); never at rest.
-public struct KeyBarVisibility: Equatable, Sendable {
+/// What the bottom dock shows (classic cmux iOS's dock): the key row is
+/// always there, keyboard up or down; the composer is open by default and can
+/// be closed with the compose key; Hide Toolbar takes both away (and the
+/// keyboard) until the next terminal tap. The soft keyboard is tracked for the
+/// keyboard key's glyph: a hardware keyboard leaves none.
+public struct TerminalDockVisibility: Equatable, Sendable {
     /// The soft keyboard as its notifications last described it.
     public enum SoftKeyboard: Equatable, Sendable {
         /// Not on screen (or a hardware keyboard replaced it).
@@ -67,28 +57,18 @@ public struct KeyBarVisibility: Equatable, Sendable {
         case hiding
     }
 
-    public enum Mode: Equatable, Sendable {
-        /// Folded away: the composer sits alone above the toolbar.
-        case hidden
-        /// 44 pt, clipped to the keyboard's height so it rides the keyboard's
-        /// own animation and interactive dismissal.
-        case followsKeyboard
-        /// 44 pt above the composer's resting line: focus with no soft keyboard.
-        case pinned
-    }
-
-    public var inputFocused = false
+    public var chromeHidden = false
+    public var composerPresented = true
     public var softKeyboard: SoftKeyboard = .none
 
-    public init(inputFocused: Bool = false, softKeyboard: SoftKeyboard = .none) {
-        self.inputFocused = inputFocused
+    public init(chromeHidden: Bool = false, composerPresented: Bool = true, softKeyboard: SoftKeyboard = .none) {
+        self.chromeHidden = chromeHidden
+        self.composerPresented = composerPresented
         self.softKeyboard = softKeyboard
     }
 
-    public var mode: Mode {
-        guard inputFocused else { return .hidden }
-        return softKeyboard == .none ? .pinned : .followsKeyboard
-    }
+    public var showsKeyRow: Bool { !chromeHidden }
+    public var showsComposer: Bool { !chromeHidden && composerPresented }
 
     /// A will-show or will-change-frame notification's end frame height (pt
     /// on screen): a frame under 100 pt is a hardware keyboard's bar or none.
@@ -100,44 +80,108 @@ public struct KeyBarVisibility: Equatable, Sendable {
         if softKeyboard == .shown { softKeyboard = .hiding }
     }
 
-    /// The keyboard finished hiding; focus that outlives it is typing on a
-    /// hardware keyboard.
     public mutating func keyboardDidHide() {
         softKeyboard = .none
     }
 }
 
-/// The key bar scroller's geometry (round 5, R3-5): its keys share one width
-/// and the scroller is a whole number of them with 6 pt gaps, so a snapped
-/// row always shows whole keys, evenly spaced, with nothing left over.
-public struct KeyBarLayout: Sendable {
-    public static let keyWidth: CGFloat = 44
-    public static let spacing: CGFloat = 6
+/// What a tap on the compose key does (classic cmux iOS's `ComposerDockState`).
+/// The key folds three jobs into one control, told apart by the dock:
+///
+/// - open (and focus) when the composer is closed;
+/// - reveal and focus when it is open but hidden (Hide Toolbar) or shown
+///   without focus, so a draft is never dismissed by a tap meant to reach it;
+/// - close only when it is shown and focused: a real "done composing".
+public struct ComposerDockState: Equatable, Sendable {
+    public enum Intent: Equatable, Sendable {
+        case openComposer
+        case revealAndFocusComposer
+        case closeComposer
+    }
+
+    public var chromeHidden: Bool
+    public var composerPresented: Bool
+    public var fieldFocused: Bool
+
+    public init(chromeHidden: Bool, composerPresented: Bool, fieldFocused: Bool) {
+        self.chromeHidden = chromeHidden
+        self.composerPresented = composerPresented
+        self.fieldFocused = fieldFocused
+    }
+
+    public func intentForComposeKeyTap() -> Intent {
+        guard composerPresented else { return .openComposer }
+        if chromeHidden || !fieldFocused { return .revealAndFocusComposer }
+        return .closeComposer
+    }
+}
+
+/// The dock's metrics (classic cmux iOS): a 28 pt key row of keys that hug
+/// their labels (glyph keys exactly 32 pt) 4 pt apart, 8 pt above the
+/// composer; the composer's controls are 40 pt circles beside a field whose
+/// one line is 40 pt tall, with a 28 pt send circle inside it; 12 pt side
+/// insets. The stack rests 8 pt above the keyboard or the safe area.
+public struct TerminalDockMetrics: Sendable {
+    public static let keyRowHeight: CGFloat = 28
+    public static let keySpacing: CGFloat = 4
+    public static let minKeyWidth: CGFloat = 32
+    /// Between the key row and the composer.
+    public static let keyRowGap: CGFloat = 8
+    public static let horizontalInset: CGFloat = 12
+    public static let control: CGFloat = 40
+    public static let sendDiameter: CGFloat = 28
+    public static let fieldCornerRadius: CGFloat = 20
+    /// The field container's padding around the text (and the send circle).
+    public static let fieldPadding: CGFloat = 6
+    /// The text view's own vertical inset inside that padding.
+    public static let textInset: CGFloat = 3
 
     public init() {}
 
-    /// Keys that fit in `available` points.
-    public func visibleKeys(available: CGFloat) -> Int {
-        max(1, Int(floor((available + Self.spacing) / (Self.keyWidth + Self.spacing))))
+    /// The composer row with one line of text and nothing else: what the
+    /// terminal's rows are measured against. Never its current height: its
+    /// Jump to bottom row, an attachment strip or a long draft come and go,
+    /// and sizing the PTY by them resized it each time (user report
+    /// 2026-10-14: an inline TUI such as Codex redraws its whole transcript on
+    /// every resize).
+    public func restingComposerHeight(lineHeight: CGFloat) -> CGFloat {
+        max(Self.control, (lineHeight + 2 * (Self.textInset + Self.fieldPadding)).rounded(.up))
     }
 
-    /// The scroller's width for `available` points: a whole number of keys.
-    public func scrollerWidth(available: CGFloat) -> CGFloat {
-        guard available > 0 else { return 0 }
-        let keys = CGFloat(visibleKeys(available: available))
-        return min(available, keys * Self.keyWidth + (keys - 1) * Self.spacing)
+    /// The whole stack at rest (key row, gap, one-line composer), as shown.
+    public func restingStackHeight(lineHeight: CGFloat, visibility: TerminalDockVisibility) -> CGFloat {
+        var height: CGFloat = 0
+        if visibility.showsKeyRow { height += Self.keyRowHeight }
+        if visibility.showsComposer {
+            height += restingComposerHeight(lineHeight: lineHeight)
+            if visibility.showsKeyRow { height += Self.keyRowGap }
+        }
+        return height
+    }
+}
+
+/// The key row's zoom keys step the terminal's font size by one point within
+/// the sizes Settings offers (classic cmux iOS's zoom out / zoom in).
+public struct TerminalFontZoom: Sendable {
+    public let sizes: ClosedRange<Int>
+
+    public init(sizes: ClosedRange<Int>) {
+        self.sizes = sizes
+    }
+
+    public func step(_ size: Int, larger: Bool) -> Int {
+        min(max(size + (larger ? 1 : -1), sizes.lowerBound), sizes.upperBound)
     }
 }
 
 /// Where the joystick's thumb is drawn while dragged (user note 2026-10-14):
-/// it follows the finger past the 32 pt circle, so the finger does not cover
-/// it, up to 1.5x the circle (48 pt from the center); the direction is still
-/// read from the whole vector.
+/// it follows the finger past the circle, so the finger does not cover it, up
+/// to 48 pt from the center; the direction is still read from the whole vector.
 public struct JoystickGeometry: Sendable {
-    /// The circle's diameter in the key bar.
-    public static let circle: CGFloat = 32
+    /// The circle's diameter in the key row (classic cmux iOS's arrow nub).
+    public static let circle: CGFloat = TerminalDockMetrics.keyRowHeight
     /// How far the thumb may travel from the center.
-    public static let travel: CGFloat = circle * 1.5
+    public static let travel: CGFloat = 48
 
     public init() {}
 
@@ -146,34 +190,6 @@ public struct JoystickGeometry: Sendable {
         guard distance > Self.travel else { return translation }
         let scale = Self.travel / distance
         return CGSize(width: translation.width * scale, height: translation.height * scale)
-    }
-}
-
-/// The composer's metrics (user note 2026-10-14): the + and send circles sit
-/// with equal insets to the card's leading/trailing, top and bottom edges.
-/// One line of text is exactly as tall as the circles, so the card's 6 pt
-/// padding is the inset on every side.
-public struct ComposerMetrics: Sendable {
-    public static let circle: CGFloat = 36
-    public static let padding: CGFloat = 6
-
-    public init() {}
-
-    /// The card's height with one line of text and nothing else: what the
-    /// terminal's rows are measured against. Never the card's current height:
-    /// its Jump to bottom row, an attachment strip or a long draft come and
-    /// go, and sizing the PTY by them resized it each time (user report
-    /// 2026-10-14: an inline TUI such as Codex redraws its whole transcript on
-    /// every resize, the view moved, Jump to bottom toggled, and the card
-    /// resized the PTY again).
-    public func restingCardHeight(lineHeight: CGFloat) -> CGFloat {
-        let text = lineHeight + 2 * verticalTextInset(lineHeight: lineHeight)
-        return max(Self.circle, text.rounded(.up)) + 2 * Self.padding
-    }
-
-    /// The text view's top and bottom inset for a font of `lineHeight`.
-    public func verticalTextInset(lineHeight: CGFloat) -> CGFloat {
-        max(4, ((Self.circle - lineHeight) / 2).rounded(.down))
     }
 }
 

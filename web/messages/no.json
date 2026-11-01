@@ -54,7 +54,7 @@
     "recreateRequired": {
       "title": "Opprett denne maskinen på nytt",
       "message": "Denne maskinen ble opprettet før en Cloud-oppdatering og kan ikke kobles til.",
-      "action": "Opprett en ny maskin, kopier filene dine med cmux vm pull og cmux vm push, og slett så denne."
+      "action": "Opprett en ny maskin. Klargjør et SCP-endepunkt med `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, og kopier filene med SCP før du sletter denne maskinen."
     },
     "guestUnresponsive": {
       "title": "Maskinen svarer ikke",
@@ -64,7 +64,7 @@
     "inProgress": {
       "title": "Fortsatt i gang",
       "message": "Skyleverandøren har ikke fullført denne endringen ennå. Den kan fortsatt bli fullført.",
-      "action": "Sjekk maskinens status med cmux vm ls eller i maskinlisten før du prøver igjen."
+      "action": "Sjekk maskinens status med cmux cloud list-machines eller i maskinlisten før du prøver igjen."
     },
     "providerTimeout": {
       "title": "Skyleverandøren er treg",
@@ -79,7 +79,7 @@
     "stateConflict": {
       "title": "Maskinen er opptatt",
       "message": "Denne maskinen starter, settes på pause eller kjører ikke, så den kan ikke gjøre dette nå.",
-      "action": "Vent et øyeblikk og prøv igjen. Sjekk maskinens status med cmux vm ls, og gjenoppta den først hvis den er satt på pause."
+      "action": "Vent et øyeblikk og prøv igjen. Sjekk maskinens status med cmux cloud list-machines, og gjenoppta den først hvis den er satt på pause."
     },
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",
@@ -102,15 +102,15 @@
       "action": {
         "snapshot": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
         "restore": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
-        "fork": "Ikke prøv på nytt. Opprett en ny VM med `cmux vm new`.",
-        "openPort": "Ikke prøv på nytt. Nå tjenesten fra maskinen med `cmux vm exec`, eller bruk en maskintype som kan åpne porter.",
-        "default": "Ikke prøv på nytt. Kjør `cmux vm ls`, eller kontakt brukerstøtte hvis du mener dette er feil."
+        "fork": "Ikke prøv på nytt. Opprett en ny VM med `cmux cloud new-machine`.",
+        "openPort": "Ikke prøv på nytt. Nå tjenesten fra maskinen med `cmux cloud exec --target machine:<id> --command <command>`, eller bruk en maskintype som kan åpne porter.",
+        "default": "Ikke prøv på nytt. Kjør `cmux cloud list-machines`, eller kontakt brukerstøtte hvis du mener dette er feil."
       }
     },
     "requiresPro": {
-      "title": "cmux Pro kreves",
-      "message": "Cloud VM-er krever en cmux Pro-plan.",
-      "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
+      "title": "cmux {plan} kreves",
+      "message": "Cloud VM-er krever en cmux {plan}-plan.",
+      "action": "Oppgrader til cmux {plan} på {upgradeUrl} for å opprette Cloud VM-er."
     },
     "displayName": {
       "title": "Ugyldig maskinnavn",
@@ -120,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Denne maskinstørrelsen er ikke tilgjengelig. Velg opptil {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go inkluderer to lagrede VM-er, inkludert den som kjører.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go inkluderer én kjørende VM om gangen.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Go har brukt sine 40 VM-timer denne måneden. Lagrede VM-er kan brukes igjen i neste faktureringsperiode.",
-      "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "savedMessage": "Plus: Totalt 1 lagret VM, også når den er på pause",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
+      "activeMessage": "Plus: 1 Cloud-VM",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "hoursMessage": "Plus: Ingen månedlig timegrense",
+      "hoursAction": "https://cmux.com/pricing",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "{plan}-regnekvoten er brukt opp",
       "computeMessage": "{plan}-planen din har brukt sine {included} regnetimer i denne faktureringsperioden. En regnetime er 1 vCPU med 2 GB minne i én time. Maskinene dine kan starte igjen {resetDate}.",
       "computeAction": "Pausede maskiner beholder filene sine. Kontakt support hvis du trenger mer regnekraft før {resetDate}.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan}-diskkvoten er brukt opp",
       "storageMessage": "{plan}-planen din inkluderer {included} GB disk totalt for alle lagrede maskiner. Lagrede maskiner bruker {used} GB, og denne forespørselen trenger {requested} GB.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressurser",
@@ -158,7 +158,7 @@
       "action": "Sett en VM på pause eller slett den."
     },
     "activeLimit": {
-      "counted": "Telles nå: {machines}. Maskiner på pause telles ikke.",
+      "counted": "Telles nå: {machines}. Maskiner på pause teller med i grensen.",
       "provisioning": "{name} (klargjøres)",
       "separator": ", "
     }
@@ -557,7 +557,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -569,9 +569,10 @@
             "Lokal økthistorikk"
           ],
           "go": [
-            "1 aktiv Cloud VM",
-            "40 VM-timer i måneden",
-            "2 lagrede VM-er"
+            "Totalt 1 lagret VM, også når den er på pause",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+            "Brukerstøtte fra fellesskapet",
+            "Ingen månedlig timegrense"
           ],
           "pro": [
             "Skyagenter på Cloud VMs",
@@ -636,6 +637,12 @@
         "title": "Faktureres gjennom App Store",
         "body": "Planen din ble kjøpt i cmux-appen for iPhone og faktureres av Apple. Endre eller avslutt den i App Store-abonnementene dine.",
         "manage": "Administrer i App Store"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Plus-abonnementet ditt fornyes {date}.",
+        "pendingBody": "Plus-abonnementet ditt avsluttes {date}.",
+        "monthlyPrice": "${amount}/md."
       }
     },
     "mobileDevices": {
@@ -970,7 +977,7 @@
       },
       "plan": {
         "free": "Gratis",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -1744,7 +1751,7 @@
         "p2": "Alle jobber forskjellig. Noen prosjekter er spredt over flere git-repoer. Noen har mange utsjekkinger av samme repo (medgründeren min har kloner kalt cmux0 til cmux40, av grunner jeg fortsatt ikke forstår). Noen bruker SSH og fjernutvikling som standard.",
         "p3": "cmux er bare terminaler og nettlesere, med en CLI for å styre dem. Med noen få bash-skript kan du håndtere worktrees, sjonglere flere utsjekkinger eller åpne eksterne økter, og sette opp arbeidsområdet slik det passer deg.",
         "p4": "cmux bør tilpasse seg arbeidsflyten din i stedet for å tvinge en på deg. Vi vil at cmux skal føles som et hjem.",
-        "p5": "<link>cmux-home</link> er ett eksempel på dette. Det er en liten Rust-TUI som starter Claude- og Codex-arbeidsområder og følger med på statusen deres i sanntid, bygget helt på cmux-primitiver. Starteren bruker kommandomaler, så du kan bytte inn dine egne skript for å lage worktrees, velge en utsjekking eller koble til en VM via SSH. Fork den og gjør den til din."
+        "p5": "<link>cmux-home</link> er ett eksempel på dette. Det er en liten Rust-TUI som starter Claude- og Codex-arbeidsområder og følger med på statusen deres i sanntid, bygget helt på cmux-primitiver. Plusen bruker kommandomaler, så du kan bytte inn dine egne skript for å lage worktrees, velge en utsjekking eller koble til en VM via SSH. Fork den og gjør den til din."
       }
     },
     "zenOfCmux": {
@@ -1993,7 +2000,7 @@
       "socketParams": "Parametere",
       "socketMeaning": "Hva den gjør",
       "methodSessions": "Returnerer tmux-øktene som finnes på verten.",
-      "methodAttach": "Starter en kontrollklient på én økt. Med create opprettes en manglende økt først.",
+      "methodAttach": "Plus en kontrollklient på én økt. Med create opprettes en manglende økt først.",
       "methodDetach": "Stopper kontrollklienten og lar den eksterne økten leve videre.",
       "methodState": "Diagnostisk øyeblikksbilde av det kontrollklienten ser akkurat nå.",
       "socketSafetyDesc": "For å hindre injeksjon av SSH-alternativer avvises en vert eller identitetsfil som begynner med bindestrek, så snart forespørselen kommer inn.",
@@ -2338,7 +2345,7 @@
       "actionTypeBuiltinCopy": "Innebygde kopihandlinger: cmux.copyWorkingDirectory kopierer terminalens arbeidsmappe, cmux.copyProjectRoot kopierer roten av git-repositoriet (eller arbeidsmappen utenfor et repository), og cmux.copyScreen kopierer den synlige skjermen.",
       "actionTypeBuiltinCopyRemote": "I et SSH-, sky- eller eksternt tmux-arbeidsområde kopierer cmux.copyProjectRoot den eksterne arbeidsmappen, fordi cmux ikke kan slå opp git-repositoriet på den andre verten.",
       "actionTypeCommand": "Kjører shell-tekst i en terminal. Bruk target for å velge gjeldende terminal eller en ny fane i gjeldende panel.",
-      "actionTypeAgent": "Starter en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
+      "actionTypeAgent": "Plus en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kjører en navngitt arbeidsområdedefinisjon fra commands. Bruk dette for flerpane-layouter, egendefinerte arbeidsmapper og oppstartskommandoer.",
       "actionTypeSetting": "Endrer én innstilling i din globale cmux.json, for eksempel slå en true/false-innstilling av eller på eller bla gjennom en liste med verdier. Se Innstillingshandlinger nedenfor.",
       "actionTypeSettingPreset": "Bruker en navngitt gruppe innstillinger fra settingPresets i ett steg.",
@@ -2962,9 +2969,9 @@
       "limitsTitle": "Abonnementsgrenser",
       "limitsDesc": "De aktive maskinene dine deler én pott med vCPU-er og minne. Kjør én stor maskin eller flere små. Maskiner på pause bruker ikke av potten. Disken settes per maskin og er ikke en del av potten.",
       "limitsFree": "Gratiskontoer kan ikke opprette maskiner.",
-      "limitsPaid": "Pro- og Founder's Edition-kontoer kan ha opptil 5 aktive maskiner som deler 20 vCPU-er og 40 GB minne. En maskin er aktiv mens den kjører eller starter.",
-      "limitsTeam": "Teamkontoer kan ha opptil 5 aktive maskiner per betalt lisens. Hver betalt lisens legger 20 vCPU-er og 40 GB minne til teamets pott.",
-      "limitsMax": "Max-kontoer kan ha opptil 5 aktive maskiner som deler 80 vCPU-er og 160 GB minne. Én Max-maskin kan bruke opptil 64 GB og 32 vCPU-er, inkludert størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU; Pro og Team stopper på 16 GB og 8 vCPU-er.",
+      "limitsPaid": "Pro- og Founder's Edition-kontoer kan ha opptil 5 maskiner, inkludert maskiner på pause som deler 20 vCPU-er og 40 GB minne.",
+      "limitsTeam": "Teamkontoer kan ha opptil 5 maskiner, inkludert maskiner på pause per betalt lisens. Hver betalt lisens legger 20 vCPU-er og 40 GB minne til teamets pott.",
+      "limitsMax": "Max-kontoer kan ha opptil 5 maskiner, inkludert maskiner på pause som deler 80 vCPU-er og 160 GB minne. Én Max-maskin kan bruke opptil 64 GB og 32 vCPU-er, inkludert størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU; Pro og Team stopper på 16 GB og 8 vCPU-er.",
       "limitsPoolFull": "Hvis en ny, gjenopptatt, forstørret eller forket maskin ville gått over potten, avviser cmux forespørselen og viser hvor mye av potten som er i bruk. Sett en maskin på pause eller slett den for å frigjøre ressurser, eller oppgrader til Max.",
       "limitsPricing": "Se prissiden for gjeldende priser. Det er ingen forbruksmåling og ingen fakturering for overforbruk.",
       "agentUpdatesTitle": "Hold kodeagenter oppdatert",
@@ -2974,7 +2981,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette på som standard. For å endre det på en eksisterende maskin høyreklikker du maskinen og velger Keep Agents Up to Date, eller kjører cmux vm agent-updates. cmux vm new beholder versjonene fra bildet med mindre du sender --agent-updates latest. Når du slår av oppdateringer, beholdes versjonene som allerede er installert.",
       "agentUpdatesNetwork": "Oppdateringer bruker bare github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillater disse vertene i alle nettverksmoduser, også Allowlist og No internet, så en nettverkspolicy blokkerer aldri oppdateringer.",
       "resizeTitle": "Endre størrelse",
-      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 128 GB på Pro og Team, eller 256 GB på Max (Go er begrenset til 16 GB). Minnet vokser opptil 16 GB og CPU opptil 8 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
+      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 128 GB på Pro og Team, eller 256 GB på Max (Plus er begrenset til 128 GB). Minnet vokser opptil 16 GB og CPU opptil 8 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
       "pauseTitle": "Pause og gjenoppta",
       "pauseDesc": "cmux vm pause stopper maskinens beregningsressurser. Disken, arbeidsområdene og terminalhistorikken beholdes. Kjørende prosesser stopper. cmux vm resume starter maskinen igjen. Å åpne en maskin på pause eller kjøre en kommando på den starter den også.",
       "pauseIdle": "Maskiner settes ikke på pause av seg selv når de er inaktive. En maskin kjører til du setter den på pause eller sletter den.",
@@ -5254,7 +5261,18 @@
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
     "signedOutSignIn": "Logg inn",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "go": {
+      "name": "Plus",
+      "cta": "Velg Plus",
+      "featuresLead": "Inkluderer:",
+      "features": [
+        "Totalt 1 lagret VM, også når den er på pause",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Brukerstøtte fra fellesskapet",
+        "Ingen månedlig timegrense"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

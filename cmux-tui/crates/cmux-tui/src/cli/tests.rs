@@ -11,6 +11,28 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 #[cfg(unix)]
+#[test]
+fn settings_separator_keeps_literal_confirm_with_daemon() {
+    let literal = strings(&["settings", "set", "--", "custom.label", "--confirm"]);
+    assert!(daemon_settings_scope(&literal));
+
+    let confirmed = strings(&["settings", "set", "custom.label", "value", "--confirm"]);
+    assert!(!daemon_settings_scope(&confirmed));
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_crud_help_stays_on_the_app_help_scope() {
+    for args in [
+        strings(&["settings", "get", "--help"]),
+        strings(&["config", "set", "custom.label", "value", "--help"]),
+    ] {
+        assert!(has_help_option(&args));
+        assert!(!daemon_settings_scope(&args));
+    }
+}
+
+#[cfg(unix)]
 mod remote_cli_docs {
     use super::*;
     use std::collections::HashSet;
@@ -229,7 +251,7 @@ mod remote_cli_docs {
         let missing = action_names()
             .into_iter()
             .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
-            .filter(|name| !CLOUD_HELP.contains(name))
+            .filter(|name| !cloud_help::overview(false).contains(name))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
     }
@@ -241,7 +263,7 @@ mod remote_cli_docs {
         let args =
             strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
         assert!(app::parse(&args).is_ok());
-        assert!(CLOUD_HELP.contains("cloud <action>"));
+        assert!(cloud_help::overview(false).contains("cloud <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
         assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
     }
@@ -919,6 +941,20 @@ fn remote_invocation_allows_leading_global_options() {
 }
 
 #[test]
+fn remote_app_action_words_run_the_app_action_not_the_remote_family() {
+    // `cmux remote new-group HOST` is the app's New Remote Group (remote.newGroup);
+    // only the remote command family's own words stay with it.
+    assert!(!is_remote_invocation(&strings(&["remote", "new-group", "--destination", "box"])));
+    assert!(!is_remote_invocation(&strings(&["--json", "remote", "remove-group"])));
+    assert!(!is_remote_invocation(&strings(&["--session", "dev", "remote", "reconnect"])));
+    assert!(is_remote_invocation(&strings(&["remote"])));
+    assert!(is_remote_invocation(&strings(&["remote", "--help"])));
+    assert!(is_remote_invocation(&strings(&["remote", "help"])));
+    assert!(is_remote_invocation(&strings(&["remote", "stop"])));
+    assert!(is_remote_invocation(&strings(&["remote", "connect", "ssh://box"])));
+}
+
+#[test]
 fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
     assert!(!is_remote_invocation(&strings(&["--session"])));
     assert!(!is_remote_invocation(&strings(&["--socket"])));
@@ -1035,3 +1071,46 @@ fn agent_hook_emit_rejects_a_bad_terminal_like_every_other_terminal_flag() {
 }
 
 mod machine_catalog;
+
+#[test]
+fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        for scope in surface::CMUX_SCOPES.iter().chain(OWN_HELP_SCOPES) {
+            assert!(
+                help.lines().any(|line| line.starts_with(&format!("  {scope} "))),
+                "{locale}: `cmux --help` does not list {scope}"
+            );
+        }
+    }
+    let rewritten = |words: &[&str]| {
+        let mut args = strings(words);
+        rewrite_help_word_on(&mut args, Surface::Cmux);
+        args
+    };
+    for &scope in OWN_HELP_SCOPES {
+        let own_help = if scope == "device" { "help" } else { "--help" };
+        assert_eq!(rewritten(&["help", scope]), strings(&[scope, own_help]), "{scope}");
+    }
+    for with_globals in [
+        vec!["--session", "s", "help", "agents", "--json"],
+        vec!["help", "--json", "agents"],
+        vec!["help", "--session", "s", "agents"],
+        vec!["--session", "help", "help", "agents"],
+    ] {
+        assert_eq!(rewritten(&with_globals), strings(&["agents", "--help"]), "{with_globals:?}");
+    }
+    assert_eq!(rewritten(&["--session", "s", "help", "chats"]), strings(&["chats", "--help"]));
+    for unchanged in [
+        vec!["help", "workspace"],
+        vec!["help", "agents", "chat"],
+        vec!["agents", "help"],
+        vec!["--session", "help", "agents"],
+    ] {
+        assert_eq!(rewritten(&unchanged), strings(&unchanged), "{unchanged:?}");
+    }
+    let os = |words: &[&str]| words.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+    assert_eq!(acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
+    assert_eq!(acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
+    assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
+}

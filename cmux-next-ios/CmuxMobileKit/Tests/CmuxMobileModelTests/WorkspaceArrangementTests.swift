@@ -97,6 +97,75 @@ import Testing
         #expect(WorkspaceBulkClose.question(3) == "Close 3 workspaces?")
     }
 
+    /// Close Other Workspaces in Group and Close All Workspaces; Home never closes.
+    @Test func groupAndAllCloseTargets() {
+        var order = workspaces(["home", "a", "b", "c"])
+        order[0].isHome = true
+        let group = MacWorkspaceGroup(id: "g", name: "G")
+        order[1].group = group
+        order[2].group = group
+        #expect(WorkspaceBulkClose.othersInGroup.targets(of: order[1], in: order).map(\.id) == ["b"])
+        #expect(WorkspaceBulkClose.othersInGroup.targets(of: order[3], in: order).isEmpty)
+        #expect(WorkspaceBulkClose.all.targets(of: order[2], in: order).map(\.id) == ["a", "b", "c"])
+        #expect(WorkspaceBulkClose.all.targets(of: order[0], in: order).map(\.id) == ["a", "b", "c"])
+        #expect(WorkspaceBulkClose.others.targets(of: order[1], in: order).map(\.id) == ["b", "c"])
+        // Home's own row keeps Close Other Workspaces and Below; Home itself never closes.
+        #expect(WorkspaceBulkClose.others.targets(of: order[0], in: order).map(\.id) == ["a", "b", "c"])
+        #expect(WorkspaceBulkClose.below.targets(of: order[0], in: order).map(\.id) == ["a", "b", "c"])
+        #expect(WorkspaceBulkClose.above.targets(of: order[2], in: order).map(\.id) == ["a"])
+        #expect(WorkspaceBulkClose.othersInGroup.title == "Close Other Workspaces in Group")
+        #expect(WorkspaceBulkClose.all.title == "Close All Workspaces")
+    }
+
+    /// Move Workspace to Top / to Bottom and Sort: the index right before or after the anchor
+    /// in the person's order without the moved workspace.
+    @Test func personalIndexNextToAnAnchor() {
+        let arrangement = SidebarArrangement(rows: [
+            .init(session: "reg", key: "a", index: 0), .init(session: "x", key: "z", index: 1),
+            .init(session: "reg", key: "b", index: 2), .init(session: "reg", key: "c", index: 3),
+        ])
+        let list = workspaces(["a", "b", "c"])
+        // c before a: 0; a after c: without a, c is at 2 → 3; b before a: 0.
+        #expect(arrangement.personalIndex(placing: list[2], next: list[0], after: false, registryID: "reg") == 0)
+        #expect(arrangement.personalIndex(placing: list[0], next: list[2], after: true, registryID: "reg") == 3)
+        #expect(arrangement.personalIndex(placing: list[1], next: list[0], after: false, registryID: "reg") == 0)
+        #expect(arrangement.personalIndex(placing: list[1], next: list[1], after: false, registryID: "reg") == nil)
+        // A workspace with no personal row yet still goes next to an anchor that has one.
+        var fresh = list[0]
+        fresh = Workspace(id: "n", macID: "m", title: "n", directory: "~", tabs: [], lastActivityAt: fresh.lastActivityAt)
+        #expect(arrangement.personalIndex(placing: fresh, next: list[0], after: false, registryID: "reg") == 0)
+        #expect(SidebarArrangement().personalIndex(placing: list[1], next: list[0], after: false, registryID: "reg") == nil)
+    }
+
+    @Test func edgesOfTheContainer() {
+        let order = workspaces(["a", "b", "c"])
+        #expect(WorkspaceEdge.top.anchor(of: order[2], in: order).map { "\($0.anchor.id) \($0.after)" } == "a false")
+        #expect(WorkspaceEdge.bottom.anchor(of: order[0], in: order).map { "\($0.anchor.id) \($0.after)" } == "c true")
+        #expect(WorkspaceEdge.top.anchor(of: order[0], in: order) == nil)
+        #expect(WorkspaceEdge.bottom.anchor(of: order[2], in: order) == nil)
+        #expect(WorkspaceEdge.top.title(grouped: false) == "Move Workspace to Top")
+        #expect(WorkspaceEdge.bottom.title(grouped: true) == "Move to Bottom of Group")
+    }
+
+    /// The Mac's `WorkspaceSortKey`: Finder name order, folder then name, most recent first.
+    @Test func sortKeysOrderAsTheMac() {
+        var list = workspaces(["b10", "a", "b2", "c"])
+        list[0].directory = "~/z"; list[1].directory = "~/y"; list[2].directory = "~/y"; list[3].directory = ""
+        list[0].focusOrder = 1; list[1].focusOrder = 4; list[2].focusOrder = 9; list[3].focusOrder = 2
+        #expect(WorkspaceSortKey.name.sorted(list).map(\.id) == ["a", "b2", "b10", "c"])
+        #expect(WorkspaceSortKey.directory.sorted(list).map(\.id) == ["a", "b2", "b10", "c"])
+        #expect(WorkspaceSortKey.lastUsed.sorted(list).map(\.id) == ["b2", "a", "c", "b10"])
+        #expect(WorkspaceSortKey.allCases.map(\.title) == ["Sort Workspaces by Name", "Sort Workspaces by Last Used", "Sort Workspaces by Directory"])
+    }
+
+    /// One row at a time: the first before the container's first row, each next after the one before.
+    @Test func sortStepsMoveOnlyWhatIsOutOfPlace() {
+        let list = workspaces(["c", "a", "b"])
+        let steps = WorkspaceSortKey.steps(from: list, to: WorkspaceSortKey.name.sorted(list))
+        #expect(steps.map { "\($0.workspace.id) \($0.after ? "after" : "before") \($0.anchor.id)" } == ["a before c", "b after a"])
+        #expect(WorkspaceSortKey.steps(from: list, to: list).isEmpty)
+    }
+
     @Test func colorsAreTheMacPalette() {
         #expect(WorkspaceColor.allCases.map(\.title) == ["Grey", "Blue", "Red", "Yellow", "Green", "Pink", "Purple", "Cyan", "Orange"])
         #expect(WorkspaceColor(stored: "Blue") == .blue)
@@ -158,6 +227,9 @@ import Testing
         func setUnread(_ workspace: Workspace, _ unread: Bool) async throws { try record("unread \(workspace.id) \(unread)") }
         func setIcon(_ workspace: Workspace, _ icon: String?) async throws { try record("icon \(workspace.id) \(icon ?? "nil")") }
         func clearName(_ workspace: Workspace) async throws { try record("clearName \(workspace.id)") }
+        func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {
+            try record("place \(workspace.id) \(after ? "after" : "before") \(anchor.id)")
+        }
     }
 
     private func setup() -> (AppStore, WorkspaceCreator, Recorder) {
@@ -229,6 +301,48 @@ import Testing
         #expect(!store.workspaces[2].hasCustomTitle)
         await creator.settle()
         #expect(recorder.calls == ["icon a hammer", "icon a nil", "clearName c"])
+    }
+
+    @Test func moveToTopAndBottomOfTheLooseRows() async {
+        let (store, creator, recorder) = setup()
+        creator.move(store.workspaces[2], to: .top)
+        #expect(store.workspaces.sorted { $0.sidebarIndex! < $1.sidebarIndex! }.map(\.id) == ["c", "a", "b"])
+        await creator.settle()
+        creator.move(store.workspaces.first { $0.id == "a" }!, to: .bottom)
+        await creator.settle()
+        #expect(recorder.calls == ["place c before a", "place a after b"])
+        #expect(store.workspaces.sorted { $0.sidebarIndex! < $1.sidebarIndex! }.map(\.id) == ["c", "b", "a"])
+        // A refusal puts every row back.
+        recorder.fail = "busy"
+        creator.move(store.workspaces.first { $0.id == "a" }!, to: .top)
+        await creator.settle()
+        #expect(store.workspaces.sorted { $0.sidebarIndex! < $1.sidebarIndex! }.map(\.id) == ["c", "b", "a"])
+    }
+
+    @Test func sortEachContainerOnTheMac() async {
+        let (store, creator, recorder) = setup()
+        let mac = store.workspaces[0].macID
+        store.updateWorkspace("a") { $0.title = "Zed" }
+        creator.sortWorkspaces(on: mac, by: .name)
+        #expect(store.workspaces.sorted { $0.sidebarIndex! < $1.sidebarIndex! }.map(\.id) == ["b", "c", "a"])
+        await creator.settle()
+        #expect(recorder.calls == ["place b before a", "place c after b"])
+        // Already sorted: nothing to send.
+        creator.sortWorkspaces(on: mac, by: .name)
+        await creator.settle()
+        #expect(recorder.calls.count == 2)
+    }
+
+    @Test func removeAllColorsOnOneMac() async {
+        let (store, creator, recorder) = setup()
+        let mac = store.workspaces[0].macID
+        store.updateWorkspace("a") { $0.colorHex = "red" }
+        store.updateWorkspace("c") { $0.colorHex = "blue" }
+        #expect(creator.hasColors(on: mac))
+        creator.removeAllColors(on: mac)
+        #expect(!creator.hasColors(on: mac))
+        await creator.settle()
+        #expect(recorder.calls == ["color a nil", "color c nil"])
     }
 
     @Test func aPinnedWorkspaceDoesNotMove() async {

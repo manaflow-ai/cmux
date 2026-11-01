@@ -27,6 +27,7 @@ impl Hub {
                 m.tags.remove(k);
             }
         }
+        self.child_tags.note(session);
         self.save_meta(session);
         self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
     }

@@ -112,10 +112,10 @@
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: a found update waits, and one click downloads and installs it."
+            "text": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "download",
@@ -224,7 +224,7 @@
             "text": "A downloaded update installs as cmux quits. Terminals keep running."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "install",
@@ -314,6 +314,27 @@
           ]
         },
         {
+          "key": "updates.showFeatureTips",
+          "note": "Feature tips: one small callout per launch at a new feature's control, from its What's New highlight (leo-workspace design/feature-tips.md). Followed by the agent chat (AgentPaneDisplaySetting.followedAppPaths).",
+          "title": {
+            "key": "settings.updates.showFeatureTips",
+            "text": "Show Feature Tips"
+          },
+          "help": {
+            "key": "settings.updates.showFeatureTips.help",
+            "text": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "tips",
+            "whats new",
+            "new feature",
+            "hint",
+            "callout"
+          ]
+        },
+        {
           "key": "updates.idleInstallMaxWaitSeconds",
           "name": "idleInstallMaxWait",
           "note": "Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.",
@@ -332,7 +353,7 @@
             "step": 60,
             "unit": "seconds"
           },
-          "default": 900,
+          "default": 600,
           "keywords": [
             "update",
             "install",

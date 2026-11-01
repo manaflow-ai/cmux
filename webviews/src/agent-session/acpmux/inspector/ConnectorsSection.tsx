@@ -6,9 +6,12 @@
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
 
 type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
+
+const ROW_ICON = rowIconSize(12);
 
 export function ConnectorsSection({
   servers,
@@ -23,7 +26,7 @@ export function ConnectorsSection({
     <ul className="acpmux-chat-inspector-list">
       {servers.map((server) => (
         <li key={server.name} className="acpmux-chat-inspector-row">
-          <Icon name="extension" size={12} row />
+          <Icon name="extension" size={ROW_ICON} row />
           <span className="acpmux-chat-inspector-row__name">{server.name}</span>
           {server.status === "failed" && onReconnect ? (
             <ReconnectButton name={server.name} reconnect={onReconnect} />

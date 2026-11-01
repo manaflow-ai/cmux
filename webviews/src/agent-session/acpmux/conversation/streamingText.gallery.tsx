@@ -111,6 +111,18 @@ const streamReply: Play = async (ctx) => {
     throw new Error(report?.problems.join("; ") ?? "the streaming reply was not sampled");
 };
 
+const jumpDuringStream: Play = async (ctx) => {
+  await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+  await ctx.click({ testId: "stream-text-start" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+  await ctx.click({ selector: ".acpmux-jump-latest" });
+  await ctx.waitFor(() => ctx.find({ testId: "stream-text-done" }).textContent === "Stream settled", { capMs: 30_000 });
+  await ctx.waitFor(() => {
+    const node = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+    return node.scrollHeight - node.clientHeight - node.scrollTop <= 4;
+  });
+};
+
 export default componentEntry<{ cadence: Cadence }>({
   id: "agent-pane.streaming-text",
   title: "Streaming text",
@@ -138,5 +150,6 @@ export default componentEntry<{ cadence: Cadence }>({
   variants: {
     claude: { props: { cadence: "claude" }, play: streamReply },
     codex: { props: { cadence: "codex" }, play: streamReply },
+    "jump-during-stream": { props: { cadence: "codex" }, play: jumpDuringStream },
   },
 });

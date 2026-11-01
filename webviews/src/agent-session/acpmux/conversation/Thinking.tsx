@@ -9,13 +9,14 @@
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useLayoutEffect, useState } from "react";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { useTicking, WorkingCountsContext, workingParts, workingTokens } from "./WorkingFor";
+import { TurnTokens } from "./TurnTokens";
+import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
@@ -101,10 +102,10 @@ export function Thinking({
               ? t("tools.writingCommand")
               : t("tools.runningUnnamed")
           : doing);
+  const elapsed = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
-  const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
   const showTokens = Boolean(tokens) && timed && doing === undefined;
@@ -115,18 +116,31 @@ export function Thinking({
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
         </output>
+      ) : status ? (
+        <output className="cv-thinking">{label}</output>
       ) : (
-        <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>
-          {status ? label : <ShimmerText text={label} />}
-        </output>
+        <span className="cv-shimmer__row">
+          <output className="cv-thinking is-shimmer">
+            <ShimmerText
+              text={label}
+              baseText={label}
+              lit={
+                <>
+                  <span className="cv-shimmer__lit-label" data-text={label} />
+                  {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
+                </>
+              }
+            />
+          </output>
+          {elapsed && <span className="cv-worked__time">{elapsed}</span>}
+        </span>
       )}
-      {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
       {showTokens && (
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          <span className="cv-worked__tokens">{workingTokens(t, language, tokens!)}</span>
+          <TurnTokens total={tokens} split={counts?.split} />
         </span>
       )}
       {parts.map((part) => (

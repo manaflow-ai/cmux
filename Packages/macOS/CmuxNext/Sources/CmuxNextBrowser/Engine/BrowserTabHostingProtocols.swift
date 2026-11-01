@@ -10,6 +10,15 @@ public protocol BrowserOcclusionHosting: AnyObject {
     var occlusionRects: [CGRect] { get set }
 }
 
+/// Occlusion hosts that also take rounded holes (`CEFTab`): native UI with
+/// rounded corners (the find and prompt bars) leaves the page with its
+/// corners, so the page shows around them.
+protocol BrowserRoundedOcclusionHosting: BrowserOcclusionHosting {
+    /// Rounded rects in `contentView` coordinates where native UI covers the
+    /// page. The page is masked there and mouse events go to the host window.
+    var roundedOcclusions: [CEFClipShape.RoundedRect] { get set }
+}
+
 /// Tabs that expose Chrome extension toolbar actions. `BrowserChromeView`
 /// fills its `extensionSlot` from this automatically.
 public protocol BrowserExtensionActionHosting: AnyObject, Observable {

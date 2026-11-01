@@ -345,12 +345,24 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
               items.map((item) => [item.querySelector(text)?.textContent, item.querySelector(meta)?.textContent]),
             { text: surface.text, meta: surface.meta },
           );
-      // The running one says how long it has run, with no Stop (the registry lists nothing); the
-      // ended ones wait behind one row.
+      // The running one says how long it has run, with no Stop (the registry lists nothing).
       const running = await rows();
-      expect(running.map(([command]) => command)).toEqual(["cargo watch -x test"]);
+      expect(running[0]![0]).toBe("cargo watch -x test");
       expect(running[0]![1]).toMatch(/^\d+[smh]/);
       expect(await section.locator("button.acpmux-chat-inspector-stop").count()).toBe(0);
+      if (name === "summary card") {
+        // The summary card keeps the finished ones as cards under it, folded only past five
+        // (49acdd1d589d: a finished task never hides behind a count).
+        expect(running.slice(1)).toEqual([
+          ["npm run dev", "Stopped"],
+          ["pytest -x", "Finished"],
+        ]);
+        expect(await section.locator(".acpmux-summary-finished").count()).toBe(0);
+        await page.close();
+        return;
+      }
+      // The Inspector's ended ones wait behind one row.
+      expect(running.length).toBe(1);
       const finished = section.getByRole("button", { name: "2 finished" });
       await finished.click();
       expect(await finished.getAttribute("aria-expanded")).toBe("true");

@@ -33,14 +33,24 @@ export type AuthorLook = "face-name" | "name" | "face";
 
 /// Who sent a prompt, over its bubble: their face and name (the pick), the name alone, or the
 /// face alone with the name for screen readers.
-export function AuthorChip({ author, look = "face-name" }: { author: Participant; look?: AuthorLook }) {
+/// `inline` draws it in a line of text (a queued prompt's row), ahead of the words.
+export function AuthorChip({
+  author,
+  look = "face-name",
+  inline = false,
+}: {
+  author: Participant;
+  look?: AuthorLook;
+  inline?: boolean;
+}) {
+  const Root = inline ? "span" : "div";
   return (
-    <div className="cv-author" data-look={look}>
+    <Root className={inline ? "cv-author cv-author--inline" : "cv-author"} data-look={look}>
       {look !== "name" && <Face person={author} />}
       <span className={look === "face" ? "cv-author__name cv-author__name--hidden" : "cv-author__name"}>
         {author.name}
       </span>
-    </div>
+    </Root>
   );
 }
 

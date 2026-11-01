@@ -27,6 +27,16 @@ import UIKit
         #expect(terminal.action(hardware: true, option: true) == .newline)
     }
 
+    /// The terminal composer (classic cmux iOS): Return is a new line from
+    /// either keyboard; only the send button sends.
+    @Test func messageReturnAlwaysStartsANewLine() {
+        let message = ComposerReturnPolicy(style: .message, maxLines: 14)
+        #expect(message.action(hardware: false) == .newline)
+        #expect(message.action(hardware: true) == .newline)
+        #expect(message.action(hardware: true, shift: true) == .newline)
+        #expect(message.visibleLines(contentLines: 20) == 14)
+    }
+
     @Test func draftGrowsToMaxLinesThenScrolls() {
         let policy = ComposerReturnPolicy(style: .chat, maxLines: 8)
         #expect(policy.visibleLines(contentLines: 0) == 1)

@@ -139,19 +139,18 @@ test("a bare #N in a reply links to the pull request and opens its card", async 
 
 test("a reference in a code span or a code block is not a link", async () => {
   const view = await render("Prose #634, code `#635` and `a/b#636`.\n\n```\n#637 a/b#638\n```\n", REPO);
-  // The code block's highlighted card loads after the first frame (CodeBlock.tsx): load it here, so
-  // it always lands inside this test, not whenever the import settles (on a slow runner, mid-test),
-  // and read the code where the card draws it, in its shadow root.
+  // Finish loading the lazy card inside this test. Without a highlight worker (as in jsdom),
+  // the card deliberately keeps its plain-code fallback; references must stay literal there too.
   const { act } = await import("react");
   const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
   await act(async () => {
     await loadHighlightedCode();
   });
-  const code = view.element.querySelector("diffs-container")?.shadowRoot;
+  const code = view.element.querySelector(".cv-code-plain");
   const chips = [...view.element.querySelectorAll<HTMLAnchorElement>("a.cv-chip")];
   expect(chips.map((chip) => chip.getAttribute("href"))).toEqual([URL]);
   expect(view.element.textContent).toContain("#635");
-  expect(code?.querySelector("[data-content]")?.textContent).toBe("#637 a/b#638");
+  expect(code?.textContent).toBe("#637 a/b#638");
   expect(code?.querySelectorAll("a")).toHaveLength(0);
 });
 

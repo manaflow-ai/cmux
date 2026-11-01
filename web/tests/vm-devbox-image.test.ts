@@ -27,6 +27,10 @@ import {
   CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
   devboxWaitForDaemonCommand,
@@ -41,6 +45,7 @@ import {
   devboxMachineHealthResumeProblems,
   devboxSourceDigest,
   devboxSourceManifest,
+  devboxTeamKindDefaultCommand,
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
@@ -77,7 +82,9 @@ const ownerAgentConfig = path.join(agentConfigFixtureRoot, "agent-config.sh");
 writeFileSync(agentConfigFixtureKind, "owner\n");
 writeFileSync(
   ownerAgentConfig,
-  read("agent-config.sh").replaceAll("/etc/cmux/vm-kind", agentConfigFixtureKind),
+  read("agent-config.sh")
+    .replaceAll("/etc/cmux/vm-kind", agentConfigFixtureKind)
+    .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")),
 );
 afterAll(() => rmSync(agentConfigFixtureRoot, { recursive: true, force: true }));
 
@@ -162,6 +169,7 @@ describe("devbox image template", () => {
       "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
+      "claude-onboarding.py",
       "cmux-bashrc",
       "cmux-claude",
       "cmux-codex",
@@ -186,6 +194,7 @@ describe("devbox image template", () => {
       "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
+      "claude-onboarding.py",
       "cmux-bashrc",
       "cmux-claude",
       "cmux-codex",
@@ -842,7 +851,7 @@ test "$daemon_pid" = fixture
     // RUN, no ARG moved) and any non-blank line change in the bake script; a
     // Dockerfile comment moves nothing. Schema 1, the formula the first
     // promoted ladders were recorded with, ignores both.
-    const withStep = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    const withStep = dockerfile.replace(/^    e2fsprogs \\$/m, "    e2fsprogs \\\n    cowsay \\");
     expect(withStep).not.toBe(dockerfile);
     expect(devboxSourceDigest("base", withStep)).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", withStep, 1)).toBe(devboxSourceDigest("base", dockerfile, 1));
@@ -881,18 +890,21 @@ test "$daemon_pid" = fixture
   });
 
   test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {
-    // bubblewrap: without the distro bwrap, codex 0.151+ warns on every
-    // launch that it is falling back to its bundled copy (seen live on the
-    // termid ladder, 2026-09-09). Both recipes install it and prove it.
-    expect(dockerfile).toContain("    bubblewrap \\");
-    expect(dockerfile).toContain("bwrap --version");
+    // The Dockerfile and Freestyle bake select the same checksum-pinned
+    // upstream release; the Ubuntu integration test exercises the install.
+    const url = devboxBubblewrapUrl(dockerfile);
+    const sha256 = devboxBubblewrapSha256(dockerfile);
+    const version = devboxBubblewrapVersion(dockerfile);
+    const instructions = dockerfile.replace(/[ \t]*\\\n[ \t]*/g, " ").split("\n");
+    const install = instructions.find((line) => line.startsWith("RUN ") && line.includes("/tmp/bubblewrap.tar.xz"))!;
+    expect(install).toBeDefined();
+    expect(install.slice(4).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_URL", url).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_SHA256", sha256)).toBe(devboxBubblewrapInstallCommand(url, sha256, version));
     const bake = readScript("build-devbox-freestyle.ts");
-    expect(bake).toContain("util-linux e2fsprogs bubblewrap");
-    expect(bake).toContain("bwrap --version");
+    expect(bake).toContain("devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion())");
     // The verifier launches the real claude (root) and codex (root and the
     // work user) TUIs and requires the ready composer with no first-run gate text.
     const verify = readScript("verify-devbox-image.ts");
-    expect(verify).toContain("bubblewrap-ok");
+    expect(verify).toContain("devboxBubblewrapCheckCommand()");
     // The work user's claude launch is the verifier's own
     // `claude-reaches-the-prompt`; these add root (the provider's exec API
     // runs as root) and codex for both accounts.
@@ -949,7 +961,7 @@ test "$daemon_pid" = fixture
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
   });
 
@@ -1084,6 +1096,46 @@ test "$daemon_pid" = fixture
       rmSync(bin, { recursive: true, force: true });
     }
   }, 120_000);
+
+  test("the bake keeps caller model env through both owner checks, then verifies the team default", () => {
+    const bake = readScript("build-devbox-freestyle.ts");
+    const steps = [...bake.matchAll(/await step\(\s*"([^"]+)"/g)].map((match) => match[1]);
+    const ordered = ["vm-kind-bake-owner", "agent-config", "agent-hooks", "vm-kind-default", "model-plane-env", "settle-before-snapshot"];
+    for (const name of ordered) expect(steps.filter((step) => step === name)).toHaveLength(1);
+    for (let i = 1; i < ordered.length; i++) {
+      expect(steps.indexOf(ordered[i - 1])).toBeLessThan(steps.indexOf(ordered[i]));
+    }
+  });
+
+  test("the bake team-default command resets owner and rejects any persisted caller model env", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-bake-team-default-"));
+    const kind = path.join(root, "kind");
+    const home = path.join(root, "home");
+    const config = path.join(root, "agent-config.sh");
+    try {
+      writeFileSync(kind, "owner\n");
+      writeFileSync(config, read("agent-config.sh")
+        .replaceAll("/etc/cmux/vm-kind", kind)
+        .replaceAll("/etc/cmux/model-plane.env", path.join(root, "no-baked-model-env"))
+        .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")));
+      const command = devboxTeamKindDefaultCommand(kind, home, config);
+      const result = await runChild("/bin/bash", ["-c", command], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("team-kind-keeps-no-caller-env");
+      expect(readFileSync(kind, "utf8")).toBe("team\n");
+      expect(existsSync(home)).toBe(false);
+      // Prove the assertion rejects a generator that retains the caller key
+      // or endpoint, rather than merely checking that the reset ran.
+      for (const variable of ["OPENAI_API_KEY", "OPENAI_BASE_URL"]) {
+        writeFileSync(config, `mkdir -p "$HOME"; printf '%s' "$${variable}" > "$HOME/leak"\n`);
+        const leaked = await runChild("/bin/bash", ["-c", command], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+        expect(leaked.status).not.toBe(0);
+        expect(leaked.stdout).not.toContain("team-kind-keeps-no-caller-env");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   test("agent config generator adds the codex provider around hook trust state another writer left first", async () => {
     // The bake runs `cmux-tui agent hook install codex` before any shell has

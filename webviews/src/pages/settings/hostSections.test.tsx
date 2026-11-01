@@ -80,6 +80,50 @@ test("browser profile edits run the profile's actions with its target", async ()
   page.unmount();
 });
 
+test("name-derived Settings marks keep their first grapheme and existing whitespace policy", async () => {
+  const examples = [
+    ["🦊 Fox", "🦊"],
+    ["👩🏽‍💻 Priya", "👩🏽‍💻"],
+    ["𠮷田", "𠮷"],
+    ["e\u0301lodie", "E\u0301"],
+    ["  Sam Lee", " "],
+    ["ß", "SS"],
+    ["", "?"],
+  ] as const;
+  for (const surface of ["rooms", "machines", "browser"] as const) {
+    const page = await renderPage({
+      path: `/settings/${surface}`,
+      setup: (provider) => {
+        const rows = examples.map(([name], index) => ({
+          id: `initial-${index}`,
+          title: name,
+          subtitle: null,
+          icon: null,
+          active: false,
+        }));
+        provider.setHost({
+          ...provider.host,
+          rooms: rows,
+          machines: rows,
+          browser_profiles: rows.map((row) => ({
+            id: row.id,
+            name: row.title,
+            color: null,
+            icon: null,
+            is_default: false,
+            source: null,
+          })),
+        });
+      },
+    });
+    const card = surface === "browser" ? "browserProfiles" : surface;
+    expect(
+      Array.from(page.container.querySelectorAll(`[data-card="${card}"] .host-avatar`), (mark) => mark.textContent),
+    ).toEqual(examples.map(([, expected]) => expected));
+    page.unmount();
+  }
+});
+
 test("a space and a browser profile with a stored image or SVG icon draw it from the host's icon resource", async () => {
   // cx-qno.2.3: an `svg:`/`image:` asset ref draws as the host's PNG of it (`icon/<ref>`), never
   // as the ref's text.
@@ -127,6 +171,19 @@ test("Development shows only when the host is a DEV build, however it is reached
     expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
     page.unmount();
   }
+});
+
+test("Devices shows in NIGHTLY and Release builds too, from the sidebar and its deep link", async () => {
+  // Mac Screen's sharing switch, permissions and relays live only here; release builds use the
+  // built-in device hub, so a non-DEV host must still list and open the category.
+  const page = await renderPage({
+    path: "/settings/devices",
+    setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+  });
+  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("devices");
+  expect(page.container.querySelector('[data-section-link="devices"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
+  page.unmount();
 });
 
 test("Machines offers Add Device…, which opens the one Add Device card through the palette's action", async () => {
@@ -206,6 +263,39 @@ test("only a paired client machine or phone has a Full access switch, off until 
   page.unmount();
 });
 
+test("each Full access switch stays disabled for its own in-flight request, whichever row settles first", async () => {
+  // One scalar "setting" id let the second row's click re-enable the first row, and let either
+  // completion clear the other's guard, so a third click sent a duplicate request.
+  const page = await renderPage({ path: "/settings/machines" });
+  const calls: { id: string; settle: () => void }[] = [];
+  const original = page.store.setDeviceFullAccess.bind(page.store);
+  page.store.setDeviceFullAccess = (id, on) => {
+    const done = Promise.withResolvers<void>();
+    calls.push({ id, settle: () => done.resolve() });
+    return done.promise.then(() => original(id, on));
+  };
+  const toggle = (id: string) =>
+    page.container.querySelector<HTMLButtonElement>(`[data-device-full-access="${id}"] [role="switch"]`)!;
+  const click = (id: string) => act(async () => toggle(id).click());
+  const settleCall = async (id: string) => {
+    await act(async () => calls.find((call) => call.id === id)!.settle());
+    await settle();
+  };
+  await click("paired:dv_leo");
+  await click("phone:p1");
+  expect(toggle("paired:dv_leo").disabled).toBe(true);
+  expect(toggle("phone:p1").disabled).toBe(true);
+  // The first row's request settles: only its switch frees; the second stays guarded.
+  await settleCall("paired:dv_leo");
+  expect(toggle("paired:dv_leo").disabled).toBe(false);
+  expect(toggle("phone:p1").disabled).toBe(true);
+  await click("phone:p1");
+  expect(calls.filter((call) => call.id === "phone:p1").length).toBe(1);
+  await settleCall("phone:p1");
+  expect(toggle("phone:p1").disabled).toBe(false);
+  page.unmount();
+});
+
 // A machine's color (appearance.machineColors): each Machines row shows the color its marks draw in
 // (the sidebar row, the tab badge), a well that picks another, and Automatic, which takes the pick
 // back. The map is keyed by the machine's color key (its name trimmed and lowercased, as the app
@@ -239,5 +329,45 @@ test("a machine row picks its color and Automatic takes the pick back", async ()
     value: { "big-red": "cyan" },
   });
   expect(row().querySelector("[data-machine-color-reset]")).toBeNull();
+  page.unmount();
+});
+
+test("a Cloud machine cmux made has its Dedicated agent machine switch; other machines have none", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const cloud = {
+    id: "cloud:vm_1",
+    title: "sample-vm",
+    subtitle: null,
+    active: true,
+    vm_host: { on: true, busy: false, error: null },
+  };
+  expect(page.container.querySelector("[data-machine-vm-host]")).toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, machines: [...page.provider.host.machines, cloud] });
+  });
+  await settle();
+  const switches = page.container.querySelectorAll("[data-machine-vm-host]");
+  expect(switches.length).toBe(1);
+  expect(switches[0]!.getAttribute("data-machine-vm-host")).toBe("cloud:vm_1");
+  const toggle = switches[0]!.querySelector('[role="switch"]') as HTMLElement;
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  await act(async () => toggle.click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.machines.vm_host")).toEqual([{ id: "cloud:vm_1", on: false }]);
+  const after = page.container.querySelector('[data-machine-vm-host="cloud:vm_1"] [role="switch"]');
+  expect(after?.getAttribute("aria-checked")).toBe("false");
+  // The machine's own refusal shows under the switch.
+  await act(async () => {
+    page.provider.setHost({
+      ...page.provider.host,
+      machines: page.provider.host.machines.map((m) =>
+        m.id === "cloud:vm_1" ? { ...m, vm_host: { on: false, busy: false, error: "vmHost stays off here" } } : m,
+      ),
+    });
+  });
+  await settle();
+  expect(page.container.querySelector('[data-machine-vm-host] [role="alert"]')?.textContent).toBe(
+    "vmHost stays off here",
+  );
   page.unmount();
 });

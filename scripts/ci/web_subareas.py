@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
 import subprocess
@@ -62,7 +62,10 @@ DB_EXACT = {
     "web/bun.lock",
     "web/drizzle.config.ts",
     "web/package.json",
+    # The migration runner every database uses; its DB tests apply fixtures through it.
+    "web/scripts/cloud-vm/apply-migrations.mjs",
     "web/scripts/db-local.sh",
+    "web/scripts/db-migrate.mjs",
     "web/scripts/run-db-behavior-tests.sh",
 }
 DB_PREFIXES = (
@@ -176,10 +179,14 @@ REACT_EXACT = {
     "scripts/build-webviews-app.sh",
     # react-apps-check runs the webviews tests through it.
     "scripts/ci/run-webviews-tests.sh",
+    # and splits and orders its files by recorded duration through this.
+    "scripts/ci/webviews_test_shards.py",
     # and compares its reds with the base's through these.
     "scripts/ci/webviews-tests-new-reds.sh",
     "scripts/ci/webviews_test_results.py",
     "scripts/ci/guards_new_reds.py",
+    # and the base's flake history that keeps a test flipping there a warning.
+    "scripts/ci/webviews_test_history.py",
     # It also runs the test of the PR scoping of ui-rules and gallery coverage.
     "scripts/tests/test_pr_scoped_webviews_checks.py",
     "scripts/check-webviews-bun-version.sh",
@@ -301,7 +308,17 @@ def route() -> int:
         WebSubareas.all().emit(output)
         return 0
 
-    classify_paths(paths).emit(output)
+    areas = classify_paths(paths)
+    # feat-cmux-next is the base branch. A direct push must exercise the React
+    # suite even when the pushed range contains no web path, or a base web red
+    # remains invisible until a PR happens to touch webviews. Other web
+    # subareas stay path-routed to keep unrelated pushes cheap.
+    if (
+        os.environ.get("EVENT_NAME") == "push"
+        and os.environ.get("GITHUB_REF") == "refs/heads/feat-cmux-next"
+    ):
+        areas = replace(areas, react_apps=True)
+    areas.emit(output)
     return 0
 
 

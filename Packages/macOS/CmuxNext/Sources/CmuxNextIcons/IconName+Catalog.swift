@@ -141,6 +141,7 @@ extension IconName {
         .diffViewed,
         .disclosureCollapsed,
         .disclosureExpanded,
+        .disclosureFolded,
         .`extension`,
         .extensionCrashed,
         .feedChoice,

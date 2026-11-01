@@ -37,6 +37,8 @@ USAGE
   cmux workspace placement list
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group create --remote <host> [--name <value>]
+  cmux workspace group create --parent <group> --name <value>
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
     [--icon <icon>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
@@ -57,7 +59,10 @@ progress and log target the caller's workspace inside a cmux terminal, else
 the current one. Levels: info, progress, success, warning, error. Text that
 starts with a dash goes after --. --ephemeral creates an incognito workspace
 the session closes at its next start. Workspace groups and rooms are
-personal: they live in this Mac's home session. A group or room is named by
+personal: they live in this Mac's home session. --remote makes a remote
+group: it connects <host> (an ~/.ssh/config alias, a Tailscale name or
+user@host) and its new workspaces run there. --parent makes a group inside
+<group>. A group or room is named by
 its id or exact name. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
@@ -74,8 +79,12 @@ svg:sha256-<hex> asset); --clear-icon removes it. --pinned true
 saves a group so it stays when its workspaces close; false unpins it.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
+  exact name. Prefix name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";
 
 pub(super) const PANE_HELP: &str = "\
@@ -106,8 +115,12 @@ to a pane that already exists, use `cmux tab create terminal --pane <selector>`
 instead of splitting again.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
+  exact name. Prefix name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";
 
 pub(super) const TAB_HELP: &str = "\
@@ -154,8 +167,12 @@ or a custom #RRGGBB. A group icon is one emoji, an SF Symbol name, or a stored
 image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
+  exact name. Prefix name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";
 
 pub(super) const TERMINAL_HELP: &str = "\
@@ -204,8 +221,12 @@ the message. A passed --timeout exits 124 with the output so far. An agent
 that waits on a dialog is refused unless --force.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
+  exact name. Prefix name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";
 
 /// `cmux <scope> rename --help` for the scopes whose resources have names.
@@ -227,6 +248,11 @@ pub(super) fn rename_help(topic: &str) -> String {
 
 const SELECTORS: &str = "
 SELECTORS
-  <selector> is an id (ws_…, screen_…, pane_…, tab_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, screen_…, pane_…, tab_…), caller, current, or
+  an exact name. Prefix name: to a name that looks like an id or a command
+  word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";

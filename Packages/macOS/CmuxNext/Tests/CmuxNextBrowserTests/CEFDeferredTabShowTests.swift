@@ -65,6 +65,17 @@ import Testing
         #expect(host.hostView.layerHosting.browser == 10)
     }
 
+    @Test func concealingTheShownTabQueuesHostVisibility() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, _) = try Self.liveHost(runtime)
+        #expect(!host.hostView.isHidden)
+        host.conceal(first)
+        #expect(!host.hostView.isHidden, "conceal queues the host visibility pass")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        #expect(host.hostView.isHidden, "parking left the Chromium host window visible")
+    }
+
     /// The Codex review's P1: a second tab shown while the pane's first Chromium window is still
     /// being built joins when the window comes up; it is the page shown, placed over the view.
     @Test func aTabQueuedWhileTheWindowIsBuiltIsShownWhenItComesUp() throws {

@@ -15,10 +15,10 @@ import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery }
 import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
 import { AgentNamesContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
-import { Envelope, Spinner } from "./icons";
+import { Envelope } from "./icons";
 import { SentActions } from "./MessageActions";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { Markdown } from "./Markdown";
+import { AgentMessageBody } from "./AgentMessageBody";
 import { wholeLineCut } from "./lineCut";
 
 export function MessageCard({
@@ -51,7 +51,7 @@ export function MessageCard({
       direction="sent"
       className="cv-message"
       attributes={{ "data-delivery": delivery }}
-      icon={running ? <Spinner size={16} /> : <Envelope />}
+      icon={<Envelope />}
       sentence={t(running ? "message.sendingTo" : "message.sentTo", { to: "\u0000" })}
       name={to}
       nameTitle={toId}
@@ -136,7 +136,7 @@ function MessageText({ item, text, messageAt }: { item: AcpmuxActivity; text: st
         style={cut ? { maxHeight: cutAt } : undefined}
         onFocusCapture={cut ? () => setExpanded(true) : undefined}
       >
-        <Markdown messageAt={messageAt}>{text}</Markdown>
+        <AgentMessageBody text={text} messageAt={messageAt} />
       </div>
       {cutAt !== undefined && (
         <button

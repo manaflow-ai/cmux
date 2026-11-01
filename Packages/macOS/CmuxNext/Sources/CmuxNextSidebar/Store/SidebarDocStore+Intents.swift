@@ -62,8 +62,11 @@ extension SidebarDocStore {
             adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
             move([item(group: group)], to: anchored.target, title: title)
         case .move(let ids, let group):
+            // The displayed group's indexed section includes pending adopts and placements. Its provisional record
+            // may have no section yet, or predate a pending pin; the reducer's displayed placement wins (#26382).
             let parent = item(group: group)
-            guard let section = records.items[parent]?.section else { return false }
+            guard let section = model.groupSection(group).flatMap({ drag.section($0.id) })
+                ?? shownRecords.items[parent]?.section else { return false }
             move(items(ids), to: SidebarDocTarget(section: section, parent: parent), title: title)
         case .setPinned(let ids, let pinned):
             setPinned(items(ids), pinned)
@@ -77,5 +80,14 @@ extension SidebarDocStore {
             return false
         }
         return true
+    }
+
+    /// Reprojects the accepted create placement before the next display pass. Only `shown` and its adopts: the live
+    /// set and the connected remotes stay `show`'s, so a remote that dropped since cannot read as closed workspaces.
+    public func reshow(live: [SidebarDocWorkspaceRef]) {
+        let next = projection(live: live)
+        shownVersion = version
+        if next != shown { shown = next }
+        if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
     }
 }

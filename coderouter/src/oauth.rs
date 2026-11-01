@@ -144,7 +144,7 @@ fn codex_browser_oauth() -> Result<Value, Error> {
     let authorize = codex_authorize_url(&redirect_uri, &challenge, &state)?;
     println!("Opening OpenAI authorization in your browser…");
     println!("  {authorize}");
-    let _ = webbrowser::open(authorize.as_str());
+    crate::browser::open(authorize.as_str());
 
     let waiting = crate::loading::DelayedSpinner::new("Waiting for OpenAI authorization");
     let deadline = Instant::now() + Duration::from_secs(5 * 60);
@@ -314,7 +314,7 @@ fn opencode_device_oauth() -> Result<Value, Error> {
     };
     println!("Authorize OpenCode Go:\n  {url}");
     println!("Code: {}", device.user_code);
-    let _ = webbrowser::open(&url);
+    crate::browser::open(&url);
 
     let waiting = crate::loading::DelayedSpinner::new("Waiting for OpenCode authorization");
     let deadline = Instant::now() + Duration::from_secs(device.expires_in.max(1));

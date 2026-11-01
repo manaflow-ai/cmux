@@ -138,6 +138,18 @@ def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
     ), (paths, actual)
 
 
+def test_portable_placement_input_keeps_the_guard_tests_linux_only() -> None:
+    # cmux-next-guards.yml may pass a free mini as guard_tests_runner; the guard
+    # tests that job names stay off the macOS and Release lanes.
+    runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+               "inputs.guard_tests_runner != '' && inputs.guard_tests_runner || "
+               "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+    assert module.is_plainly_linux_runner(runs_on)
+    assert not module.is_plainly_linux_runner(runs_on.replace("guard_tests_runner", "other_runner"))
+    actual = module.classify_files(["tests/test_ci_nightly_push_throttle.py"])
+    assert actual.macos is False and actual.release_build is False, actual
+
+
 def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     paths = [
         "scripts/ci/run_ci_guards.py",
@@ -2407,6 +2419,14 @@ def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> No
     # A test a routed job names, or that something else runs, still fails open.
     run_by_a_script = {**unrouted_test, "scripts/run-it.sh": "python3 tests/test_unrouted.py\n"}
     assert helper_areas(run_by_a_script) is None
+    # A nightly step script only an unrouted workflow runs is a dead end too.
+    step_script = {
+        **unrouted_test,
+        ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
+                                      "    steps:\n      - run: bash scripts/run-it.sh\n",
+        "scripts/run-it.sh": "python3 tests/test_unrouted.py\n",
+    }
+    assert helper_areas(step_script) == areas()
     nothing_runs = {"tests/test_unrouted.py": unrouted_test["tests/test_unrouted.py"]}
     assert helper_areas(nothing_runs) is None
 
@@ -3050,10 +3070,13 @@ def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
 
 def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
-    assert "needs: [web-subarea-scope, react-apps-check-shard, react-doctor]" in block
-    assert "react-apps-check-shard" in block
-    assert "react-doctor" in block
-    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    # #24927 moved a pull request's base comparison into react-apps-base-check;
+    # the gate waits on it too and requires it only on pull requests.
+    assert "needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]" in block
+    assert 'required_jobs = ["react-apps-check-shard", "react-doctor"]' in block
+    assert 'required_jobs.append("react-apps-base-check")' in block
+    # always(): a cancelled shard reports a red gate, never a skipped (passing) one.
+    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
 
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
@@ -4118,7 +4141,7 @@ def product_runner_output(key: str) -> str:
     # so it takes pr_gui_runner before the root label:
     # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     gui = "inputs.pr_gui_runner || "
-    return ("${{ (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
+    return ("${{ (github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + gui + "needs.macos-compile-admission.outputs.runner }}")
 
 
@@ -5109,7 +5132,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert "vars.MACOS_RUNNER_PR" not in package_block
     assert (
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
-        "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+        "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
         "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
@@ -5122,7 +5145,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
     assert (
-        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block

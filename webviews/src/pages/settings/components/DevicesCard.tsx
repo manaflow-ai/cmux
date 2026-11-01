@@ -10,6 +10,7 @@ import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import type {
   DevicesDevice,
+  DevicesJoinState,
   DevicesLabels,
   DevicesRelay,
   DevicesRelayDraft,
@@ -22,7 +23,8 @@ import type {
 
 export function DevicesCard() {
   const store = useStore();
-  const { devices } = useSettingsState();
+  const { devices, host } = useSettingsState();
+  const join = host?.devices_join ?? null;
   // Like Accounts: the host reads again when the card mounts (a stable callback ref runs once per mount).
   const mounted = useCallback(
     (node: HTMLDivElement | null) => {
@@ -32,8 +34,87 @@ export function DevicesCard() {
   );
   return (
     <div className="devices" data-card="devices" ref={mounted}>
-      {devices && <DevicesBody state={devices} />}
+      {devices && <DevicesBody state={devices} join={join} />}
+      {!devices && join && <JoinGroup join={join} />}
     </div>
+  );
+}
+
+/**
+ * This Mac joined to a team with the one-line join: what it joined as, and its Screen sharing and
+ * Control switches, off until the person turns one on here (the host takes an on only from the
+ * person's own click, then over a line acpmux proves as the person; off always works).
+ */
+function JoinGroup({ join }: { join: DevicesJoinState }) {
+  const store = useStore();
+  const [setting, setSetting] = useState<string | null>(null);
+  const titleId = useId();
+  return (
+    <section className="group" data-devices-group="join">
+      <h3 className="group-title">{join.title}</h3>
+      <div className="rows">
+        <div className="row">
+          <div className="row-label">
+            <div className="row-title" data-devices-join="">
+              {join.joined}
+            </div>
+            <div className="row-help">{join.help}</div>
+          </div>
+        </div>
+        {join.switches.map((item) => (
+          <div className="row" key={item.surface} data-devices-join-consent={item.surface}>
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title" id={`${titleId}-${item.surface}`}>
+                  {item.title}
+                </div>
+                <div className="row-help">{item.help}</div>
+              </div>
+              <div className="row-control">
+                <Switch
+                  checked={item.on}
+                  disabled={join.busy || !join.known || setting !== null}
+                  labelId={`${titleId}-${item.surface}`}
+                  onToggle={(on) => {
+                    setSetting(item.surface);
+                    void store.setJoinConsent(item.surface, on).finally(() => setSetting(null));
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+        {join.error && (
+          <div className="row">
+            <div className="row-help" role="alert">
+              {join.error}
+            </div>
+          </div>
+        )}
+        {join.revoke_all && (
+          <div className="row">
+            <div className="row-control">
+              {/* Off always works, from any input: turning both off needs no record to be read. */}
+              <button
+                type="button"
+                className="button"
+                data-devices-join-action="revokeAll"
+                disabled={join.busy || setting !== null}
+                onClick={() => {
+                  setSetting("all");
+                  void (async () => {
+                    await store.setJoinConsent("screen", false);
+                    await store.setJoinConsent("control", false);
+                  })().finally(() => setSetting(null));
+                }}
+              >
+                {join.revoke_all}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -69,7 +150,7 @@ function Status({ tone, children }: { tone: DevicesTone; children: ReactNode }) 
   );
 }
 
-function DevicesBody({ state }: { state: DevicesState }) {
+function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinState | null }) {
   const [error, run] = useRun();
   const { labels } = state;
   const header = (
@@ -107,8 +188,14 @@ function DevicesBody({ state }: { state: DevicesState }) {
       <RunError error={error} />
     </section>
   );
-  // Without a device hub in this build the card says so and nothing else.
-  if (!state.available) return header;
+  // Without a device hub in this build the card says so; a joined Mac's consent still shows.
+  if (!state.available)
+    return (
+      <>
+        {header}
+        {join && <JoinGroup join={join} />}
+      </>
+    );
   return (
     <>
       {header}
@@ -120,6 +207,7 @@ function DevicesBody({ state }: { state: DevicesState }) {
           </div>
         </section>
       )}
+      {join && <JoinGroup join={join} />}
       {state.sharing && <SharingGroup sharing={state.sharing} labels={labels} />}
       <section className="group" data-devices-group="others">
         <h3 className="group-title">{labels.othersSection}</h3>

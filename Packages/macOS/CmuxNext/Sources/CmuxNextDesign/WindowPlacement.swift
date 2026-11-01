@@ -57,6 +57,36 @@ public struct WindowPlacement {
         return CGRect(x: x.rounded(), y: y.rounded(), width: width, height: height)
     }
 
+    /// Where a restored window opens (#25568), `screens` being (display id, visible frame), main
+    /// first. Its saved `frame` comes back exactly while its `display` is connected (or was never
+    /// recorded) and its title bar can be grabbed (``canGrabTitleBar(of:on:)``). A window whose
+    /// display is gone, or that hangs off every screen, is moved (and shrunk if needed) onto the
+    /// screen showing most of it; one no screen shows is centered on its saved display, else the
+    /// main screen. With no screen the frame is kept.
+    public nonisolated static func restoredFrame(_ frame: CGRect, display: String?,
+                                                 screens: [(id: String?, visible: CGRect)]) -> CGRect {
+        guard !screens.isEmpty else { return frame }
+        let saved = display.flatMap { id in screens.first { $0.id == id } }
+        let displayGone = display != nil && saved == nil
+        if !displayGone, screens.contains(where: { canGrabTitleBar(of: frame, on: $0.visible) }) { return frame }
+        let area = { (rect: CGRect) in rect.isNull ? 0 : rect.width * rect.height }
+        if let shown = screens.max(by: { area($0.visible.intersection(frame)) < area($1.visible.intersection(frame)) }),
+           area(shown.visible.intersection(frame)) > 0 {
+            return contain(frame, in: shown.visible)
+        }
+        let target = (saved ?? screens[0]).visible
+        let size = CGSize(width: min(frame.width, target.width), height: min(frame.height, target.height))
+        return CGRect(x: target.midX - size.width / 2, y: target.midY - size.height / 2, width: size.width, height: size.height)
+    }
+
+    /// The top 28 points of `frame` (its title bar) show at least 40 x 10 points on `visible`:
+    /// enough to grab and drag.
+    public nonisolated static func canGrabTitleBar(of frame: CGRect, on visible: CGRect) -> Bool {
+        let titleBar = CGRect(x: frame.minX, y: frame.maxY - 28, width: frame.width, height: 28)
+        let shown = visible.intersection(titleBar)
+        return !shown.isNull && shown.width >= 40 && shown.height >= 10
+    }
+
     /// `frame` moved (and shrunk if needed) inside `visible`, keeping its
     /// position where it already fits.
     public nonisolated static func contain(_ frame: CGRect, in visible: CGRect) -> CGRect {

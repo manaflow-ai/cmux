@@ -49,12 +49,18 @@ public struct DaemonLauncher: Sendable {
         /// (`CMUX_NEXT_TUI_BIN`) is still probed, and never gets `webSocketPageOrigins` (``pageListenerArguments(_:)``).
         public var binaryIsBundled: Bool
         public var webSocketPageOrigins: [String] // the page origins the owner's loopback WebSocket admits; empty: no listener
+        /// `server ensure --exit-with-pid`: an owner `ensure` spawns ends its terminals and stops when this process
+        /// exits. For test harnesses (`getpid()`), so a crashed or cancelled run leaves no owner behind; the app
+        /// never sets it, because its owner outlives the app. Needs a same-tree cmux-tui (older ones refuse it).
+        public var exitWithProcess: Int32?
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
                     terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
-                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = []) {
+                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = [],
+                    exitWithProcess: Int32? = nil) {
             self.binary = binary
+            self.exitWithProcess = exitWithProcess
             self.binaryIsBundled = binaryIsBundled
             self.webSocketPageOrigins = webSocketPageOrigins
             self.session = session
@@ -159,7 +165,8 @@ public struct DaemonLauncher: Sendable {
     /// state in `stateDirectory`, shared by every build of one account. It
     /// spawns no terminals, so `server ensure` gets the process environment
     /// without any app or terminal identity, and it is never handed off to a
-    /// connecting build's binary.
+    /// connecting build's binary for being another build; only once an update
+    /// deleted its executable (`ChiefConversationOwner.restartIfReplaced`).
     public static func forChief(
         session: String,
         stateDirectory: URL,
@@ -343,6 +350,7 @@ public struct DaemonLauncher: Sendable {
         ["--session", configuration.session, "--json", "server", "ensure"]
             + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
             + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
+            + (configuration.exitWithProcess.map { ["--exit-with-pid", String($0)] } ?? [])
             + (progress ? ["--restore-progress"] : []) + pageListenerArguments(configuration)
     }
 

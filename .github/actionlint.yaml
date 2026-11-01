@@ -40,3 +40,12 @@ paths:
       # The workflow is dispatch-only and driven from outside this repository,
       # so that call belongs to whoever owns those dispatchers.
       - 'string should not be empty'
+  .github/workflows/nightly.yml:
+    ignore:
+      # await-release-surface-ack and promote-nightly-next-acked are retired
+      # with `if: false` (main retired the live release-surface ack on
+      # 2026-10-18, #21544; feat-cmux-next took main's copy in #25995). They
+      # stay in main's exact shape so a sync between the branches never
+      # brings the live approval back, and tests/test_nightly_promotion_admission.py
+      # pins that shape. Deleting them is a cross-branch decision, not a lint fix.
+      - 'constant expression "false" in condition'

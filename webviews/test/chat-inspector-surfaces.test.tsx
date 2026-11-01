@@ -218,13 +218,14 @@ test("the chat's room leaves out the side panel beside it, and the floating pane
   shell.append(main, side);
   container.append(shell);
   Object.defineProperty(shell, "clientWidth", { value: 1600 });
+  Object.defineProperty(shell, "clientHeight", { value: 700 });
   Object.defineProperty(side, "offsetWidth", { value: 736 });
-  expect(paneRoom(shell)).toEqual({ width: 864, side: 736 });
+  expect(paneRoom(shell)).toEqual({ width: 864, side: 736, height: 700 });
   side.remove();
-  expect(paneRoom(shell)).toEqual({ width: 1600, side: 0 });
+  expect(paneRoom(shell)).toEqual({ width: 1600, side: 0, height: 700 });
   // A side panel nested deeper is not beside the chat.
   main.append(side);
-  expect(paneRoom(shell)).toEqual({ width: 1600, side: 0 });
+  expect(paneRoom(shell)).toEqual({ width: 1600, side: 0, height: 700 });
 });
 
 test("floating beside a side panel, the card's right edge is the chat's", async () => {
@@ -308,4 +309,64 @@ test("in a wide pane it floats beside the transcript", async () => {
     root.render(<Pane initiallyCovered={false} />);
   });
   expect(panel(container)?.getAttribute("data-placement")).toBe("overlay");
+});
+
+// Leo, 2026-10-27: "why am i sent to a whole new thing instead of a tab opening on the right?" The
+// project row asks for its Files tab (App.tsx: right of the chat), and a panel floating over the chat
+// steps aside, still open for its toggle, so the chat and the new tab are what show.
+function FolderPane({ opened }: { opened: string[] }) {
+  const [shell, setShell] = useState<HTMLElement | null>(null);
+  const inspector = useChatInspector({
+    snapshot,
+    machineName: "Studio",
+    shell,
+    onOpenFolder: (path) => opened.push(path),
+  });
+  return (
+    <section
+      className="acpmux-shell"
+      ref={(element) => {
+        if (element && element !== shell) setShell(element);
+      }}
+    >
+      {inspector.panel}
+    </section>
+  );
+}
+
+async function mountFolderPane(width: number, opened: string[]) {
+  const container = installDom();
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("acpmux-shell") ? width : 0;
+    },
+  });
+  await act(async () => setInspectorOpen(true));
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<FolderPane opened={opened} />);
+  });
+  return container;
+}
+
+const projectRow = (container: HTMLElement) =>
+  container.querySelector<HTMLButtonElement>('ul[data-section="environment"] button.acpmux-chat-inspector-row')!;
+
+test("over the chat, a project click opens its Files tab and the panel steps aside, still open", async () => {
+  const opened: string[] = [];
+  const container = await mountFolderPane(480, opened);
+  expect(panel(container)).not.toBeNull();
+  await act(async () => projectRow(container).click());
+  expect(opened).toEqual([snapshot.summary!.cwd!]);
+  expect(panel(container)).toBeNull();
+  expect(inspectorState().open).toBe(true);
+});
+
+test("beside the chat, a project click opens its Files tab and the panel stays", async () => {
+  const opened: string[] = [];
+  const container = await mountFolderPane(1600, opened);
+  await act(async () => projectRow(container).click());
+  expect(opened).toEqual([snapshot.summary!.cwd!]);
+  expect(panel(container)).not.toBeNull();
 });

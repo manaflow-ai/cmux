@@ -9,6 +9,8 @@ import { failureCopy, failureKind, failureRecovery, offersOwnRoute } from "../sr
 import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
+import { cloudCredentialRecovery } from "../src/agent-session/acpmux/cloudCredentialRecovery";
+
 const t = translatorFor("en");
 const claude = { name: "Claude Code", harness: "claude" };
 
@@ -69,14 +71,34 @@ test("every failure reads human, never as the agent's raw words", () => {
   expect(failureCopy(t, undefined, claude, "disk.full")).toContain("The disk is full");
 });
 
-test("the way out: Retry for what may pass, Switch model for capacity and keys, none for sign-in", () => {
+test("cloud auth failures explain safe causes without leaking provider output or machine names", () => {
+  const cloud = { name: "Claude Code", harness: "claude", hostKind: "cloud" as const, host: "secret-host.internal" };
+  expect(failureCopy(t, "Claude failed to authenticate: credential is missing", cloud)).toBe(
+    "This Cloud machine has no provider credential for Claude Code. Set it up to continue.",
+  );
+  expect(failureCopy(t, "OAuth token expired (HTTP 401): raw-secret-value", cloud)).toBe(
+    "Claude Code’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue.",
+  );
+  expect(failureCopy(t, "credential was revoked: raw-secret-value", cloud)).toBe(
+    "Claude Code’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue.",
+  );
+  expect(failureCopy(t, "HTTP 403 Forbidden: raw-secret-value", cloud)).toBe(
+    "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 403). Set them up again to continue.",
+  );
+  expect(failureKind("HTTP 401 Unauthorized from https://proxy.tail123.ts.net/v1/messages", cloud)).toBe("proxy-auth");
+  expect(failureKind("needs a team account on this machine; run cr add claude", cloud)).toBe("no-team-account");
+});
+
+test("the way out: Retry for what may pass (capacity too), Switch model for keys, Sign in again for sign-in", () => {
   expect(failureRecovery("disk-full")).toBe("retry");
   expect(failureRecovery("tailscale")).toBe("retry");
   expect(failureRecovery("agent-exited")).toBe("retry");
   expect(failureRecovery("other")).toBe("retry");
-  expect(failureRecovery("rate-limited")).toBe("switch-model");
+  // Capacity passes (Lawrence 2026-10-29): Continue or Retry leads, Switch model beside it.
+  expect(failureRecovery("rate-limited")).toBe("retry");
   expect(failureRecovery("invalid-key")).toBe("switch-model");
-  expect(failureRecovery("subscription-login")).toBeUndefined();
+  expect(failureRecovery("subscription-login")).toBe("sign-in");
+  expect(failureRecovery("auth")).toBe("sign-in");
   expect(failureRecovery("trust-pending")).toBeUndefined();
 });
 
@@ -173,7 +195,37 @@ test('"agent process closed" draws a card: the cause, Retry first, the raw words
   expect([...details.querySelectorAll("button")].map((element) => element.textContent)).toEqual(["Copy error"]);
 });
 
-test("capacity puts Switch model first, Retry after it", async () => {
+test("cloud credential transfer retries only the failed prompt after a successful transfer", async () => {
+  const calls: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          route: { name: "Claude Code", harness: "claude", hostKind: "cloud", host: "private.internal" },
+          transferCloudCredentials: async (rowId, prompt) => {
+            calls.push(`transfer:${rowId}:${prompt}`);
+          },
+          retry: (rowId, prompt) => calls.push(`retry:${rowId}:${prompt}`),
+        }}
+      >
+        <TurnFooter row={failed("HTTP 401 Unauthorized")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().querySelector(".cv-turn-error__cause")!.textContent).toBe(
+    "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 401). Set them up again to continue.",
+  );
+  expect(card().textContent).not.toContain("private.internal");
+  const transferButton = [...host.querySelectorAll("button")].find(
+    (element) => element.textContent === "Set up Claude Code credentials",
+  );
+  expect(transferButton).toBeDefined();
+  await act(async () => transferButton!.click());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(["transfer:user-1:Run the sidebar tests and fix what fails"]);
+});
+
+test("capacity puts Retry first, Switch model after it", async () => {
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
@@ -182,9 +234,9 @@ test("capacity puts Switch model first, Retry after it", async () => {
     ),
   );
   const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
-  expect(labels).toEqual(["Switch model", "Retry"]);
-  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  expect(labels).toEqual(["Retry", "Switch model"]);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
 });
 
 test("the typed reason reaches the card", async () => {
@@ -200,6 +252,198 @@ test("the typed reason reaches the card", async () => {
   // No retry wired: no Retry button, Details still there.
   expect(button("Retry")).toBeUndefined();
   expect(card().querySelector("details summary")!.textContent).toBe("Details");
+});
+
+// A long chat that outgrew the model's context window read as "ran into a problem and stopped" with
+// Retry, which sends the same prompt into the same history and fails the same way: a dead end. It
+// names the cause and offers Compact (the agent's own /compact) first, Retry after it.
+test("a chat that outgrew its context window reads as such, from the text or the typed reason", () => {
+  const cases = [
+    'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}',
+    "Prompt is too long",
+    "This model's maximum context length is 128000 tokens. However, your messages resulted in 131072 tokens.",
+    "context_length_exceeded",
+    "Your input exceeds the context window of this model. Please adjust your input and try again.",
+  ];
+  for (const message of cases) expect([message, failureKind(message, claude)]).toEqual([message, "context-full"]);
+  expect(failureKind("stream ended", claude, "context_window_exceeded")).toBe("context-full");
+  // A per-minute token limit is capacity, not a full context.
+  expect(failureKind("429 rate_limit_error: too many tokens per minute", claude)).toBe("rate-limited");
+  expect(failureRecovery("context-full")).toBe("compact");
+  expect(failureCopy(t, "Prompt is too long", claude)).toBe(
+    "This chat is too long for Claude Code’s context window. Compact it, then retry.",
+  );
+});
+
+test("a context-full card puts Compact first, sends it once, and keeps Retry after it", async () => {
+  let compacts = 0;
+  let settle: () => void = () => undefined;
+  const compact = () => {
+    compacts += 1;
+    return new Promise<void>((resolve) => (settle = resolve));
+  };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined, compact }}>
+        <TurnFooter row={failed("Prompt is too long")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("context-full");
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Compact", "Retry"]);
+  expect(button("Compact")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Compact")!.click());
+  await act(async () => button("Compact")!.click());
+  expect(compacts).toBe(1);
+  expect(button("Compact")!.hasAttribute("disabled")).toBe(true);
+  await act(async () => settle());
+  expect(button("Compact")!.hasAttribute("disabled")).toBe(false);
+});
+
+test("a harness without /compact keeps Retry as the context-full card's way out", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+        <TurnFooter row={failed("Prompt is too long")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Compact")).toBeUndefined();
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
+});
+
+test("Compact is offered only where the agent lists /compact", async () => {
+  const { offersCompact } = await import("../src/agent-session/acpmux/conversation/turnActions");
+  expect(offersCompact([{ name: "compact", description: "Clear history but keep a summary" }])).toBe(true);
+  expect(offersCompact([{ name: "compact", description: "", source: "skill" }])).toBe(false);
+  expect(offersCompact([{ name: "review", description: "" }])).toBe(false);
+  expect(offersCompact(undefined)).toBe(false);
+});
+
+// A turn that failed because the agent's login expired put Sign in again in the footer, which shows
+// only on hover, offered no Retry on the card, and nothing sent the prompt again after the login:
+// two things to discover and the prompt to retype. The card leads with Sign in again and keeps Retry
+// beside it for once the login is done.
+const signedOut = "Not logged in · Please run /login";
+// The last turn's row as turns.ts draws it: retryable, so the failed turn's own retry serves it.
+const signedOutRow = () => ({ ...failed(signedOut), retryable: true });
+
+test("a sign-in failure's card leads with Sign in again, then Retry, then Switch model", async () => {
+  const done: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: () => done.push("resend"),
+          retryFailed: () => {
+            done.push("retry");
+            return Promise.resolve(undefined);
+          },
+          switchModel: () => done.push("switch"),
+          reauthenticate: () => done.push("sign-in"),
+        }}
+      >
+        <TurnFooter row={signedOutRow()} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("subscription-login");
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Sign in again", "Retry", "Switch model"]);
+  expect(card().querySelectorAll(".cv-turn-error__primary").length).toBe(1);
+  expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Sign in again")!.click());
+  await act(async () => button("Retry")!.click());
+  expect(done).toEqual(["sign-in", "retry"]);
+  // One Sign in again: the card's, not a second one in the footer row.
+  expect(host.querySelectorAll(".cv-turn-actions .cv-turn-auth-action").length).toBe(0);
+});
+
+test("a sign-in failure with a login but no Retry leads with Sign in again, Switch model after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ switchModel: () => undefined, reauthenticate: () => undefined }}>
+        <TurnFooter row={failed(signedOut)} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Sign in again", "Switch model"]);
+  expect(card().querySelectorAll(".cv-turn-error__primary").length).toBe(1);
+  expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+});
+
+// A View Only chat, a read-only pane or one whose composer cannot send has no `retryFailed` (App's
+// `restartChat`), only the plain resend, which sends to whichever chat the pane shows: its sign-in
+// card offered a Retry that could do nothing, or reach the next chat during a switch.
+test("a sign-in card in a View Only chat or a read-only pane offers no Retry, only Sign in again", async () => {
+  const sent: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: (rowId) => sent.push(rowId),
+          switchModel: () => undefined,
+          reauthenticate: () => undefined,
+        }}
+      >
+        <TurnFooter row={signedOutRow()} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Sign in again", "Switch model"]);
+  expect(card().querySelectorAll(".cv-turn-error__primary").length).toBe(1);
+  expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(sent).toEqual([]);
+});
+
+// Sign in again leads a sign-in card and is its one filled button: never Switch model beside it,
+// with or without a Retry, for the CLI's own login and an unexplained 401 alike.
+test("a sign-in card with Sign in again and Switch model fills only Sign in again", async () => {
+  for (const error of [signedOut, "HTTP 401 Unauthorized"])
+    for (const withRetry of [false, true]) {
+      await act(async () =>
+        root.render(
+          <TurnActionsContext.Provider
+            value={{
+              switchModel: () => undefined,
+              reauthenticate: () => undefined,
+              ...(withRetry && { retry: () => undefined, retryFailed: () => Promise.resolve(undefined) }),
+            }}
+          >
+            <TurnFooter row={{ ...failed(error), retryable: true }} />
+          </TurnActionsContext.Provider>,
+        ),
+      );
+      const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map(
+        (element) => element.textContent,
+      );
+      const filled = [...card().querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent);
+      expect([error, withRetry, labels]).toEqual([
+        error,
+        withRetry,
+        withRetry ? ["Sign in again", "Retry", "Switch model"] : ["Sign in again", "Switch model"],
+      ]);
+      expect([error, withRetry, filled]).toEqual([error, withRetry, ["Sign in again"]]);
+    }
+});
+
+test("a sign-in failure with no login to run keeps Switch model alone, with no Retry that would fail again", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={failed(signedOut)} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Switch model"]);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
 });
 
 // Lawrence 2026-10-23, on a "Deepseek has no valid API key" card with Switch model and Copy error:
@@ -311,6 +555,68 @@ test("CodeRouter alone takes the filled button; a refused move says so", async (
   expect(actionLabels()).toEqual(["CodeRouter couldn't take this chat"]);
 });
 
+test("a sign-in card with Sign in again and CodeRouter's button keeps one filled button: Sign in again", async () => {
+  for (const error of ["Not logged in · Please run /login", "HTTP 401 Unauthorized"]) {
+    await act(async () =>
+      root.render(
+        <TurnActionsContext.Provider
+          value={{
+            reauthenticate: () => undefined,
+            route: { name: "Claude Code", harness: "claude" },
+            ownRoute: { find: async () => undefined, use: async () => undefined },
+          }}
+        >
+          <TurnFooter row={failed(error)} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+    expect([error, actionLabels()]).toEqual([error, ["Sign in again", "Set up cmux CodeRouter"]]);
+    expect([error, card().querySelectorAll(".cv-turn-error__primary").length]).toEqual([error, 1]);
+    expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  }
+});
+
+// The `coderouter-offer` experiment's `primary` arm fills CodeRouter's button and puts it first. On a
+// sign-in failure that would lead with moving the chat (and retrying it there) before the person has
+// signed in: Sign in again leads there too, and CodeRouter's button follows the card's other actions,
+// outlined, as in the default arm.
+test("a sign-in card in the CodeRouter primary arm still leads with Sign in again, CodeRouter outlined last", async () => {
+  const saved = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...saved, "coderouter-offer": "primary" };
+  try {
+    for (const error of ["Not logged in · Please run /login", "HTTP 401 Unauthorized"]) {
+      const done: string[] = [];
+      await act(async () =>
+        root.render(
+          <TurnActionsContext.Provider
+            value={{
+              reauthenticate: () => done.push("sign-in"),
+              retry: () => done.push("resend"),
+              retryFailed: async () => {
+                done.push("retry");
+                return undefined;
+              },
+              switchModel: () => undefined,
+              route: { name: "Claude Code", harness: "claude" },
+              ownRoute: { find: async () => cr, use: async () => void done.push("move") },
+            }}
+          >
+            <TurnFooter row={{ ...failed(error), retryable: true }} />
+          </TurnActionsContext.Provider>,
+        ),
+      );
+      const filled = [...card().querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent);
+      const order = ["Sign in again", "Retry", "Switch model", "Use cmux CodeRouter"];
+      expect([error, actionLabels()]).toEqual([error, order]);
+      expect([error, filled]).toEqual([error, ["Sign in again"]]);
+      await act(async () => button("Sign in again")!.click());
+      expect([error, done]).toEqual([error, ["sign-in"]]);
+    }
+  } finally {
+    globalThis.cmuxExperiments = saved;
+  }
+});
+
 test("a turn that cannot be sent again offers no move onto CodeRouter, which would change nothing on the card", async () => {
   await renderOffer("invalid x-api-key", cr);
   expect(actionLabels()).toEqual(["Switch model"]);
@@ -343,4 +649,104 @@ test("a failed turn with no prompt row to send again offers no Retry", async () 
   );
   expect(card().getAttribute("data-failure-kind")).toBe("agent-exited");
   expect(button("Retry")).toBeUndefined();
+});
+
+test("Cloud recovery reserves its prompt before login and retries once with that ticket", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const sent: unknown[][] = [];
+  let granted = true,
+    current = true,
+    switchDuringRestore = false;
+  const client = {
+    selectedSession: "chat-1",
+    resendPrompt: async (_row: string, input: string) => {
+      if (switchDuringRestore) current = false;
+      return { input, attachments: [] };
+    },
+    send: async (...args: Parameters<import("../src/agent-session/acpmux/direct").AcpmuxDirectClient["send"]>) => {
+      sent.push(args);
+      return undefined;
+    },
+  };
+  const call = async (method: string, params: Record<string, unknown>) => {
+    calls.push({ method, ...params });
+    return { transferred: granted, promptId: params.retryPromptId, ticket: "reserved-ticket" };
+  };
+  const isCurrent = () => current;
+  const getClient = () => client;
+  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "claude", call, isCurrent, getClient)!;
+  const pending = recover("row-1", "retry text");
+  // Duplicate clicks while native confirmation is open cannot reserve another prompt.
+  await recover("row-1", "retry text");
+  await pending;
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    method: "chat.cloudCredentialTransfer",
+    provider: "claude",
+    machineID: "provider-vm-1",
+    sessionId: "chat-1",
+  });
+  expect(sent).toEqual([["retry text", [], calls[0]!.retryPromptId, undefined, "reserved-ticket"]]);
+  granted = false;
+  await recover("row-1", "retry text");
+  expect(sent).toHaveLength(1);
+  granted = true;
+  switchDuringRestore = true;
+  await recover("row-1", "retry text");
+  expect(sent).toHaveLength(1);
+  const count = calls.length;
+  await recover("row-1", "retry text");
+  expect(calls).toHaveLength(count);
+  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
+  expect(cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
+  expect(cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient)).toBeUndefined();
+});
+
+test("Cloud recovery maps named harness profiles to the provider sent to native", async () => {
+  const providers: unknown[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    providers.push(params.provider);
+    return { transferred: false };
+  };
+  const client = {
+    selectedSession: "chat-1",
+    resendPrompt: async (_row: string, input: string) => ({ input, attachments: [] }),
+    send: async () => undefined,
+  };
+  for (const id of [
+    "claude",
+    "claude-sr2",
+    "Claude_work",
+    "providers/claude-personal",
+    "codex",
+    "codex-work",
+    "Codex_personal",
+    "providers/codex-team",
+  ]) {
+    const recover = cloudCredentialRecovery(
+      true,
+      "vm",
+      "chat-1",
+      id,
+      call,
+      () => true,
+      () => client,
+    );
+    expect(recover).toBeDefined();
+    await recover!("row-1", "retry");
+  }
+  expect(providers).toEqual(["claude", "claude", "claude", "claude", "codex", "codex", "codex", "codex"]);
+  for (const id of [undefined, "", "opencode", "claudelike", "my-claude", "codex/"]) {
+    expect(
+      cloudCredentialRecovery(
+        true,
+        "vm",
+        "chat-1",
+        id,
+        call,
+        () => true,
+        () => client,
+      ),
+    ).toBeUndefined();
+  }
 });

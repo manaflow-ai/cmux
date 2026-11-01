@@ -5,9 +5,19 @@
 // a steady wheel scroll and a streaming reply that appends rows; a Chrome trace of the renderer's main
 // thread gives the busy time in each painted frame (scripting and rendering apart), its p50 and p95,
 // and long tasks.
-//   PROD_DIR=<pane build> bun bench/thread-minimap-frame-cost.bench.ts [rounds=3] [turns=1000]
-// PROD_DIR is required: the output of vite's build() on vite.config.acpmux-pane.mjs, so React runs
-// as it ships. KEEP_TRACES=1 keeps the traces (and PROFILE=1's CPU profiles); otherwise they go.
+//   bun bench/thread-minimap-frame-cost.bench.ts [rounds=3] [turns=1000]
+// An arm `<rail>+canvas` is that rail with the VS Code Minimap on (chatMinimap/ChatMinimap.tsx); its
+// rounds pair with `<rail>`'s, run back to back in alternating order, and their p95 deltas are printed.
+// ARMS=off,off+canvas SCENARIOS=scroll,stream picks arms and scenarios.
+// The minimap's budget: the run exits 1 when any `+canvas` arm's median p95 delta over its rail
+// exceeds MINIMAP_BUDGET_MS (1 ms) in scroll or stream, naming which. It needs a `+canvas` arm with
+// its rail, both scenarios, and the minimap drawn; without them it exits 2. A bench, not a CI gate.
+// The pane is a production build of its dev entry (vite's build() on vite.config.acpmux-pane.mjs), so
+// React runs as it ships and the page joins the stand-in daemon from its #endpoint. The bench builds
+// it unless PROD_DIR names one. The shipped pane (scripts/cmux-next/build-agent-pane-web.sh) is not
+// one: it waits for the app's native bridge and never joins the daemon, so it is refused. When a page
+// never shows the chat, the bench prints its console errors, failed requests and whether it joined.
+// KEEP_TRACES=1 keeps the traces (and PROFILE=1's CPU profiles); otherwise they go.
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -17,21 +27,48 @@ import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
 const TURNS = Number(process.argv[3] ?? 1000);
-const ARMS = (process.env.ARMS?.split(",") ?? ["off", "compact", "full"]) as readonly string[];
-const SCENARIOS = ["idle", "scroll", "stream"] as const;
+const ARMS = (process.env.ARMS?.split(",") ?? ["off", "off+canvas", "compact", "full"]) as readonly string[];
+/// The VS Code Minimap's budget: its median p95 cost per frame, scrolling and streaming.
+const MINIMAP_BUDGET_MS = 1;
+const GATED = ["scroll", "stream"] as const;
+const SCENARIOS = (process.env.SCENARIOS?.split(",") ?? ["idle", "scroll", "stream"]) as readonly (
+  | "idle"
+  | "scroll"
+  | "stream"
+)[];
 const SECONDS = 4;
 const PROFILE = process.env.PROFILE === "1";
 const KEEP_TRACES = process.env.KEEP_TRACES === "1";
+const webviews = path.resolve(import.meta.dir, "..");
 const PROD_DIR = process.env.PROD_DIR;
-if (!PROD_DIR || !fs.existsSync(path.join(PROD_DIR, "index.html"))) {
+if (PROD_DIR && !fs.existsSync(path.join(PROD_DIR, "index.html"))) {
+  console.error(`thread-minimap-frame-cost: PROD_DIR ${PROD_DIR} has no index.html`);
+  process.exit(2);
+}
+if (PROD_DIR && fs.existsSync(path.join(PROD_DIR, "pane.js"))) {
   console.error(
-    "thread-minimap-frame-cost: set PROD_DIR to a production build of the agent pane's dev entry " +
-      "(vite build with vite.config.acpmux-pane.mjs; the directory with its index.html). " +
-      "The dev server's development React is not what ships, so it is not measured.",
+    `thread-minimap-frame-cost: PROD_DIR ${PROD_DIR} is the shipped pane (build-agent-pane-web.sh), which waits ` +
+      "for the app's native bridge and never joins the stand-in daemon. Leave PROD_DIR unset (the bench builds " +
+      "the dev entry) or give it vite's build of vite.config.acpmux-pane.mjs.",
   );
   process.exit(2);
 }
-const prodDir = PROD_DIR;
+/// The pane's dev entry, built for production when PROD_DIR names no build.
+async function buildPane(): Promise<string> {
+  if (PROD_DIR) return PROD_DIR;
+  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "minimap-bench-pane-"));
+  const { build } = await import("vite");
+  await build({
+    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+    build: { outDir: out, emptyOutDir: true },
+    logLevel: "error",
+  });
+  console.error(`thread-minimap-frame-cost: built the pane's dev entry into ${out}`);
+  return out;
+}
+let prodDir = "";
+/// Connections the stand-in daemon has had: a page that never joins it never shows the chat.
+let joined = 0;
 
 const { events, session } = papercutEvents({ turns: TURNS, running: false });
 let socket: { send(data: string): void } | undefined;
@@ -65,11 +102,36 @@ let url = "";
 async function open(browser: Browser, arm: string): Promise<Page> {
   seq = events.length;
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.addInitScript((arm) => {
-    localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": arm }));
-  }, arm);
+  const [rail, extra] = arm.split("+");
+  await page.addInitScript((rail) => {
+    localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
+  }, rail);
+  // What the page says while it loads, printed if the chat never shows.
+  const said: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") said.push(`console ${message.type()}: ${message.text()}`); // prettier-ignore
+  });
+  page.on("pageerror", (error) => said.push(`page error: ${error.message}`));
+  page.on("requestfailed", (request) => said.push(`request failed: ${request.url()} ${request.failure()?.errorText ?? ""}`)); // prettier-ignore
+  page.on("response", (response) => void (response.status() >= 400 && said.push(`HTTP ${response.status()}: ${response.url()}`))); // prettier-ignore
+  const joinedBefore = joined;
   await page.goto(url);
-  await page.getByText(`Answer ${TURNS}:`, { exact: false }).waitFor({ timeout: 180_000 });
+  try {
+    await page.getByText(`Answer ${TURNS}:`, { exact: false }).waitFor({ timeout: 180_000 });
+  } catch (error) {
+    console.error(
+      `thread-minimap-frame-cost: the chat never showed (${arm}); the page ${joined > joinedBefore ? "joined" : "never joined"} the stand-in daemon.\n` +
+        (said.length ? said.slice(0, 40).join("\n") : "(no console errors, failed requests or HTTP errors)"),
+    );
+    throw error;
+  }
+  // The host's `display` event, through dev.tsx's hook for a standalone daemon.
+  if (extra === "canvas")
+    await page.evaluate(() =>
+      (window as { cmuxDevDisplay?: (value: unknown) => void }).cmuxDevDisplay?.({
+        "agentPane.display.vscodeMinimap": true,
+      }),
+    );
   // EXTRA_CSS: a stylesheet to add, to try out where a cost comes from.
   if (process.env.EXTRA_CSS) await page.addStyleTag({ content: process.env.EXTRA_CSS });
   await page.waitForTimeout(1500);
@@ -228,6 +290,8 @@ async function drive(page: Page, scenario: (typeof SCENARIOS)[number]) {
 }
 
 const results: Record<string, ReturnType<typeof analyze>[]> = {};
+/// The `+canvas` runs whose page drew no minimap (the setting never reached it): their deltas mean nothing.
+const undrawn: string[] = [];
 /// What the run acquired, released in reverse in the `finally` below, each on its own: one that
 /// fails to close still lets the rest close.
 const releases: Array<[string, () => unknown]> = [];
@@ -248,6 +312,9 @@ try {
       return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
     },
     websocket: {
+      open() {
+        joined += 1;
+      },
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string };
         socket = ws;
@@ -257,13 +324,18 @@ try {
     },
   });
   releases.push(["stand-in acpmux", () => daemon.stop(true)]);
+  prodDir = await buildPane();
+  if (!PROD_DIR) releases.push(["pane build", () => fs.rmSync(prodDir, { recursive: true, force: true })]);
   // The production build, served as static files.
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
-    fetch(request) {
+    // A path with no file (the dev entry's own host calls, /__dev-host/*) is a 404, not a thrown
+    // ENOENT, which Bun reports and which ends the run with exit 1.
+    async fetch(request) {
       const pathname = new URL(request.url).pathname;
-      return new Response(Bun.file(path.join(prodDir, pathname === "/" ? "index.html" : pathname)));
+      const file = Bun.file(path.join(prodDir, pathname === "/" ? "index.html" : pathname));
+      return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
@@ -273,14 +345,21 @@ try {
   // A first load warms the page's caches, so the first measured run is not the cold one.
   await (await open(browser, "off")).close();
   for (let round = 0; round < ROUNDS; round++) {
-    for (const arm of ARMS) {
-      for (const scenario of SCENARIOS) {
+    // Arms interleave within each scenario, in alternating order, so drift hits every arm alike.
+    for (const scenario of SCENARIOS) {
+      for (const arm of round % 2 ? [...ARMS].reverse() : ARMS) {
         const page = await open(browser, arm);
         const drawn = await page.evaluate(() => ({
           scrollmap: document.querySelectorAll(".acpmux-scrollmap").length,
           minimap: document.querySelectorAll(".acpmux-minimap").length,
           marks: document.querySelectorAll(".acpmux-minimap__tick").length,
+          canvas: document.querySelectorAll(".acpmux-chat-minimap canvas").length,
         }));
+        const draws = () =>
+          page.evaluate(() =>
+            Number(document.querySelector<HTMLElement>(".acpmux-chat-minimap canvas")?.dataset.draws ?? 0),
+          );
+        const drawsBefore = await draws();
         if (round === 0) console.error(arm, scenario, JSON.stringify(drawn));
         const file = path.join(tmp, `${arm}-${scenario}-${round}.json`);
         await browser.startTracing(page, {
@@ -305,6 +384,8 @@ try {
           requestAnimationFrame(stamp);
         });
         await drive(page, scenario);
+        if (drawn.canvas) console.error(arm, scenario, `round ${round}: ${(await draws()) - drawsBefore} canvas draws`);
+        else if (arm.endsWith("+canvas")) undrawn.push(`${arm}/${scenario} round ${round}`);
         await page.evaluate(() => {
           (window as unknown as { benchFrames?: boolean }).benchFrames = false;
           console.timeStamp("bench-end");
@@ -351,3 +432,39 @@ for (const scenario of SCENARIOS) {
     );
   }
 }
+// A `+canvas` arm against its rail alone, round by round: the median p95 delta and its spread, and
+// the budget.
+const gated = ARMS.filter((each) => each.endsWith("+canvas") && ARMS.includes(each.split("+")[0]!));
+const missing = [
+  ...(gated.length === 0 ? ["a `<rail>+canvas` arm with its rail (ARMS=off,off+canvas)"] : []),
+  ...GATED.filter((scenario) => !SCENARIOS.includes(scenario)).map((scenario) => `the ${scenario} scenario`),
+];
+const over: string[] = [];
+for (const scenario of SCENARIOS) {
+  for (const arm of gated) {
+    const a = results[`${arm}/${scenario}`];
+    const b = results[`${arm.split("+")[0]}/${scenario}`];
+    if (!a || !b) continue;
+    const deltas = a.map((run, index) => run.p95 - b[index]!.p95);
+    const under = deltas.filter((delta) => delta < MINIMAP_BUDGET_MS).length;
+    console.log(
+      `${arm} paired ${scenario}: p95 delta median ${fmt(median(deltas))} min ${fmt(Math.min(...deltas))} max ${fmt(Math.max(...deltas))}; under ${MINIMAP_BUDGET_MS} ms in ${under}/${deltas.length}; deltas ${deltas.map((delta) => delta.toFixed(2)).join(" ")}`,
+    );
+    if ((GATED as readonly string[]).includes(scenario) && median(deltas) > MINIMAP_BUDGET_MS)
+      over.push(`${arm} ${scenario}: median p95 delta ${median(deltas).toFixed(2)} ms`);
+  }
+}
+if (missing.length || undrawn.length) {
+  console.error(
+    `thread-minimap-frame-cost: the minimap budget could not be checked: ${[
+      ...missing.map((what) => `missing ${what}`),
+      ...(undrawn.length ? [`no minimap drawn in ${undrawn.join(", ")}`] : []),
+    ].join("; ")}`,
+  );
+  process.exit(2);
+}
+if (over.length) {
+  console.error(`thread-minimap-frame-cost: over the ${MINIMAP_BUDGET_MS} ms budget: ${over.join("; ")}`);
+  process.exit(1);
+}
+console.log(`minimap budget: within ${MINIMAP_BUDGET_MS} ms (median p95 delta) in ${GATED.join(" and ")}`);

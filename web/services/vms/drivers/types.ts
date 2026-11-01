@@ -108,10 +108,28 @@ export type CreateOptions = {
   promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
   /**
+   * The billing customer (its team, or the user for a user-billed machine):
+   * the provider's end-user customer, so its abuse protection tells our
+   * customers apart.
+   * Providers without customers ignore it.
+   */
+  customerId?: string;
+  /**
    * A short-lived credential handed off by the user's local client. Providers
    * must use it only for this operation and never copy it to a VM row.
    */
   providerCredential?: ProviderCredential;
+  /**
+   * The workflow's durable record of the allocation. A driver whose cleanup
+   * needs a short-lived user credential names its provider id with `record`
+   * before it sends the allocation request (and must not allocate when that
+   * rejects), so an interrupted create still leaves a row naming its instance.
+   * It calls `released` once its own rollback confirmed the allocation gone.
+   */
+  createCleanupIntent?: {
+    readonly record: (providerVmId: string) => Promise<void>;
+    readonly released: () => void;
+  };
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
    * support it create the volume if missing and record it in providerMetadata so attach can
@@ -202,7 +220,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules"> & {
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules" | "customerId"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -226,6 +244,8 @@ export type SSHEndpoint = {
   // One-time credential for this attach session. Drivers decide whether that's a password,
   // a bearer over an SSH ProxyCommand, or an authorized_keys line the client pushes.
   credential: { kind: "password"; value: string } | { kind: "authorizedKey"; privateKeyPem: string };
+  /** Provider-neutral dial metadata for clients that open a local proxy first. */
+  proxy?: { readonly kind: "gcp-iap"; readonly project: string; readonly zone: string; readonly instance: string; readonly port: number };
   daemon?: {
     url: string;
     headers: Record<string, string>;
@@ -409,6 +429,14 @@ export type ExecOptions = {
    * the provider stores, and never logs, traces or persists it.
    */
   readonly stdin?: SecretBytes;
+  /** Ends the provider request: the driver passes it to every request it makes. */
+  readonly signal?: AbortSignal;
+  /**
+   * Gateway only: abort the provider request (through `signal`) when the
+   * calling fiber is interrupted, a timeout included. Without it an
+   * interrupted exec's request runs on to its own end.
+   */
+  readonly cancelOnInterrupt?: boolean;
 };
 
 const REDACTED = "[redacted]";
@@ -536,7 +564,7 @@ export type ProviderNetwork = {
   /** IPv4 CIDR, when the network has one. */
   readonly cidr: string | null;
   /** IPv6 CIDR. Always present: provider networks are dual-stack. */
-  readonly cidrV6: string;
+  readonly cidrV6: string | null;
 };
 
 /**
@@ -643,6 +671,10 @@ export type EnsureProviderNetworkOptions = {
    * network's range is fixed for its life.
    */
   readonly cidr?: string;
+  /** User-owned provider credential and placement for providers such as GCP. */
+  readonly providerCredential?: ProviderCredential;
+  readonly providerProject?: string;
+  readonly providerRegion?: string;
 };
 
 export interface VMProvider {
@@ -653,6 +685,8 @@ export interface VMProvider {
    * on drivers whose machines are only reachable at a public address.
    */
   readonly privateNetworking?: VMPrivateNetworking;
+  /** Set false when the provider provisions a VPC but has no tunnel/tailnet transport yet. */
+  readonly privateNetworkingTunnels?: boolean;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
    * throw NotImplementedError declares that here; `fork` defaults to whether the method
@@ -661,7 +695,11 @@ export interface VMProvider {
   readonly capabilities?: Partial<VmCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
-  destroy(vmId: string, credential?: ProviderCredential): Promise<void>;
+  /**
+   * Delete the machine; a machine already gone counts as deleted. `strict`: only the provider's
+   * own "no such machine" answer counts as gone (not any 404, which can be an endpoint error).
+   */
+  destroy(vmId: string, credential?: ProviderCredential, options?: { readonly strict?: boolean }): Promise<void>;
 
   /**
    * Optional: delete a persistent home volume by name. Implementations must treat

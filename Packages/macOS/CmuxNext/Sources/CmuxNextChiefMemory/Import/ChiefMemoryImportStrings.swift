@@ -2,7 +2,8 @@ public import Foundation
 
 /// The "Import Memories" texts (Resources/Localizable.xcstrings). Product names are brand names and stay as
 /// they are in every language.
-public nonisolated enum ChiefMemoryImportStrings {
+public nonisolated struct ChiefMemoryImportStrings {
+    public nonisolated init() {}
     public static var productClaudeCode: String { "Claude Code" }
     public static var productCodex: String { "Codex" }
     public static var productChatGPT: String { "ChatGPT" }

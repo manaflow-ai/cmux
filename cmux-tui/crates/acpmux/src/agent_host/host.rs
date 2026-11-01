@@ -7,9 +7,13 @@ use crate::rpc::Message;
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
+
+/// A host's own end once no daemon controls it ([`OrphanExit`]).
+mod orphan;
+use orphan::Orphan;
 
 /// Entry point of `acpmux __agent-host`: read the spawn spec from stdin,
 /// start the harness, answer on stdout, then serve controllers until the
@@ -94,6 +98,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
+    // Never at background class while it starts (`cpu_class.rs`): the daemon lowers it once its
+    // session's start is over.
+    crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
@@ -168,12 +175,22 @@ fn lock_live_file(path: &Path) -> Result<std::fs::File> {
 }
 
 /// What the event loop reacts to.
+/// What the harness's stdin writer takes, in order.
+enum Stdin {
+    Line(String),
+    /// A receipt (`ControllerFrame::Line`): answered once the lines before it are written.
+    Receipt(u64),
+}
+
 enum Event {
     Stdout(Option<String>),
     Stderr(Option<String>),
     Exited(Option<i32>),
     Accepted(tokio::net::UnixStream),
     Frame(u64, Option<ControllerFrame>),
+    /// The harness's stdin has every line queued before the receipt (`true`), or it closed
+    /// before them (`false`).
+    Written(u64, bool),
     /// SIGTERM: end the harness and the host. Also sent when no daemon
     /// can adopt this host any more (`watch_record`, a pooled host's lost
     /// controller).
@@ -183,6 +200,12 @@ enum Event {
     DrainOver(u64),
     /// [`POOLED_OWNER_WAIT`] passed since the host started serving.
     OwnerWaitOver,
+    /// The output held after a carry (its carry's number) is read now, its prompt or not
+    /// (`claude_stdio/carry.rs`).
+    HoldOver(u64),
+    /// With no controller: a wait (its generation) ended, or its census answered (`Some`,
+    /// `host/orphan.rs`).
+    Orphan(u64, Option<bool>),
 }
 
 /// How long a pooled host waits for its first controller. A daemon that
@@ -221,17 +244,45 @@ fn pooled_without_owner(pooled: bool, last_owner: Option<u64>) -> bool {
 /// a quiet period passes.
 const DRAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Encoded frames to one connection's writer (`super::encode_frame`).
+#[derive(Clone)]
+struct FrameTx(mpsc::UnboundedSender<Arc<[u8]>>);
+
+impl FrameTx {
+    /// Encodes and sends `frame`; an error when the connection is gone or the frame is
+    /// over the limit (the writer used to stop at such a frame; the owner is dropped).
+    fn send(&self, frame: HostFrame) -> Result<(), ()> {
+        self.send_encoded(super::encode_frame(&frame).ok_or(())?)
+    }
+
+    fn send_encoded(&self, bytes: Arc<[u8]>) -> Result<(), ()> {
+        self.0.send(bytes).map_err(|_| ())
+    }
+}
+
 struct Controller {
     id: u64,
-    tx: mpsc::UnboundedSender<HostFrame>,
+    tx: FrameTx,
     /// Entries flow only after `Resume`.
     resumed: bool,
+}
+
+/// One retained entry ([`State::push`]).
+struct Retained {
+    h: u64,
+    /// The entry's frame, as sent.
+    bytes: Arc<[u8]>,
+    weight: usize,
+    /// A next daemon needs it in its log (`orphan::needs_a_daemon`).
+    needed: bool,
 }
 
 struct State {
     record: HostRecord,
     spec: SpawnSpec,
-    entries: VecDeque<(u64, Entry, usize)>,
+    /// Retained entries as their encoded frames: encoded once in `push`, sent as is
+    /// (live and on resume), weighed by their size.
+    entries: VecDeque<Retained>,
     weight: usize,
     next_h: u64,
     acked_h: u64,
@@ -241,11 +292,11 @@ struct State {
     stderr_done: bool,
     leader_code: Option<Option<i32>>,
     /// Connections that have not said `Hello` yet.
-    pending_conns: Vec<(u64, mpsc::UnboundedSender<HostFrame>)>,
+    pending_conns: Vec<(u64, FrameTx)>,
     controller: Option<Controller>,
     /// Unbounded: a harness that stops reading never blocks the loop; what
     /// waits here is bounded by the controller, which waits for answers.
-    stdin_tx: mpsc::UnboundedSender<String>,
+    stdin_tx: mpsc::UnboundedSender<Stdin>,
     translator: Option<Arc<Translator>>,
     /// `codex app-server` bridged in process (`codex_app_server.rs`).
     codex: Option<Arc<crate::codex_app_server::Translator>>,
@@ -264,6 +315,16 @@ struct State {
     last_owner: Option<u64>,
     /// Never answer `Hello` (debug builds' test seam, [`claim_hello_stall`]).
     stall_hello: bool,
+    /// Claude's output lines after a carry, read once the next turn's prompt came
+    /// (`claude_stdio/carry.rs` `holding`), oldest first.
+    held: VecDeque<String>,
+    /// The carry that holds the output now (its number, `claude_stdio/carry.rs` `holding`), and
+    /// whether its bound passed: each carry holds once, with a bound of its own.
+    hold: (u64, bool),
+    /// Its own end once no daemon controls it, and what it tracks for it (`host/orphan.rs`).
+    orphan: Orphan,
+    /// The output ended: what a carry held is read, and no carry holds more.
+    read_all: bool,
 }
 
 /// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
@@ -289,6 +350,27 @@ fn claim_hello_stall() -> bool {
     false
 }
 
+/// Debug builds only: `ACPMUX_TEST_HOST_QUERY_STALL_DIR` in the harness's
+/// environment (a profile's `env`; the host clears its own) names a directory
+/// of `stall-*` marker files too. A host that removes one as a `Query` comes
+/// leaves that query unanswered, as a host whose answer sits behind a backlog
+/// nobody reads, so the daemon's integration tests can drive the query's
+/// timeout; each marker stalls one query. Release builds have no seam.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
+fn claim_query_stall(harness_env: &[(String, String)]) -> bool {
+    #[cfg(debug_assertions)]
+    if let Some((_, dir)) =
+        harness_env.iter().find(|(k, _)| k == "ACPMUX_TEST_HOST_QUERY_STALL_DIR")
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
+}
+
 impl Started {
     async fn serve(self, spec: SpawnSpec) -> Result<()> {
         let Started { record, listener, mut child, _live } = self;
@@ -299,12 +381,35 @@ impl Started {
         let pgid = child.id().map(|p| p as i32);
 
         // stdin writer: a full pipe never blocks the event loop.
-        let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<String>();
+        let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<Stdin>();
+        let written = events_tx.clone();
+        // task-owner: ends with the queue (the host's state) or the harness's stdin.
         tokio::spawn(async move {
             let mut stdin = stdin;
-            while let Some(line) = stdin_rx.recv().await {
-                if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
-                    break;
+            while let Some(item) = stdin_rx.recv().await {
+                match item {
+                    Stdin::Line(line) => {
+                        if stdin.write_all(line.as_bytes()).await.is_err()
+                            || stdin.flush().await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    // Every line queued before it is written.
+                    Stdin::Receipt(receipt) => {
+                        if written.send(Event::Written(receipt, true)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
+            // The harness's stdin closed: nothing queued now or later is written (review 83).
+            stdin_rx.close();
+            while let Some(item) = stdin_rx.recv().await {
+                if let Stdin::Receipt(receipt) = item
+                    && written.send(Event::Written(receipt, false)).await.is_err()
+                {
+                    return;
                 }
             }
         });
@@ -426,6 +531,10 @@ impl Started {
             under: Vec::new(),
             last_owner: None,
             stall_hello: claim_hello_stall(),
+            held: VecDeque::new(),
+            hold: (0, false),
+            orphan: Orphan::default(),
+            read_all: false,
         };
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = state.codex.clone() {
@@ -448,6 +557,7 @@ impl Started {
             });
         }
 
+        state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
                 // Output after the Exit entry (an escaped process) is dropped.
@@ -457,10 +567,20 @@ impl Started {
                     permit_out = false;
                     drain_gen += 1;
                     drain_armed = false;
-                    state.on_stdout(line).await;
+                    state.held.push_back(line);
+                    state.read_held(&events_tx).await;
+                }
+                Event::HoldOver(hold) => {
+                    if state.hold.0 == hold {
+                        state.hold.1 = true;
+                    }
+                    state.read_held(&events_tx).await;
                 }
                 Event::Stdout(None) => {
                     permit_out = false;
+                    // What a carry held is read before the output's end.
+                    state.read_all = true;
+                    state.read_held(&events_tx).await;
                     if state.exit_h.is_none() {
                         state.end_background_shells().await;
                         state.codex_closed();
@@ -522,10 +642,11 @@ impl Started {
                     let (mut rd, mut wr) = stream.into_split();
                     // Unbounded: the retained entries already bound it, and a
                     // slow owner must not be dropped (it would never return).
-                    let (tx, mut rx) = mpsc::unbounded_channel::<HostFrame>();
+                    let (tx, mut rx) = mpsc::unbounded_channel::<Arc<[u8]>>();
+                    let tx = FrameTx(tx);
                     tokio::spawn(async move {
-                        while let Some(frame) = rx.recv().await {
-                            if write_frame(&mut wr, &frame).await.is_err() {
+                        while let Some(bytes) = rx.recv().await {
+                            if wr.write_all(&bytes).await.is_err() || wr.flush().await.is_err() {
                                 break;
                             }
                         }
@@ -543,7 +664,15 @@ impl Started {
                     });
                     state.pending_conns.push((id, tx));
                 }
-                Event::Frame(id, frame) => state.on_frame(id, frame).await,
+                Event::Frame(id, frame) => {
+                    state.on_frame(id, frame).await;
+                    // The next turn's prompt may have come: what a carry held is read.
+                    state.read_held(&events_tx).await;
+                }
+                Event::Written(receipt, written) => state.receipt(receipt, written),
+                Event::Orphan(generation, census) => {
+                    state.orphan_look(&events_tx, generation, census).await;
+                }
             }
             if state.unadoptable {
                 // As SIGTERM: end the harness while its group is ours, then the host.
@@ -559,7 +688,13 @@ impl Started {
             if state.finished() {
                 break;
             }
-            let wanted = !state.stdout_done && state.weight <= state.spec.buffer_cap;
+            if state.orphan_follow(&events_tx).await {
+                break;
+            }
+            // Nothing more is read while a carry holds what was read (`read_held`).
+            let wanted = !state.stdout_done
+                && state.weight <= state.spec.buffer_cap
+                && state.held.is_empty();
             if wanted && !permit_out && pace_tx.try_send(()).is_ok() {
                 permit_out = true;
             }
@@ -588,6 +723,38 @@ impl Started {
     }
 }
 
+/// Entry `h` as the frame it is sent and kept as (encoded once), and whether a next daemon
+/// needs it (`orphan::needs_a_daemon`). An entry over the frame limit (a writer stop would
+/// lose it) is kept as what [`over_frame_limit`] puts in its place, or, when that is over
+/// the limit too (an answer whose id alone is), as a stderr note. Never an empty frame:
+/// None only if even the note cannot be encoded.
+fn encode_entry(h: u64, entry: &Entry, max: usize) -> Option<(Arc<[u8]>, bool)> {
+    let encode = |e: &Entry| {
+        super::encode_frame_within(&super::EntryFrame::Entry { h, e }, max)
+            .map(|bytes| (bytes, orphan::needs_a_daemon(e)))
+    };
+    encode(entry)
+        .or_else(|| encode(&over_frame_limit(h, entry)))
+        .or_else(|| encode(&over_frame_limit_note(h)))
+}
+
+/// What is kept in place of entry `h` when its frame is over the limit: an answer becomes
+/// an error answer with its id, so the request it answers is not left waiting; anything
+/// else becomes a stderr note.
+fn over_frame_limit(h: u64, entry: &Entry) -> Entry {
+    if let Entry::In { msg } = entry
+        && let Some(id) = msg.get("id").filter(|id| !id.is_null() && msg.get("method").is_none())
+    {
+        let err = crate::rpc::RpcError::internal("agent answer was over the frame limit");
+        return Entry::In { msg: Message::err(id.clone(), err).into_value() };
+    }
+    over_frame_limit_note(h)
+}
+
+fn over_frame_limit_note(h: u64) -> Entry {
+    Entry::Err { line: format!("[entry {h} over the frame limit dropped]") }
+}
+
 impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
@@ -601,19 +768,27 @@ impl State {
 
     /// Number and retain one entry, and send it to a resumed controller.
     fn push(&mut self, entry: Entry) {
-        self.next_h += 1;
-        let h = self.next_h;
-        let weight = entry.weight();
+        self.orphan.note_entry(&entry);
+        let h = self.next_h + 1;
+        // One serialization per entry: the bytes are sent and kept (perf100: the entry was
+        // serialized to weigh it, copied to send it and serialized again to write it).
+        let Some((bytes, needed)) = encode_entry(h, &entry, super::MAX_FRAME) else {
+            // Not even a one-line note fits a frame: nothing to number, send or keep.
+            tracing::warn!(h, "an agent host entry and its note are over the frame limit");
+            return;
+        };
+        self.next_h = h;
         if matches!(entry, Entry::Exit { .. }) {
             self.exit_h = Some(h);
         }
+        let weight = bytes.len().saturating_add(32);
         if let Some(c) = self.controller.as_ref().filter(|c| c.resumed)
-            && c.tx.send(HostFrame::Entry { h, e: entry.clone() }).is_err()
+            && c.tx.send_encoded(bytes.clone()).is_err()
         {
             // The connection closed; the next owner resumes from the buffer.
             self.controller = None;
         }
-        self.entries.push_back((h, entry, weight));
+        self.entries.push_back(Retained { h, bytes, weight, needed });
         self.weight += weight;
     }
 
@@ -637,9 +812,9 @@ impl State {
             return;
         }
         self.acked_h = h.min(self.next_h);
-        while self.entries.front().is_some_and(|(eh, _, _)| *eh <= self.acked_h) {
-            if let Some((_, _, w)) = self.entries.pop_front() {
-                self.weight -= w;
+        while self.entries.front().is_some_and(|e| e.h <= self.acked_h) {
+            if let Some(e) = self.entries.pop_front() {
+                self.weight -= e.weight;
             }
         }
     }
@@ -649,7 +824,7 @@ impl State {
     async fn end_background_shells(&mut self) {
         if let Some(tr) = self.translator.clone() {
             for m in tr.end_background_shells().await {
-                self.push(Entry::In { msg: m.to_value() });
+                self.push(Entry::In { msg: m.into_value() });
             }
         }
     }
@@ -668,6 +843,32 @@ impl State {
     /// The harness ended and the controller logged its exit.
     fn finished(&self) -> bool {
         self.exit_h.is_some_and(|h| self.acked_h >= h)
+    }
+
+    /// Reads the held output lines in order, until a carry holds the rest (`claude_stdio/carry.rs`
+    /// `holding`): each carry's hold starts its own bound ([`crate::claude_stdio::CARRY_HOLD_MAX`]),
+    /// also one made while an earlier carry still holds.
+    async fn read_held(&mut self, events: &mpsc::Sender<Event>) {
+        while !self.holds(events) {
+            let Some(line) = self.held.pop_front() else { return };
+            self.on_stdout(line).await;
+        }
+    }
+
+    /// Whether a carry holds the output now: one that holds anew starts its bound.
+    fn holds(&mut self, events: &mpsc::Sender<Event>) -> bool {
+        let carry = self.translator.as_ref().and_then(|tr| tr.holding());
+        let Some(carry) = carry.filter(|_| !self.read_all) else { return false };
+        if self.hold.0 != carry {
+            self.hold = (carry, false);
+            let events = events.clone();
+            // task-owner: one bounded wait; the runtime ends it with the host.
+            tokio::spawn(async move {
+                tokio::time::sleep(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                let _ = events.send(Event::HoldOver(carry)).await;
+            });
+        }
+        !self.hold.1
     }
 
     async fn on_stdout(&mut self, line: String) {
@@ -702,14 +903,14 @@ impl State {
             } else if let Some(tr) = self.translator.clone() {
                 if claude_answer {
                     for m in tr.fail_pending("agent answer was over the size limit").await {
-                        self.push(Entry::In { msg: m.to_value() });
+                        self.push(Entry::In { msg: m.into_value() });
                     }
                 }
             } else if let Ok(v) = serde_json::from_str::<Value>(&line)
                 && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
             {
                 let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
-                self.push(Entry::In { msg: Message::err(id.clone(), err).to_value() });
+                self.push(Entry::In { msg: Message::err(id.clone(), err).into_value() });
             }
             return;
         }
@@ -724,7 +925,8 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, raw.clone()).to_value(),
+                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                        .into_value(),
                 });
             }
             self.codex_out(cx.from_server(&raw));
@@ -732,7 +934,7 @@ impl State {
         }
         let Some(tr) = self.translator.clone() else {
             match Message::parse(&line) {
-                Ok(m) => self.push(Entry::In { msg: m.to_value() }),
+                Ok(m) => self.push(Entry::In { msg: m.into_value() }),
                 Err(_) => self.push(Entry::Err { line: format!("[non-json stdout] {line}") }),
             }
             return;
@@ -745,16 +947,18 @@ impl State {
             }
         };
         // Keep the raw Claude line in the log under its own kind.
+        // Translated first, so the raw line moves into its record instead of being
+        // copied; the raw record still comes first.
+        let translated = tr.inbound(&raw).await;
         self.push(Entry::Tap {
             dir: TapDir::In,
-            msg: crate::claude_stdio::logged_line(&raw).to_value(),
+            msg: crate::claude_stdio::logged_line_owned(raw).into_value(),
         });
-        let translated = tr.inbound(&raw).await;
         for l in tr.take_stdin_replies().await {
             self.write_claude_line(l);
         }
         for m in translated {
-            self.push(Entry::In { msg: m.to_value() });
+            self.push(Entry::In { msg: m.into_value() });
         }
     }
 
@@ -781,10 +985,24 @@ impl State {
     fn write_codex_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
-            msg: Message::notification(crate::codex_app_server::STDIN_KIND, line.clone())
-                .to_value(),
+            msg: Message::notification(
+                crate::codex_app_server::STDIN_KIND,
+                crate::codex_app_server::redact(&line),
+            )
+            .to_value(),
         });
-        let _ = self.stdin_tx.send(crate::codex_app_server::line(&line));
+        let _ = self.stdin_tx.send(Stdin::Line(crate::codex_app_server::line(&line)));
+    }
+
+    /// Logs a line's receipt (`WRITTEN_METHOD`) as an entry, which reaches this controller or
+    /// the next one exactly once.
+    fn receipt(&mut self, receipt: u64, written: bool) {
+        self.orphan.unwritten = self.orphan.unwritten.saturating_sub(1);
+        let note = serde_json::json!({"receipt": receipt, "written": written});
+        self.push(Entry::Tap {
+            dir: TapDir::Out,
+            msg: Message::notification(super::WRITTEN_METHOD, note).to_value(),
+        });
     }
 
     fn write_claude_line(&mut self, line: Value) {
@@ -794,7 +1012,7 @@ impl State {
         });
         let mut s = line.to_string();
         s.push('\n');
-        let _ = self.stdin_tx.send(s);
+        let _ = self.stdin_tx.send(Stdin::Line(s));
     }
 
     async fn on_line(&mut self, msg: Value) {
@@ -804,15 +1022,19 @@ impl State {
         {
             self.max_out_id = self.max_out_id.max(n);
         }
+        self.orphan.note_request(&message);
         if let Some(cx) = self.codex.clone() {
-            self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
+            self.push(Entry::Tap {
+                dir: TapDir::Out,
+                msg: crate::codex_app_server::redact(&message.to_value()),
+            });
             // Answers and updates the translator gives itself go out as if Codex sent them.
             self.codex_out(cx.from_client(&message.to_value()));
             return;
         }
         let Some(tr) = self.translator.clone() else {
             self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
-            let _ = self.stdin_tx.send(message.to_line());
+            let _ = self.stdin_tx.send(Stdin::Line(message.to_line()));
             return;
         };
         self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
@@ -844,7 +1066,8 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
-            if self.stall_hello {
+            // An orphaned host that ends its harness answers once it is reaped (`orphan.rs`).
+            if self.stall_hello || self.orphan.hold_hello(id, &frame, &self.leader_alive) {
                 return;
             }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
@@ -888,50 +1111,46 @@ impl State {
             ControllerFrame::Resume { after } => {
                 // The controller logged everything through `after`.
                 self.drop_through(after);
-                let backlog: Vec<HostFrame> = self
-                    .entries
-                    .iter()
-                    .map(|(h, e, _)| HostFrame::Entry { h: *h, e: e.clone() })
-                    .collect();
+                let backlog: Vec<Arc<[u8]>> =
+                    self.entries.iter().map(|e| e.bytes.clone()).collect();
                 let Some(c) = self.controller.as_mut() else { return };
-                for frame in backlog {
-                    if c.tx.send(frame).is_err() {
+                for bytes in backlog {
+                    if c.tx.send_encoded(bytes).is_err() {
                         self.controller = None;
                         return;
                     }
                 }
                 c.resumed = true;
             }
-            ControllerFrame::Line { msg } => self.on_line(msg).await,
-            ControllerFrame::Ack { h } => self.drop_through(h),
-            ControllerFrame::Terminate { grace_ms } => {
-                if let Some(pg) = self
-                    .pgid
-                    .filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
-                {
-                    self.under = tokio::task::spawn_blocking(|| {
-                        super::tree::descendants(&[std::process::id()])
-                    })
-                    .await
-                    .unwrap_or_default();
-                    // SAFETY: the harness leads this process group.
-                    unsafe { libc::killpg(pg, libc::SIGTERM) };
-                    let grace = std::time::Duration::from_millis(grace_ms);
-                    let alive = self.leader_alive.clone();
-                    // A bounded kill deadline, not synchronization: the exit
-                    // entry is the signal that the harness ended.
-                    tokio::spawn(async move {
-                        tokio::time::sleep(grace).await;
-                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
-                            // SAFETY: the leader is unreaped, so the group is ours.
-                            unsafe { libc::killpg(pg, libc::SIGKILL) };
-                        }
+            ControllerFrame::Line { msg, receipt } => {
+                // Logged before any line of it is queued, so a log that has one of its lines has
+                // this too, and a next daemon knows the line is fenced (`QUEUED_METHOD`).
+                if let Some(receipt) = receipt {
+                    let note = serde_json::json!({"receipt": receipt});
+                    self.push(Entry::Tap {
+                        dir: TapDir::Out,
+                        msg: Message::notification(super::QUEUED_METHOD, note).to_value(),
                     });
                 }
+                self.on_line(msg).await;
+                // Behind every line of it: the writer answers once they are written.
+                // Its stdin writer stopped (the harness's stdin closed): never written.
+                self.orphan.unwritten =
+                    self.orphan.unwritten.saturating_add(usize::from(receipt.is_some()));
+                if let Some(receipt) = receipt
+                    && self.stdin_tx.send(Stdin::Receipt(receipt)).is_err()
+                {
+                    self.receipt(receipt, false);
+                }
+            }
+            ControllerFrame::Ack { h } => self.drop_through(h),
+            ControllerFrame::Terminate { grace_ms } => {
+                self.terminate_group(std::time::Duration::from_millis(grace_ms)).await;
                 if let Some(c) = self.controller.as_ref() {
                     let _ = c.tx.send(HostFrame::TerminateAck);
                 }
             }
+            ControllerFrame::Query { .. } if claim_query_stall(&self.spec.env) => {}
             ControllerFrame::Query { id } => {
                 let (claude_session_id, modes, config_options) = match self.translator.clone() {
                     Some(tr) => (
@@ -1066,5 +1285,51 @@ mod tests {
         // SAFETY: signal 0 to this test's own child only checks existence.
         assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
         assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
+    }
+
+    /// An entry too big for one frame is kept as a frame that fits, never as an empty one:
+    /// an answer whose id alone is over the limit becomes a stderr note, which a next daemon
+    /// does not need.
+    #[test]
+    fn an_entry_whose_replacement_is_over_the_limit_too_is_kept_as_a_note() {
+        use super::{Entry, encode_entry};
+        let answer = Entry::In { msg: serde_json::json!({"id": "x".repeat(300), "result": {}}) };
+        let (bytes, needed) = encode_entry(5, &answer, 200).expect("a note fits");
+        assert!(!needed, "a stderr note keeps no orphaned host waiting");
+        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
+        assert_eq!(body["h"], 5);
+        assert_eq!(body["e"]["line"], "[entry 5 over the frame limit dropped]", "{body}");
+
+        let small = Entry::In { msg: serde_json::json!({"id": 1, "result": "y".repeat(300)}) };
+        let (bytes, needed) = encode_entry(6, &small, 200).expect("the error answer fits");
+        assert!(needed, "an answer is logged by a next daemon");
+        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
+        assert_eq!(body["e"]["msg"]["id"], 1, "{body}");
+        assert!(body["e"]["msg"]["error"].is_object(), "{body}");
+
+        assert!(encode_entry(7, &small, 20).is_none(), "nothing fits: no empty frame");
+    }
+
+    /// An entry too big for one frame is replaced, not dropped with its connection: an
+    /// answer by an error answer to the same id, anything else by a stderr note.
+    #[test]
+    fn an_entry_over_the_frame_limit_is_answered_or_noted() {
+        use super::{Entry, TapDir, over_frame_limit};
+        let answer =
+            Entry::In { msg: serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": {}}) };
+        let Entry::In { msg } = over_frame_limit(3, &answer) else { panic!("not an answer") };
+        assert_eq!(msg["id"], 7);
+        assert_eq!(msg["error"]["message"], "agent answer was over the frame limit");
+        assert!(msg.get("result").is_none());
+
+        let update =
+            serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {}});
+        for entry in [
+            Entry::In { msg: update },
+            Entry::Tap { dir: TapDir::In, msg: serde_json::json!({"id": 1, "result": {}}) },
+        ] {
+            let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
+            assert_eq!(line, "[entry 4 over the frame limit dropped]");
+        }
     }
 }

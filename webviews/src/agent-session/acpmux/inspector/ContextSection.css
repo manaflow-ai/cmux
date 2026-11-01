@@ -18,9 +18,49 @@
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
 }
+/* Compact session: "130K until auto-compact" on the rows' leading edge and a real button on their
+   trailing edge, both inset 8px as the rows are, as Claude Code desktop's Session Info. */
+.acpmux-chat-inspector-context__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-2) 0;
+}
+.acpmux-chat-inspector-context__until {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-chat-inspector-context__compact {
+  flex: none;
+  height: var(--cmux-control-height);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-chat-inspector-context__compact:hover {
+  background: color-mix(in srgb, var(--agent-text) 16%, transparent);
+}
+.acpmux-chat-inspector-context__compact:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
 .acpmux-chat-inspector-context__bar {
   display: flex;
-  gap: 2px;
+  gap: 0;
   height: 6px;
   margin: 0 8px 6px;
   border-radius: 3px;
@@ -31,6 +71,18 @@
   flex: none;
   min-width: 2px;
   height: 100%;
+}
+.acpmux-chat-inspector-context__bar > span:not(:last-child) {
+  position: relative;
+}
+.acpmux-chat-inspector-context__bar > span:not(:last-child)::after {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(2px, 25%);
+  background: var(--acpmux-context-free);
+  content: "";
+  pointer-events: none;
 }
 .acpmux-chat-inspector-context__bar > [data-part="used"],
 .acpmux-chat-inspector-context__swatch[data-part="used"] {
@@ -54,6 +106,7 @@
   text-align: right;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A /context breakdown: each used category takes a step of the theme accent, largest first, so the
    bar reads as one color family over the glass; the autocompact buffer is a stronger tint of the text,
@@ -94,6 +147,7 @@
 .acpmux-context-breakdown__items {
   padding-left: 18px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-context-breakdown__items .acpmux-chat-inspector-row {
   height: 24px;

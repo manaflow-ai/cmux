@@ -12,6 +12,9 @@ import CmuxNextDesign
 public protocol LayoutPaneContentProvider: AnyObject {
     /// Creates the view for a pane the first time it appears.
     func makeContentView(for pane: PaneID) -> NSView
+    /// Whether this pane's live content keeps its painted size while a split or close springs.
+    /// The host clips the held page and lays it out once when the spring lands.
+    func holdsContentInMotion(for pane: PaneID) -> Bool
     /// The pane left the layout. Called in the same update, with no removal animation.
     func releaseContentView(_ view: NSView, for pane: PaneID)
     /// The pane scrolled on screen, into the keep-alive band, or away (other
@@ -20,6 +23,7 @@ public protocol LayoutPaneContentProvider: AnyObject {
 }
 
 extension LayoutPaneContentProvider {
+    public func holdsContentInMotion(for pane: PaneID) -> Bool { false }
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
 }
@@ -47,8 +51,9 @@ final class LayoutViewContext {
     var userMotionStepped: () -> Void = {}
     /// A user gesture ended with nothing left to spring: the motion it started ends.
     var userMotionEnded: () -> Void = {}
-    /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
-    var stripClipsDidChange: () -> Void = {}
+    /// A pane's strip clip changed since the last overlay sync (`PaneHostView.setStripClip`): that sync tells the
+    /// window once, with its divider lines, and its Chromium pages re-read their clips (`reportInteractiveRects`).
+    var stripClipsChanged = false
     /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).
     var gridHoldScreens: Set<ScreenID> = [] {
         didSet { if oldValue.isEmpty != gridHoldScreens.isEmpty { gridHoldDidChange(!gridHoldScreens.isEmpty) } }
@@ -69,6 +74,24 @@ final class LayoutViewContext {
     /// Windows above this one that pass divider hover through: the app's
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
+    /// The last topmost answer and what it was asked for (`hoverReaches`).
+    private var topmost: (window: Int, pointer: NSPoint, passThrough: Set<Int>, reaches: Bool)?
+
+    /// ``hoverReachesWindow``, asked again only when the pointer (in window coordinates), the window or the
+    /// pass-through panels changed, or after ``invalidateHoverTopmost()``: a presentation pass under a still pointer
+    /// (a pan, a spring) asks the window server nothing.
+    func hoverReaches(_ window: NSWindow, pointer: NSPoint) -> Bool {
+        let passThrough = hoverPassThroughWindows()
+        if let topmost, topmost.window == window.windowNumber, topmost.pointer == pointer, topmost.passThrough == passThrough {
+            return topmost.reaches
+        }
+        let reaches = hoverReachesWindow(window)
+        topmost = (window.windowNumber, pointer, passThrough, reaches)
+        return reaches
+    }
+
+    /// The windows over the pointer may have changed (a key change, a panel shown or moved, a tracking event).
+    func invalidateHoverTopmost() { topmost = nil }
 
     init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
@@ -100,7 +123,9 @@ final class LayoutViewContext {
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         let content = provider?.makeContentView(for: pane) ?? NSView()
-        let host = PaneHostView(pane: pane, content: content)
+        let host = PaneHostView(pane: pane, content: content) { [weak self] in
+            self?.provider?.holdsContentInMotion(for: pane) ?? false
+        }
         hosts[pane] = host
         return host
     }

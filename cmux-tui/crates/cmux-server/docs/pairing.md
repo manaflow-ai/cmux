@@ -40,11 +40,20 @@ exported to a link. Repeat `cmux server pair` to resume. After a lost enrollment
 reply, the reserved device locator permits a signed recovery read even after
 the invitation expires. An unavailable service, mismatched binding or revoked
 identity leaves the record pending; the daemon does not silently restart basic
-pairing or replace its keys. Confirmation removes the saved invitation and
-returns `paired` with `network.state` set to `registered`.
+pairing or replace its keys. Native registration removes the spent invitation
+and saves a backend-confirmation checkpoint. The daemon obtains a short-lived
+token with its own install key and approved team, then calls
+`server.network.confirm` with a new signed policy proof. The backend independently
+checks the reserved identity and current grant. Tokens and proofs are never saved.
 
-Registration records identity only. Applying current peer/port policy,
-confirming the backend binding and enabling serving roles remain separate.
+A lost backend reply resumes with the same operation key and a fresh proof,
+including after invitation expiry. Until the backend acknowledges the matching
+host, tenant, mesh and device, status remains `network_pending` with
+`network.state: confirmation_pending`, and link export stays blocked. Completion
+returns `paired` with `network.state: confirmed` and a historical `confirmed_at`.
+
+Confirmation records identity only. Applying current peer/port policy and
+enabling serving roles remain separate.
 Chief's current pairing consumer refuses network invitations; use the server
 pairing flow for network enrollment.
 
@@ -110,8 +119,10 @@ collection response or network invitation use current-user DPAPI with UI disable
 machine-wide protection. See Microsoft's
 [CryptProtectData contract](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata).
 Public status, progress, debug output and error messages omit key material and
-the collection secret and invitation. Schema 2 holds pending/registered network
-state; existing schema-1 basic enrollment records remain readable. Unix storage
+the collection secret and invitation. Schema 3 adds backend confirmation to
+network records. Schema-1 basic records remain readable. Schema-2 pending
+records resume, while schema-2 registered records require backend confirmation
+before link export. Saving schema 3 is one-way; older binaries cannot read it. Unix storage
 uses private file permissions; it does not add encryption. The collection secret travels only in the WebSocket subprotocol
 header, which is marked sensitive.
 

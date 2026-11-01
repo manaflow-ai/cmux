@@ -688,6 +688,12 @@
       1
     ]
   },
+  "home.stopAll.couldNotStop": {
+    "source": "%lld could not be stopped",
+    "arguments": [
+      1
+    ]
+  },
   "importSuggestions.status.importedSessions": {
     "source": "Imported %lld sessions",
     "arguments": [

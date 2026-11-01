@@ -204,6 +204,7 @@ async fn peer_long_turn_a_forwarded_prompt_stops_waiting_when_its_client_goes() 
     let _ = std::fs::remove_dir_all(&home);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn peer_long_turn_a_forwarded_prompt_stops_waiting_when_its_socket_client_exits() {
     // A CLI on the daemon's unix socket that exits mid-turn, while the turn says nothing: the

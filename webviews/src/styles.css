@@ -9,16 +9,22 @@
 @theme inline {
   --text-caption: var(--text-caption);
   --text-caption--line-height: var(--text-caption--line-height);
+  --text-caption--letter-spacing: var(--text-caption--letter-spacing);
   --text-detail: var(--text-detail);
   --text-detail--line-height: var(--text-detail--line-height);
+  --text-detail--letter-spacing: var(--text-detail--letter-spacing);
   --text-body: var(--text-body);
   --text-body--line-height: var(--text-body--line-height);
+  --text-body--letter-spacing: var(--text-body--letter-spacing);
   --text-control: var(--text-control);
   --text-control--line-height: var(--text-control--line-height);
+  --text-control--letter-spacing: var(--text-control--letter-spacing);
   --text-title: var(--text-title);
   --text-title--line-height: var(--text-title--line-height);
+  --text-title--letter-spacing: var(--text-title--letter-spacing);
   --text-heading: var(--text-heading);
   --text-heading--line-height: var(--text-heading--line-height);
+  --text-heading--letter-spacing: var(--text-heading--letter-spacing);
   --text-content: var(--text-content);
   --text-content--line-height: var(--text-content--line-height);
 }
@@ -33,7 +39,7 @@
   --cmux-diff-fg-dark: var(--cmux-app-text, #fff);
   --cmux-diff-selection-bg-light: var(--cmux-text-selection, #abd8ff);
   --cmux-diff-selection-bg-dark: var(--cmux-text-selection, #3f638b);
-  --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --cmux-diff-ui-font-family: var(--font-ui);
   /* 13 px UI text, the classic viewer's size (its 2x screenshots). */
   --cmux-diff-ui-font-size: 13px;
   --cmux-diff-ui-line-height: 18px;
@@ -106,6 +112,11 @@
 }
 html {
   background: var(--cmux-diff-viewer-bg);
+}
+/* A chat that shares the native tab row leaves that row's background visible behind its tools.
+   The page still owns the background below the row; only the offered strip is transparent. */
+html:has(.acpmux-shell[data-tab-row]) {
+  background: transparent !important;
 }
 /* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
    the backdrop shows through as it does through every other surface. Off under Reduce Transparency
@@ -340,7 +351,7 @@ body {
   min-width: 64px;
   padding-right: 9px;
   background-image: none;
-  cursor: pointer;
+  cursor: default;
 }
 #repo-select {
   /* Sized to its selected value like #source-select, with the HIGHEST shrink so
@@ -394,7 +405,7 @@ body {
   color: var(--cmux-diff-fg);
   font: inherit;
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
 }
 .base-picker-button:hover:not(:disabled),
 .base-picker-button[aria-expanded="true"] {
@@ -621,7 +632,7 @@ body {
   min-height: 28px;
   padding: 0 8px;
   border-radius: 6px;
-  cursor: pointer;
+  cursor: default;
 }
 .base-picker-row-selected {
   background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
@@ -676,7 +687,7 @@ body {
   background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
   padding: 0;
-  cursor: pointer;
+  cursor: default;
 }
 .toolbar-icon:hover,
 .toolbar-icon[aria-expanded="true"] {
@@ -971,7 +982,7 @@ body[data-status-only="true"] #files-motion-curtain {
   border-radius: 5px;
   background: transparent;
   color: var(--cmux-diff-text-dim);
-  cursor: pointer;
+  cursor: default;
 }
 .files-filter-button:hover {
   background: var(--cmux-diff-hover-bg);
@@ -1355,7 +1366,7 @@ body[data-loading="true"] #status::before {
   font: inherit;
   font-size: var(--cmux-diff-ui-font-size);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 .comment-entry:hover {
   background: var(--cmux-diff-hover-bg);
@@ -1447,7 +1458,7 @@ body[data-loading="true"] #status::before {
   color: var(--cmux-diff-text-muted);
   font: inherit;
   font-weight: 500;
-  cursor: pointer;
+  cursor: default;
 }
 .comment-button:hover:not(:disabled) {
   background: var(--cmux-diff-hover-bg);
@@ -1495,7 +1506,7 @@ body[data-loading="true"] #status::before {
   color: var(--cmux-diff-text-muted);
   font: inherit;
   font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
-  cursor: pointer;
+  cursor: default;
 }
 .comment-card-action:hover {
   background: var(--cmux-diff-hover-bg);
@@ -1564,7 +1575,7 @@ body[data-loading="true"] #status::before {
   background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 .file-review-load:hover,
 .file-review-stage:hover {
@@ -1583,7 +1594,7 @@ body[data-loading="true"] #status::before {
   border-radius: 5px;
   background: transparent;
   color: var(--cmux-diff-text-dim);
-  cursor: pointer;
+  cursor: default;
 }
 .file-review-revert:hover {
   background: var(--cmux-diff-hover-bg);
@@ -1653,7 +1664,7 @@ body[data-loading="true"] #status::before {
   color: inherit;
   font: inherit;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
 }
 .diff-bulk-action {
   height: 28px;
@@ -1784,7 +1795,7 @@ body[data-loading="true"] #status::before {
   padding: 0;
   border: 0;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
   white-space: nowrap;
   color: var(--cmux-diff-text-dim);
   font: inherit;
@@ -1884,7 +1895,7 @@ svg[data-icon-fill] {
   background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 .source-pill-button:hover {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
@@ -1941,7 +1952,7 @@ svg[data-icon-fill] {
   background: var(--cmux-diff-pill-bg);
   box-shadow: var(--cmux-diff-pill-rim);
   color: var(--cmux-diff-fg);
-  cursor: pointer;
+  cursor: default;
 }
 .toolbar-round-button:hover {
   background: var(--cmux-diff-pill-hover-bg);
@@ -1980,7 +1991,7 @@ svg[data-icon-fill] {
 .toolbar-menu-item {
   min-height: 28px;
   border-radius: 7px;
-  cursor: pointer;
+  cursor: default;
   color: color-mix(in lab, var(--cmux-diff-fg) 90%, var(--cmux-diff-bg));
 }
 .source-menu .toolbar-menu-item {
@@ -2069,7 +2080,7 @@ svg[data-icon-fill] {
   min-height: 28px;
   padding: 5px 8px;
   border-radius: 7px;
-  cursor: pointer;
+  cursor: default;
   white-space: nowrap;
 }
 .jump-palette-row-active {
@@ -2148,7 +2159,7 @@ svg[data-icon-fill] {
   border-radius: 5px;
   background: transparent;
   color: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
-  cursor: pointer;
+  cursor: default;
 }
 .diff-pill-button:hover,
 .diff-pill-button[aria-expanded="true"] {
@@ -2257,7 +2268,7 @@ svg[data-icon-fill] {
   font-weight: 400;
   color: var(--cmux-diff-fg);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
 }
 .cmux-file-icon {
   flex: 0 0 auto;
@@ -2310,7 +2321,7 @@ button.file-header-open {
   line-height: inherit;
   text-align: start;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -2426,7 +2437,7 @@ button.file-header-open:focus-visible {
   border-radius: 5px;
   background: transparent;
   color: var(--cmux-diff-text-dim);
-  cursor: pointer;
+  cursor: default;
 }
 .file-header-menu-button:hover,
 .file-header-menu-button[aria-expanded="true"] {

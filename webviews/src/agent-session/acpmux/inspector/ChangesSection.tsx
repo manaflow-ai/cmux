@@ -1,5 +1,5 @@
 // The Inspector's Changes, after Claude Code desktop's: every pull request the chat opened or
-// touched, open ones first, then the ended ones, newest first within each. A row is its
+// mutated, open ones first, then the ended ones, newest first within each. A row is its
 // title, then `repo #N`, the lines it changes (a hover splits them into Code, Tests, Generated and
 // Docs), its comments, and at the end its failing checks (with how many already fail on its base
 // branch, dimmed: those are not this pull request's) or a green dot when they pass. Its state is
@@ -8,14 +8,17 @@
 import { Counts } from "../changes/Counts";
 import { copyText } from "../conversation/clipboard";
 import { pullRequestStateSince, type HeaderPullRequest } from "../header/headerState";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";
+import { GitHubMark } from "../conversation/icons";
+import { LinkHoverCard } from "../chips/LinkHoverCard";
+import { useSiteInfo } from "../chips/linkStore";
+import { useHoverCard } from "../chips/useHoverCard";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
-import { InspectorFold } from "./InspectorSection";
 import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
 
 const ROW_ICON = rowIconSize(12);
@@ -73,6 +76,24 @@ export function headerStatus(pr: HeaderPullRequest | undefined): Record<string, 
   };
 }
 
+const ABBREVIATE_FROM = 10_000;
+
+/** A row count (lines, comments, failing checks) short enough for a narrow row: 1,284, then 12.3K,
+ *  4.6M ... 9Q. Below 10,000 the number is exact; above it, screen readers get the exact one. */
+export function formatCount(count: number): string {
+  if (count < ABBREVIATE_FROM) return count.toLocaleString();
+  const units = ["K", "M", "B", "T", "Q"];
+  let value = count;
+  let unit = "";
+  for (const candidate of units) {
+    if (value < 1000) break;
+    value /= 1000;
+    unit = candidate;
+  }
+  const rounded = value >= 100 ? Math.round(value) : value.toFixed(1).replace(/\.0$/, "");
+  return `${rounded}${unit}`;
+}
+
 const CHECK_LABELS: Record<string, StringKey> = {
   passing: "rail.checksPassing",
   pending: "rail.checksPending",
@@ -107,12 +128,15 @@ export function glyphState(pr: SummaryPullRequest, live: InspectorPullRequestSta
 
 const ended = (state: PullRequestGlyphState) => state === "merged" || state === "closed";
 
-/// The pull requests Changes lists: one the agent only named in a reply (`#N` can be an issue)
-/// once the App has read it as a pull request.
+/// Changes contains only pull requests this session created or mutated. Read-only PR and issue
+/// references stay in Sources, even after the App has read them as pull requests.
 export const visibleChanges = (
   pullRequests: readonly SummaryPullRequest[],
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
-): SummaryPullRequest[] => pullRequests.filter((pr) => !pr.mentioned || statuses[pr.url]?.state !== undefined);
+): SummaryPullRequest[] => {
+  void statuses;
+  return pullRequests.filter((pr) => pr.kind !== "issue" && (pr.opened || pr.changed === true));
+};
 
 /// The rows in Claude's order: the ones still open (drafts and conflicting ones included) first,
 /// then the merged and closed, the most recently touched or named first within each.
@@ -132,10 +156,13 @@ export function ChangesSection({
   pullRequests,
   statuses,
   onOpenBeside,
+  onDismiss,
 }: {
   /// In any order: Changes sorts them (changesOrder).
   pullRequests: readonly SummaryPullRequest[];
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>;
+  /// Dismisses the PR's composer affordance while leaving the Changes row visible.
+  onDismiss?: (url: string) => void;
   /// Opens a pull request in the browser beside the chat; the menu item hides without it, and a
   /// row's click follows its link instead.
   onOpenBeside?: (url: string) => void;
@@ -149,13 +176,24 @@ export function ChangesSection({
     <>
       <ul className="acpmux-chat-inspector-list" data-section="changes">
         {shown.map((pr) => (
-          <PullRequestRow key={pr.url} pr={pr} live={statuses[pr.url] ?? {}} onOpenBeside={onOpenBeside} />
+          <PullRequestRow
+            key={pr.url}
+            pr={pr}
+            live={statuses[pr.url] ?? {}}
+            onOpenBeside={onOpenBeside}
+            onDismiss={onDismiss}
+          />
         ))}
       </ul>
       {folds && (
-        <InspectorFold className="acpmux-chat-inspector-pr-fold" open={all} onToggle={() => setAll(!all)}>
+        <button
+          type="button"
+          className="acpmux-chat-inspector-fold acpmux-chat-inspector-pr-fold"
+          aria-expanded={all}
+          onClick={() => setAll(!all)}
+        >
           {t(all ? "chatInspector.changes.showLess" : "chatInspector.changes.showMore")}
-        </InspectorFold>
+        </button>
       )}
     </>
   );
@@ -165,12 +203,18 @@ function PullRequestRow({
   pr,
   live,
   onOpenBeside,
+  onDismiss,
 }: {
   pr: SummaryPullRequest;
   live: InspectorPullRequestStatus;
   onOpenBeside?: (url: string) => void;
+  onDismiss?: (url: string) => void;
 }) {
   const t = useT();
+  const hover = useHoverCard();
+  const site = useSiteInfo(pr.url);
+  const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
+  const card = useId();
   const state = glyphState(pr, live);
   const title = live.title ?? pr.title;
   const repoName = pr.repo.split("/").pop() ?? pr.repo;
@@ -186,13 +230,16 @@ function PullRequestRow({
     // owner chip is inside the link and opens the pull request too; a label, not its own control.
     <li className="acpmux-chat-inspector-pr" data-state={state}>
       <a
+        ref={setAnchor}
         className="acpmux-chat-inspector-pr__link"
         href={pr.url}
+        aria-describedby={hover.open ? card : undefined}
         onClick={(event) => {
           if (!onOpenBeside || event.metaKey || event.ctrlKey || event.shiftKey) return;
           event.preventDefault();
           onOpenBeside(pr.url);
         }}
+        {...hover.trigger}
       >
         {/* tooltip-allow: the state glyph shows no text; its label is for screen readers only */}
         <span className="acpmux-chat-inspector-pr__icon" title={stateLabel}>
@@ -218,7 +265,7 @@ function PullRequestRow({
             {comments > 0 && (
               <span className="acpmux-chat-inspector-pr__comments">
                 <Icon name="agent.chat" size={12} />
-                <span aria-hidden="true">{comments}</span>
+                <span aria-hidden="true">{formatCount(comments)}</span>
                 <span className="acpmux-chat-inspector-sr-only">
                   {t("chatInspector.changes.comments", { count: comments })}
                 </span>
@@ -226,11 +273,38 @@ function PullRequestRow({
             )}
             {failing !== 0 ? (
               <span className="acpmux-chat-inspector-pr__checks" data-checks="failing">
-                {failing > 0 ? t("chatInspector.changes.failing", { count: failing }) : t("rail.checksFailing")}
+                {/* "N failing" stays whole; the on-base share after it gives way first (inspector.css). */}
+                <span className="acpmux-chat-inspector-pr__failing">
+                  {failing <= 0 ? (
+                    t("rail.checksFailing")
+                  ) : failing < ABBREVIATE_FROM ? (
+                    t("chatInspector.changes.failing", { count: formatCount(failing) })
+                  ) : (
+                    <>
+                      <span aria-hidden="true">
+                        {t("chatInspector.changes.failing", { count: formatCount(failing) })}
+                      </span>
+                      <span className="acpmux-chat-inspector-sr-only">
+                        {t("chatInspector.changes.failing", { count: failing })}
+                      </span>
+                    </>
+                  )}
+                </span>
                 {onBase > 0 && (
                   <span className="acpmux-chat-inspector-pr__base">
                     {" "}
-                    {t("chatInspector.changes.failingOnBase", { count: onBase })}
+                    {onBase < ABBREVIATE_FROM ? (
+                      t("chatInspector.changes.failingOnBase", { count: formatCount(onBase) })
+                    ) : (
+                      <>
+                        <span aria-hidden="true">
+                          {t("chatInspector.changes.failingOnBase", { count: formatCount(onBase) })}
+                        </span>
+                        <span className="acpmux-chat-inspector-sr-only">
+                          {t("chatInspector.changes.failingOnBase", { count: onBase })}
+                        </span>
+                      </>
+                    )}
                   </span>
                 )}
               </span>
@@ -243,6 +317,16 @@ function PullRequestRow({
           </span>
         </span>
       </a>
+      <LinkHoverCard
+        id={card}
+        href={pr.url}
+        anchor={anchor}
+        hover={hover}
+        mark={<GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />}
+        siteTitle={site?.title}
+        pullRequest={{ repo: pr.repo, number: pr.number, title: title || undefined, state }}
+        side="top"
+      />
       <Menu>
         <MenuButton
           className="acpmux-chat-inspector-icon-button acpmux-chat-inspector-pr__more"
@@ -267,6 +351,11 @@ function PullRequestRow({
           <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => void copyText(reference)}>
             {t("chatInspector.changes.copyReference")}
           </MenuItem>
+          {onDismiss && (
+            <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => onDismiss(pr.url)}>
+              {t("prDock.dismiss", { number: pr.number })}
+            </MenuItem>
+          )}
         </MenuPopup>
       </Menu>
     </li>
@@ -284,7 +373,19 @@ function LineTotals({
   breakdown?: Partial<Record<ChangeKind, LineCounts>>;
 }) {
   const t = useT();
-  const counts = <Counts additions={additions} deletions={deletions} />;
+  // Shortened like the comment count, so the comments and checks after it keep their room.
+  const counts = (
+    <Counts
+      additions={additions}
+      deletions={deletions}
+      format={formatCount}
+      label={
+        Math.max(additions, deletions) < ABBREVIATE_FROM ? undefined : (
+          <span className="acpmux-chat-inspector-sr-only">{`+${additions} -${deletions}`}</span>
+        )
+      }
+    />
+  );
   const kinds = KINDS.filter((kind) => breakdown?.[kind]);
   if (kinds.length === 0) return counts;
   return (

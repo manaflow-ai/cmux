@@ -51,7 +51,7 @@ extension TabDragSession {
         case .tab(let id):
             // A session-local tab (an internal page) is not a daemon tab
             // and cannot move: it springs back.
-            guard let (tab, _) = services.locateTab(id) else { return settle(false) }
+            guard let (tab, _) = services.locateTab(id, onMachine: drag.source.pane.map { services.machines.daemon(forPane: $0.pane).machineID } ?? services.machines.local.machineID) else { return settle(false) }
             executeTab(outcome, tab: tab, dropWindow: dropWindow, drag: drag, transaction: transaction, settle: settle)
         case .group(let id, _):
             executeGroup(outcome, group: CmuxNextDaemon.TabGroupID(rawValue: id.rawValue), dropWindow: dropWindow, drag: drag,
@@ -194,10 +194,14 @@ extension TabDragSession {
 
     /// The sidebar gap or collapsed group the drag was dropped on.
     func gapSlot(_ drag: Drag) -> WorkspaceSlot? {
-        switch (drag.winner?.provider as? SidebarTabDropTarget)?.lastDrop {
-        case .newWorkspace(let section, let group, let index)?: .at(DropPosition(section: section, group: group, index: index))
-        case .intoGroup(let group)?: .endOfGroup(group)
-        case .intoWorkspace?, .beforeTab?, nil: nil
+        let target = drag.winner?.provider as? SidebarTabDropTarget
+        switch target?.lastDrop {
+        case .newWorkspace(let section, let group, let index)?:
+            guard let sections = target?.bridgeForDrop?.model.sections,
+                  let gap = WorkspaceGap(DropPosition(section: section, group: group, index: index), in: sections) else { return nil }
+            return .gap(gap)
+        case .intoGroup(let group)?: return .endOfGroup(group)
+        case .intoWorkspace?, nil: return nil
         }
     }
 

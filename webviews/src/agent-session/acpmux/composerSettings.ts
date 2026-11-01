@@ -8,6 +8,9 @@
 // in every composer and in sent messages, "inline" (in the text where each was added, the default)
 // or "strip" (in a row). It is only a look: a draft's text, its attachment marks and their order
 // are the same in both, so switching never changes what is sent. Anything else reads as "inline".
+// `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
+// behavior. When off, an up-scrolled reader stays anchored while new rows arrive below; a reader at
+// the bottom continues following streaming output.
 // The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
 // (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
 // slider instead of its list of levels. Only Debug Settings changes it. The model chip always opens
@@ -22,20 +25,32 @@
 // `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
 // AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
+// `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
+// `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
+// new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
 import { useSyncExternalStore } from "react";
 
+// `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
+// 2026-10-30: "honestly we had a pretty good thing going with teh symbols of the harneses at the
+// top :("). The others stay as choices.
+export type HarnessPlacement = "symbols" | "left" | "top" | "compact";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip";
+export type NewChatPlace = "local" | "cloud";
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
   spellChecking: boolean;
   attachmentView: AttachmentView;
+  scrollToBottomOnSend: boolean;
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
   plainFooter: boolean;
+  harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
   escapeDoublePress: boolean;
+  showMachineLoadWarnings: boolean;
+  newChatsIn: NewChatPlace;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -43,11 +58,15 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showDictation: true,
   spellChecking: false,
   attachmentView: "inline",
+  scrollToBottomOnSend: true,
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
+  harnessPlacement: "symbols",
   harnessSwitch: false,
   escapeDoublePress: true,
+  showMachineLoadWarnings: true,
+  newChatsIn: "local",
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -57,7 +76,9 @@ type ComposerFlag =
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
-  | "escapeDoublePress";
+  | "scrollToBottomOnSend"
+  | "escapeDoublePress"
+  | "showMachineLoadWarnings";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -70,11 +91,18 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showDictation: flag("showDictation"),
     spellChecking: flag("spellChecking"),
     attachmentView,
+    scrollToBottomOnSend: flag("scrollToBottomOnSend"),
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
+    harnessPlacement:
+      raw.harnessPlacement === "left" || raw.harnessPlacement === "top" || raw.harnessPlacement === "compact"
+        ? raw.harnessPlacement
+        : "symbols",
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
+    showMachineLoadWarnings: flag("showMachineLoadWarnings"),
+    newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
   };
 }
 
@@ -84,6 +112,8 @@ let confirmedAttachmentView = current.attachmentView;
 let attachmentWrite = 0;
 let confirmedWrite = 0;
 let pendingWrite = 0;
+let confirmedScrollToBottomOnSend = current.scrollToBottomOnSend;
+let scrollWrite = 0;
 
 function publishComposerSettings(value: unknown) {
   const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : undefined) });
@@ -94,6 +124,12 @@ function publishComposerSettings(value: unknown) {
 
 /// The host's whole value, or a page change to some settings (the rest stay as they are).
 export function setComposerSettings(value: unknown) {
+  if (value && typeof value === "object" && "scrollToBottomOnSend" in value) {
+    confirmedScrollToBottomOnSend = readComposerSettings(value).scrollToBottomOnSend;
+    // A host snapshot is authoritative. Invalidate an older bridge reply so a late success cannot
+    // overwrite the value the host just confirmed (the legacy page bridge has no call context).
+    scrollWrite += 1;
+  }
   if (value && typeof value === "object" && "attachmentView" in value) {
     confirmedAttachmentView = readComposerSettings(value).attachmentView;
     // A host push is authoritative, including over replies from older writes.
@@ -110,7 +146,14 @@ export function useComposerSettings(): ComposerSettings {
       return () => listeners.delete(listener);
     },
     () => current,
+    // A static render (a sent bubble's markup, renderToStaticMarkup) reads the same page value.
+    () => current,
   );
+}
+
+/// The current page value for non-React bridges and focused persistence tests.
+export function composerSettingsSnapshot(): ComposerSettings {
+  return current;
 }
 
 declare global {
@@ -121,8 +164,11 @@ declare global {
 }
 if (typeof window !== "undefined") window.cmuxAcpmuxComposer = setComposerSettings;
 
-/// The host's write of a composer setting: `pane.showContextUsage` or `pane.showDictation` with `show`.
-type ComposerHost = (method: "pane.showContextUsage" | "pane.showDictation", show: boolean) => void;
+/// The host's write of a composer setting with `show`.
+type ComposerHost = (
+  method: "pane.showContextUsage" | "pane.showDictation" | "pane.setScrollToBottomOnSend",
+  show: boolean,
+) => unknown;
 let composerHost: ComposerHost | undefined;
 
 /// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
@@ -170,4 +216,31 @@ export function setAttachmentView(view: AttachmentView) {
 export function showComposerControl(key: "showContextUsage" | "showDictation", show: boolean) {
   setComposerSettings({ [key]: show });
   composerHost?.(key === "showDictation" ? "pane.showDictation" : "pane.showContextUsage", show);
+}
+
+/// Controls whether sending a prompt moves the transcript to its latest row, and asks the host to
+/// persist the choice. The page updates immediately so the context menu reflects the new state even
+/// while the native settings write is in flight.
+export function setScrollToBottomOnSend(show: boolean) {
+  const write = ++scrollWrite;
+  publishComposerSettings({ scrollToBottomOnSend: show });
+  if (!composerHost) {
+    confirmedScrollToBottomOnSend = show;
+    return;
+  }
+  let result: unknown;
+  try {
+    result = composerHost("pane.setScrollToBottomOnSend", show);
+  } catch {
+    if (write === scrollWrite) publishComposerSettings({ scrollToBottomOnSend: confirmedScrollToBottomOnSend });
+    return;
+  }
+  void Promise.resolve(result).then(
+    () => {
+      if (write === scrollWrite) confirmedScrollToBottomOnSend = show;
+    },
+    () => {
+      if (write === scrollWrite) publishComposerSettings({ scrollToBottomOnSend: confirmedScrollToBottomOnSend });
+    },
+  );
 }

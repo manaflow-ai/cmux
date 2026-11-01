@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { toolIcon } from "./conversation/ToolRow";
 import { useT } from "./i18n";
 import type { AcpmuxPermission } from "./model";
+import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
   commandPreview,
@@ -52,12 +53,12 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
   },
 );
 
-/** A button's shortcut as a light hint after its label: the modifiers fainter than the key, so the
- * eye finds 1, 2, 3 as in Claude Code's and Codex's numbered prompts. Decoration only: the button
- * carries the key in `aria-keyshortcuts`. */
 /// How many asks' answers a card remembers: far more than a card shows before the snapshot moves on.
 const KEPT_ANSWERS = 32;
 
+/** A button's shortcut as a light hint after its label: the modifiers fainter than the key, so the
+ * eye finds 1, 2, 3 as in Claude Code's and Codex's numbered prompts. Decoration only: the button
+ * carries the key in `aria-keyshortcuts`. */
 function KeyHint({ shortcut }: { shortcut: string }) {
   const key = Array.from(shortcut).at(-1) ?? "";
   const modifiers = shortcut.slice(0, shortcut.length - key.length);
@@ -394,6 +395,7 @@ export function PermissionCard({
           </div>
         )}
       </div>
+      <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
       {!writing && (
         <div className="acpmux-permission-buttons">
           {allowOnce && (

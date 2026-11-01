@@ -154,10 +154,38 @@ enum HomeStopAllStrings {
     static var unavailable: String {
         String(localized: "home.stopAll.unavailable", defaultValue: "Stop All Agents works in a Chief's Home", bundle: .module)
     }
-    /// The toast after Stop all agents: the subagents it stopped, else whether the Chief's turn stopped.
+    /// "Stopped the Chief": its turn stopped, no subagent did, and some could not be stopped.
+    static var stoppedChief: String {
+        String(localized: "home.stopAll.chiefStopped", defaultValue: "Stopped the Chief", bundle: .module)
+    }
+    /// How many subagents acpmux refused to stop; which ones and why are the toast's detail.
+    static func couldNotStop(_ count: Int) -> String {
+        String(localized: "home.stopAll.couldNotStop", defaultValue: "\(count) could not be stopped", bundle: .module)
+    }
+    /// The toast after Stop all agents: the subagents it stopped (else whether the Chief's
+    /// turn stopped), how many could not be stopped, and the daemon's note about any still
+    /// starting. One short line each; the count goes before the note, which is cut first when
+    /// the list of stopped subagents wraps (the tooltip repeats it).
     static func message(for answer: ChiefStopAll) -> String {
-        if !answer.subagents.isEmpty { return stopped(answer.subagents) }
-        return answer.stopped ? stoppedChiefOnly : stoppedNone
+        var lines: [String] = []
+        if !answer.subagents.isEmpty {
+            lines.append(stopped(answer.subagents))
+        } else if answer.errors.isEmpty {
+            lines.append(answer.stopped ? stoppedChiefOnly : stoppedNone)
+        } else if answer.stopped {
+            lines.append(stoppedChief)
+        }
+        if !answer.errors.isEmpty { lines.append(couldNotStop(answer.errors.count)) }
+        if let note = answer.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty { lines.append(note) }
+        return lines.joined(separator: "\n")
+    }
+    /// The toast's tooltip: one line per subagent that could not be stopped, as the daemon
+    /// wrote it (the subagent and acpmux's error), then the note, so a note the toast's three
+    /// lines cut off (a long list of stopped subagents) can still be read; nil with neither.
+    static func detail(for answer: ChiefStopAll) -> String? {
+        let lines = (answer.errors + [answer.note].compactMap { $0 })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
     static func stopped(_ names: [String]) -> String {
         String(format: String(localized: "home.stopAll.stopped", defaultValue: "Stopped all agents: %@", bundle: .module),

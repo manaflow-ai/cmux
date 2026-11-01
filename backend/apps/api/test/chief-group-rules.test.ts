@@ -1,7 +1,7 @@
 import type { conversation } from "@cmux/home-core"
 import { describe, expect, it } from "vitest"
 import { messageEffectAuthorized } from "../src/chief-brain/effect-policy.ts"
-import { formatMessage } from "../src/chief-brain/brain-text.ts"
+import { formatMessage, inboxKind, replyTarget, SHARED_CHIEF } from "../src/chief-brain/brain-text.ts"
 import { AGENT_RATE_WINDOW_MS, MAX_POST_TRIES, retryPost } from "../src/chief-brain/brain-do.ts"
 
 /**
@@ -72,7 +72,42 @@ describe("formatMessage names the Chief's owner in a shared conversation", () =>
     expect(formatMessage(people, msg(ann, "ship it"), { owner: ben })).toBe("[Launch · group · Ann] ship it")
   })
   it("leaves the owner's own Chief line as it was", () => {
-    const line = { ...people, kind: "chief" } as typeof people
+    // The owner and its Chief only (a second person makes it a shared Chief line, below).
+    const line = { ...people, kind: "chief", participants: people.participants.filter((p) => p.id === ben || p.id === bolt) } as typeof people
     expect(formatMessage(line, msg(ben, "hi"), { owner: ben })).toBe("[Launch · chief · Ben] hi")
+  })
+})
+
+describe("a Chief's conversation shared with teammates (cmux#25569)", () => {
+  const line = (withTeammate: boolean) =>
+    ({
+      id: "conv_0CHIEF00000000000000000000",
+      kind: "chief",
+      title: "Bolt",
+      participants: [
+        { id: ben, kind: "human", display_name: "Ben", role: "owner" },
+        ...(withTeammate ? [{ id: ann, kind: "human", display_name: "Ann" }] : []),
+        { id: bolt, kind: "agent", agent_class: "mux", owner_user: ben, display_name: "Bolt" }
+      ]
+    }) as unknown as Parameters<typeof formatMessage>[0]
+  it("names the owner once a teammate is in, and every author", () => {
+    expect(formatMessage(line(true), msg(ben, "ship it"), { owner: ben })).toBe("[Bolt · chief · Ben (your owner)] ship it")
+    expect(formatMessage(line(true), msg(ann, "status?"), { owner: ben })).toBe("[Bolt · chief · Ann] status?")
+  })
+  it("a teammate who left makes it the owner's line again", () => {
+    const left = { ...line(true), participants: line(true).participants.map((p) => (p.id === ann ? { ...p, left_at: "2026-10-26T00:00:00.000Z" } : p)) } as Parameters<typeof formatMessage>[0]
+    expect(inboxKind(left)).toBe("chief")
+    expect(inboxKind(line(false))).toBe("chief")
+    expect(inboxKind(line(true))).toBe(SHARED_CHIEF)
+  })
+  it("the reply quotes the message it answers, on the main timeline", () => {
+    expect(replyTarget(SHARED_CHIEF, "msg_a", null)).toEqual({ reply_to: "msg_a" })
+    expect(replyTarget(SHARED_CHIEF, "msg_a", "msg_root")).toEqual({ reply_to: "msg_a", thread_root: "msg_root" })
+    expect(replyTarget("chief", "msg_a", null)).toEqual({})
+  })
+  it("a teammate's request to the Chief keeps the approval rule; the owner's runs", () => {
+    const head = line(true) as unknown as conversation.ConversationHead
+    expect(messageEffectAuthorized(head, msg(ann, "deploy"), [], ben, bolt)).toBe(false)
+    expect(messageEffectAuthorized(head, msg(ben, "deploy"), [], ben, bolt)).toBe(true)
   })
 })

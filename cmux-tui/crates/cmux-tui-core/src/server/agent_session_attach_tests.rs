@@ -11,7 +11,7 @@
 use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
 use super::*;
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -32,10 +32,16 @@ pub(super) struct FakeAcpmux {
     frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
     current: Option<UnixStream>,
+    transfer_blocked: Arc<Mutex<HashSet<String>>>,
 }
 
 impl FakeAcpmux {
     pub(super) fn start(label: &str) -> Self {
+        Self::start_with(label, Fixture::default())
+    }
+
+    /// A fake whose attach page and watch answer carry `fixture`'s extras.
+    pub(super) fn start_with(label: &str, fixture: Fixture) -> Self {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
         let directory = PathBuf::from(format!(
             "/tmp/cmux-asa-{label}-{}-{}",
@@ -47,15 +53,29 @@ impl FakeAcpmux {
         let listener = UnixListener::bind(&socket).unwrap();
         let (frame_tx, frames) = channel();
         let (connection_tx, connections) = channel();
+        let transfer_blocked = Arc::new(Mutex::new(HashSet::new()));
+        let shared_transfers = transfer_blocked.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
-                std::thread::spawn(move || serve(stream, frame_tx));
+                let fixture = fixture.clone();
+                let transfers = shared_transfers.clone();
+                std::thread::spawn(move || serve(stream, frame_tx, &fixture, &transfers));
             }
         });
-        Self { directory, socket, frames, connections, current: None }
+        Self { directory, socket, frames, connections, current: None, transfer_blocked }
+    }
+
+    /// Models an acpmux watcher abort, independently of any cmux transfer request.
+    pub(super) fn set_transfer_blocked(&self, session: &str, blocked: bool) {
+        let mut transfers = self.transfer_blocked.lock().unwrap();
+        if blocked {
+            transfers.insert(session.to_owned());
+        } else {
+            transfers.remove(session);
+        }
     }
 
     /// The next frame the daemon sent to acpmux.
@@ -67,6 +87,16 @@ impl FakeAcpmux {
                 return frame;
             }
         }
+    }
+
+    /// The next frame the daemon sent to acpmux, its session watch included.
+    pub(super) fn raw_frame(&self) -> Value {
+        self.frames.recv_timeout(WAIT).expect("a frame to acpmux")
+    }
+
+    /// The next frame the daemon sent to acpmux within `timeout`, if any.
+    pub(super) fn next_frame(&self, timeout: Duration) -> Option<Value> {
+        self.frames.recv_timeout(timeout).ok()
     }
 
     pub(super) fn no_frame(&self) {
@@ -94,7 +124,7 @@ impl FakeAcpmux {
         self.current.as_mut().unwrap()
     }
 
-    fn notify(&mut self, method: &str, params: Value) {
+    pub(super) fn notify(&mut self, method: &str, params: Value) {
         let line = json!({"jsonrpc":"2.0","method":method,"params":params}).to_string();
         let stream = self.connection();
         writeln!(stream, "{line}").unwrap();
@@ -112,7 +142,40 @@ impl Drop for FakeAcpmux {
     }
 }
 
-fn serve(stream: UnixStream, frames: Sender<Value>) {
+/// What a test adds to the fake's answers: records after the attach page's
+/// own, and sessions after the watch answer's own.
+#[derive(Clone, Default)]
+pub(super) struct Fixture {
+    pub(super) page: Vec<Value>,
+    pub(super) watch: Vec<Value>,
+    /// The records an `_acpmux/events` (history) page answers.
+    pub(super) history: Vec<Value>,
+    /// Records every history page answers after [`Fixture::history`], added while the fake runs.
+    pub(super) history_later: Arc<Mutex<Vec<Value>>>,
+    /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
+    pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// `_acpmux/sessions` answers its list in two pages, as acpmux does past its
+    /// largest reply: the first rows with a `nextCursor`, the rest from that cursor.
+    pub(super) sessions_pages: bool,
+    /// The watch answers only its first row with a `nextCursor`; `_acpmux/sessions`
+    /// from that cursor answers the rest ([`Fixture::watch`]).
+    pub(super) watch_pages: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor lists no sessions.
+    pub(super) watch_bad_page: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor is an error.
+    pub(super) watch_page_error: bool,
+    /// When set, each history page and each prompt's acceptance waits for one message on it (at
+    /// most [`WAIT`], or until its sender is gone).
+    pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
+}
+
+fn serve(
+    stream: UnixStream,
+    frames: Sender<Value>,
+    fixture: &Fixture,
+    transfers: &Mutex<HashSet<String>>,
+) {
     let mut writer = stream.try_clone().unwrap();
     // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
     let mut typing_calls = 0;
@@ -124,24 +187,71 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "_acpmux/attach" => {
+                if let Some(gate) = &fixture.attach_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
                 // A running turn: acpmux subscribes first, so a live record
                 // can reach the daemon before the attach reply.
                 let early = json!({"jsonrpc":"2.0","method":"_acpmux/event","params":{
                     "sessionId": SESSION, "seq": 2, "dir": "in", "kind": "agent_message", "msg": {}}});
                 writeln!(writer, "{early}").unwrap();
+                let mut events = vec![
+                    json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
+                ];
+                events.extend(fixture.page.iter().cloned());
                 Some(json!({
                     "session": {"sessionId": SESSION, "name": "sub", "status": "running",
                                 "pending": [{"permissionId": "perm_attach", "options": []}]},
-                    "events": [{"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}],
+                    "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
                 }))
             }
-            "_acpmux/watch" => Some(json!({"sessions": [{"sessionId": "acp_unrelated"}]})),
+            "_acpmux/watch" => {
+                let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
+                if fixture.watch_pages {
+                    Some(json!({"sessions": sessions, "nextCursor": "w1"}))
+                } else {
+                    sessions.extend(fixture.watch.iter().cloned());
+                    Some(json!({"sessions": sessions}))
+                }
+            }
+            "_acpmux/sessions" if params["cursor"] == json!("w1") => {
+                Some(if fixture.watch_bad_page {
+                    json!({"nextCursor": null})
+                } else if fixture.watch_page_error {
+                    json!({FAKE_ERROR: "list.paced"})
+                } else {
+                    json!({"sessions": fixture.watch})
+                })
+            }
             // The machine's whole list: the attached session's family and others
-            // (agent_session_children_tests.rs).
+            // (agent_session_children_tests.rs), its older rows first, as acpmux's byte
+            // pages (in no time order) can come.
+            "_acpmux/sessions" if fixture.sessions_pages => {
+                let mut rows = machine_sessions()["sessions"].as_array().unwrap().clone();
+                let older = rows.split_off(3);
+                Some(if params["cursor"] == json!("c1") {
+                    json!({"sessions": rows})
+                } else {
+                    json!({"sessions": older, "nextCursor": "c1"})
+                })
+            }
             "_acpmux/sessions" => Some(machine_sessions()),
-            "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
+            "_acpmux/info" => Some(json!({
+                "sessionId": params["sessionId"],
+                "transferBlocked": transfers.lock().unwrap().contains(
+                    params["sessionId"].as_str().unwrap_or_default()
+                ),
+            })),
+            "_acpmux/events" => {
+                if let Some(gate) = &fixture.events_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
+                let mut events = fixture.history.clone();
+                events.extend(fixture.history_later.lock().unwrap().iter().cloned());
+                Some(json!({"events": events, "hasMore": false, "lastSeq": 1}))
+            }
             "_acpmux/typing" => {
                 typing_calls += 1;
                 Some(if typing_calls > 2 {
@@ -153,8 +263,29 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
-            method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),
+            method if method.starts_with("_acpmux/transfer_") => {
+                let reply = transfer_reply(method, params);
+                if let Some(answer) = &reply
+                    && answer.get(FAKE_ERROR).is_none()
+                {
+                    let session = answer["sessionId"].as_str().unwrap_or_default();
+                    let mut transfers = transfers.lock().unwrap();
+                    match method {
+                        "_acpmux/transfer_begin" | "_acpmux/transfer_commit" => {
+                            transfers.insert(session.to_owned());
+                        }
+                        "_acpmux/transfer_abort" | "_acpmux/transfer_finish" => {
+                            transfers.remove(session);
+                        }
+                        _ => {}
+                    }
+                }
+                reply
+            }
             "session/prompt" => {
+                if let Some(gate) = &fixture.prompt_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
                     "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],
                     "turnId": "turn_1", "queued": false}});
@@ -332,6 +463,12 @@ impl Client {
         self.answer(id)
     }
 
+    /// Writes raw bytes on the connection, as a client would (a blank line).
+    pub(super) fn raw(&mut self, bytes: &str) {
+        self.writer.write_all(bytes.as_bytes()).unwrap();
+        self.writer.flush().unwrap();
+    }
+
     /// Sends a request without waiting for its answer; returns its id.
     pub(super) fn send(&mut self, mut value: Value) -> u64 {
         let id = self.next_id;
@@ -370,7 +507,7 @@ impl Client {
     }
 
     /// The next `agent-session-*` event (buffered first).
-    fn event(&mut self, timeout: Duration) -> Option<Value> {
+    pub(super) fn event(&mut self, timeout: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(is_agent_event) {
             return self.events.remove(index);
         }
@@ -440,6 +577,7 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
 }
 
 include!("agent_session_observe_tests.rs");
+include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 
 // MARK: Capability and trust

@@ -58,11 +58,12 @@ extension ActionRegistry {
         chord.first.displayString + " " + shortcutDisplay(chord.second, for: id)
     }
 
-    /// Sets a user override (replacing any chord). Pass nil to remove the
+    /// Sets a user override (replacing any chord and alternates). Pass nil to remove the
     /// shortcut entirely.
     public func setShortcutOverride(_ shortcut: Shortcut?, for id: ActionID) {
         let id = canonicalID(for: id)
         chordOverrides.removeValue(forKey: id)
+        alternateShortcuts.removeValue(forKey: id)
         shortcutOverrides[id] = .some(shortcut)
     }
 
@@ -70,6 +71,7 @@ extension ActionRegistry {
     public func removeShortcutOverride(for id: ActionID) {
         let id = canonicalID(for: id)
         chordOverrides.removeValue(forKey: id)
+        alternateShortcuts.removeValue(forKey: id)
         shortcutOverrides.removeValue(forKey: id)
     }
 
@@ -78,14 +80,59 @@ extension ActionRegistry {
     /// overlaps (Cmd-[ is focus back in a terminal and back in a browser;
     /// Ctrl-Tab is the next Home chat on Home and the next tab elsewhere).
     public func shortcutConflicts() -> [[ActionID]] {
-        var groups: [String: [ActionID]] = [:]
+        shortcutConflictGroups().map(\.ids)
+    }
+
+    /// ``shortcutConflicts()`` with the key each group shares: an action's
+    /// shortcut or one of its single-key alternates (`{"any": [...]}`).
+    public func shortcutConflictGroups() -> [(shortcut: Shortcut, ids: [ActionID])] {
+        var groups: [String: (shortcut: Shortcut, ids: [ActionID])] = [:]
         for descriptor in descriptors {
-            guard let shortcut = effectiveShortcut(for: descriptor.id) else { continue }
-            let onHome = KeyBindingDefaults.homeChatScoped.contains(descriptor.id)
-            let key = "\(shortcut.displayString)|\(descriptor.requires.rawValue)|\(descriptor.shortcutFamily == nil)|\(onHome)"
-            groups[key, default: []].append(descriptor.id)
+            let alternates = (alternateShortcuts[descriptor.id] ?? []).compactMap { $0.count == 1 ? $0[0] : nil }
+            let onHome = KeyBindingDefaults.homeChatScoped.contains(descriptor.id) || KeyBindingDefaults.homeScoped.contains(descriptor.id)
+            for shortcut in [effectiveShortcut(for: descriptor.id)].compactMap(\.self) + alternates {
+                let key = "\(shortcut.displayString)|\(descriptor.requires.rawValue)|\(descriptor.shortcutFamily == nil)|\(onHome)"
+                if groups[key]?.ids.contains(descriptor.id) == true { continue }
+                groups[key, default: (shortcut, [])].ids.append(descriptor.id)
+            }
         }
-        return groups.values.filter { $0.count > 1 }.sorted { $0[0].rawValue < $1[0].rawValue }
+        return groups.values.filter { $0.ids.count > 1 }.sorted { ($0.ids[0].rawValue, $0.shortcut.displayString) < ($1.ids[0].rawValue, $1.shortcut.displayString) }
+    }
+
+    /// Every key cmux.json gives `id`, in its order: the override (one key
+    /// or a chord), then its alternates. Nil when cmux.json does not set it.
+    public func configuredShortcuts(for id: ActionID) -> [[Shortcut]]? {
+        let id = canonicalID(for: id)
+        let primary: [Shortcut]
+        if let chord = chordOverrides[id] {
+            primary = [chord.first, chord.second]
+        } else if let override = shortcutOverrides[id] {
+            guard let override else { return [] }
+            primary = [override]
+        } else {
+            return nil
+        }
+        return [primary] + (alternateShortcuts[id] ?? [])
+    }
+
+    /// Sets `keys` as `id`'s override and alternates, in order (a repeated
+    /// key counts once); none removes its shortcut.
+    public func setConfiguredShortcuts(_ keys: [[Shortcut]], for id: ActionID) {
+        let keys = keys.reduce(into: [[Shortcut]]()) { if !$0.contains($1) { $0.append($1) } }
+        guard let primary = keys.first else { return setShortcutOverride(nil, for: id) }
+        if primary.count == 2 {
+            setChordOverride(ShortcutChord(primary[0], primary[1]), for: id)
+        } else {
+            setShortcutOverride(primary[0], for: id)
+        }
+        setAlternateShortcuts(Array(keys.dropFirst()), for: id)
+    }
+
+    /// Sets the keys after `id`'s override (`{"any": [...]}`); an empty
+    /// list removes them.
+    public func setAlternateShortcuts(_ keys: [[Shortcut]], for id: ActionID) {
+        let id = canonicalID(for: id)
+        alternateShortcuts[id] = keys.isEmpty ? nil : keys
     }
 
     func currentShortcutIndex() -> ShortcutIndex {
@@ -94,7 +141,8 @@ extension ActionRegistry {
         var ids = descriptors.map(\.id)
         ids += actions.map(\.id).filter { descriptorIndexByID[$0] == nil }
         for id in ids where disabledFeature(for: id) == nil { // DisabledFeatures: no key, chord or leader row
-            if let chord = effectiveChord(for: id) {
+            let alternates = (alternateShortcuts[id] ?? []).compactMap { $0.count == 2 ? ShortcutChord($0[0], $0[1]) : nil }
+            for chord in [effectiveChord(for: id)].compactMap(\.self) + alternates {
                 if isDigitFamily(id, chord.second) {
                     index.chordDigitFamilies[chord.first, default: [:]][chord.second, default: []].append(id)
                 } else {

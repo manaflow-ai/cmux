@@ -14,10 +14,16 @@ use crate::error::{Error, Result};
 
 pub struct Network {
     http: reqwest::blocking::Client,
+    client_version: String,
 }
 
 impl Network {
     pub fn new() -> Result<Self> {
+        Self::with_client_version(cmux_server_core::manifest::CMUX_VERSION)
+    }
+
+    pub fn with_client_version(version: &str) -> Result<Self> {
+        version.parse::<reqwest::header::HeaderValue>().map_err(|_| invalid())?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::blocking::Client::builder()
             .https_only(true)
@@ -27,7 +33,7 @@ impl Network {
             .user_agent(concat!("cmux-server/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| unavailable())?;
-        Ok(Self { http })
+        Ok(Self { http, client_version: version.into() })
     }
 
     fn json(&self, request: reqwest::blocking::RequestBuilder) -> Result<Value> {
@@ -69,6 +75,23 @@ fn invalid() -> Error {
 }
 
 impl super::Transport for Network {
+    fn backend_post(
+        &self,
+        api: &str,
+        path: &str,
+        body: &Value,
+        bearer: Option<&str>,
+    ) -> Result<Value> {
+        let mut request = self
+            .http
+            .post(format!("{api}{path}"))
+            .header("x-cmux-client-version", &self.client_version)
+            .json(body);
+        if let Some(token) = bearer {
+            request = request.bearer_auth(token);
+        }
+        self.json(request)
+    }
     fn native_post(&self, origin: &str, path: &str, body: &Value) -> Result<Option<Value>> {
         let response = self
             .http

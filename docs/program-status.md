@@ -23,6 +23,12 @@ program sends `progress`), and `done`. `idle` records are kept but not shown. Th
 record's `app` (inherited from the nearest parent record) and its `msg`, or `title`, or a state
 label such as "Needs permission".
 
+Workspace rows normally show only Working (a spinner), Ready (the blue dot), needs you (one
+attention dot) or an error. A row whose most urgent status is an OSC 7501 record opts in to the
+finer icons: the `kind` of a `blocked` record (for example the permission shield) and, with the
+stacked row badge, each pending item. **Settings > Sidebar > Detailed Status Icons** turns the finer
+icons on for every row.
+
 - `working` and `blocked` records are removed when a new shell prompt starts (OSC 133 A or cmux
   shell integration) and when the pane's process exits.
 - `done` and `error` records stay until you focus that pane again.

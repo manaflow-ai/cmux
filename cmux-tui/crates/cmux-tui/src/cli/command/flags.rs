@@ -90,6 +90,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "include-pinned",
     // `workspace rename`: hand the name back to the automatic namer.
     "release-to-auto",
+    // `run --sandboxed <task>` (cli/sandbox_run.rs): without it a following `--json` would be eaten.
+    "sandboxed",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

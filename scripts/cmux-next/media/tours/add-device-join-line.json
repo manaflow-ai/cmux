@@ -1,0 +1,12 @@
+{
+  "title": "Add Device: the \"Any machine: one line\" way (Labs labs.machineJoin), on fixture lines",
+  "settings": {"labs": {"machineJoin": true}},
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "The fourth way, with its optional name", "rpc": {"method": "debug.add_device", "params": {"way": "joinLine", "join": "idle"}}, "wait": 2, "optional": "debug.add_device is DEBUG only"},
+    {"title": "The line, its countdown and the consent note", "rpc": {"method": "debug.add_device", "params": {"way": "joinLine", "join": "showing"}}, "wait": 2.5, "optional": "debug.add_device is DEBUG only"},
+    {"title": "Under a minute left", "rpc": {"method": "debug.add_device", "params": {"way": "joinLine", "join": "soon"}}, "wait": 2.5, "optional": "debug.add_device is DEBUG only"},
+    {"title": "The machine joined: its checks and Done", "rpc": {"method": "debug.add_device", "params": {"way": "joinLine", "join": "joined"}}, "wait": 3, "optional": "debug.add_device is DEBUG only"},
+    {"title": "Expired: New Line", "rpc": {"method": "debug.add_device", "params": {"way": "joinLine", "join": "expired"}}, "wait": 2.5, "optional": "debug.add_device is DEBUG only"}
+  ]
+}

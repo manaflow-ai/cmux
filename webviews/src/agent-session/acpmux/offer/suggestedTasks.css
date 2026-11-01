@@ -12,6 +12,7 @@
   color: var(--agent-text);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-tasks[data-quiet] {
   padding: 0;
@@ -76,12 +77,14 @@
   font-size: var(--text-detail);
   line-height: 16px;
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-task-error {
   margin-top: 2px;
   color: var(--agent-danger);
   font-size: var(--text-detail);
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-task-actions {
   display: flex;
@@ -109,7 +112,6 @@
   background: none;
   color: var(--agent-text);
   font: inherit;
-  cursor: default;
 }
 .acpmux-task-action {
   flex: none;
@@ -211,6 +213,7 @@
   text-overflow: ellipsis;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-task-dot {
   flex: none;
@@ -268,6 +271,7 @@
   color: var(--acpmux-composer-dim);
   font-size: var(--text-control);
   white-space: pre;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-task-received-line:hover {
   background: var(--acpmux-composer-hover);

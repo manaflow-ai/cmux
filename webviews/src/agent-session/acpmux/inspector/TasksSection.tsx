@@ -92,7 +92,7 @@ export function TasksSection({
             void openCommand(toolCallId, { local, showCall: onShowCall });
           }}
         >
-          <Icon name="terminal" size={ROW_ICON} row />
+          <Icon name="terminal" size={ROW_ICON} row className="acpmux-row-glyph" />
           <span className="acpmux-chat-inspector-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <span className="acpmux-chat-inspector-task__time">{time}</span>}
           {state !== undefined && <span className="acpmux-chat-inspector-task__state">{state}</span>}
@@ -120,7 +120,7 @@ export function TasksSection({
           )}
           {scheduled.map((wakeup) => (
             <li key={wakeup.id} className="acpmux-chat-inspector-task">
-              <Icon name="task.status.started" size={ROW_ICON} row />
+              <Icon name="task.status.started" size={ROW_ICON} row className="acpmux-row-glyph" />
               <span className="acpmux-chat-inspector-task__command">{wakeup.text}</span>
               {wakeup.cron && <span className="acpmux-chat-inspector-task__time">{wakeup.cron}</span>}
             </li>

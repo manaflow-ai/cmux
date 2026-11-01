@@ -154,10 +154,14 @@ nonisolated public final class ChromeTextLayer: CALayer {
         if let cachedLine { return cachedLine }
         // Color is applied at draw time from the context, so a color change
         // does not rebuild the line.
-        let attributes: [NSAttributedString.Key: Any] = [
+        var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]
+        // The UI font's tracking at this size (`BundledFonts.kern`); other faces keep their own
+        // kerning (an explicit 0 would turn it off).
+        let kern = BundledFonts.kern(for: font)
+        if kern != 0 { attributes[.kern] = kern }
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: string, attributes: attributes))
         cachedLine = line
         return line

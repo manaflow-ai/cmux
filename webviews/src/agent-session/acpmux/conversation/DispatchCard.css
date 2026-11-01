@@ -17,6 +17,7 @@
   font-size: var(--text-caption);
   text-decoration: underline;
   text-underline-offset: 2px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .cv-dispatch__link:focus-visible {
   color: var(--cv-text);
@@ -24,6 +25,7 @@
 .cv-dispatch__status {
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-dispatch[data-status="failed"] .cv-tool__icon,
 .cv-dispatch[data-status="failed"] .cv-dispatch__status {
@@ -39,6 +41,7 @@
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-dispatch__text {
   max-height: calc(8 * 20px);
@@ -56,6 +59,7 @@
   margin-top: 6px;
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .cv-dispatch__brief-link {
   margin-bottom: 4px;

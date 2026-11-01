@@ -154,7 +154,7 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
       });
 
   for (const name of browsers.keys())
-    test(`${name}: in a tall pane the grown prompt takes 40% of the pane`, async () => {
+    test(`${name}: in a tall pane the grown prompt uses the 12-line cap before 40%`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 900, height: 760 });
       try {
@@ -162,9 +162,20 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
         const drawn = await measure(page);
         expect({ past: clamp(drawn.past) }).toEqual({ past: inside });
         expect(drawn.overflow).toEqual(flat);
-        // Its whole cap (markdownField.css max-height), 40% of the 760 px pane (Leo, 2026-10-24: "we
-        // can afford to expand the composer text area a bit more"): room enough gives nothing up.
-        expect(drawn.prompt.cap).toBeCloseTo(760 * 0.4, 0);
+        // Goldilocks cap: twelve body lines when that is shorter than 40% of the pane. This keeps
+        // long prompts readable without repeating the oversized growth Lawrence called out.
+        const styles = await page.locator(".acpmux-composer-prompt").evaluate((node) => {
+          const computed = getComputedStyle(node);
+          // Custom properties retain calc() text. Measure their used length, rather than treating
+          // parseFloat("calc(...)") as a missing token and asserting against a fallback.
+          const control = document.createElement("div");
+          control.style.cssText = "position:absolute;visibility:hidden;height:var(--cmux-control-height,23px)";
+          node.append(control);
+          const controlHeight = control.getBoundingClientRect().height;
+          control.remove();
+          return { line: parseFloat(computed.lineHeight), control: controlHeight };
+        });
+        expect(drawn.prompt.cap).toBeCloseTo(Math.min(760 * 0.4, styles.line * 12 + styles.control), 0);
         expect(drawn.prompt.scrolls).toBe(true);
         expect(drawn.prompt.height).toBeGreaterThanOrEqual(drawn.prompt.cap - 0.5);
       } finally {

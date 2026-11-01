@@ -4,8 +4,8 @@ public import Foundation
 
 /// Reads what `WorkspaceAutoName` needs from the app's live sources: the
 /// setting, the Debug Settings variant and a front tab's names. Reading in an
-/// observation tracks each source, so the sidebar row and the one-time
-/// rename follow a chat getting its title, a page loading or a terminal's
+/// observation tracks each source, so the sidebar row and the persisted
+/// name follow a chat getting its title, a page loading or a terminal's
 /// title changing. The app supplies what only it knows: the setting, its New
 /// Tab pages, its rendered browser pages and `TabMoves.nameInput`.
 @MainActor
@@ -122,12 +122,13 @@ public struct WorkspaceAutoNameReader {
     }
 
     /// What a window's titlebar names `workspace`, whose panes show the tabs `selectedTab` picks
-    /// (the window's selection): `displayName` for the front and work tabs its sidebar row reads
-    /// (`SidebarMapping.row`).
+    /// (the window's selection): `displayName` for the one tab its sidebar row reads
+    /// (`SidebarMapping.faceTab`): its agent chat while the front is an idle shell (`labelTab`).
     public func titlebarName(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> String {
-        let front = SidebarMapping.shared.frontTab(workspace, selectedTab: selectedTab)
-        let work = front?.kind == .browser ? SidebarMapping.shared.workTab(workspace, selectedTab: selectedTab) : nil
-        return displayName(workspace, front: front, work: work)
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        let newTabPages = Set(tabs.filter { isNewTabPage($0) }.map(\.id))
+        return displayName(workspace, front: SidebarMapping.shared.faceTab(workspace, selectedTab: selectedTab,
+                                                                          newTabPages: newTabPages))
     }
 
     /// A browser tab's title as a workspace name: the tab's user name, else

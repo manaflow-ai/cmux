@@ -32,6 +32,16 @@
   font-size: var(--text-detail);
   line-height: 18px;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* In a queued prompt's row, ahead of its text, on its line. */
+.cv-author--inline {
+  display: inline-flex;
+  vertical-align: bottom;
+  max-width: 40%;
+  margin: 0 6px 0 0;
+  padding: 0;
+  gap: 4px;
 }
 .cv-author__name {
   overflow: hidden;
@@ -58,6 +68,7 @@
   flex: none;
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-presence__person {
   display: inline-flex;
@@ -89,6 +100,7 @@
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-typing__faces {
   display: inline-flex;

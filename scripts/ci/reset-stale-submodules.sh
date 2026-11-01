@@ -40,6 +40,18 @@ elif (($# > 0)); then
 fi
 [[ -f "$repo/.gitmodules" ]] || exit 0
 
+# A reused workspace can lose .git/modules while its submodule checkouts stay
+# (2026-10-28, the warm nightly-next builder: `fatal: not a git repository:
+# ghostty/../.git/modules/ghostty`). Every git submodule command below fails on
+# such a checkout, so drop it first (nested ones too, with any half-made git
+# dir), as a fresh checkout leaves it: an empty, uninitialized directory. The
+# consuming step clones it again. git_fetch_retry.py touches only paths inside
+# the repository with no symlink on the way; --reuse drops only its own paths.
+drop_dangling() {
+  python3 "$(dirname "${BASH_SOURCE[0]}")/git_fetch_retry.py" --drop-dangling-submodules --repo "$repo" "$@" \
+    | sed 's/^git_fetch_retry: /reset-stale-submodules: /'
+}
+
 if [[ "$mode" == reuse ]]; then
   for path in "${paths[@]}"; do
     # Refuse typos instead of silently skipping a path that was meant to be
@@ -49,6 +61,7 @@ if [[ "$mode" == reuse ]]; then
       echo "reset-stale-submodules: unknown submodule path: $path" >&2
       exit 2
     fi
+    drop_dangling --only "$path"
     status="$(git -C "$repo" submodule status -- "$path")"
     # A leading '-' means this checkout is already uninitialized. Leave the
     # object database alone; the consuming step will initialize the gitlink.
@@ -82,6 +95,7 @@ fi
 # Initialized submodules; an uninitialized one (status prefix '-') is already clean.
 # A failing status (dubious ownership, a corrupt .git/modules) fails here,
 # not later as a confusing dirty-source refusal.
+drop_dangling
 status="$(git -C "$repo" submodule status)"
 stale="$(printf '%s\n' "$status" | grep -v '^-' || true)"
 [[ -n "$stale" ]] || exit 0

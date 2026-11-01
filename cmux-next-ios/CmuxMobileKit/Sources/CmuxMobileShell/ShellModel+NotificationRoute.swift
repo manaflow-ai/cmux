@@ -14,6 +14,8 @@ enum NotificationTarget: Equatable {
     case chat(AgentChatDestination)
     /// A workspace at one of its tabs: a terminal, a browser tab, an agent tab.
     case workspace(id: String, tabID: String?)
+    /// The Workspaces list (a cloud group link that names no workspace).
+    case workspaces
     /// The Mac's tree has not arrived yet: try again when it does.
     case wait
     /// Nothing more exact is known: the Feed.
@@ -66,6 +68,7 @@ extension ShellModel {
             tab = .feed
             return false
         }
+        if let link = route.link { return openLink(link) } // ShellModel+Links.swift
         // The notification's Mac (one link per Mac): its link opens now if it
         // was idle, so the chat and its answers reach that Mac. Chief follows
         // the focused Mac, so a Chief notification also moves the focus there.
@@ -81,40 +84,56 @@ extension ShellModel {
             expired: NotificationRouter.shared.isExpired()
         )
         switch target {
-        case .chief:
-            tab = .home
-            var path = NavigationPath()
-            path.append(ChiefRoute(place: .mac))
-            homePath = path
-        case .chat(let destination):
-            tab = .feed
-            feedPath = [destination]
-        case .workspace(let id, let tabID):
-            guard let workspace = store.workspace(id: id) else {
-                // Defensive only: `decide` read this same store a moment ago on the
-                // main actor. Should it ever be gone, the Feed, never a wait.
-                tab = .feed
-                toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
-                return true
-            }
-            if let tabID { store.noteOpened(tabID: tabID, in: workspace.id) }
-            store.markSeen(workspace.id)
-            tab = .workspaces
-            if workspacesPath.last?.id == workspace.id {
-                // Its page is already up, maybe on another tab: build it again on this one.
-                workspacesPath = []
-                Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
-            } else {
-                workspacesPath = [workspace]
-            }
         case .wait:
             tab = .feed
             return false
         case .feed:
             tab = .feed
             toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
+        case .workspace(let id, _) where store.workspace(id: id) == nil:
+            // Defensive only: `decide` read this same store a moment ago on the
+            // main actor. Should it ever be gone, the Feed, never a wait.
+            tab = .feed
+            toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
+        default:
+            open(target: target, conversationID: route.conversationID)
         }
         return true
+    }
+
+    /// Shows a decided target: Chief on Home, a chat on the Feed, a workspace at a tab.
+    /// `conversationID`: for Chief, the conversation the notification is about.
+    func open(target: NotificationTarget, conversationID: String? = nil) {
+        switch target {
+        case .chief:
+            tab = .home
+            // The notification's own conversation: the Mac Chief, the Cloud
+            // Chief, or another conversation of the Mac's Home list.
+            homePath = NavigationPath(chiefConversation: conversationID)
+        case .chat(let destination):
+            tab = .feed
+            feedPath = [destination]
+        case .workspace(let id, let tabID):
+            guard let workspace = store.workspace(id: id) else { return }
+            if let tabID { store.noteOpened(tabID: tabID, in: workspace.id) }
+            store.markSeen(workspace.id)
+            tab = .workspaces
+            if !workspacesPath.isEmpty {
+                // A workspace page is up (this one, maybe on another tab, or another
+                // workspace's): build the stack again with this page. Replacing the
+                // shown page in place leaves the old one on screen while the app is
+                // in front (a link tapped in a chat).
+                workspacesPath = []
+                Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
+            } else {
+                workspacesPath = [workspace]
+            }
+        case .workspaces:
+            tab = .workspaces
+            workspacesPath = []
+        case .wait, .feed:
+            tab = .feed
+        }
     }
 
     private func macName(_ id: String?) -> String? {

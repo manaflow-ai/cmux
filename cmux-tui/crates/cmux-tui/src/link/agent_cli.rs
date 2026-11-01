@@ -1,5 +1,5 @@
 //! `cmux link agent move --from-socket LOCAL --surface ID --to-socket MACHINE
-//! --cwd FOLDER [--interrupt] [--ask-first]`: moves the agent chat of tab `ID` of the
+//! --cwd FOLDER [--interrupt] [--ask-first] [--vm-kind KIND]`: moves the agent chat of tab `ID` of the
 //! daemon at `LOCAL` to the machine daemon at `MACHINE` (Move to Cloud,
 //! cmuxterm-hq#1874 slice 1c), over `agent-transfer-v1` (spec/commands.md,
 //! "Agent chat transfer"). `FOLDER` is where the chat runs there. Neither
@@ -45,11 +45,33 @@
 //! answers `move_unresolved` with it and `retry_after_seconds` (the source's
 //! lease: a move nobody reads is aborted by the source on its own).
 //!
+//! `--vm-kind KIND`: the caller says the target is a Cloud machine and gives
+//! the Cloud API's `vmKind` for it on its link (Move to Cloud passes `owner`
+//! or `none`). A Cloud VM's daemon takes a chat only on `owner`, never on its
+//! own record: the pump sends it as `vm_kind` on the receive and the finish to
+//! a daemon with `agent-transfer-vm-kind-v1`. An older daemon would trust its
+//! own record, so there the pump refuses any kind but `owner` before the chat
+//! freezes (`agent_session.host_unverified`). Nothing the target advertises
+//! changes that: a guest can hide any sign of being a Cloud VM. Without the
+//! flag the caller says the target is not a Cloud machine (Bring Back
+//! Local's Mac); a current Cloud daemon still refuses a chat with no word.
+//!
+//! `--to-pid PID`: the process the caller read that answer from, which
+//! listens on `--to-socket` (the Cloud link's `cmux-tui remote connect`).
+//! The receive and the finish go over one connection, and with this flag the
+//! pump sends them only when that connection's peer is that process (Linux
+//! `SO_PEERCRED`, macOS `LOCAL_PEERPID`); otherwise the link was replaced
+//! after the caller asked, and the pump refuses before the receive
+//! (`agent_session.host_unverified`) and gives the chat back. A replacement
+//! link keeps the socket path, so a rerun still resolves an unresolved move.
+//!
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
 //! "transfer_id":...,"bytes":N,"resolved":bool}` (exit 0), or
 //! `{"ok":false,"error":...,"error_code":...,"transfer_id"?:...,
 //! "retry_after_seconds"?:N,"side"?:"source"|"target"}` (exit 1); bad usage
 //! exits 64. `side` names the daemon a `machine_outdated` is about.
+
+use cmux_json::JsonSet as _;
 
 mod daemon;
 mod record;
@@ -65,7 +87,7 @@ use record::{Record, Records};
 
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
-[--ask-first] [--state-dir DIR]
+[--ask-first] [--vm-kind KIND [--to-pid PID]] [--state-dir DIR]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
 machine (its connection-snapshot event), not the machine link socket of `cmux link sync`";
 /// Bytes asked for per page (the daemon serves at most 4 MiB).
@@ -82,6 +104,10 @@ struct Args {
     interrupt: bool,
     /// Narrow the chat on the source to an asking policy and mode first.
     ask_first: bool,
+    /// `--vm-kind`: the Cloud API's answer for the caller (module docs).
+    vm_kind: Option<String>,
+    /// `--to-pid`: the process that answer belongs to (module docs).
+    to_pid: Option<u32>,
     state_dir: Option<PathBuf>,
 }
 
@@ -161,13 +187,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         Err(failed) => {
             let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
             if let Some(transfer_id) = failed.transfer_id {
-                line["transfer_id"] = json!(transfer_id);
+                line.set("transfer_id", json!(transfer_id));
             }
             if let Some(seconds) = failed.retry_after_seconds {
-                line["retry_after_seconds"] = json!(seconds);
+                line.set("retry_after_seconds", json!(seconds));
             }
             if let Some(side) = failed.side {
-                line["side"] = json!(side);
+                line.set("side", json!(side));
             }
             println!("{line}");
             1
@@ -181,6 +207,7 @@ fn parse(args: &[String]) -> Option<Args> {
         return None;
     }
     let (mut from, mut surface, mut to, mut cwd, mut state_dir) = (None, None, None, None, None);
+    let (mut vm_kind, mut to_pid) = (None, None);
     let (mut interrupt, mut ask_first) = (false, false);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -190,13 +217,25 @@ fn parse(args: &[String]) -> Option<Args> {
             "--to-socket" => to = Some(PathBuf::from(rest.next()?)),
             "--cwd" => cwd = Some(rest.next()?.clone()),
             "--state-dir" => state_dir = Some(PathBuf::from(rest.next()?)),
+            "--vm-kind" => vm_kind = Some(rest.next()?.clone()),
+            "--to-pid" => to_pid = Some(rest.next()?.parse::<u32>().ok()?),
             "--interrupt" => interrupt = true,
             "--ask-first" => ask_first = true,
             _ => return None,
         }
     }
     let cwd = cwd.filter(|cwd| cwd.starts_with('/'))?;
-    Some(Args { from: from?, surface: surface?, to: to?, cwd, interrupt, ask_first, state_dir })
+    Some(Args {
+        from: from?,
+        surface: surface?,
+        to: to?,
+        cwd,
+        interrupt,
+        ask_first,
+        vm_kind,
+        to_pid,
+        state_dir,
+    })
 }
 
 fn move_chat(args: &Args) -> Result<Moved, Failed> {
@@ -267,10 +306,11 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             return Err(failed);
         }
     }
+    let vm_kind = target_vm_kind(args)?;
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
     let mut params = json!({"surface": args.surface, "interrupt": args.interrupt});
     if args.ask_first {
-        params["ask_first"] = json!(true);
+        params.set("ask_first", json!(true));
     }
     let begun = match source.call("agent-transfer-begin", params, BEGIN_TIMEOUT) {
         Ok(begun) => begun,
@@ -304,7 +344,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
         ..Record::default()
     };
     let (mut target, bytes) =
-        match up_to_finish(args, &mut source, records, &mut record, &begun["manifest"]) {
+        match up_to_finish(args, &mut source, records, &mut record, &begun["manifest"], &vm_kind) {
             Ok(copied) => copied,
             Err(failed) => {
                 // No finish was sent: the target cannot have the chat.
@@ -318,8 +358,11 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             }
         };
     let receive_id = record.receive_id.clone().unwrap_or_default();
-    let finished =
-        target.call("agent-transfer-finish", json!({"receive_id": receive_id}), FINISH_TIMEOUT);
+    let mut finish = json!({"receive_id": receive_id});
+    if let Some(kind) = &vm_kind {
+        finish.set("vm_kind", json!(kind));
+    }
+    let finished = target.call("agent-transfer-finish", finish, FINISH_TIMEOUT);
     let (landed, finish_error) = match finished {
         Ok(answer) => {
             if let Some(id) = answer["session"]["sessionId"].as_str() {
@@ -349,6 +392,27 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     }
 }
 
+/// The `vm_kind` the target is sent (module docs): none without
+/// `--vm-kind` (the caller says it is not a Cloud machine); `--vm-kind` for a
+/// daemon with `agent-transfer-vm-kind-v1`; none for an older one, which
+/// trusts its own record, so it is refused unless the Cloud API said `owner`.
+fn target_vm_kind(args: &Args) -> Result<Option<String>, Failed> {
+    let Some(kind) = &args.vm_kind else { return Ok(None) };
+    let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY;
+    let identity = super::machine_gate::identify(&args.to);
+    let served = identity.as_ref().and_then(super::machine_gate::served);
+    if served.is_some_and(|served| served.contains(&capability)) {
+        return Ok(Some(kind.clone()));
+    }
+    if kind == "owner" {
+        return Ok(None);
+    }
+    let error = "the Cloud API did not say this machine is yours, and its cmux-tui cannot check";
+    let mut failed = Failed::new("agent_session.host_unverified", error);
+    failed.side = Some("target");
+    Err(failed)
+}
+
 /// Steps 2 and 3, each step recorded first: the receive on the target, then
 /// every page, then the record that the finish is about to be sent.
 /// Returns the target connection and the bytes copied.
@@ -358,11 +422,23 @@ fn up_to_finish(
     records: &Records,
     record: &mut Record,
     manifest: &Value,
+    vm_kind: &Option<String>,
 ) -> Result<(Daemon, u64), Failed> {
     records.save(record).map_err(|e| Failed::state(&e))?;
     let target_failed = |e: CallError| Failed::call("target", &e);
     let mut target = Daemon::connect(&args.to).map_err(target_failed)?;
-    let params = json!({"manifest": manifest, "cwd": args.cwd});
+    if let Some(pid) = args.to_pid
+        && target.peer_pid() != Some(pid)
+    {
+        let error = "the Cloud link this machine's answer came from has ended; nothing was sent";
+        let mut failed = Failed::new("agent_session.host_unverified", error);
+        failed.side = Some("target");
+        return Err(failed);
+    }
+    let mut params = json!({"manifest": manifest, "cwd": args.cwd});
+    if let Some(kind) = vm_kind {
+        params.set("vm_kind", json!(kind));
+    }
     let received =
         target.call("agent-transfer-receive", params, CALL_TIMEOUT).map_err(target_failed)?;
     let receive_id = received["receive_id"]

@@ -12,7 +12,7 @@ import wasmModule from "./optchat-wasm/optchat_wasm_bg.wasm";
  */
 
 let initialized = false;
-function ensureWasm(): void {
+export function ensureWasm(): void {
   if (initialized) return;
   initSync({ module: wasmModule });
   initialized = true;
@@ -296,6 +296,15 @@ export class Memory {
       const msg = (e as Error).message ?? String(e);
       return msg.startsWith("No line") ? msg : `No line ${id}+${n}.`;
     }
+  }
+
+  /**
+   * A memory tool through the kernel (chief-kernel `call_pure`: `zoom`, `date`), `args_json` and `ctx_json`
+   * (`{utc_offset_minutes}`) as the kernel takes them. Throws for any other tool (the host runs it).
+   */
+  callPure(name: string, argsJson: string, ctxJson: string): string {
+    const date = (i: number) => this.sql.exec<{ date: string }>(`SELECT date FROM oc_message WHERE i = ?`, i).toArray()[0]?.date;
+    return this.core.callPure({ ...this.store, date }, name, argsJson, ctxJson);
   }
 
   /** Local date and time of message `id`. */

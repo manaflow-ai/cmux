@@ -3,7 +3,7 @@
 
 use cmux_vm::exit;
 use serde_json::{Value, json};
-use wiremock::matchers::{body_json, header, method, path, query_param};
+use wiremock::matchers::{body_json, body_string_contains, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
@@ -2338,4 +2338,431 @@ async fn exec_fails_when_the_command_fails() {
     let out = cli(&server, &["exec", VM_ID, "--", "acpmux", "--version"]).await;
     assert_eq!(out.code, exit::UNEXPECTED);
     assert!(out.stderr.contains("acpmux: not found"), "{}", out.stderr);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn client_sessions_keep_tokens_private_and_confirm_revoke() {
+    let server = MockServer::start().await;
+    let session = "vcs_00000000000000000000000000";
+    let response = json!({"id":session,"vmId":VM_ID,"providerVmId":"provider-vm",
+        "linuxUser":"dev","token":"one-time-secret","createdAt":"now", "ssh":{"host":"ssh.example.test","user":"provider-vm+dev"}});
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .and(authorized())
+        .and(body_json(json!({"linuxUser":"dev"})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(&response))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &["client-session", "create", VM_ID, "--user", "dev"],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains("ssh provider-vm+dev@ssh.example.test"));
+    assert!(out.stdout.contains("one-time-secret"));
+    assert!(out.stdout.contains("shown once"));
+    assert!(!out.stderr.contains("one-time-secret"));
+    let dir = std::env::temp_dir().join(format!("cmux-client-session-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir(&dir).unwrap();
+    let file = dir.join("token");
+    let args = [
+        "--json",
+        "client-session",
+        "create",
+        VM_ID,
+        "--user",
+        "dev",
+        "--token-file",
+        file.to_str().unwrap(),
+    ];
+    let out = cli(&server, &args).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "one-time-secret");
+    assert!(json_stdout(&out).get("token").is_none());
+    assert!(!out.stdout.contains("one-time-secret"));
+    assert!(!out.stderr.contains("one-time-secret"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    assert_eq!(json_stdout(&out)["ssh"]["host"], "ssh.example.test");
+    let refused = cli(&server, &args).await;
+    assert_eq!(refused.code, exit::USAGE, "{}", refused.stderr);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "one-time-secret");
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-sessions")))
+        .and(authorized())
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"sessions":[response],"token":"unexpected-secret"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "client-session", "list", VM_ID]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out)["sessions"][0]["id"], session);
+    assert!(!out.stdout.contains("secret"));
+    let refused = cli(&server, &["client-session", "revoke", VM_ID, session]).await;
+    assert_eq!(refused.code, exit::USAGE);
+    assert!(refused.stderr.contains(session));
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-sessions/{session}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &["client-session", "revoke", VM_ID, session, "--yes"],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains(session) && out.stdout.contains(VM_ID));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn client_session_create_json_carries_the_token_and_ssh_line() {
+    let server = MockServer::start().await;
+    let session = "vcs_00000000000000000000000001";
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .and(body_json(json!({})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": session, "vmId": VM_ID, "providerVmId": "provider-vm",
+            "linuxUser": "ubuntu", "token": "one-time-secret",
+            "apiBaseUrl": "https://api.example.test", "createdAt": "now",
+            "ssh": {"host": "ssh.example.test", "user": "provider-vm+ubuntu"},
+            "future": "dropped"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "client-session", "create", VM_ID]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    let body = json_stdout(&out);
+    assert_eq!(body["token"], "one-time-secret");
+    assert_eq!(body["sshLine"], "provider-vm+ubuntu@ssh.example.test");
+    assert_eq!(body["apiBaseUrl"], "https://api.example.test");
+    assert!(body.get("future").is_none());
+}
+
+#[tokio::test]
+async fn client_session_create_hints_a_revoke_only_when_a_session_may_exist() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"_tag": "NotFound", "message": "VM not found"})),
+        )
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .respond_with(
+            ResponseTemplate::new(503)
+                .set_body_json(json!({"_tag": "ServiceUnavailable", "message": "try again"})),
+        )
+        .mount(&server)
+        .await;
+    let missing = cli(&server, &["client-session", "create", VM_ID]).await;
+    assert_eq!(missing.code, exit::NOT_FOUND, "{}", missing.stderr);
+    assert!(!missing.stderr.contains("revoke"), "{}", missing.stderr);
+    let unavailable = cli(&server, &["client-session", "create", VM_ID]).await;
+    assert_eq!(
+        unavailable.code,
+        exit::SERVICE_UNAVAILABLE,
+        "{}",
+        unavailable.stderr
+    );
+    assert!(
+        unavailable.stderr.contains("revoke"),
+        "{}",
+        unavailable.stderr
+    );
+}
+
+#[tokio::test]
+async fn client_session_revoke_at_a_terminal_needs_the_typed_session_id() {
+    let server = MockServer::start().await;
+    let session = "vcs_00000000000000000000000002";
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-sessions/{session}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let env = [("CMUX_VM_API_KEY", KEY), ("CMUX_VM_BASE_URL", uri.as_str())];
+    let args = ["client-session", "revoke", VM_ID, session];
+    let mut wrong = Tty {
+        answer: "yes",
+        asked: 0,
+    };
+    let refused = cli_with_prompt(&args, &env, &mut wrong).await;
+    assert_eq!(refused.code, exit::CANCELLED, "{}", refused.stderr);
+    assert_eq!(wrong.asked, 1);
+    let mut typed = Tty {
+        answer: session,
+        asked: 0,
+    };
+    let revoked = cli_with_prompt(&args, &env, &mut typed).await;
+    assert_eq!(revoked.code, exit::OK, "{}", revoked.stderr);
+    assert_eq!(typed.asked, 1);
+}
+
+#[tokio::test]
+async fn run_exits_with_the_command_status_when_cleanup_fails() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "id": VM_ID })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "id": VM_ID, "state": "running" })),
+        )
+        .mount(&server)
+        .await;
+    // Every exec answers "3" with no output: the work directory, the launch,
+    // then a poll that reads exit status 3 and nothing more.
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "3\n\n\n", "stderr": "" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["run", "--", "exit", "3"]).await;
+    assert_eq!(out.code, 3, "{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains(&format!("vm {VM_ID} was not cleaned up")),
+        "{}",
+        out.stderr
+    );
+    assert!(out.stderr.contains("delete"), "{}", out.stderr);
+}
+
+#[tokio::test]
+async fn run_fails_fast_and_deletes_a_vm_whose_answer_has_no_state() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "id": VM_ID })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    // A successful answer without a state: never treated as "starting",
+    // which would keep a billable VM polling for the whole boot deadline.
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        cli(&server, &["run", "--", "true"]),
+    )
+    .await
+    .expect("run kept polling a VM whose answer has no state");
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(out.stderr.contains("state"), "{}", out.stderr);
+}
+
+/// The guest command that removes the run's archives on every exit path.
+const REMOVE_ARCHIVES: &str = "rm -f /tmp/cmux-run.tgz /tmp/cmux-pull.tgz /tmp/cmux-pull.tgz.rc";
+
+/// A server for a kept run: the VM is created, runs, and is paused once.
+/// Every exec not matched by a test's own mocks answers exit status 0 with
+/// no output: a work directory of "0", then a poll that reads status 0.
+async fn kept_run_server() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "id": VM_ID })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "id": VM_ID, "state": "running" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/pause")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(vm("paused")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "0\n\n\n", "stderr": "" })),
+        )
+        .with_priority(10)
+        .mount(&server)
+        .await;
+    server
+}
+
+/// Answers the guest commands that contain `needle` with `exit_code`.
+async fn exec_answers(server: &MockServer, needle: &str, exit_code: i32, times: u64) {
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .and(body_string_contains(needle))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "exitCode": exit_code,
+            "stdout": "",
+            "stderr": if exit_code == 0 { "" } else { "refused by the test" },
+        })))
+        .with_priority(1)
+        .expect(times)
+        .mount(server)
+        .await;
+}
+
+fn sync_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("cmux-vm-run-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.rs"), "fn main() {}").unwrap();
+    dir
+}
+
+#[tokio::test]
+async fn a_kept_run_removes_a_partly_uploaded_sync_archive() {
+    let server = kept_run_server().await;
+    exec_answers(&server, "cat > /tmp/cmux-run.tgz", 1, 1).await;
+    exec_answers(&server, REMOVE_ARCHIVES, 0, 1).await;
+    let dir = sync_dir("upload-fails");
+    let out = cli(
+        &server,
+        &[
+            "run",
+            "--sync",
+            "--keep",
+            "--dir",
+            dir.to_str().unwrap(),
+            "--",
+            "true",
+        ],
+    )
+    .await;
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&format!("vm {VM_ID} paused")),
+        "{}",
+        out.stderr
+    );
+    server.verify().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_kept_run_removes_a_sync_archive_that_failed_to_unpack() {
+    let server = kept_run_server().await;
+    exec_answers(&server, "cat > /tmp/cmux-run.tgz", 0, 1).await;
+    exec_answers(&server, "tar -xzf /tmp/cmux-run.tgz", 2, 1).await;
+    exec_answers(&server, REMOVE_ARCHIVES, 0, 1).await;
+    let dir = sync_dir("unpack-fails");
+    let out = cli(
+        &server,
+        &[
+            "run",
+            "--sync",
+            "--keep",
+            "--dir",
+            dir.to_str().unwrap(),
+            "--",
+            "true",
+        ],
+    )
+    .await;
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(!out.stderr.contains("could not remove"), "{}", out.stderr);
+    server.verify().await;
+    // The unpack itself removes the archive once tar ends, failure included.
+    let requests = server.received_requests().await.unwrap();
+    let unpack = requests
+        .iter()
+        .map(|request| String::from_utf8_lossy(&request.body).into_owned())
+        .find(|body| body.contains("tar -xzf /tmp/cmux-run.tgz"))
+        .unwrap();
+    assert!(
+        unpack.contains("r=$?; rm -f /tmp/cmux-run.tgz; [ $r -eq 0 ]"),
+        "{unpack}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_kept_run_reports_pull_archives_it_could_not_remove() {
+    let server = kept_run_server().await;
+    exec_answers(&server, "tar -czf", 1, 1).await;
+    exec_answers(&server, REMOVE_ARCHIVES, 1, 1).await;
+    let dir = sync_dir("pull-cleanup-fails");
+    let out = cli(
+        &server,
+        &[
+            "run",
+            "--pull",
+            "dist",
+            "--keep",
+            "--dir",
+            dir.to_str().unwrap(),
+            "--",
+            "true",
+        ],
+    )
+    .await;
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains("could not remove the run's archives from the kept VM"),
+        "{}",
+        out.stderr
+    );
+    assert!(out.stderr.contains(REMOVE_ARCHIVES), "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&format!("vm {VM_ID} paused")),
+        "{}",
+        out.stderr
+    );
+    server.verify().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

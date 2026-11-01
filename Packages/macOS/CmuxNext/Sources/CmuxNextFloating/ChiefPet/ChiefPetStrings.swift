@@ -65,6 +65,10 @@ enum ChiefPetStrings {
         String(localized: "chiefPet.upload.remove", defaultValue: "Remove Upload", table: "ChiefPet", bundle: .module)
     }
 
+    static var uploadDropHint: String {
+        String(localized: "chiefPet.upload.dropHint", defaultValue: "Drop a picture or GIF here to use your own.", table: "ChiefPet", bundle: .module)
+    }
+
     static var uploadLimits: String {
         String(localized: "chiefPet.upload.limits",
                defaultValue: "Use a PNG, JPEG, WebP, HEIC or GIF up to 20 MB. A moving GIF can be at most 512 KB and 256 × 256 pixels.",
@@ -81,4 +85,5 @@ extension ChiefAvatarUploads {
     public static var chooseTitle: String { ChiefPetStrings.uploadChoose }
     public static var yoursTitle: String { ChiefPetStrings.uploadYours }
     public static var removeTitle: String { ChiefPetStrings.uploadRemove }
+    public static var dropHint: String { ChiefPetStrings.uploadDropHint }
 }

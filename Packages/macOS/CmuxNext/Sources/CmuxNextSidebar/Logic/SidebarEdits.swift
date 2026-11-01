@@ -17,7 +17,7 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
+        case .select, .selectTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .openProfileInNewWindow, .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates,
              .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .layout, .toggleLayoutSection,
              .dropOnLayoutSection, .groupEditorEnded, .toggleWorkspaceAudio, .addItems:
             return false
@@ -54,6 +54,7 @@ public nonisolated enum SidebarEdits {
             return mutateWorkspaces([id], in: &sections) { $0.title = title }
         case let .setColor(ids, color):
             return mutateWorkspaces(ids, in: &sections) { ws in
+                ws.color = color // a rail or fill row shows it at once, a favicon or emoji row too
                 switch (ws.icon, color) {
                 case let (.symbol(name, _)?, color): ws.icon = .symbol(name, tint: color)
                 case (.emoji?, _): break // an emoji keeps its own colors

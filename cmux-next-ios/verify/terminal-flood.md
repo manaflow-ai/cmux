@@ -161,6 +161,20 @@ xcrun simctl launch <udid> dev.cmux.mobile -CmuxMobileFloodBench -CmuxMobileFloo
 # Result: <app data>/Documents/flood-bench.json; log lines start with [flood-bench].
 ```
 
+On the build fleet (agents cannot run xcodebuild on their own Mac), the
+simulator step builds the Demo app, records `cat` of a 6 MB file, vim
+scrolling and top on the worker, and runs this benchmark on each, with
+screenshots:
+
+```sh
+cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA \
+  --arg bench --artifact artifacts/ios-sim/evidence.zip
+```
+
+Since 2026-10-26 each phase also reports the whole app's CPU
+(`processCPUmsPerSecondAvg`, getrusage: the renderer and IO threads too) and
+the time between presented frames (`frameIntervalP50ms`, `P95`, `Max`).
+
 ## #10 Typing brings the prompt back
 
 `TerminalFollowPolicy` holds the following rules, and has unit tests:

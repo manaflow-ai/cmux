@@ -72,6 +72,7 @@ extension UpdaterService {
     /// when the update staged; only a keep that never ran or failed runs
     /// here (a quit that installs an update staged before this launch).
     public func updaterWillInstallUpdate(build: String) {
+        installingBuild = build
         guard keptRunningBuild == nil else { return }
         do {
             try keptVersions.keep(bundle: Bundle.main.bundleURL, build: identity.build, limit: preferences.keepPreviousVersions)

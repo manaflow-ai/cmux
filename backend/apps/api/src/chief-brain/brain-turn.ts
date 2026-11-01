@@ -7,7 +7,7 @@ import { AUTH_FAILED, claudeAuthFor } from "./claude-auth.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
-import { clipReply, formatMessage, isNoReply, linkIds, replyTarget } from "./brain-text.ts"
+import { clipReply, formatMessage, inboxKind, isNoReply, linkIds, ownsRoot, replyTarget, threadOf } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccTurn } from "../chief-brain-cc/turn.ts"
@@ -22,7 +22,7 @@ import { type ChiefBrainDO, POST_RETRY_MS, retryPost, HOST, msOr, SETTLE_MS, TUR
  */
 
 /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
-export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
+export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string; retry?: true }> {
   markPending(b.sql, "wake")
   // When MuxDO committed the wake (the conversation's outbox delivered it): Run.timing mux_at.
   if (typeof w.at === "number" && Date.now() - w.at < 60_000) markPending(b.sql, "mux", Math.min(w.at, Date.now()))
@@ -32,10 +32,11 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   await b.lifecycle.start()
   markPending(b.sql, "life")
   // The admission and the conversation read go at the same time (the read changes nothing; a refusal ignores it).
+  const unread = b.sql.exec(`SELECT 1 FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray().length === 0
   const reading = readConversation(b.doEnv, w.conversation, chiefPrincipal(w.agent, w.owner))
   reading.catch(() => undefined)
   const a = await b.admitted(w.agent, w.owner, false)
-  if (!a.ok) return skip(b, w, a.reason)
+  if (!a.ok) return skip(b, w, a.reason, unread)
   // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and the team's meter warm up.
   // (Not on the Claude Code route, chief-brain-cc/: its turns use none of them.)
   if (!ccRoute(b.doEnv, w.owner)) {
@@ -45,7 +46,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
     b.doCtx.waitUntil(creditsCanStart(b.doEnv, a.config).catch(() => undefined))
   }
   const view = await reading
-  if ("refused" in view) return skip(b, w, view.refused)
+  if ("refused" in view) return skip(b, w, view.refused, unread)
   // A conversation this brain never read starts at the wake: older history is not answered.
   const cursor = b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? w.seq - 1
   let queued = 0
@@ -59,7 +60,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
     const text = formatMessage(view.head, m, { files, owner: w.owner })
     if (!text) continue
     const fresh = b.sql
-      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, view.head.kind ?? "group", m.thread_root ?? null, text, messageEffectAuthorized(view.head, m, view.messages, w.owner, w.agent) ? 1 : 0)
+      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, own_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, inboxKind(view.head), threadOf(m, view.messages), ownsRoot(m) ? 1 : 0, text, messageEffectAuthorized(view.head, m, view.messages, w.owner, w.agent) ? 1 : 0)
       .toArray()
     queued += fresh.length
   }
@@ -108,13 +109,25 @@ export async function peerNote(b: ChiefBrainDO, w: { agent: string; owner: strin
  * object serves another Chief.
  */
 const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
-const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string }, reason: string): { skipped: string } => {
+/**
+ * Skips that pass (#25570). Before, a new Chief's first message skipped this way was dropped for good:
+ * the next wake of a conversation with no cursor starts at its own seq, so only a second message got an
+ * answer. Now the brain keeps the floor below the woken message (FLOOR_SKIPS), so a later wake still
+ * answers it, and MuxDO sends the wake again with backoff (`retry`) when the owner's object did not
+ * answer, or when a conversation this brain never read is not readable yet (a new Chief's, created by a
+ * background delivery). A memory copy under way only keeps the floor: an abandoned import must not hold
+ * the conversation's wakes for hours.
+ */
+const FLOOR_SKIPS: ReadonlySet<string> = new Set(["owner.unreachable", "memory_importing"])
+const retries = (reason: string, unread: boolean) => reason === "owner.unreachable" || (reason === "unknown_conversation" && unread)
+const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string; seq: number }, reason: string, unread = false): { skipped: string; retry?: true } => {
+  if (FLOOR_SKIPS.has(reason)) b.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO NOTHING`, w.conversation, w.seq - 1)
   // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
   const busy =
     (b.turnLive && b.turnConversation === w.conversation) ||
     b.sql.exec(`SELECT 1 FROM cb_inbox WHERE conversation = ? AND state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE conversation = ? AND post = 'pending' LIMIT 1`, w.conversation, w.conversation).toArray().length > 0
   if (!OTHER_BRAIN.has(reason) && !busy) b.doCtx.waitUntil(typing(b.doEnv, w.conversation, w.agent, false))
-  return { skipped: reason }
+  return retries(reason, unread) ? { skipped: reason, retry: true } : { skipped: reason }
 }
 
 /**
@@ -204,7 +217,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     const cfg = b.config()
     const a = cfg.agent && cfg.owner ? await b.admitted(cfg.agent, cfg.owner, true).catch((): Admission => ({ ok: false, reason: "owner.unreachable" })) : ({ ok: false, reason: "unbound" } as Admission)
     const rows = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
       .toArray()
     if (!a.ok && a.reason === "owner.unreachable") return void (await b.schedule("drain", "drain", Date.now() + RETRY_MS))
     if (!a.ok) {
@@ -228,7 +241,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
     const all = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
       .toArray()
     if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
     if (all.length > 0) b.openTurn(woken.conversation, all, fresh)
@@ -240,7 +253,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
  * plus the unsummarized messages) and its cache marks (cache-prefix.ts) with the turn row in one transaction (a restart
  * resubmits the same bytes).
  */
-export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
+export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root?: number; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
   const id = `run_${rows[0]!.n}`
   let input = "[]"
   const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
@@ -256,8 +269,8 @@ export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyAr
     // Where this turn's first request reads (an earlier turn's entry) and writes (the view's last whole block).
     writeConfig(b.sql, { [`marks:${id}`]: marksHeader(turnPlan(b.sql, b.config().model, blocks, ttlMs(b.doEnv.CHIEF_BRAIN_CACHE_TTL))) })
     b.sql.exec(
-      `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, effect_authorized, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
-      id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), rows.every((r) => r.effect_authorized === 1) ? 1 : 0, b.config().model, Date.now(), input
+      `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, trigger_own_root, last_seq, effect_authorized, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
+      id, conversation, trigger.message, trigger.kind, trigger.thread_root, trigger.own_root ?? 1, Math.max(...rows.map((r) => r.seq)), rows.every((r) => r.effect_authorized === 1) ? 1 : 0, b.config().model, Date.now(), input
     )
   })
   b.compactor.pump()
@@ -392,31 +405,36 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
 }
 
 export async function postAndSchedule(b: ChiefBrainDO, id: string): Promise<void> {
-  const next = await liveOf(b.doCtx).after(async () => undefined).then(() => b.post(id)) // the final delta and the run end reach members before the reply
+  // The admission re-check does not depend on the live frames: it runs while they drain, not after (one
+  // settings round trip off every reply). A child reports through childReport, which never reads it.
+  const cfg = b.config()
+  const admission = !b.childOf() && cfg.agent && cfg.owner ? b.admitted(cfg.agent, cfg.owner, false).catch((): Admission => ({ ok: false, reason: "owner.unreachable" })) : undefined
+  const next = await liveOf(b.doCtx).after(async () => undefined).then(() => b.post(id, admission)) // the final delta and the run end reach members before the reply
   if (next !== null) await b.schedule(`post:${id}`, "post", next)
 }
 
 /**
  * Posts the run's reply as the chief. Returns when to try again (the loop guard's agent_rate, or no
- * answer), or null when done; done acks the wakes.
+ * answer), or null when done; done acks the wakes. `admission`: the settings re-check already under way
+ * (postAndSchedule starts it beside the live drain); a retry asks again.
  */
-export async function post(b: ChiefBrainDO, id: string): Promise<number | null> {
+export async function post(b: ChiefBrainDO, id: string, admission?: Promise<Admission>): Promise<number | null> {
   if (b.posting.has(id)) return null
   b.posting.add(id)
   try {
     if (b.childOf()) return await b.childReport(id)
-    const t = b.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; reply: string | null; post: string; post_tries: number; post_key: number; ended: number | null }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, reply, post, post_tries, post_key, ended FROM cb_turn WHERE id = ?`, id).toArray()[0]
+    const t = b.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; trigger_own_root: number; reply: string | null; post: string; post_tries: number; post_key: number; ended: number | null }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, trigger_own_root, reply, post, post_tries, post_key, ended FROM cb_turn WHERE id = ?`, id).toArray()[0]
     const cfg = b.config()
     if (!t || t.post !== "pending" || !t.reply || !cfg.agent || !cfg.owner) return null
     // The chief may have been archived or placed on a server since the turn began.
-    const a = await b.admitted(cfg.agent, cfg.owner, false).catch((): Admission => ({ ok: false, reason: "owner.unreachable" }))
+    const a = await (admission ?? b.admitted(cfg.agent, cfg.owner, false)).catch((): Admission => ({ ok: false, reason: "owner.unreachable" }))
     const steps = Number(b.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM cb_step WHERE turn = ?`, id).one().n)
     // The ledger replays a refusal under the same key, so a refused try's retry needs a new key (the
     // key is also the client message id); an unknown outcome (no answer) retries under the same key.
     const key = `chief-reply:${cfg.agent}:${id}:${t.post_key}`
     const res = !a.ok
       ? { ok: false as const, code: a.reason, message: a.reason }
-      : await postReply(b.doEnv, chiefPrincipal(cfg.agent, cfg.owner), { conversation: t.conversation, text: t.reply, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root), key }).catch(
+      : await postReply(b.doEnv, chiefPrincipal(cfg.agent, cfg.owner), { conversation: t.conversation, text: t.reply, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root, t.trigger_own_root !== 0), key }).catch(
           (e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) })
         )
     if (!res.ok && retryPost(res.code, t.post_tries, t.ended, Date.now())) {
