@@ -168,8 +168,10 @@ nonisolated struct CloudMoveCLI: Sendable {
                             conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
                             updated: object["updated"] as? Bool ?? false, build: object["build"] as? String,
                             notOlder: object["not_older"] as? Bool ?? false,
-                            seedState: object["seed_state"] as? String ?? (object["state"] as? String),
-                            seedPhase: object["seed_phase"] as? String ?? (object["phase"] as? String),
+                            // Only namespaced seed fields describe repository cloning; top-level
+                            // state/phase belong to the copy transport.
+                            seedState: object["seed_state"] as? String,
+                            seedPhase: object["seed_phase"] as? String,
                             seedReceivedBytes: object["received_bytes"] as? Int,
                             seedObjects: object["objects"] as? Int,
                             seedTotalObjects: object["total_objects"] as? Int,
