@@ -180,6 +180,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     }
 
     private static func topLevelMethod(_ text: String) -> MethodScan {
+        var text = text
         text.withUTF8 { bytes in
             guard let base = bytes.baseAddress, bytes.count > 0 else { return MethodScan(found: false, value: nil) }
             var depth = 0
