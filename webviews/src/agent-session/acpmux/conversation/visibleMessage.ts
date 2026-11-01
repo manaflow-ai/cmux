@@ -2,10 +2,14 @@ import type { AcpmuxRow } from "../model";
 
 /// Characters that carry no visible glyph in transcript message text. Markdown still receives
 /// every other source character; this is only the complete-message fast path.
-const INVISIBLE_MESSAGE_TEXT = /^[\s\u200B\u200C\u200D\uFEFF\u2060]*$/u;
+const ZERO_WIDTH_MESSAGE_CHARS = new Set(["\u200B", "\u200C", "\u200D", "\uFEFF", "\u2060"]);
 
 export function isVisiblyEmptyText(text: string | undefined): boolean {
-  return text === undefined || INVISIBLE_MESSAGE_TEXT.test(text);
+  if (text === undefined || text.length === 0) return true;
+  for (const character of text) {
+    if (character.trim() !== "" && !ZERO_WIDTH_MESSAGE_CHARS.has(character)) return false;
+  }
+  return true;
 }
 
 /// Whether a message row has no drawn content. Attachments, incoming cards, status metadata and

@@ -318,7 +318,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
         const b = second.getBoundingClientRect();
         return {
           gap: b.top - a.bottom,
-          emptyRows: document.querySelectorAll('[data-row-id="spacing-empty"], [data-row-id="spacing-zero"]').length,
+          emptyRows: document.querySelectorAll(
+            '[data-row-id="spacing-empty"], [data-row-id="spacing-zero"]',
+          ).length,
         };
       });
     };
