@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # nightly.yml build-nightly-ghostty-cli-helper: "Key the Ghostty CLI helper cache". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The helper is a function of the inputs its own cache manifest names
+# (ghostty_cache_metadata in scripts/build-ghostty-cli-helper.sh):
+# Ghostty's commit, the script, the Zig binary, the target, the SDK and
+# the macOS version. A hosted runner starts with an empty cache, so the
+# script's cache directory is kept across runs under a key of those
+# same inputs. The script still installs an entry only when its manifest
+# equals this build's and the binary's sha256 equals the manifest's;
+# anything else builds. tests/test_nightly_ghostty_helper_cache.py.
 set -euo pipefail
 {
   echo "ghostty=$(git -C ghostty rev-parse HEAD)"

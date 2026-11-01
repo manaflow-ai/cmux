@@ -3023,28 +3023,7 @@ fn start_detached_owner_session(
     };
     let progress = local_owner::RestoreProgress::new(&report);
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
-        match error {
-            local_owner::EnsureError::Spawn(_error) => {
-                anyhow::bail!("{}", messages.owner_spawn_failed())
-            }
-            local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
-            local_owner::EnsureError::RestoreTimeout => {
-                anyhow::bail!("{}", messages.owner_restore_timeout)
-            }
-            local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
-            local_owner::EnsureError::DifferentSession => {
-                anyhow::bail!("{}", messages.different_session)
-            }
-            local_owner::EnsureError::DifferentState => {
-                anyhow::bail!("{}", messages.different_state)
-            }
-            local_owner::EnsureError::InvalidIdentity => {
-                anyhow::bail!("{}", messages.invalid_identity)
-            }
-            local_owner::EnsureError::UnsupportedProtocol => {
-                anyhow::bail!("{}", messages.unsupported_protocol)
-            }
-        }
+        anyhow::bail!("{}", messages.ensure_failed(&error));
     }
     let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;
