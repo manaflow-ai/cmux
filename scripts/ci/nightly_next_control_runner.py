@@ -107,13 +107,19 @@ def read_live(env: Mapping[str, str]) -> Sequence[Mapping[str, Any]] | None:
     if not token or not repo:
         return None
     try:
+        # Organization runner listing needs the routing App token; the
+        # janitor snapshot is a separate Actions artifact read and may use a
+        # token with only actions:read. Keep those credentials on separate
+        # clients so one token's narrow scope cannot accidentally be used for
+        # the other read.
         client = pr_runner_pool.GitHub(token, repo)
         runners = client.runners()
         # When the workflow provides the janitor token, require its queue
         # snapshot to be fresh as well. A stale or missing snapshot is not
         # evidence that an idle runner can accept this control job.
         if env.get("SNAPSHOT_TOKEN"):
-            snapshot = client.snapshot(now=dt.datetime.now(dt.timezone.utc))
+            snapshot_client = pr_runner_pool.GitHub(env["SNAPSHOT_TOKEN"].strip(), repo)
+            snapshot = snapshot_client.snapshot(now=dt.datetime.now(dt.timezone.utc))
             if not fresh_snapshot(snapshot):
                 return None
         return runners

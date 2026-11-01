@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,31 @@ class ControlRunnerPickerTests(unittest.TestCase):
         self.assertFalse(picker.fresh_snapshot(None, now))
         self.assertFalse(picker.fresh_snapshot({"generated_at": "2026-10-31T00:00:00Z", "pools": {}}, now))
         self.assertTrue(picker.fresh_snapshot({"generated_at": "2026-11-01T00:30:00Z", "pools": {}}, now))
+
+    def test_runner_and_snapshot_reads_use_their_declared_tokens(self):
+        tokens = []
+
+        class Client:
+            def __init__(self, token, repo):
+                tokens.append(token)
+
+            def runners(self):
+                return []
+
+            def snapshot(self, *, now):
+                return {"generated_at": "2026-11-01T00:30:00Z", "pools": {}}
+
+        env = {**self.ENV, "ROUTE_TOKEN": "route", "GITHUB_TOKEN": "github", "SNAPSHOT_TOKEN": "snapshot"}
+        with mock.patch.object(picker.pr_runner_pool, "GitHub", Client), \
+                mock.patch.object(picker, "fresh_snapshot", return_value=True):
+            self.assertEqual(picker.read_live(env), [])
+        self.assertEqual(tokens, ["route", "snapshot"])
+
+        tokens.clear()
+        env = {**self.ENV, "ROUTE_TOKEN": "", "GITHUB_TOKEN": "github", "SNAPSHOT_TOKEN": ""}
+        with mock.patch.object(picker.pr_runner_pool, "GitHub", Client):
+            self.assertEqual(picker.read_live(env), [])
+        self.assertEqual(tokens, ["github"])
 
 
 if __name__ == "__main__":
