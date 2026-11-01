@@ -120,6 +120,7 @@ import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { olderRowFadesOnMount } from "./conversation/olderRowFade";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -1975,7 +1976,7 @@ const RowFrame = React.memo(function RowFrame({
     entering &&
     (row.kind === "assistant" ||
       (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
-  const [olderFade] = useState(older);
+  const [olderFade, setOlderFade] = useState(older);
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
@@ -1992,9 +1993,15 @@ const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || !olderFade) return;
-    // A warm-window copy has rendered too: consume eligibility and start its fade before paint,
-    // even offscreen. Neither a later intersection nor a remount may defer or replay it.
+    // Consume eligibility on the first copy: neither a later intersection nor a remount may defer
+    // or replay a fade. A copy that mounts outside the view (the usual case: older pages load ahead
+    // of the reader) drops the fade before paint and draws in full ink; only one that mounts in
+    // the view, the reader there before its page, fades (conversation/olderRowFade.ts).
     onOlderShown(row.id);
+    if (!olderFade.fadesOnMount(node)) {
+      setOlderFade(undefined);
+      return;
+    }
     node.dataset.olderShown = "true";
     return olderFade.watch(node, () => onOlderShown(row.id));
     // Only the first mount fades.
@@ -2153,9 +2160,10 @@ const SCROLL_LEAD_STEPS = 2;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
-/// Rows from a page of older history fade on their first mounted copy, including warm copies
-/// outside the view. Eligibility is consumed before paint; an intersection only releases the
-/// observation and never starts a second fade. Opacity only, so nothing measured moves.
+/// Rows from a page of older history fade on their first mounted copy only when it mounts inside
+/// the view; a copy mounted outside it draws in full ink. Eligibility is consumed before paint; an
+/// intersection only releases the observation and never starts a second fade. Opacity only, so
+/// nothing measured moves.
 class OlderRowFade {
   private readonly pending = new Set<string>();
   private readonly waiting = new Map<Element, () => void>();
@@ -2172,6 +2180,12 @@ class OlderRowFade {
   }
   clear() {
     this.pending.clear();
+  }
+  /// The worst case only: the row's first copy mounts inside the scroller's view.
+  fadesOnMount(node: HTMLElement): boolean {
+    const root = this.root();
+    if (!root) return false;
+    return olderRowFadesOnMount(node.getBoundingClientRect(), root.getBoundingClientRect());
   }
   /// Releases the first copy's observation when it intersects; returns the unwatch.
   watch(node: HTMLElement, shown: () => void): () => void {

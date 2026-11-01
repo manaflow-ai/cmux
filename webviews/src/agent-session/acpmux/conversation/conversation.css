@@ -3577,9 +3577,10 @@ a.cv-sha:focus-visible {
   }
 }
 
-/* A row from older history fades on its first mounted copy (OlderRowFade in App.tsx), including
- * a warm copy outside the view. Its layout effect starts the fade before paint, so intersection
- * never defers opacity and a remount draws in full ink. Opacity only: no row moves or changes
+/* A row from older history fades on its first mounted copy (OlderRowFade in App.tsx) only in the
+ * worst case, a copy that mounts inside the view; one mounted outside it (older pages load ahead of
+ * the reader) loses the class before paint and draws in full ink. Its layout effect starts the fade
+ * before paint, so intersection never defers opacity and a remount draws in full ink. Opacity only: no row moves or changes
  * height, so the anchoring that holds the reader's place is untouched. Reduce
  * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
 @keyframes acpmux-older-in {

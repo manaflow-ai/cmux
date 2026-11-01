@@ -29,7 +29,7 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  test("a prefetched row mounted before intersection does not fade again after reattachment", async () => {
+  test("a prefetched row mounted outside the view never fades, nor after reattachment", async () => {
     const { port } = vite.httpServer!.address() as { port: number };
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     try {
@@ -59,14 +59,16 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
       await showOlder(true);
       const prefetched = page.locator('[data-row-id="prefetched-older"]');
       expect(await prefetched.count()).toBe(1);
-      // First render happened outside the view. Its fade starts now, never on a later intersection.
+      // First render happened outside the view: it draws in full ink with no fade at all, now or on
+      // a later intersection (Leo 2026-10-31: no fade-in unless it's the worst case).
       expect(
         await prefetched.evaluate(
           (row) =>
             row.getBoundingClientRect().bottom <= document.querySelector(".acpmux-scroll")!.getBoundingClientRect().top,
         ),
       ).toBe(true);
-      expect(await prefetched.getAttribute("data-older-shown")).toBe("true");
+      expect(await prefetched.evaluate((row) => row.classList.contains("acpmux-row--older"))).toBe(false);
+      expect(await prefetched.evaluate((row) => getComputedStyle(row).opacity)).toBe("1");
       await showOlder(false);
       expect(await prefetched.count()).toBe(0);
       await showOlder(true);
