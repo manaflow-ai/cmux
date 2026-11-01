@@ -21,7 +21,7 @@ import { DisclosureRow } from "../subagents/DisclosureRow";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 import { SenderName } from "./IncomingMessageCard";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
@@ -102,7 +102,7 @@ function InboxThreadLine({
   // Find opens the line that holds the match (the row's text is every thread's messages).
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
-  const holds = Boolean(needle && whole.toLocaleLowerCase().includes(needle));
+  const holds = Boolean(needle && foldFind(whole).includes(needle));
   useLayoutEffect(() => {
     if (!holds || open) return;
     show(true);

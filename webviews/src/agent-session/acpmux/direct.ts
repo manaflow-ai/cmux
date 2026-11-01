@@ -1380,6 +1380,18 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
+  /// An optimistic row has been accepted by an event: keep its id, but make the event its order.
+  adoptEventOrder(id: string): void {
+    if (!this.has(id)) return;
+    this.local.delete(id);
+    if (this.current !== undefined) {
+      this.order.set(id, this.current);
+      this.latest = Math.max(this.latest, this.current);
+    }
+    this.ordered = undefined;
+    this.snapshot = undefined;
+  }
+
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
@@ -1684,6 +1696,8 @@ export class AcpmuxDirectClient {
   private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
   private replayThrough?: number;
+  /// A `fed` client its page let go of (`dispose`).
+  private disposed = false;
   /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
   /// clock): the smallest arrival lag of a live event, since delays only make it larger.
   private clockOffset?: number;
@@ -1824,6 +1838,8 @@ export class AcpmuxDirectClient {
   private closed = false;
   /// Replay clients are intentionally detached from a socket but still publish seek snapshots.
   private replayMode = false;
+  /// A `fed` client (the guest page's) has no socket either, but draws what it is fed until `dispose`.
+  private fedMode = false;
   private selectionGeneration = 0;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
@@ -1920,6 +1936,58 @@ export class AcpmuxDirectClient {
         this.reduce(event);
       }
     this.emit("replay");
+  }
+
+  /// A client with no connection fed one chat's records from another source (the guest page's
+  /// room, guest/shareSocket.ts). `feed` folds them; nothing is ever sent.
+  static fed(sessionId: string, listener: Listener): AcpmuxDirectClient {
+    const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
+    client.closed = true;
+    client.fedMode = true;
+    // Not this page's chat to hand over or to read again when shown: no page listeners.
+    client.stopPageListeners();
+    return client;
+  }
+
+  /// Ends a `fed` client: nothing it was fed draws after this, a frame already asked for included.
+  dispose(): void {
+    this.disposed = true;
+    this.frameSnapshot = undefined;
+    this.stopPageListeners();
+  }
+
+  /// Folds one chat's records into a `fed` client (the source carries no other chat, so each is
+  /// taken as this client's). `snapshot` replaces what is held; `older` adds a page before it and
+  /// folds again from the start; `live` folds only records past the newest held, in seq order,
+  /// and draws once per display frame.
+  feed(events: EventRecord[], mode: "snapshot" | "older" | "live"): void {
+    const sessionId = this.selectedSessionId;
+    const own = events
+      .filter((event) => event.seq > 0)
+      .map((event) => ({ ...event, sessionId }))
+      .sort((a, b) => a.seq - b.seq);
+    if (this.disposed) return;
+    if (mode !== "live") {
+      const first = this.firstSeq ?? Number.POSITIVE_INFINITY;
+      this.events = mode === "snapshot" ? own : [...own.filter((event) => event.seq < first), ...this.events];
+      this.rebuild();
+      this.emit();
+      return;
+    }
+    for (const event of own) {
+      if (event.seq <= this.lastSeq) continue;
+      this.events.push(event);
+      this.lastSeq = event.seq;
+      this.firstSeq ??= event.seq;
+      this.reduce(event);
+    }
+    const schedule = AcpmuxDirectClient.scheduleFrame;
+    if (!schedule) return this.emit();
+    if (this.frameSnapshot !== undefined) return;
+    this.frameSnapshot = "connected";
+    schedule(() => {
+      if (this.frameSnapshot !== undefined && !this.disposed) this.emit();
+    });
   }
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
@@ -5207,6 +5275,7 @@ export class AcpmuxDirectClient {
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
         });
+        if (optimisticRowId) this.rows.adoptEventOrder(durableRowId);
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(durableRowId, attachments);
@@ -5746,7 +5815,7 @@ export class AcpmuxDirectClient {
   }
 
   private emitNow(connection: string): void {
-    if (this.closed && !this.replayMode) return;
+    if (this.closed && !this.replayMode && !(this.fedMode && !this.disposed)) return;
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
@@ -7716,7 +7785,7 @@ export class AcpmuxDirectClient {
         // The person moved to another chat while acpmux answered: nothing shows for this one.
         if (this.closed || generation !== this.selectionGeneration) return;
         const live = liveDetails((error as { details?: unknown }).details);
-        if (!adopt.watch && (await this.watchLive(adopt, live))) return;
+        if (!adopt.watch && (await this.watchLive(adopt))) return;
         if (this.closed || generation !== this.selectionGeneration) return;
         this.liveAdopt = { adopt, ...live };
         this.emit();
@@ -7737,12 +7806,15 @@ export class AcpmuxDirectClient {
     this.adoptFailed(translate("notice.resumeUnsupported"));
   }
   /// The chat acpmux refused to resume because another app still runs it (`adopt.live`), shown
-  /// here View Only instead: its transcript at once, following that app, with the same Fork It and
-  /// Open Anyway over it (`takeOver`). "there's frequently nothing wrong with showing the same
-  /// session but in two different places" (Leo, 2026-10-29). False when it cannot be watched (a
-  /// daemon or harness without watching): the choice shows alone. True also when the person moved
-  /// to another chat (or the pane closed) meanwhile: then nothing more shows for this one.
-  private async watchLive(adopt: AcpmuxAdopt, live: { canFork: boolean; command?: string }): Promise<boolean> {
+  /// here View Only instead: its transcript at once, following that app, under the View Only
+  /// banner. "there's frequently nothing wrong with showing the same session but in two different
+  /// places" (Leo, 2026-10-29). It asks nothing on open: Fork It and Open Anyway show only once
+  /// the person replies or takes over and acpmux refuses that as live (`takeOver`). "the fact that
+  /// it's asking me to fork while im inside an existing claude code chat is bad" (Leo,
+  /// 2026-10-30). False when it cannot be watched (a daemon or harness without watching): the
+  /// choice shows alone. True also when the person moved to another chat (or the pane closed)
+  /// meanwhile: then nothing more shows for this one.
+  private async watchLive(adopt: AcpmuxAdopt): Promise<boolean> {
     const watch: AcpmuxAdopt = { harness: adopt.harness, agentSessionId: adopt.agentSessionId, watch: true };
     const generation = this.selectionGeneration;
     const moved = () => this.closed || generation !== this.selectionGeneration;
@@ -7762,8 +7834,6 @@ export class AcpmuxDirectClient {
       await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
       return moved();
     }
-    this.liveTakeOver = live;
-    this.liveTakeOverFor = sessionId;
     if ((await this.select(sessionId)) === sessionId) this.markAdopted(sessionId);
     return true;
   }
@@ -7773,7 +7843,7 @@ export class AcpmuxDirectClient {
   async adoptLive(choice: "fork" | "open"): Promise<void> {
     const live = this.liveAdopt;
     if (!live) {
-      // The same choice over a watched chat (`watchLive`, or a Take Over refused as live): it forks
+      // The same choice over a watched chat (a reply or Take Over refused as live): it forks
       // or takes that chat over; `adopted` names the chat the tab keeps.
       const sessionId = this.selectedSessionId;
       const generation = this.selectionGeneration;
@@ -8586,6 +8656,7 @@ export class AcpmuxDirectClient {
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
     this.replayMode = false;
+    this.fedMode = false;
     this.closed = true;
 
     clearTimeout(this.hiddenDraw);
@@ -8611,14 +8682,17 @@ export class AcpmuxDirectClient {
     this.stopSuperseded = false;
     this.stopOpenerSeen = false;
     this.stoppingEnded();
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
-    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
+    this.stopPageListeners();
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
     this.rejectPending();
+  }
+  private stopPageListeners(): void {
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
   }
   private rejectPending(): void {
     for (const request of this.pending.values()) {

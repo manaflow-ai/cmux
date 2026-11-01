@@ -131,8 +131,10 @@ fn request(origin: &str, cache: &std::path::Path, op: Op) -> Request {
     }
 }
 
+/// The production client (`http_client`): one built here without its rustls provider install panicked in
+/// every test that runs alone in its process (nextest).
 fn client() -> reqwest::Client {
-    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap()
+    http_client().unwrap()
 }
 
 fn go(request: &Request, now: u64) -> (Route, Answer) {

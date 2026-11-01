@@ -104,6 +104,15 @@
         "webviews/src/ui/Select.tsx"
       ]
     },
+    "chat-header": {
+      "spec": "leo-workspace design/chat-header.md",
+      "aliases": ["chat header", "chat title", "title menu", "header tools"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/header/ThreadTitle.tsx",
+        "webviews/src/agent-session/acpmux/header/header.css",
+        "webviews/src/agent-session/acpmux/header/chatRows.ts"
+      ]
+    },
     "session-info": {
       "spec": "leo-workspace design/session-info.md",
       "aliases": [
