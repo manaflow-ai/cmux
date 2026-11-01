@@ -27,6 +27,7 @@ extension AgentTabStore {
     /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
     func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil, model: String? = nil,
                          personKey: AgentSessionAttachClient.PersonKey? = nil, ownerLink: AgentSessionAttachClient.OwnerLink? = nil,
+                         verifyChatStart: (@Sendable () async throws -> Bool)? = nil,
                          teammate: AgentSessionAttachClient.Teammate? = nil, reconnect: AgentSessionAttachClient.Reconnect? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
@@ -36,7 +37,8 @@ extension AgentTabStore {
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
             return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
-                                            ownerLink: ownerLink, teammate: teammate, reconnect: reconnect, endpoint: endpoint)
+                                            ownerLink: ownerLink, verifyChatStart: verifyChatStart,
+                                            teammate: teammate, reconnect: reconnect, endpoint: endpoint)
         }
         remoteStarts[resolveRemote(key)] = task
         defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
@@ -45,6 +47,7 @@ extension AgentTabStore {
 
     private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?, model chosenModel: String?,
                                 personKey: AgentSessionAttachClient.PersonKey?, ownerLink: AgentSessionAttachClient.OwnerLink?,
+                                verifyChatStart: (@Sendable () async throws -> Bool)?,
                                 teammate: AgentSessionAttachClient.Teammate?, reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
@@ -59,6 +62,17 @@ extension AgentTabStore {
         // there, so none is sent, and the card offers New Cloud Machine (cmux#29214). The owner
         // check below is unchanged: only an owner answer ever sends a start.
         if ownerLink != nil, let teammate, await teammate() { throw AgentRemoteStartRefusal.teamMachine(machine: machine) }
+        // A delegated start can outlive its chat grant on an existing Cloud link: the link still
+        // carries the earlier attach-time owner word until reconnect. Ask the API for the current
+        // grant and team membership before the first remote command. This is a client-side guard;
+        // the remote daemon also needs a revocable action authority for atomic revoke/start fencing.
+        if let verifyChatStart {
+            let allowed: Bool
+            do { allowed = try await verifyChatStart() }
+            catch is CancellationError { throw CancellationError() }
+            catch { throw AgentRemoteStartRefusal(code: "agent_session.host_unverified", machine: machine) }
+            guard allowed else { throw AgentRemoteStartRefusal.teamMachine(machine: machine) }
+        }
         let seed = await remoteSeeds[key]?.peek()
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
