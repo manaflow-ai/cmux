@@ -246,3 +246,62 @@ fn an_incognito_workspace_closed_before_the_phone_hears_of_it_never_reaches_it()
         assert!(!message.contains(&private), "an incognito workspace reached the phone: {message}");
     }
 }
+
+#[test]
+fn a_remote_device_never_sees_or_reopens_an_incognito_workspaces_saved_group() {
+    let mux = test_mux();
+    let app = app(&mux);
+    let private = create(&mux, &app, "private-space", true);
+    let normal = create(&mux, &app, "normal-space", false);
+    let private_id = mux.with_state(|state| {
+        state.workspaces.iter().find(|w| w.public_id.as_str() == private).unwrap().id
+    });
+    let opened = line(
+        &mux,
+        &app,
+        json!({"id": "ns", "cmd": "new-screen", "workspace": private_id, "cols": 60, "rows": 8,
+               "shell_args": ["-c", "sleep 30"], "env": {"SHELL": "/bin/sh"}}),
+    );
+    assert_eq!(opened["ok"], true, "{opened}");
+    let screen = mux.with_state(|state| {
+        state.workspaces.iter().find(|w| w.id == private_id).unwrap().screens[0].id
+    });
+    let created = line(
+        &mux,
+        &app,
+        json!({"id": "g", "cmd": "create-screen-group", "screens": [screen],
+               "name": "secret-group"}),
+    );
+    assert_eq!(created["ok"], true, "{created}");
+    let group = created["data"]["group"]["id"].as_str().unwrap().to_string();
+    let saved = line(&mux, &app, json!({"id": "s", "cmd": "save-screen-group", "group": group}));
+    assert_eq!(saved["ok"], true, "{saved}");
+    let saved = saved["data"]["saved"].as_str().unwrap().to_string();
+    let local = line(&mux, &app, json!({"id": "l", "cmd": "list-saved-screen-groups"}));
+    assert!(local.to_string().contains(&saved), "the app lists its saved group: {local}");
+
+    let phone = phone(&mux);
+    let normal_id = row(&listed(&mux, &app), &normal).unwrap()["id"].as_u64().unwrap();
+    let check = |when: &str| {
+        let remote = line(&mux, &phone, json!({"id": "l", "cmd": "list-saved-screen-groups"}));
+        assert_eq!(remote["ok"], true, "{remote}");
+        let text = remote.to_string();
+        assert!(!text.contains(&saved) && !text.contains("secret-group"), "{when}: {text}");
+        for request in [
+            json!({"id": "r", "cmd": "reopen-saved-screen-group", "saved": saved,
+                   "workspace": normal_id}),
+            json!({"id": "d", "cmd": "delete-saved-screen-group", "saved": saved}),
+        ] {
+            let reply = line(&mux, &phone, request.clone());
+            assert_eq!(reply["ok"], false, "{when}: {request} must be refused: {reply}");
+        }
+    };
+    check("while the workspace is open");
+    let closed =
+        line(&mux, &app, json!({"id": "c", "cmd": "close-workspace", "workspace": private_id}));
+    assert_eq!(closed["ok"], true, "{closed}");
+    check("after the workspace closed");
+    let local = line(&mux, &app, json!({"id": "l", "cmd": "list-saved-screen-groups"}));
+    assert!(local.to_string().contains(&saved), "the phone did not delete it: {local}");
+    mux.shutdown();
+}
