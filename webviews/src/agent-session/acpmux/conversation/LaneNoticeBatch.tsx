@@ -1,6 +1,7 @@
 import { useContext, useId, useLayoutEffect, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { useT } from "../i18n";
+import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { Icon } from "../icons/Icon";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
@@ -43,20 +44,21 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
   const detail = batch.kind === "report" ? verdicts : names && t("message.inboxFrom", { names });
   return (
     <div className="cv-lane-batch" data-open={open || undefined}>
-      <button
-        type="button"
+      <TranscriptActivityRow
+        icon={<Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />}
+        before={count}
+        name={batch.kind === "inbox" && names ? names : undefined}
+        after={batch.kind === "report" && detail ? ` · ${detail}` : undefined}
         className="cv-lane-batch__toggle"
-        aria-expanded={open}
-        aria-controls={open ? bodyId : undefined}
+        ariaLabel={[count, detail].filter(Boolean).join(". ")}
+        expanded={open}
+        attributes={{
+          "aria-expanded": String(open),
+          "aria-controls": open ? bodyId : undefined,
+          "data-find-skip": "",
+        }}
         onClick={() => show(!open)}
-        data-find-skip=""
-      >
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
-        <span className="cv-lane-batch__title">
-          {count}
-          {detail ? ` · ${detail}` : ""}
-        </span>
-      </button>
+      />
       {open && (
         <div className="cv-lane-batch__body" id={bodyId}>
           {batch.rows.map((member) => (

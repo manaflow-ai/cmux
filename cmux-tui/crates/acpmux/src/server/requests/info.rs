@@ -31,5 +31,8 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
     {
         obj.insert("sessionEnv".into(), json!(crate::session_env::shown(&s.meta().session_env)));
     }
+    // One message carries it whole, its largest fields trimmed if need be: a detail refused
+    // as too large is refused again on every read (`hub/reply_fit.rs`).
+    crate::hub::reply_fit::fit_reply_object(&mut detail);
     Ok(detail)
 }

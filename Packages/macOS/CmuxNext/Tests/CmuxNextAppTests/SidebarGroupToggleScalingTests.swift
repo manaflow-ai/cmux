@@ -13,7 +13,7 @@ import Testing
 /// list, then the observation's render, as the window draws it). The toggled group always holds the same 10
 /// workspaces, so 100 and 10,000 workspaces change the same rows. Each toggle's main-thread CPU is timed; the median
 /// of 16 is compared.
-@MainActor @Suite(.serialized) struct SidebarGroupToggleScalingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupToggleScalingTests {
     struct Harness {
         let sidebar: SidebarView
         let model: SidebarModel

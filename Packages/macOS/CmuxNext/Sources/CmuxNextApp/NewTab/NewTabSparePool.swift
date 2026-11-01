@@ -107,8 +107,10 @@ final class NewTabSparePool {
     /// The parked native spare for the new tab `key`, out of the parking view, or nil (the page is made
     /// cold). The pane's view for `key` claims it (``claimNative(_:)``); the next spare follows when input is quiet.
     func takeNative(for key: String) -> NativeNewTabHostingView? {
-        defer { scheduleWarm() }
         guard let host = nativeSpare else { return nil }
+        // Re-park the replacement in the next main-actor turn. Waiting for the idle-input
+        // debounce here leaves the next Cmd-T/Cmd-N with no warm page at all.
+        defer { scheduleWarmImmediately() }
         nativeSpare = nil
         host.removeFromSuperview()
         // One opening at a time: a spare an earlier open took but no pane claimed (its tab closed first) goes.
@@ -249,8 +251,11 @@ final class NewTabSparePool {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }
-        defer { scheduleWarm() }
         guard let view = slot.take() else { return nil }
+        // Hand the parked page out now, then start making its replacement without waiting for
+        // the user's input to go quiet. The replacement is background work on the next turn;
+        // a later New Tab click therefore does not fall back to a cold mount.
+        defer { scheduleWarmImmediately() }
         snapshotGeneration &+= 1
         view.redraw.newTabFrameCaptureChanged = nil
         view.isHidden = false
@@ -297,9 +302,9 @@ final class NewTabSparePool {
             view.redraw.rememberFrame(of: view, appearance: appearance) { [weak self, weak view] in
                 guard let self, let view, snapshotGeneration == generation, slot.peek === view,
                       view.superview === parking else { return }
-                // A transparent offscreen view still receives frames. Hiding stops its renderer's
-                // animations and lets the transport hold nonurgent pushes until adoption.
-                view.isHidden = true
+                // The offscreen parking view already keeps the page out of sight while allowing
+                // WebKit/Chromium to render. Keep the view visible so its renderer stays warm;
+                // hiding it here suspends the renderer and makes the next handout cold again.
             }
         }
     }
@@ -368,6 +373,16 @@ final class NewTabSparePool {
             }
         }
         armWarmTimer()
+    }
+
+    /// Replaces a handed-out spare on the next main-actor turn. A handout is a background
+    /// rewarm boundary, not an idle-input boundary: the pool must have another fully rendered
+    /// composer ready for the next New Tab or new workspace.
+    private func scheduleWarmImmediately() {
+        let web = services.agentTabs.canHostChat && (slot.shouldWarm || unparked != nil)
+        guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
+        watchMemoryPressure()
+        warmTimer.schedule(after: .zero) { @MainActor [weak self] in self?.warmNow() }
     }
 
     /// Whether this run has warmed a spare yet: the first one starts at once, before the person

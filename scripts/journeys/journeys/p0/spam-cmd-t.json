@@ -1,0 +1,144 @@
+{
+ "id": "spam-cmd-t",
+ "priority": "P0",
+ "title": "Cmd-T held makes one item per repeat and nothing after the key-up; 20 presses in 1.0 s make 20",
+ "why": "Lawrence 2026-10-28: \"if i hold cmd t then stop holding it, it still creates new stuff for a while\". Cmd-T must keep up with the key and stop with it.",
+ "source": "shortcut spam (handoff/input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md 1; Lawrence 2026-10-28)",
+ "budget_seconds": 180,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-cmd-t",
+   "as": "first"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hold"
+  },
+  {
+   "do": "hold_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "seconds": 2,
+   "as": "held"
+  },
+  {
+   "do": "expect",
+   "title": "held Cmd-T: one new tab per repeat that ran, none after the key-up",
+   "since": "held",
+   "timeout": 15,
+   "all": [
+    {
+     "spam_counts": {
+      "from": "before-hold",
+      "field": "tabs",
+      "delta_runs": "held"
+     }
+    },
+    {
+     "spam_runs": {
+      "of": "held",
+      "ran_ge": 2
+     }
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "nothing more was made after Cmd-T went up",
+   "since": "held",
+   "timeout": 5,
+   "settle": 1.5,
+   "all": [
+    {
+     "spam_unchanged": {
+      "since": "held_release"
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hammer"
+  },
+  {
+   "do": "hammer_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "presses": 20,
+   "within": 1.0,
+   "as": "hammered"
+  },
+  {
+   "do": "expect",
+   "title": "20 presses of Cmd-T in 1.0 s made exactly 20",
+   "since": "hammered",
+   "timeout": 20,
+   "all": [
+    {
+     "spam_counts": {
+      "from": "before-hammer",
+      "field": "tabs",
+      "delta": 20
+     }
+    },
+    {
+     "spam_runs": {
+      "of": "hammered",
+      "ran": 20
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "after"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "after"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the spam a new terminal answers, in the daemon and on screen",
+   "since": "typed",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ]
+}

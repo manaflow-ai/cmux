@@ -281,6 +281,14 @@ extension DaemonConnection {
                                                expectForeground: expectForeground))
     }
 
+    /// `surface`'s process, read for something the person did not ask for (the close question, the quit facts, the
+    /// transfer list), within `timeout`; nil when it did not answer, and for a stand-in tab, which has no process yet and
+    /// is never asked (``TerminalProcessInfoRequest/init(reading:)``: no "still opening" refusal for a read).
+    public func readProcessInfo(_ surface: SurfaceID, timeout: Duration) async -> TerminalProcessInfoRequest.Response? {
+        guard let read = TerminalProcessInfoRequest(reading: surface) else { return nil }
+        return try? await request(read, timeout: timeout)
+    }
+
     /// Pastes `text`, then Return, into `surface` only while a program other than its shell runs in the
     /// foreground. The check and both writes go over this connection back to back, and each write names
     /// the program the check saw, so a daemon with `send-expect-foreground-v1` refuses it once that

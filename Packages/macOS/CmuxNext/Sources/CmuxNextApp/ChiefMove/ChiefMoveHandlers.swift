@@ -18,9 +18,11 @@ enum ChiefMoveHandlers {
     static let actionID: ActionID = "chief.moveTo"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let cli: @MainActor () -> URL? = { LocalServerSource.bundledCLI() }
-        CloudHandlers.bind(actionID, registry, reason: { cli() == nil ? ChiefMoveStrings.noCLI : nil }) { invocation in
-            guard let cli = cli() else { throw ActionFailure(message: ChiefMoveStrings.noCLI) }
+        // The handler cannot wait: it reads what is known now, and this read answers before a person opens the menu.
+        let bundled = context.services.bundledCLI
+        Task { _ = await bundled.resolve() } // task-owner: none; one bounded file read whose answer bundled keeps
+        CloudHandlers.bind(actionID, registry, reason: { bundled.known == nil ? ChiefMoveStrings.noCLI : nil }) { invocation in
+            guard let cli = bundled.known else { throw ActionFailure(message: ChiefMoveStrings.noCLI) }
             let targets = Self.targets(context)
             let interactive = !registry.isCapturingRefusal
             if let wanted = invocation["target"]?.stringValue ?? invocation.target?.id {

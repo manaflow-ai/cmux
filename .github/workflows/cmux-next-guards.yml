@@ -24,9 +24,7 @@ permissions:
 # The CmuxNextApp size cap is a structural guard: while this is `warn` it
 # prints its findings as a warning and passes (Leo, 2026-10-19). Set it to
 # `fail` to make it block again. The crash ratchet, the defaults snapshot
-# freshness (cmux-next-defaults-guard.yml reads the committed exports to decide
-# whether a default change needs approval), the guard self-tests and the menu
-# check still fail.
+# freshness, the guard self-tests and the menu check still fail.
 env:
   CMUX_NEXT_STYLE_GUARDS: warn
 
@@ -227,7 +225,7 @@ jobs:
     # base run on the same machine, so a red of the machine's own is a base red), then Blacksmith.
     needs: [portable-placement]
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.mini_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.mini_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -587,9 +585,8 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
-  # The defaults guard's tests and the settings export stamp, in seconds (the
-  # defaults snapshot is bot-only); cmux-next-defaults-guard.yml judges the changes and
-  # the approval from each tree's sources.
+  # The defaults snapshot's tests and the settings export stamp, in seconds (the
+  # defaults snapshot is bot-only).
   defaults-snapshot:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -603,7 +600,7 @@ jobs:
           # previous commit of a push.
           fetch-depth: 2
 
-      - name: The defaults guard judges changes and approvals
+      - name: The defaults snapshot tests
         run: python3 tests/test_defaults_guard.py
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
@@ -654,6 +651,14 @@ jobs:
 
       - name: The backdrop art catalog and brightness range
         run: python3 tests/test_backdrop_art_generator.py
+
+      - name: Remote Powerlevel10k prompt reset compatibility
+        run: |
+          if ! command -v zsh >/dev/null 2>&1; then
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
+          fi
+          python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
 
       - name: The fast gates workflow and its merge and gate script
         run: python3 tests/test_cmux_next_fast_gates.py
@@ -712,6 +717,10 @@ jobs:
       - name: The app-linked crate license gate (check_app_crate_licenses.py)
         if: ${{ !cancelled() }}
         run: python3 tests/test_app_crate_licenses.py
+
+      - name: The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_check_objc_selectors_step.py
 
       - name: The package lane's prebuild-one compiles or fails (package-test-lane.sh)
         if: ${{ !cancelled() }}

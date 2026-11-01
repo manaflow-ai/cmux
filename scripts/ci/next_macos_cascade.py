@@ -91,13 +91,12 @@ about a day. A dead label takes no slot, no overflow and no retry_runner, and a
 feed's compile counts it full (fresh_stalled()), while another label shows
 life; with every label dead the snapshot says nothing to choose by.
 
-Nothing goes to GitHub-hosted macOS (Leo, 2026-10-27: "THE GITHUB HOSTED MACS /
-ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO"). Until
-then fast-tier and swift-canary overflowed to hosted `macos-26` while Blacksmith
-was full or stalled, and built cold there for up to 45 minutes; the fast-tier
-seed kept a hosted pool warm for it (21 jobs, 891 minutes a day). A job Blacksmith
-cannot take (no free slot, and 6 vCPU stalled or backed up: overflow()) stays on
-the owned label, where an idle mini or the rescue takes it
+Only owned Macs participate in this cascade. Before it existed, fast-tier and
+swift-canary overflowed to an external macOS runner while Blacksmith was full or
+stalled, and built cold there for up to 45 minutes; the fast-tier seed kept that
+external pool warm (21 jobs, 891 minutes a day). A job Blacksmith cannot take
+(no free slot, and 6 vCPU stalled or backed up: overflow()) stays on the owned
+label, where an idle mini or the rescue takes it
 (tests/test_ci_no_github_hosted_macos.py). A feed's compile (FRESH_JOBS: a DEV
 daily, a feat-cmux-next push) counts a label whose oldest queued job has waited
 FRESH_STALL_MINUTES as full, and so does its last resort when the runner groups
@@ -224,6 +223,8 @@ class Placement:
     # Jobs for which every owned and Blacksmith macOS target is full/dead;
     # cmux-next sends these to the thin build-fleet gateway.
     fleet_jobs: tuple[str, ...] = ()
+    # Jobs allowed to consume retry_runner on a rescue attempt, capped by MAX_PER_RUN and pool room.
+    retry_jobs: tuple[str, ...] = ()
 
 
 def vcpus(label: str) -> int:
@@ -739,6 +740,29 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
     return min(free, key=lambda label: (load[label] / CAPACITY[label], LABELS.index(label)))
 
 
+def gui_overflow_label(live: Mapping[str, int] | None, waiting: Mapping[str, int] | None, seen: Seen | None,
+                       jobs: int = 1) -> str:
+    """The Blacksmith macOS label the GUI jobs (cmux-next.yml swift-test, daemon-test, generated-files) take
+    when no owned GUI runner has room: LARGE while it can start all `jobs` now, else SMALL, the last resort.
+
+    LARGE needs a fresh reading that vouches for it: not stalled (stalled(), the pickers' one rule), not dead
+    (Seen.dead: on 2026-10-30 it had started nothing for about a day, 158 queued, oldest 1431 min), no
+    freshness work queued for it (Seen.reserved), a free slot for each job under CAPACITY, and the shared pool
+    fitting each (fits(): nothing queued on any Blacksmith macOS label). Without that reading (runner groups or
+    snapshot unread, or a snapshot too old for waits) nothing does, so SMALL. On 6 vCPU, swift-test's suites
+    ran starved (run 41123927916: tests that take under a second idle took 78-227 s).
+    """
+    if live is None or waiting is None or seen is None or seen.stale:
+        return SMALL
+    stall = {*stalled(live, waiting, seen.waits, seen.age), *seen_dead(seen)}
+    if LARGE in stall or seen.reserved.get(LARGE, 0) > 0:
+        return SMALL
+    jobs = max(jobs, 1)
+    free = CAPACITY[LARGE] - live.get(LARGE, 0) - waiting.get(LARGE, 0)
+    room, queue = pool_room(live, waiting), pool_queued(waiting)
+    return LARGE if free >= jobs and fits(LARGE, room - vcpus(LARGE) * (jobs - 1), queue) else SMALL
+
+
 def bot_rerun(env: Mapping[str, str]) -> bool:
     """The rescue's full re-run: attempt 2 that a RESCUE_ACTORS bot triggered, placed afresh like attempt 1."""
     return ((env.get("GITHUB_RUN_ATTEMPT") or "").strip() == "2"
@@ -871,13 +895,25 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
-    retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
-                        waiting, (*stall, *reserved, *(fresh_stall if fresh else ())))
+    retry_live = {**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}}
+    retry = retry_label(retry_live, waiting, (*stall, *reserved, *(fresh_stall if fresh else ())))
     # A re-run's jobs that no Blacksmith label listed take the overflow label before the owned side label
     # (cmux-next.yml's runs-on), so while an idle mini would take one of them the overflow stays owned.
     rerun_owned = bot_rerun(env) and len(owned) > 0
     if rerun_owned:
         retry = ""
+    # A shared retry label is still subject to the same per-run cap as first placement.
+    # Export the exact jobs allowed to consume it; workflow jobs outside this set stay on the owned route.
+    retry_jobs = ()
+    if retry:
+        label_room = CAPACITY[retry] - retry_live.get(retry, 0) - waiting.get(retry, 0)
+        pool_room_slots = pool_room(retry_live, waiting) // vcpus(retry)
+        available = max(0, min(label_room, pool_room_slots))
+        retry_candidates = tuple(job for job in jobs
+                                 if job not in fleet_jobs
+                                 and not any(job in names for names in placed.values()))
+        retry_allowance = max(0, MAX_PER_RUN - len(placed.get(retry, ())))
+        retry_jobs = retry_candidates[:min(retry_allowance, available)]
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (" (dead: nothing running, no job started in an hour)" if label in gone
                         else f" (stalled: oldest queued {seen.waits.get(label, 0.0):.0f} min)"
@@ -916,7 +952,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                                            else "; an idle mini takes the re-run, so overflow stays on the owned label"
                                            if rerun_owned
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"),
-                     fresh_stall=fresh_stall, fleet_jobs=fleet_jobs)
+                     fresh_stall=fresh_stall, fleet_jobs=fleet_jobs, retry_jobs=retry_jobs)
 
 
 def seen_dead(seen: Seen | None) -> frozenset[str]:
@@ -1012,7 +1048,7 @@ def delimited(jobs: Sequence[str]) -> str:
 
 def write(placement: Placement, env: Mapping[str, str]) -> None:
     """Outputs blacksmith_12_jobs, blacksmith_6_jobs, fresh_stalled (space-delimited, as owned_jobs) and
-    free_retry_runner (also as retry_runner)."""
+    free_retry_runner (also as retry_runner), and retry_jobs (the capped per-run retry set)."""
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
@@ -1021,7 +1057,8 @@ def write(placement: Placement, env: Mapping[str, str]) -> None:
                          f"fresh_stalled={delimited(placement.fresh_stall)}\n"
                          f"fleet_jobs={delimited(placement.fleet_jobs)}\n"
                          f"retry_runner={placement.retry_runner}\n"
-                         f"free_retry_runner={placement.retry_runner}\n")
+                         f"free_retry_runner={placement.retry_runner}\n"
+                         f"retry_jobs={delimited(placement.retry_jobs)}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:

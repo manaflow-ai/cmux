@@ -161,6 +161,8 @@ pub struct Conn {
     out: mpsc::Sender<String>,
     /// True once the client stopped sending (its read side ended): it exited or hung up.
     ended: tokio::sync::watch::Sender<bool>,
+    /// Per-session preparation cancellation; no capability or owner token is retained.
+    preparation_cancels: StdMutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
     /// Serializes the capacity check and enqueue across request and watch tasks.
     outbound_lock: Arc<StdMutex<()>>,
     /// Number of notifications rejected because the reader fell behind.
@@ -320,6 +322,23 @@ where
 }
 
 impl Conn {
+    fn preparation_cancel(&self, session: &str) -> tokio::sync::watch::Receiver<bool> {
+        self.preparation_cancels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(session.to_owned())
+            .or_insert_with(|| tokio::sync::watch::Sender::new(false))
+            .subscribe()
+    }
+
+    fn cancel_preparation(&self, session: &str) {
+        if let Some(cancel) =
+            self.preparation_cancels.lock().unwrap_or_else(|e| e.into_inner()).remove(session)
+        {
+            cancel.send_replace(true);
+        }
+    }
+
     /// Whether this connection is the person (`hub/person.rs`).
     pub(super) fn is_person(&self) -> bool {
         self.person.load(Ordering::SeqCst)
@@ -775,12 +794,25 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
 /// How long to wait after a failed `accept`. A connection that died in the queue is gone, so the
 /// next accept can run at once; anything else (EMFILE, ENFILE, ENOBUFS) leaves the connection
 /// queued, and an immediate retry would spin a core and flood the log until descriptors free up.
-fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
+pub(crate) fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
     use std::io::ErrorKind::{ConnectionAborted, ConnectionReset, Interrupted};
     match error.kind() {
         ConnectionAborted | ConnectionReset | Interrupted => std::time::Duration::ZERO,
         _ => std::time::Duration::from_millis(100),
     }
+}
+
+/// Whether a failed `accept` means the listener itself is gone (closed, never listening or not a
+/// socket), so a retry can never succeed. Any other failure is about one connection or a passing
+/// shortage, and the loop pauses ([`accept_retry_delay`]) and accepts again.
+/// Its callers are the Linux sandbox proxy and the tailnet ingress.
+#[cfg_attr(not(any(target_os = "linux", feature = "tailnet")), allow(dead_code))]
+pub(crate) fn accept_ends_listener(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    if matches!(error.raw_os_error(), Some(libc::EBADF | libc::EINVAL | libc::ENOTSOCK)) {
+        return true;
+    }
+    error.kind() == std::io::ErrorKind::UnexpectedEof
 }
 
 #[cfg(unix)]
@@ -1501,6 +1533,7 @@ async fn serve_connection_from(
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
         ended: tokio::sync::watch::Sender::new(false),
+        preparation_cancels: StdMutex::new(HashMap::new()),
         // A peer daemon's link carries all its clients' reads, which it caps one by one
         // (`media_forward.rs`).
         media: if auth == ConnAuth::PeerToken {
@@ -1568,12 +1601,15 @@ async fn serve_connection_from(
                 // on this connection sees the person decided.
                 if m == method::INITIALIZE
                     && conn.origin == Origin::Local
-                    && let Some(id) = params
-                        .as_ref()
-                        .and_then(|p| p.pointer("/_meta/acpmux/callerSession/sessionId"))
-                        .and_then(Value::as_str)
+                    && let Some(caller) =
+                        params.as_ref().and_then(|p| p.pointer("/_meta/acpmux/callerSession"))
+                    && let Some(id) = caller.get("sessionId").and_then(Value::as_str)
                 {
                     hub.session_meta(id).await;
+                    // Known once adoption has read the earlier run's token (`settle_caller`).
+                    if let Some(token) = caller.get("token").and_then(Value::as_str) {
+                        hub.settle_caller(id, token).await;
+                    }
                 }
                 conn.bind_person(&hub, &m, &mut params);
                 // Before its reply is built: the reply says whether large messages go compressed.
@@ -1657,6 +1693,14 @@ async fn serve_connection_from(
         }
     }
     conn.ended.send_replace(true);
+    let preparations: Vec<_> =
+        conn.preparation_cancels.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
+    for (session, cancel) in preparations {
+        cancel.send_replace(true);
+        if let Ok(session) = hub.resolve(&session) {
+            session.abandon_prepared_connection(&conn.id);
+        }
+    }
     // Cancellation has to reach the hub even when ordinary notifications are
     // still draining. Its worker is bounded independently and must never be
     // aborted by connection cleanup.
@@ -1890,11 +1934,12 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
+mod agent_login;
 mod agent_messages;
 mod app_reply;
 mod client_request;
 mod clock_text;
-pub(crate) use clock_text::iso;
+pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
@@ -1935,6 +1980,7 @@ use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
+pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
@@ -2117,8 +2163,16 @@ mod request_admission_tests {
 mod acp_list_tests;
 
 #[cfg(test)]
+#[path = "list_fit_tests.rs"]
+mod list_fit_tests;
+
+#[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
 mod session_list_pages_tests;
+
+#[cfg(test)]
+#[path = "watch_delta_link_tests.rs"]
+mod watch_delta_link_tests;
 
 #[cfg(test)]
 #[path = "compressed_link_tests.rs"]
@@ -2129,7 +2183,7 @@ mod key_route_tests;
 
 #[cfg(test)]
 mod accept_retry_tests {
-    use super::accept_retry_delay;
+    use super::{accept_ends_listener, accept_retry_delay};
     use std::io::{Error, ErrorKind};
     use std::time::Duration;
 
@@ -2148,6 +2202,23 @@ mod accept_retry_tests {
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionAborted)), Duration::ZERO);
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionReset)), Duration::ZERO);
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::Interrupted)), Duration::ZERO);
+    }
+
+    #[test]
+    fn only_a_listener_that_is_gone_ends_the_accept_loop() {
+        // A closed tailnet listener reports end of stream; a closed fd reports EBADF.
+        assert!(accept_ends_listener(&Error::from(ErrorKind::UnexpectedEof)));
+        #[cfg(unix)]
+        assert!(accept_ends_listener(&Error::from_raw_os_error(libc::EBADF)));
+        #[cfg(unix)]
+        assert!(accept_ends_listener(&Error::from_raw_os_error(libc::EINVAL)));
+        // Descriptor exhaustion, a dropped connection or one record that lost its fd pass.
+        #[cfg(unix)]
+        assert!(!accept_ends_listener(&Error::from_raw_os_error(libc::EMFILE)));
+        #[cfg(unix)]
+        assert!(!accept_ends_listener(&Error::from_raw_os_error(libc::ENFILE)));
+        assert!(!accept_ends_listener(&Error::from(ErrorKind::ConnectionAborted)));
+        assert!(!accept_ends_listener(&Error::other("accept failed")));
     }
 }
 

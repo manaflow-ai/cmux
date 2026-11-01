@@ -6,8 +6,9 @@ public import CmuxNextDictation
 /// Share Screen with Chief's actions (docs/chief-screen-share.md): the Home header toggle, the
 /// palette, the CLI (`cmux chief share-screen | stop-sharing-screen | look-at-screen |
 /// toggle-screen-share`) and MCP all run these on one ``ChiefScreenShare``. While sharing, the menu
-/// bar shows ``ChiefScreenShareIndicator``; a refused Screen Recording permission says why and opens
-/// its System Settings pane.
+/// bar shows ``ChiefScreenShareIndicator``; a refused Screen Recording permission (the cmux Computer Use
+/// helper's, which reads the screen) says why and opens its System Settings pane; sharing then starts by
+/// itself once it is allowed.
 ///
 /// ```swift
 /// ChiefScreenShareActions(share: services.chiefScreenShare, registry: registry).bind()
@@ -99,9 +100,12 @@ public struct ChiefScreenShareActions {
                 case .needsPermission:
                     registry?.refuse(ChiefScreenShareStrings.needsPermission)
                     openSettings()
+                case .waitingForHelper where last == .starting:
+                    // Only when sharing could not start: a helper relaunching after a grant comes back by itself.
+                    registry?.refuse(ChiefScreenShareStrings.helperNotRunning)
                 case .failed:
                     registry?.refuse(ChiefScreenShareStrings.failed)
-                case .off, .starting, .sharing:
+                case .off, .starting, .sharing, .waitingForHelper:
                     break
                 }
             }

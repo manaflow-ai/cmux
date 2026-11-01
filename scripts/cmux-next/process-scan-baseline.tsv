@@ -30,7 +30,7 @@ cmux-tui/crates/cmux-browser-host/src/egress_listeners.rs	5	keep	security egress
 cmux-tui/crates/cmux-browser-host/src/egress_holders.rs	4	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
 cmux-tui/crates/cmux-browser-host/src/egress_services.rs	5	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
 Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ProcessUsage.swift	7	remove	cx-t2sqm.11
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxServerPeer.swift	7	remove	cx-t2sqm.11
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxServerPeer.swift	6	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHostStop.swift	1	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxVersionHandoff.swift	1	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost/PeerProcess.swift	4	keep	peer authentication of one proxy connection (this app and its own children)

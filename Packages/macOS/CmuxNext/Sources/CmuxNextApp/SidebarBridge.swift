@@ -172,7 +172,7 @@ final class SidebarBridge {
                                                held: { machines.workspace(id: $0) != nil }) { id in
                 if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines),
-                      let pin = WindowProfiles.membership(machines)?.pins[workspace] else { return false }
+                      let pin = WindowProfiles.membership(machines)?.pinned(workspace) else { return false }
                 return pin != windowState.profileID
             }
         }
@@ -223,7 +223,7 @@ final class SidebarBridge {
         let windows = services.windows
         let isLaunchWindow = windows.controllers.isEmpty && windows.registry.isLaunching
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
-        seed = SidebarSeed(sections: saved?.sidebarSections ?? [], grace: seed.grace.rerunning(sameTurn))
+        seed = SidebarSeed(sections: saved?.sidebarSections ?? [], grace: seed.grace.rerunning(sameTurn), connecting: seed.connecting.rerunning(sameTurn))
         // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
         model.collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
         if let saved, !saved.profiles.isEmpty {
@@ -248,7 +248,7 @@ final class SidebarBridge {
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], shownAt: UInt64?, layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
                       creating: [PendingWorkspaceRows.Row] = []) {
-        var sections = seed.merge(live, launching: launching, failed: failed)
+        var sections = seed.connecting.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed))
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         let hadDocDrag = model.docDrag != nil
@@ -388,7 +388,8 @@ final class SidebarBridge {
                                                iconAsset: groupIcon, rowSource: rows, workspaceFilter: workspaceFilter,
                                                harnessIcons: harnessIcons)
         for session in machines.cloud {
-            let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon), limits: machines.cloudLimits)
+            let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon), limits: machines.cloudLimits,
+                                                   updates: machines.updates)
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,

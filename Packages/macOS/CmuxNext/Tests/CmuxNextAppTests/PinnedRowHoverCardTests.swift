@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxNextWakeupsTestSupport
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// hover thing"; again: "pinned rows needs hover cards too"): resting on a pinned workspace row showed no card,
 /// while a workspace row in the list shows the workspace hover card. A pinned row opens the same card, from the
 /// list's one card controller: the same delay, the same contents, beside the pinned row.
-@MainActor @Suite(.serialized) struct PinnedRowHoverCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PinnedRowHoverCardTests {
     private static let pinnedID = WorkspaceID("ws-pinned")
     private static let listedID = WorkspaceID("ws-listed")
     private static let item = LayoutItem(id: LayoutItemID("itm_pin_card"), ref: .workspace("local:ws-pinned"))

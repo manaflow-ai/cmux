@@ -166,7 +166,8 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
 /// The refusal for a version skew, naming the exact update command of the
 /// side that is too old (plans/cmux-next/tui-tester-rollout.md #4).
 fn skew_refusal(ident: &Value, protocol: u64, client_too_old: bool) -> String {
-    use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel, update_hint_for};
+    use crate::version_report::{DISTRIBUTION_VERSION, InstallChannel};
+    use cmux_tui_core::release::update_hint_for;
     let server = ident.get("version").and_then(Value::as_str).unwrap_or("unknown");
     if client_too_old {
         format!(

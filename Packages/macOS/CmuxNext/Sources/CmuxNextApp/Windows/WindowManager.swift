@@ -1,10 +1,12 @@
 import CmuxNextHibernation
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextWakeups
@@ -90,9 +92,14 @@ final class WindowManager {
     /// Machine each workspace was last seen on, to tell "gone" from "its
     /// machine is still connecting".
     var seenMachine: [String: String] = [:]
+    /// What `isDead` reads of the Cloud's sign-in and machine list: `CloudService.listFacts`; a test
+    /// gives its own account state, which it cannot sign in to reach.
+    var cloudList: (CloudService) -> CloudMachineListFacts = \.listFacts
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
+    /// The saved windows' read failed for good: no restore places the launch window's claims (``awaitsRestore(_:)``).
+    private(set) var restoreGaveUp = false
     /// Windows the person closed before `restore` finished (cx-ghagp): the restore puts back the
     /// saved registry, where they are open, and must not open them again. Empty once it finished.
     var closedDuringRestore: Set<String> = []
@@ -243,7 +250,9 @@ final class WindowManager {
         }
         registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
-        guard let document = await readSavedWindows(), !Task.isCancelled, !isTerminating else { return }
+        let saved = await readSavedWindows()
+        guard !Task.isCancelled, !isTerminating else { return }
+        guard let document = saved else { restoreGaveUp = true; return reconcileMembership() }
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
         // A daemon with state resources owns its ephemeral workspaces (it closes them at its
@@ -311,7 +320,7 @@ final class WindowManager {
         enterRestoredFullScreens()
         // Its New Tab page or Home; not after the person closed a window meanwhile: revealing it
         // opens a window again (the Home workspace shows before the restore finished).
-        if closedDuringRestore.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace) }
+        if closedDuringRestore.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace, leftover: leftover) }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
@@ -349,6 +358,7 @@ final class WindowManager {
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
+        launchWindowAdopted(from: launchID, as: front)
         states[launchID] = nil
         states[front] = launch.state
         launch.sidebar.restore(width: record.sidebarWidth, hidden: record.sidebarHidden)
@@ -496,15 +506,25 @@ final class WindowManager {
         userClosed(id)
     }
 
-    /// Flushes state and stops saving (quit).
+    /// Flushes state and stops saving (quit). The records go first: they
+    /// never hold an incognito window, and a slow daemon close of an
+    /// incognito workspace must not keep them past the quit step's limit.
     func prepareForTermination() async {
         loadObservation?.cancel()
         recordSaver.geometryTimer.cancel()
+        await recordSaver.flushSaves()
         await closeIncognitoWindowsForTermination()
         await recordSaver.flushSaves()
+        stopSavingForTermination()
+        // Chromium stops later, as the last quit step (QuitSteps).
+    }
+
+    /// Stops saving for the quit at once: also when ``prepareForTermination()``
+    /// passed its quit-step limit and still runs (`QuitSaveSteps`).
+    func stopSavingForTermination() {
+        recordSaver.geometryTimer.cancel()
         isTerminating = true
         membershipObservation?.cancel()
-        // Chromium stops later, as the last quit step (QuitCompletion).
     }
 
     /// Copies each open window's frame and display into the registry.
@@ -540,10 +560,10 @@ final class WindowManager {
     /// Every workspace this app holds memory for (mounted in a window, or a tab `holdsMemory` says
     /// holds a surface or page), with what keeps it awake.
     func hibernationResidents(in stores: [DaemonStore], holdsMemory: (String) -> Bool) -> [WorkspaceHibernationResident] {
-        let mounted = parkedWorkspaceIDs
+        let mounted = parkedWorkspaceIDs, hidden = hiddenSpaceTest()
         return WorkspaceActivityFacts.all(in: stores) { workspace, tabs in mounted.contains(workspace.id) || tabs.contains { holdsMemory($0.id) } }
             .map { WorkspaceHibernationResident(workspace: $0.workspace, lastActivity: $0.lastActivity, pinned: $0.pinned,
-                                                running: $0.running, needsAttention: $0.needsAttention) }
+                                                running: $0.running, needsAttention: $0.needsAttention, inHiddenSpace: hidden($0.workspace)) }
     }
 
     /// Workspace `id` hibernated: every window unmounts its parked content.

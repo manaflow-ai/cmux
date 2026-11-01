@@ -28,7 +28,14 @@
   min-height: var(--cv-disclosure-line-height);
   cursor: default;
   border-radius: 6px;
+  /* The line's first toggle takes its start inset back (below), so its icon sits in the one
+     column (conversation.css --cv-row-icon). */
   padding: 0 var(--ds-space-1);
+}
+/* A line that starts with its toggle: the hover plate keeps its inset, the icon stays in the
+   shared column. */
+.cv-disclosure__line > :is(.cv-disclosure__toggle, .cv-disclosure__open):first-child:not(.is-chevron) {
+  margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 /* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
    own toggle right after it. */
@@ -55,7 +62,9 @@
 .cv-disclosure__icon {
   display: inline-flex;
   flex: none;
-  width: 16px;
+  width: var(--cv-row-icon, 16px);
+  /* The line's gap is 6px; the words start one --cv-row-icon-gap after the icon, as a tool row's. */
+  margin-inline-end: calc(var(--cv-row-icon-gap, 6.5px) - (var(--ds-space-1) + 2px));
   justify-content: center;
   color: var(--cv-text-muted);
 }

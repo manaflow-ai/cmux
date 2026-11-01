@@ -36,6 +36,9 @@ struct AgentPageTerminationsTests {
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), source: .bundled(file),
                                               pageHost: pageHost, testRoot: pageHost, chromium: nil, terminations: terminations))
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        // These chats kept ending: their retries are spent, so the next end shows the notice
+        // (AgentPageCrashRetryTests covers the retries).
+        for _ in 0..<AgentPageCrashBudget.limit { _ = view.crashRetry.budget.ended(at: Date()) }
         return view
     }
 

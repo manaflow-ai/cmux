@@ -310,6 +310,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: result.showColors, &diagnostics)
+        result.workspaceColorIndicator = WorkspaceColorsSetting.parseIndicatorStyle(root, fallback: result.workspaceColorIndicator, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)

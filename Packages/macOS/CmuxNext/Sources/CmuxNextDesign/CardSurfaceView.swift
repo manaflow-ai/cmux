@@ -9,7 +9,7 @@ public import AppKit
 @MainActor
 public final class CardSurfaceView: NSView {
     /// The shared glass style the card draws.
-    public static let style = FloatingGlassStyle.card
+    public static let style = SurfaceRole.card.neutralStyle ?? FloatingGlassStyle.card
 
     private let reduceTransparency: ReduceTransparency
     /// The rim; nil under Reduce Transparency.

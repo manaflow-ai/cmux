@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import CmuxTheme
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// fainter than the card's secondary text. The links drew the raw accent, which in a theme that names
 /// no accent is its focus ring, 40% of the text. A link draws the lit accent (`Palette.litGlyph`),
 /// which reads at least as well as secondary text and keeps a theme's own accent hue.
-@MainActor @Suite(.serialized) struct HomeChiefLinkInkTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeChiefLinkInkTests {
     @Test func aLinkReadsAtLeastAsWellAsSecondaryText() throws {
         let input = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xE6E6E6), palette: [])
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 80), styleMask: [.borderless],

@@ -6,16 +6,9 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    /// How much shorter than the list's inset a row ends on the right: negative, so a row's fill runs
-    /// past the inset to `rowEdgeGap` from the sidebar's right edge. #22733 stopped the pills
-    /// `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back the
-    /// length, so we can have more content per sidebar row"), and 2026-10-27 shrank what was left
-    /// ("the sidebar workspace highlight button area ... The gap between the row and the, you know,
-    /// the drag, the actual sidebar end"). Pinned rows and list blocks read it too, so every row
-    /// still ends at one x; the left inset and the content's insets inside the fill are unchanged.
+    /// Every row highlight ends on the same outer inset.
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
-    /// The space between a row's fill and the sidebar's right edge (Leo 2026-10-27: "like say one or
-    /// two pixels, 1.5").
+    /// Leo 2026-10-27: "one or two pixels, 1.5"; content columns do not change the fill edge.
     static let rowEdgeGap: CGFloat = 1.5
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// Height of a placeholder row's bar (about a caption's x-height).
@@ -41,40 +34,27 @@ enum SidebarStyle {
     /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
     /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
-    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconBox / 2 }
+    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
+    /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
+    /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,
+    /// so the text column is one 8 pt gap after the frame at both densities.
+    static var iconColumnBox: CGFloat { columns(rowWidth: 0).iconBox }
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
-    /// Where a list row's title text starts when its leading icon slot begins at `leading`.
-    ///
-    /// No icon (`iconSide` 0): at `leading`, as far left as the row allows (Lawrence 2026-10-23: "text
-    /// needs to be as left as possible (how it originally was)"; c779988d57d had kept an empty slot).
-    /// An icon: a Chrome-like 6 pt after the glyph's drawing (it draws at `kindGlyphSize`, centered in its
-    /// box). A color swatch: 6 pt after the swatch's box.
+    /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
-        guard iconSide > 0 else { return leading }
-        if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
-        return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
+        columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)
     }
-    /// Where a workspace row's title starts, from its icon and session tree depth.
-    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int) -> CGFloat {
-        let side: CGFloat
-        let swatch: Bool
-        switch icon {
-        case nil: side = 0; swatch = false
-        case .swatch: side = dotSize + Metrics.space1; swatch = true
-        case .symbol, .emoji, .favicon: side = iconBox; swatch = false
-        }
-        let leading = horizontalInset + CGFloat(treeDepth) * treeIndent
-        return titleTextX(leading: leading, iconSide: side, swatch: swatch) - WorkspaceRowView.labelInset
+    /// Workspace title geometry shared by realized rows and virtualized parents of tab rows. A left-rail row with no
+    /// symbol, emoji or favicon keeps the swatch's slot (#25705), so its title sits where the dot style draws it.
+    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesColorRail: Bool = false) -> CGFloat {
+        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesColorRail) - WorkspaceRowView.labelInset
     }
     static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {
         x + WorkspaceRowView.labelInset + indicatorSize + Metrics.space1
     }
-    /// The one text column after a leading glyph in a row whose first ink starts at `leading`: Home's and every
-    /// band row's label, a pinned row's title (after its pin), a workspace row's title after its icon. Lawrence
-    /// 2026-10-28: "home and pinned are not aligned".
-    static func leadingTextX(leading: CGFloat) -> CGFloat { titleTextX(leading: leading, iconSide: iconBox) }
+    static func leadingTextX(leading: CGFloat) -> CGFloat { columns(rowWidth: 0, leadingOffset: leading - titleLeading).text }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
@@ -89,6 +69,9 @@ enum SidebarStyle {
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
     static var dotSize: CGFloat { Metrics.space3 }
+    /// The blue unread dot on a workspace row, an icon or a tile: 8 pt, as Claude's and ChatGPT's unread dot
+    /// (Leo 2026-10-31: "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). The one token every unread dot reads.
+    static var unreadDotSize: CGFloat { Metrics.space4 }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
@@ -139,10 +122,8 @@ enum SidebarStyle {
     }
     /// `detailLineHeight` for the last caption font: every row layout and render state reads it.
     private static var detailLine: (font: NSFont, height: CGFloat)?
-    /// Where a workspace title without a custom icon starts: rows draw no
-    /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
-    /// their name here too.
-    static var titleLeading: CGFloat { horizontalInset }
+    /// Section headers start on lead; content rows keep their text column without an icon.
+    static var titleLeading: CGFloat { columns(rowWidth: 0).lead }
     /// The size a group header's name, glyphs, buttons and corner scale from: 26 of a 32 pt row,
     /// scaled with the row height. The colored bar itself fills the row, as tall as a workspace
     /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
@@ -216,7 +197,7 @@ enum SidebarStyle {
     static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }
     /// How far an AppKit label cell draws its text inside its frame: a label
     /// sits this much before the edge its text aligns to.
-    static var labelCellPadding: CGFloat { Metrics.space1 }
+    static var labelCellPadding: CGFloat { LayoutGrid.halfStep }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
     static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: titleFont.pointSize, weight: .regular) }
     /// A header's disclosure chevron, filling its `Metrics.smallIconSize` box.

@@ -32,7 +32,8 @@ final class WorkspaceTabHoverCardRow: NSView {
         icon.translatesAutoresizingMaskIntoConstraints = false
         title.font = Typography.body
         title.lineBreakMode = .byTruncatingTail
-        cwd.font = Typography.caption
+        // Digits of one width, so a count that changes keeps the line still (tabular numbers).
+        cwd.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
         cwd.lineBreakMode = .byTruncatingMiddle
         for label in [title, cwd] { label.setContentCompressionResistancePriority(.required, for: .vertical) }
         textStack.orientation = .vertical
@@ -82,23 +83,28 @@ final class WorkspaceTabHoverCardRow: NSView {
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
             ?? NSImage.icon(tab.kind.icon, size: Metrics.iconSize)
         title.stringValue = tab.title
-        cwd.stringValue = tab.folder ?? ""
-        cwd.isHidden = !showsFolder || tab.folder == nil || tab.folder?.isEmpty == true
+        // The second line: the chat's running subagents and commands, then the folder. A compact
+        // row (one line tall) has no second line.
+        let caption = showsFolder ? WorkspaceHoverCardWork.tabCaption(tab) : nil
+        cwd.stringValue = caption ?? ""
+        cwd.isHidden = caption == nil
         let status = Self.statusText(tab.state)
         // The compact card always uses the shared arc spinner for active work;
         // a user's pulsing-dot preference must not turn this status into a dot.
         // Working-look preferences may restyle `.working` into a breathing dot;
         // use its progress as loading so this surface always shows an arc.
         activity.configure(tab.state.isWorking ? .busy(progress: tab.state.progress) : tab.state, style: .arc)
-        setAccessibilityLabel("\(tab.title), \(status)")
-        reportedLine = [tab.title, tab.folder, status].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        let work = WorkspaceHoverCardWork.counts(subagents: tab.subagentsRunning, commands: tab.commandsRunning)
+        reportedLine = [tab.title, tab.folder, work, status].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        setAccessibilityLabel([tab.title, work, status].compactMap { $0 }.joined(separator: ", "))
         paint()
     }
 
     func applyColors() {
         performWithTheme {
             title.textColor = Palette.textPrimary
-            cwd.textColor = Palette.textTertiary
+            // Secondary, the token the card's facts use: tertiary washed the paths out on dark glass.
+            cwd.textColor = Palette.textSecondary
             icon.contentTintColor = Palette.textSecondary
         }
         paint()

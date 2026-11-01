@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
@@ -10,7 +11,7 @@ import CmuxNextDesignTokens
 /// light surface. The labels must re-read their ink in the scope they draw in, in an inactive
 /// (never key) window too, and the surface must stay a light card, not a grey slab. These
 /// check the solid card a dialog draws under Reduce Transparency; on glass the tint carries it.
-@MainActor @Suite(.serialized) struct CmuxDialogLightContrastTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CmuxDialogLightContrastTests {
     private static let light = ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F))
     private static let dark = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xE6E6E6))
 

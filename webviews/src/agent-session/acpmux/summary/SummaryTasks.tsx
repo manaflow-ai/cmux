@@ -1,7 +1,7 @@
-// The summary card's Background tasks (SummaryBody.tsx), with the Inspector off (Debug Settings
-// `agent.inspector`; on, the Inspector's TasksSection.tsx lists them): the chat's background
-// commands (inspector/processes.ts `backgroundCommands`), running ones first and newest first, each
-// with its description, state, elapsed time and a Stop button (inspector/TasksSection.tsx
+// The summary card's Background tasks (SummaryBody.tsx), with Session Info off (Debug Settings
+// `agent.inspector`; on, Session Info's TasksSection.tsx lists them): the chat's background
+// commands (session-info/processes.ts `backgroundCommands`), running ones first and newest first, each
+// with its description, state, elapsed time and a Stop button (session-info/TasksSection.tsx
 // `StopButton`). Finished work stays visible as compact cards so a completed or failed task does
 // not disappear behind an aggregate count. Long lists remain in the card and can be opened in
 // Session Info with the final row.
@@ -10,14 +10,13 @@
 // drawn with are simply there.
 import { useMemo } from "react";
 import { useArrivals } from "../../../ui/presence";
-import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
-import { useNow } from "../subagents/SubagentGroup";
-import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../inspector/processes";
-import { COMMAND_STATE, StopButton } from "../inspector/TasksSection";
+import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../session-info/processes";
+import { COMMAND_STATE, StopButton } from "../session-info/TasksSection";
+import { RunningElapsed, SummaryTaskClock } from "./SummaryTaskClock";
 
 const ROW_ICON = rowIconSize(12);
 export function SummaryTasks({
@@ -36,7 +35,6 @@ export function SummaryTasks({
 }) {
   const t = useT();
   const { running, finished } = useMemo(() => splitCommands(commands), [commands]);
-  const now = useNow(running.length > 0);
   const { arrived, played } = useArrivals(commands.map(arrivalKey), commands.map(arrivalKey));
   if (commands.length === 0) return null;
   const title = t("summary.backgroundTasks");
@@ -74,7 +72,7 @@ export function SummaryTasks({
           </span>
           <span className="acpmux-summary-meta">
             {live && command.startedAt !== undefined
-              ? formatDuration(Math.max(0, now - command.startedAt))
+              ? <RunningElapsed startedAt={command.startedAt} />
               : t(COMMAND_STATE[command.state])}
           </span>
         </button>
@@ -103,7 +101,9 @@ export function SummaryTasks({
   return (
     <section className="acpmux-summary-section acpmux-summary-tasks" aria-label={title}>
       <h3 className="acpmux-summary-title">{title}</h3>
-      <ul className="acpmux-summary-list">{cards}</ul>
+      <SummaryTaskClock live={running.length > 0}>
+        <ul className="acpmux-summary-list">{cards}</ul>
+      </SummaryTaskClock>
     </section>
   );
 }

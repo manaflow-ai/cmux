@@ -77,6 +77,7 @@ pub mod trace;
 pub mod turn;
 pub mod turn_caller;
 pub mod turn_retention;
+pub mod turn_user_extras;
 pub mod update_watch;
 pub mod usage;
 pub mod version_tool;

@@ -4,223 +4,116 @@ import CmuxNextCloud
 import Foundation
 import Testing
 
-/// Which machine a `cloud.startChat` send runs on (Leo, 2026-10-30: "like the initial 0 to 1 chat
-/// auto it sends to cloud"): this person's free machine, never a teammate's busy one or a lane-pool
-/// VM, else a new one for chats; and a retry of the same send stays on its first try's machine
-/// (#28845), so it never opens a second chat with the prompt elsewhere.
+/// What stays in the App of a `cloud.startChat` send: the account and list checks, the folder it may
+/// copy, and the machine's create. Which machine it takes, a retry's pin, its copy's folder and the
+/// send's keys are cmux-tui's and tested there (`link/start_chat_cli/tests.rs`, on Linux).
 @Suite
 @MainActor
 struct CloudStartChatMachineTests {
-    private typealias Candidate = CloudStartChat.Candidate
-    private static let me = "user-leo", teammate = "user-austin"
-
-    private static func machine(_ id: String, _ title: String, by creator: String? = me, status: CloudMachine.Status = .running,
-                                pause: CloudMachine.PauseReason? = nil, connected: Bool = true, chats: Int? = 0) -> Candidate {
-        Candidate(id: id, title: title, slug: nil, createdBy: creator, status: status, pauseReason: pause,
-                  connected: connected, chats: connected ? chats : nil)
-    }
-
-    @Test func aTeammatesConnectedMachineIsNeverTakenAndNoneOfMineMakesANewOne() {
-        // The old pick: the first connected team machine. On Leo's account that is someone's lane VM.
-        let team = [Self.machine("vm-a", "austin-box", by: Self.teammate), Self.machine("vm-b", "Cloud Machine", by: Self.teammate)]
-        #expect(CloudStartChat.pick(team, user: Self.me, used: []) == nil)
-        #expect(CloudStartChat.pick(team, user: nil, used: []) == nil)
-    }
-
-    @Test func aBusyMachineOfMineIsPassedOverForAFreeOne() {
-        let machines = [Self.machine("vm-busy", "work", chats: 3), Self.machine("vm-free", "spare", chats: 0)]
-        #expect(CloudStartChat.pick(machines, user: Self.me, used: []) == "vm-free")
-        // Only busy ones: a new machine.
-        #expect(CloudStartChat.pick([Self.machine("vm-busy", "work", chats: 1)], user: Self.me, used: []) == nil)
-    }
-
-    @Test func aMachineMarkedForChatsIsTakenFirstEvenWithChatsOpen() {
-        let machines = [Self.machine("vm-free", "spare"), Self.machine("vm-chats", "cloud-chats", chats: 4)]
-        #expect(CloudStartChat.pick(machines, user: Self.me, used: []) == "vm-chats")
-        #expect(CloudStartChat.isMarkedForChats("Cloud-Chats-2"))
-        #expect(!CloudStartChat.isMarkedForChats("cloud-chats-x"))
-        // A teammate's machine for chats is still theirs.
-        #expect(CloudStartChat.pick([Self.machine("vm-c", "cloud-chats", by: Self.teammate)], user: Self.me, used: []) == nil)
-    }
-
-    @Test func laneShellVMsAreNeverPicked() {
-        let lanes = [Self.machine("vm-1", "fs-lane-3"), Self.machine("vm-2", "lane-vm-1"), Self.machine("vm-3", "LANE-VM-12")]
-        #expect(CloudStartChat.pick(lanes, user: Self.me, used: []) == nil)
-        var slugged = Self.machine("vm-4", "Leo's box")
-        slugged.slug = "fs-lane-7"
-        #expect(CloudStartChat.pick([slugged], user: Self.me, used: []) == nil)
-        // Only the pool's numbered names.
-        #expect(!CloudStartChat.isLanePool("fs-lane-notes"))
-        #expect(!CloudStartChat.isLanePool("lane-vm-"))
-    }
-
-    @Test func anIdlePausedMachineOfMineIsFreeAndAPersonsPauseIsNot() {
-        let idle = Self.machine("vm-idle", "spare", status: .paused, pause: .idle, connected: false)
-        let paused = Self.machine("vm-paused", "kept", status: .paused, pause: .user, connected: false)
-        let failed = Self.machine("vm-failed", "broken", status: .failed, connected: false)
-        #expect(CloudStartChat.pick([paused, failed, idle], user: Self.me, used: []) == "vm-idle")
-        // A connected free machine comes before one that must resume.
-        #expect(CloudStartChat.pick([idle, Self.machine("vm-live", "live")], user: Self.me, used: []) == "vm-live")
-    }
-
-    @Test func aMachineWithNoCreatorCountsAsMineOnlyWhenAnEarlierSendRanThere() {
-        let unknown = Self.machine("vm-x", "cloud-chats", by: nil)
-        #expect(CloudStartChat.pick([unknown], user: Self.me, used: []) == nil)
-        #expect(CloudStartChat.pick([unknown], user: Self.me, used: ["vm-x"]) == "vm-x")
-    }
-
-    @Test func aNewMachineForChatsGetsAFreeName() {
-        #expect(CloudStartChat.newMachineName(taken: ["fs-lane-1"]) == "cloud-chats")
-        #expect(CloudStartChat.newMachineName(taken: ["Cloud-Chats", "cloud-chats-2"]) == "cloud-chats-3")
-    }
-
-    /// #28845: the first try took vm-a; then vm-a dropped its link and the list's order changed, so
-    /// a fresh pick would take vm-b. The retry still goes to vm-a, where its tab key gets the first
-    /// try's tab back.
-    @Test func aRetryOfTheSameSendStaysOnItsFirstTrysMachine() {
-        let destinations = CloudStartChat.Destinations()
-        let key = UUID().uuidString
-        let first = [Self.machine("vm-a", "spare-a"), Self.machine("vm-b", "spare-b")]
-        let firstTry = CloudStartChat.destination(for: key, destinations: destinations, candidates: first, user: Self.me) { _ in true }
-        #expect(firstTry == .machine("vm-a"))
-        destinations.record("vm-a", for: key)
-
-        let later = [Self.machine("vm-b", "spare-b"), Self.machine("vm-a", "spare-a", connected: false)]
-        #expect(CloudStartChat.destination(for: key, destinations: destinations, candidates: later, user: Self.me) { _ in true } == .machine("vm-a"))
-        // The same key in another case is the same send.
-        #expect(CloudStartChat.destination(for: key.lowercased(), destinations: destinations, candidates: later, user: Self.me) { _ in nil } == .machine("vm-a"))
-        // Another send picks afresh.
-        #expect(CloudStartChat.destination(for: UUID().uuidString, destinations: destinations, candidates: later, user: Self.me) { _ in true } == .machine("vm-b"))
-    }
+    private static let me = "user-leo"
 
     /// Router review at 2a315af: a team switch keeps the user signed in and the previous team's
-    /// machines in the store until the new list lands. A send's pin belongs to the account it was
-    /// sent in, and a send copies nothing while the account changed or its list is not current.
-    @Test func aSendNeverGoesToAMachineOfTheTeamItWasNotSentIn() throws {
-        let destinations = CloudStartChat.Destinations()
-        let key = UUID().uuidString
+    /// machines in the store until the new list lands. A send is kept under the account it was sent
+    /// in, and copies nothing while the account changed or its list is not current.
+    @Test func aSendIsKeptUnderTheAccountItBeganInAndChecksItAtEveryStep() throws {
         let teamA: [String?] = [Self.me, "team-a"], teamB: [String?] = [Self.me, "team-b"]
-        destinations.record("vm-a", for: CloudStartChat.pinKey(key, account: teamA))
-        // In team B the same send has no pin: it picks among team B's own machines.
-        let teamBMachines = [Self.machine("vm-b", "spare-b")]
-        #expect(CloudStartChat.destination(for: CloudStartChat.pinKey(key, account: teamB), destinations: destinations,
-                                           candidates: teamBMachines, user: Self.me) { $0 == "vm-b" } == .machine("vm-b"))
-        // Back in team A, the retry finds its first try's machine.
-        #expect(destinations.machine(for: CloudStartChat.pinKey(key, account: teamA)) == "vm-a")
-
+        #expect(CloudStartChat.accountText(teamA) == "user-leo/team-a")
+        #expect(CloudStartChat.accountText(teamA) != CloudStartChat.accountText(teamB))
+        #expect(CloudStartChat.accountText([Self.me, nil]) == "user-leo/")
         try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: true)
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamB, listCurrent: true) }
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: false) }
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
     }
 
-    /// Router review at 020b012: a machine the server names no creator for counts as this person's
-    /// only by this account's own sends, never another user's or team's on this Mac; and a send's
-    /// pin and copy record are one ledger entry, so they are evicted together.
-    @Test func onlyThisAccountsSendsMakeAMachineWithNoCreatorItsOwn() {
-        let destinations = CloudStartChat.Destinations()
-        let userA: [String?] = ["user-a", "team-a"], userB: [String?] = ["user-b", "team-a"]
-        destinations.record("vm-a-chats", for: CloudStartChat.pinKey(UUID().uuidString, account: userA))
-        #expect(destinations.machines(of: userB).isEmpty)
-        #expect(destinations.machines(of: userA) == ["vm-a-chats"])
-        let unowned = [Self.machine("vm-a-chats", "cloud-chats", by: nil)]
-        #expect(CloudStartChat.destination(for: CloudStartChat.pinKey(UUID().uuidString, account: userB), destinations: destinations,
-                                           candidates: unowned, user: "user-b", used: destinations.machines(of: userB)) { _ in true } == .new)
-
-        // Pin, place and copy of one send under its pin key: evicting the oldest drops all of them.
-        let first = CloudStartChat.pinKey(UUID().uuidString, account: userB)
-        destinations.record("vm-1", for: first)
-        _ = destinations.place(for: first, on: "vm-1") { "work/a" }
-        destinations.recordCopy("work/a", for: first, on: "vm-1")
-        for _ in 0..<(CloudStartChat.Destinations.limit - 2) {
-            destinations.record("vm-x", for: CloudStartChat.pinKey(UUID().uuidString, account: userB))
+    /// Proof run on a fresh staging machine (2026-11-01): its image's older cmux-tui refused the
+    /// copy with `machine_outdated` and the first send failed with "Update the machine". That answer
+    /// (about the machine, never this Mac's side) updates the machine and copies again; nothing else does.
+    @Test func onlyTheMachinesOutdatedRefusalUpdatesItBeforeCopyingAgain() async throws {
+        let outdated = CloudOutdatedMachine.code
+        #expect(CloudMoveStrings.outdatedCode == outdated)
+        let read = { (answer: CloudMoveCLI.Answer) -> (ok: Bool, errorCode: String?, side: String?) in (answer.ok, answer.errorCode, answer.side) }
+        for (first, updates) in [(CloudMoveCLI.Answer(ok: false, errorCode: outdated), true),
+                                 (.init(ok: false, errorCode: outdated, side: "target"), true),
+                                 (.init(ok: false, errorCode: outdated, side: "source"), false),
+                                 (.init(ok: false, errorCode: "sync_failed"), false), (.init(ok: true), false)] {
+            for updated in [true, false] {
+                var copies = 0, asked = 0
+                let answer = try await CloudOutdatedMachine.copy({ () async throws -> CloudMoveCLI.Answer in
+                    copies += 1
+                    return copies == 1 ? first : CloudMoveCLI.Answer(ok: true)
+                }, answer: read) {
+                    asked += 1
+                    return updated
+                }
+                #expect(asked == (updates ? 1 : 0))
+                #expect(copies == (updates && updated ? 2 : 1))
+                #expect(answer == (updates && updated ? CloudMoveCLI.Answer(ok: true) : first))
+            }
         }
-        #expect(destinations.machine(for: first) == "vm-1")
-        #expect(destinations.copiedChat(for: first, on: "vm-1") == "work/a")
-        // The next drops user A's send (the oldest), the one after it this send.
-        destinations.record("vm-y", for: CloudStartChat.pinKey(UUID().uuidString, account: userB))
-        #expect(destinations.machine(for: first) == "vm-1")
-        destinations.record("vm-z", for: CloudStartChat.pinKey(UUID().uuidString, account: userB))
-        #expect(destinations.machine(for: first) == nil)
-        #expect(destinations.copiedChat(for: first, on: "vm-1") == nil)
     }
 
-    /// Router review at c1d0cf8: after a team switch the store keeps the previous team's sessions while
-    /// an omission waits on a newer read. A pin is to a machine of the list read for this account, or
-    /// kept while only the store has it (a create the list predates), and dropped once neither does.
-    @Test func aPinStandsOnlyOnThisAccountsList() {
-        #expect(CloudStartChat.pinExists("vm-a", listed: ["vm-a"], inStore: true) == true)
-        #expect(CloudStartChat.pinExists("vm-new", listed: ["vm-a"], inStore: true) == nil)
-        #expect(CloudStartChat.pinExists("vm-gone", listed: ["vm-a"], inStore: false) == false)
+    /// The plan reads the send under its account and Mac workspace, only the machines the account's list
+    /// named, and the ones made since (kept for a pin, never picked).
+    /// Router review at f766845: a machine the server destroyed may stay in the store after the list dropped it. It is
+    /// never sent as made since, so a workspace or send pinned to it moves on instead of failing to connect.
+    @Test func aGoneMachineInTheStoreIsNeverKeptForAPin() {
+        let machines = [CloudMachine(id: "vm-listed"), CloudMachine(id: "vm-new", status: .provisioning),
+                        CloudMachine(id: "vm-destroyed", status: .destroyed), CloudMachine(id: "vm-failed", status: .failed),
+                        CloudMachine(id: "vm-deleting", status: .deleting)]
+        #expect(machines.keptForPin(listed: ["vm-listed"]) == ["vm-new"])
     }
 
-    @Test func aRetryWhoseMachineIsGonePicksAfreshAndARetryOfANewMachineStaysOnIt() {
-        let destinations = CloudStartChat.Destinations()
-        let key = UUID().uuidString
-        destinations.record("vm-gone", for: key)
-        let now = [Self.machine("vm-b", "spare-b")]
-        #expect(CloudStartChat.destination(for: key, destinations: destinations, candidates: now, user: Self.me) { $0 != "vm-gone" } == .machine("vm-b"))
-        #expect(destinations.machine(for: key) == nil)
-        // A machine made for the first try (not listed yet) is kept for its retry.
-        destinations.record("vm-new", for: key)
-        #expect(CloudStartChat.destination(for: key, destinations: destinations, candidates: now, user: Self.me) { _ in nil } == .machine("vm-new"))
+    /// A listed machine's plan entry: its id, title, shown status and link, the known slug and pause reason, and its
+    /// chat count only when connected (a disconnected machine's entry has no `chats` key).
+    @Test func aListedMachinesPlanEntryNamesWhatThePickReads() {
+        let machine = CloudMachine(id: "vm-a", status: .paused, displayName: "Chats", slug: "kind-aqua", pauseReason: .idle)
+        let connected = machine.startChatPlanEntry(connected: true, chats: 2)
+        #expect(connected["id"] as? String == "vm-a" && connected["title"] as? String == "Chats")
+        #expect(connected["status"] as? String == "paused" && connected["connected"] as? Bool == true)
+        #expect(connected["slug"] as? String == "kind-aqua" && connected["pause_reason"] as? String == "idle")
+        #expect(connected["chats"] as? Int == 2 && connected["created_by"] == nil)
+        let away = CloudMachine(id: "vm-b").startChatPlanEntry(connected: false, chats: nil)
+        #expect(away["connected"] as? Bool == false && away["chats"] == nil && away["slug"] == nil && away["pause_reason"] == nil)
     }
 
-    @Test func destinationsSurviveARelaunchAndKeepOnlyTheNewest() throws {
-        let suite = "cn-start-chat-\(UUID().uuidString.prefix(8))"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let kept = CloudStartChat.Destinations()
-        kept.defaults = { defaults }
-        let keys = (0...CloudStartChat.Destinations.limit).map { _ in UUID().uuidString }
-        for (index, key) in keys.enumerated() { kept.record("vm-\(index)", for: key) }
-
-        let relaunched = CloudStartChat.Destinations()
-        relaunched.defaults = { defaults }
-        #expect(relaunched.machine(for: keys[0]) == nil)
-        #expect(relaunched.machine(for: keys[1]) == "vm-1")
-        #expect(relaunched.machine(for: keys.last!) == "vm-\(CloudStartChat.Destinations.limit)")
-        #expect(relaunched.machines.count == CloudStartChat.Destinations.limit)
-    }
-
-    /// A retry after the copy finished opens its chat without copying again: a second push would
-    /// overwrite what the chat already changed on the machine.
-    @Test func aFinishedCopyIsKeptPerSendAndMachineAcrossARelaunch() throws {
-        let suite = "cn-start-chat-copy-\(UUID().uuidString.prefix(8))"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let first = CloudStartChat.Destinations()
-        first.defaults = { defaults }
-        let key = UUID().uuidString
-        first.record("vm-a", for: key)
-        #expect(first.copiedChat(for: key, on: "vm-a") == nil)
-        first.recordCopy("/home/cmux/work/chats/k/paint", for: key, on: "vm-a")
-        // Pinning the same machine again (the retry) keeps the finished copy.
-        first.record("vm-a", for: key)
-
-        let relaunched = CloudStartChat.Destinations()
-        relaunched.defaults = { defaults }
-        #expect(relaunched.copiedChat(for: key.lowercased(), on: "vm-a") == "/home/cmux/work/chats/k/paint")
-        // Another machine (the first one is gone) has no copy of this send yet.
-        #expect(relaunched.copiedChat(for: key, on: "vm-b") == nil)
-        relaunched.record("vm-b", for: key)
-        #expect(relaunched.copiedChat(for: key, on: "vm-a") == nil)
-        #expect(relaunched.copiedChat(for: key, on: "vm-b") == nil)
-        #expect(relaunched.copiedChat(for: UUID().uuidString, on: "vm-a") == nil)
+    @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
+        let text = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], workspace: "ws-1", user: Self.me, machines: [],
+                                              stored: ["vm-new"])
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        #expect(object["key"] as? String == "K")
+        #expect(object["account"] as? String == "user-leo/team-a")
+        #expect(object["workspace"] as? String == "ws-1")
+        #expect(object["user"] as? String == Self.me)
+        #expect(object["loaded"] as? Bool == true)
+        #expect((object["machines"] as? [Any])?.isEmpty == true)
+        #expect(object["stored"] as? [String] == ["vm-new"])
+        let signedOut = CloudStartChat.planRequest(key: "K", account: [nil, nil], workspace: nil, user: nil, machines: [], stored: [])
+        let unsigned = try #require(try JSONSerialization.jsonObject(with: Data(signedOut.utf8)) as? [String: Any])
+        #expect(unsigned["user"] == nil)
+        #expect(unsigned["workspace"] == nil)
+        #expect(unsigned["credential_on_stdin"] as? Bool == false)
+        // Zero-setup hot start: the folder, the chosen environment and that the token is on stdin.
+        let hot = CloudStartChat.planRequest(key: "K", account: [Self.me, nil], workspace: nil, user: Self.me, machines: [],
+                                             local: "/Users/me/src/paint", stored: [], environment: "env_0123456789abcdef01234567", access: true)
+        let ensure = try #require(try JSONSerialization.jsonObject(with: Data(hot.utf8)) as? [String: Any])
+        #expect(ensure["local"] as? String == "/Users/me/src/paint")
+        #expect(ensure["environment"] as? String == "env_0123456789abcdef01234567")
+        #expect(ensure["credential_on_stdin"] as? Bool == true)
     }
 
     /// A folder the page named is copied only as the pane checked it.
     @Test func aPageNamedFolderIsCopiedOnlyAsItsCheckedUploadRoot() throws {
         let folder = try #require(CloudMoveFolder(chat: "/Users/me/src/paint"))
         var start = try #require(AgentPaneCloudStart(params: ["task": "t", "cwd": "/Users/me/src/paint", "key": UUID().uuidString]))
-        #expect(!CloudStartChat.uploads(folder, as: start))
+        #expect(!start.uploads(folder))
         start.uploadRoot = folder.root
-        #expect(CloudStartChat.uploads(folder, as: start))
+        #expect(start.uploads(folder))
         start.uploadRoot = "/Users/me/src/paint/sub"
-        #expect(!CloudStartChat.uploads(folder, as: start))
+        #expect(!start.uploads(folder))
         // The tab's own folder (no `cwd`): only that folder itself, never a working copy above it.
         let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
-        #expect(CloudStartChat.uploads(folder, as: tabs))
+        #expect(tabs.uploads(folder))
         let repo = FileManager.default.temporaryDirectory.appendingPathComponent("cn-start-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: repo) }
         let project = repo.appendingPathComponent("project")
@@ -228,16 +121,16 @@ struct CloudStartChatMachineTests {
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         let inRepo = try #require(CloudMoveFolder(chat: project.path))
         #expect(!inRepo.subpath.isEmpty)
-        #expect(!CloudStartChat.uploads(inRepo, as: tabs))
+        #expect(!tabs.uploads(inRepo))
         let atRoot = try #require(CloudMoveFolder(chat: repo.path))
-        #expect(CloudStartChat.uploads(atRoot, as: tabs))
+        #expect(tabs.uploads(atRoot))
         // Never the home folder or a folder above it (a tab in /Users), whatever `isTooBroad` says.
         let users = try #require(CloudMoveFolder(chat: "/Users"))
-        #expect(!CloudStartChat.uploads(users, as: tabs, home: "/Users/me"))
+        #expect(!tabs.uploads(users, home: "/Users/me"))
         let home = try #require(CloudMoveFolder(chat: "/Users/me"))
-        #expect(!CloudStartChat.uploads(home, as: tabs, home: "/Users/me"))
-        #expect(!CloudStartChat.uploads(try #require(CloudMoveFolder(chat: "/")), as: tabs, home: "/Users/me"))
-        #expect(CloudStartChat.uploads(atRoot, as: tabs, home: "/Users/me"))
+        #expect(!tabs.uploads(home, home: "/Users/me"))
+        #expect(!tabs.uploads(try #require(CloudMoveFolder(chat: "/")), home: "/Users/me"))
+        #expect(tabs.uploads(atRoot, home: "/Users/me"))
     }
 
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
@@ -254,24 +147,20 @@ struct CloudStartChatMachineTests {
         let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
         let folder = try #require(CloudMoveFolder(chat: project.path))
         #expect(folder.subpath.isEmpty)
-        #expect(!CloudStartChat.uploads(folder, as: tabs, home: "/Users/nobody"))
+        #expect(!tabs.uploads(folder, home: "/Users/nobody"))
         // A working copy whose git folder is its own `.git` folder is copied.
         try FileManager.default.removeItem(at: project.appendingPathComponent(".git"))
         try FileManager.default.createDirectory(at: project.appendingPathComponent(".git"), withIntermediateDirectories: true)
-        #expect(CloudStartChat.uploads(try #require(CloudMoveFolder(chat: project.path)), as: tabs, home: "/Users/nobody"))
+        #expect(tabs.uploads(try #require(CloudMoveFolder(chat: project.path)), home: "/Users/nobody"))
     }
 
-    /// The create's key is the send's, so a retry after a lost create answer never makes a second VM;
+    /// The create's key is the plan's, so a retry after a lost create answer never makes a second VM;
     /// and its team is the send's, fixed for every try, so a team switch during a slow create never
     /// makes the machine in the other team (router review at 2208632).
-    @Test func aNewMachineIsCreatedUnderTheSendsKeyInTheSendsTeam() async throws {
-        let key = UUID().uuidString
-        let start = try #require(AgentPaneCloudStart(params: ["task": "t", "key": key]))
-        let request = CloudStartChat.createRequest(for: start, sizedFor: nil, team: "team-a")
-        #expect(request.idempotencyKey == "cloud-start-chat-" + key.lowercased())
+    @Test func aNewMachineIsCreatedUnderThePlansKeyInTheSendsTeam() async throws {
+        let request = CloudStartChat.createRequest(key: "cloud-start-chat-k", sizedFor: nil, team: "team-a")
+        #expect(request.idempotencyKey == "cloud-start-chat-k")
         #expect(request.team == "team-a")
-        let retry = try #require(AgentPaneCloudStart(params: ["task": "t", "key": key.uppercased()]))
-        #expect(CloudStartChat.createRequest(for: retry, sizedFor: nil, team: "team-a").idempotencyKey == request.idempotencyKey)
         #expect(!request.wasSent)
         // The classic create sends to that team, not the app's team now; a sent try keeps its own.
         #expect(await CloudService.createTeam(sent: nil, requested: request.team) { "team-b" } == "team-a")
@@ -289,26 +178,5 @@ struct CloudStartChatMachineTests {
         // The Cloud app server's link takes no folder copy: refused before a machine is created.
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true, appServerLink: true) == "unavailable")
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false, appServerLink: true) == "not_signed_in")
-    }
-
-    /// A retry finds its own copy's folder; one whose record is gone gets a new folder, so its copy
-    /// never writes over a chat that already started in the old one.
-    @Test func aRetryWhoseRecordWasEvictedCopiesIntoANewFolder() {
-        let destinations = CloudStartChat.Destinations()
-        let key = UUID().uuidString
-        var minted = 0
-        let fresh = { () -> String in minted += 1; return "chats/\(key.lowercased())/\(minted)" }
-        destinations.record("vm-a", for: key)
-        let first = destinations.place(for: key, on: "vm-a", fresh: fresh)
-        // The same send again (its copy cut off, or done and the tab lost): the same folder.
-        #expect(destinations.place(for: key, on: "vm-a", fresh: fresh) == first)
-        destinations.recordCopy("/home/cmux/work/" + first + "/paint", for: key, on: "vm-a")
-        #expect(destinations.place(for: key, on: "vm-a", fresh: fresh) == first)
-        // Pushed out by newer sends: the next try gets a folder of its own, never the old one.
-        for _ in 0..<CloudStartChat.Destinations.limit { destinations.record("vm-b", for: UUID().uuidString) }
-        #expect(destinations.copiedChat(for: key, on: "vm-a") == nil)
-        let again = destinations.place(for: key, on: "vm-a", fresh: fresh)
-        #expect(again != first)
-        #expect(minted == 2)
     }
 }

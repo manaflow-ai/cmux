@@ -111,7 +111,7 @@ extension ActionDescriptor {
     nonisolated public static let paletteFamilies: [PaletteFamily] = [
         PaletteFamily("workspace.move", title: familyTitle("palette.family.workspace.move", "Workspace: Move…"),
                       symbol: "arrow.up.arrow.down", members: [
-                          "moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom",
+                          "moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom", "workspace.moveAbove", "workspace.moveBelow",
                           "moveWorkspaceToGroup", "workspace.moveToNewGroup", "removeWorkspaceFromGroup", "moveWorkspaceToWindow",
                           "moveWorkspaceToNewWindow", "workspace.moveToSpace",
                       ]),
@@ -270,6 +270,8 @@ extension ActionDescriptor {
         PaletteFamily("forkConversation", parent: "palette.forkAgentConversation", members: [
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
+                          "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft",
+                          "palette.forkAgentConversationNewRow",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",
                           "palette.forkAgentConversationNewWindow",
                       ]),

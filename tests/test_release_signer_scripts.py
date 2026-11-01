@@ -109,6 +109,12 @@ class InstallTests(unittest.TestCase):
 
 
 class NotarizeDmgTests(unittest.TestCase):
+    def test_notarize_dmg_uses_bash_3_2_compatible_case_normalization(self):
+        text = NOTARIZE_DMG.read_text()
+        self.assertNotIn("${want^^}", text)
+        self.assertNotIn("${want,,}", text)
+        self.assertIn("tr '[:upper:]' '[:lower:]'", text)
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)

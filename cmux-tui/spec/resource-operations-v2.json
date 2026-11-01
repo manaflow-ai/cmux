@@ -18239,6 +18239,14 @@
             },
             "description": "Reopen the member of the newest group that holds this tab (a tab member, or the screen or workspace member that contains it), under the SAME tab id, so a `cmux://tab/` link to it keeps working. Excludes `closed` and `members`. `resource.not_found` when no group holds it: the tab is open, or its record was deleted."
           },
+          "workspace": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Reopen the workspace member of the newest group that recorded this closed workspace, so a `cmux://workspace/` link to a closed workspace opens it again (as a new workspace). Excludes `closed`, `members` and `tab`. `resource.not_found` when no group holds it: the workspace is open, it closed before its id was recorded, or its record was deleted."
+          },
           "fallback_pane": {
             "required": false,
             "type": {
@@ -32428,6 +32436,18 @@
               "name": "boolean"
             },
             "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
+          },
+          "placement": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "top",
+                "after_current",
+                "bottom"
+              ]
+            },
+            "description": "Where the new workspace goes in the sidebar order, for this create: top (first, below Home), after_current or bottom. Default: the workspaces.newPlacement setting."
           },
           "cwd": {
             "required": false,

@@ -1,0 +1,138 @@
+{
+  "caption": "Right-click a tab to find everyday actions in a shorter menu, with the rest in More or the command palette.",
+  "frameInterval": 0.25,
+  "settings": {
+    "appearance": {
+      "density": "compact",
+      "chromeStyle": "flat-sidebar-line",
+      "metrics": {
+        "sidebarWidth": 240,
+        "titlebarHeight": 32,
+        "tabMaxWidth": 200,
+        "tabMinActiveWidth": 200,
+        "tabMinInactiveWidth": 200
+      }
+    },
+    "window": {
+      "titlebar": "standard"
+    },
+    "layout": {
+      "panePadding": 0
+    },
+    "sidebar": {
+      "side": "left"
+    },
+    "tabs": {
+      "barPosition": "top",
+      "barOrder": "aboveToolbar",
+      "toolbarButtons": []
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "A fixed window for the tab click",
+      "rpc": {
+        "method": "debug.window_frame",
+        "params": {
+          "frame": [
+            80,
+            80,
+            1200,
+            800
+          ]
+        }
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "A public workspace",
+      "wait": 2,
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newTab",
+          "args": {
+            "name": "Release review",
+            "command": "printf 'Release review\\n'; exec /bin/cat"
+          },
+          "focus": true,
+          "wait": true
+        }
+      }
+    },
+    {
+      "title": "Select Release review through its sidebar row",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "click",
+          "row": "Release review"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "A public guide page",
+      "cmux": [
+        "tab",
+        "new-browser",
+        "--url",
+        "https://example.org",
+        "--focus"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "A second public page",
+      "cmux": [
+        "tab",
+        "new-browser",
+        "--url",
+        "https://example.net",
+        "--focus"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Set the comparison appearance before opening the native menu",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "Right-click a browser tab in the selected workspace",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "click",
+          "button": "right",
+          "x": 550,
+          "y": 46
+        }
+      },
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "Keep the native menu open for the final stills",
+      "wait": 1,
+      "clip": true
+    }
+  ],
+  "crop": [
+    0.44,
+    0.03,
+    0.36,
+    0.6
+  ],
+  "lead": 0.6,
+  "hold": 1.2
+}

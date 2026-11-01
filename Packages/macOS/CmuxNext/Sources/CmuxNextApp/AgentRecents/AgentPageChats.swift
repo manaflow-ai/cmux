@@ -3,6 +3,8 @@ import Foundation
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextDaemon
+import CmuxNextPages
 import CmuxNextSidebar
 
 /// The New Tab page's chats. The cards read the app's one Chats feed (acpmux's device chat index,
@@ -30,10 +32,14 @@ final class AgentPageChats {
     var environments: (any AgentPaneEnvironmentStoring)?
     /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
+    /// The signed-in person's platform environment API, through the existing install mint and Rust transport.
+    var cloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
     var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
+    /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.
+    var handoffTurn: (@MainActor (AgentPaneView?, String) async -> [String: Any])?
     /// The app-level waiter on every hand-off of a chat to a Cloud machine, and its notification.
     private(set) var handoffNotices: HandoffNotices?
 
@@ -72,15 +78,17 @@ final class AgentPageChats {
         }
     }
 
+    /// The cards follow their window (acpmux sorts and pages; only that window's changes push).
     func follow(_ feed: ChatsFeed, open: @escaping @MainActor (String) -> Void, views: @escaping @MainActor () -> [AgentPaneView]) {
         self.open = open
-        let push = { [weak self, weak feed] in
-            guard let self, let feed else { return }
-            chats = Self.deviceChats(feed.newest(AgentPaneDeviceChat.maximumPushed))
+        let window = feed.windows.window(AcpmuxChatWindows.Spec.newTabCards.window)
+        window.follow(self) { [weak self] rows in
+            guard let self else { return }
+            chats = Self.deviceChats(rows)
             for view in views() { view.deviceChats = chats }
         }
-        feed.observe(self) { push() }
-        push()
+        feed.windows.open(.newTabCards)
+        chats = Self.deviceChats(window.rows)
     }
 
     /// A new page starts with the current chats and closed items.
@@ -89,6 +97,14 @@ final class AgentPageChats {
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
         view.model.onSandboxRun = sandboxRun
+        view.model.onCloudEnvironment = cloudEnvironment
+        if let run = handoffTurn {
+            view.model.onCloudHandoffTurn = { @MainActor [weak view] (session: String) async -> [String: Any] in
+                await run(view, session)
+            }
+        } else {
+            view.model.onCloudHandoffTurn = nil
+        }
         // Written out with its type: Xcode 26.6 could not type the `map` form.
         if let run = cloudStart {
             view.model.onCloudStartChat = { @MainActor [weak view] (start: AgentPaneCloudStart) async -> [String: Any] in
@@ -108,10 +124,28 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        tabs.pageChats.cloudEnvironment = { [weak services] request in
+            guard let services, !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud,
+                  let connection = services.machines.local.connection, let platform = ArtifactsPageProvider.apiBaseURL() else {
+                return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
+            }
+            do {
+                let token = try await services.cloud.installIdentity.accessToken(team: try await services.cloud.auth.accessTokenTeam(requested: nil))
+                let value = try await connection.request(
+                    CloudEnvironmentRequest(action: request.action, params: request.params,
+                                            platformOrigin: platform.absoluteString, accessToken: token.accessToken), timeout: .seconds(30))
+                return AgentPaneReply.success(try JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: [.fragmentsAllowed]))
+            } catch DaemonError.command(_, let message, let code, _, _) {
+                return AgentPaneReply.failure(code: code ?? "cloud_environment.failed", message: message)
+            } catch {
+                return AgentPaneReply.failure(code: "cloud_environment.unavailable", message: "cloud_environment.unavailable")
+            }
+        }
         notices.start()
         let handoffs = HandoffNotices(services: services)
         tabs.pageChats.handoffNotices = handoffs
         handoffs.start()
+        tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite
@@ -119,7 +153,8 @@ final class AgentPageChats {
             guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud else {
                 return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
             }
-            guard services.settings?.snapshot.previewFeatures == true else { return AgentPaneReply.failure(code: "labs_off", message: "labs_off") }
+            // Not behind Labs (Leo, 2026-10-30: "i dont like putting so much stuff in labs"): the
+            // person picked Sandboxed and sent, Cloud is allowed and they are signed in.
             guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
             // The send, its create's retry and its waits stay with the team it began with (and the
             // create's retry with its account: CloudAPIClient.runSandbox).

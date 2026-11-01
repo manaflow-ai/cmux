@@ -11,13 +11,15 @@ import {
   inlineCopyParent,
   orderedByMarks,
 } from "../attachments";
-import { Spinner } from "../conversation/icons";
-import { useT } from "../i18n";
+import { FileDoc, ImageIcon, Spinner } from "../conversation/icons";
+import { usePaneLanguage, useT } from "../i18n";
+import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, type PendingAttachment } from "./attachmentIntake";
+import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
+import { TextAttachmentCard } from "./TextAttachmentCard";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -299,6 +301,7 @@ const InlineChip = memo(function InlineChip({
   originalFailed: string | undefined;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
@@ -325,30 +328,53 @@ const InlineChip = memo(function InlineChip({
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
       >
         {pending!.failed ? (
-          <button type="button" className="acpmux-md-inline-retry" onClick={() => onRetry(id)}>
-            {t("composer.retryAttachment")}
-          </button>
-        ) : (
+          <>
+            {pending!.image ? (
+              <ImageIcon size={14} className="acpmux-attachment-failed-icon" />
+            ) : (
+              <FileDoc size={14} className="acpmux-attachment-failed-icon" />
+            )}
+            <RetryButton
+              className="acpmux-attachment-retry acpmux-md-inline-retry"
+              reason={pending!.failed}
+              onRetry={() => onRetry(id)}
+            />
+          </>
+        ) : pending!.progress === undefined ? (
           <Spinner loading size={14} className="acpmux-md-inline-spinner" />
+        ) : (
+          <UploadProgress value={pending!.progress} name={name} size={14} />
         )}
         {remove}
       </span>
     );
-  // A huge paste: its name; a click puts its text back in the prompt at its place.
-  if (attachment.kind === "pasted")
+  // A huge paste: a small page of its first lines (TextAttachmentCard); a click puts its text back
+  // in the prompt at its place.
+  if (attachment.kind === "pasted") {
+    const text = attachment.text ?? "";
+    const lines = pasteLines(text);
+    const label = `${t("composer.pastedText")} · ${t("transcript.pastedLines", { n: lines, count: new Intl.NumberFormat(language).format(lines) })}`;
     return (
       <span
-        className="acpmux-md-inline-chip"
+        className="acpmux-md-inline-chip acpmux-text-card"
         data-state="ready"
         data-kind="file"
-        /* tooltip-allow: a long name is cut to the chip */ title={attachment.name}
+        data-preview="text"
+        /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
+        title={t("composer.pastedText.edit")}
       >
-        <button type="button" className="acpmux-md-inline-retry" onClick={() => onExpand(id)}>
-          {attachment.name}
+        <button
+          type="button"
+          className="acpmux-md-inline-retry acpmux-text-card__open"
+          aria-label={`${attachment.name || pasteName(text)}, ${label}`}
+          onClick={() => onExpand(id)}
+        >
+          <TextAttachmentCard text={text} label={label} />
         </button>
         {remove}
       </span>
     );
+  }
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
   // (an image that cannot be drawn) as it does there.
   return (

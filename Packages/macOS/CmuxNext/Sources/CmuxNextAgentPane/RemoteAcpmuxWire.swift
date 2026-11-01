@@ -13,9 +13,11 @@ import os
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
 /// relay already holds a set that trusts to the person's fresh gesture), and who is in the chat
 /// (`_acpmux/typing` and `_acpmux/view` out, `_acpmux/presence` back, `agent-session-presence-v1`;
-/// an observer never types). Every other method, and any
-/// frame that names another session, is answered `remote.unsupported`: nothing on the other
-/// machine changes a mode, reads a folder or spawns a process from here.
+/// an observer never types), and the person's model, mode and option picks (`session/set_model`,
+/// `session/set_mode`, `session/set_config_option`, through the daemon's `agent-session-set-*`,
+/// `agent-session-settings-v1`; the host already checked their gesture and full-access rule).
+/// Every other method, and any frame that names another session, is answered
+/// `remote.unsupported`: nothing on the other machine reads a folder or spawns a process from here.
 ///
 /// A new chat's wire (``init(start:)``) has no session yet: its page's first `session/new` (the
 /// first send, cx-k21v) starts the chat on that machine through the host's start
@@ -30,12 +32,33 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
     public typealias Start = @Sendable (_ cwd: String?, _ harness: String?, _ model: String?) async throws
-        -> (client: any AgentSessionRemoteClient, session: String)
+        -> (client: any AgentSessionRemoteClient, session: String, surface: UInt64)
     /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
     /// the person's answer recorded there (`acp.trust.set`).
     public typealias Trust = @Sendable (_ cwd: String, _ level: String?, _ homeChosen: Bool) async throws -> Data
     /// The relay's mark on a Trust answer for a home folder the person chose there.
     public static let homeChosenParam = "cmuxHomeChosen"
+    /// Whether the chat's machine is the person's own Cloud VM now: the link's Cloud API owner
+    /// answer holds, and that machine's daemon starts any agent on it
+    /// (`agent-session-start-owner-cloud-v1`). Read at each `initialize`; the page then lets a
+    /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
+    public typealias OwnerCloud = @Sendable () async -> Bool
+    /// A one-shot Cloud repository request on the tab's owning daemon connection.
+    public typealias CloudRepository = @Sendable (String, [String: any Sendable], Duration?) async throws -> Data
+    public typealias CloudRepositoryStart = @Sendable (UInt64, String, [String: any Sendable], Duration?) async throws -> Data
+
+    /// `agent-session-start-owner-cloud-v1`: on a Cloud VM, `vm_kind: "owner"` starts any agent (the
+    /// person's own disposable VM is the boundary). Only a Cloud VM's daemon serves it, so it is no
+    /// `DaemonCapability` case (check-app-capability-references.py `CONDITIONAL`, like `fs-v1`).
+    public static let ownerCloudCapability = "agent-session-start-owner-cloud-v1"
+
+    /// A Cloud machine's ``OwnerCloud`` from its link's owner answer (the running link id while the
+    /// Cloud API says the caller owns it, else nil), when its daemon serves the owner start
+    /// (`served`). Nil for a machine that is not a Cloud one, or a daemon that does not serve it.
+    public static func ownerCloud(_ ownerLink: (@Sendable () async -> Int?)?, served: Bool) -> OwnerCloud? {
+        guard let ownerLink, served else { return nil }
+        return { await ownerLink() != nil }
+    }
 
     private struct State {
         var onFrame: (@Sendable (String) -> Void)?
@@ -47,6 +70,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         var client: (any AgentSessionRemoteClient)?
         /// The session the tab shows (its store record, or the one this wire started).
         var session: String?
+        var surface: UInt64?
         /// A `session/new` is starting the chat (one at a time).
         var starting = false
     }
@@ -54,6 +78,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
     private let start: Start?
     private let trust: Trust?
+    private let ownerCloud: OwnerCloud?
+    private let cloudRepositoryRequest: CloudRepository?
+    private let cloudRepositoryStart: CloudRepositoryStart?
     private let host: String?
     /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
     /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
@@ -62,20 +89,29 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
-                trust: Trust? = nil) {
+                trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
+                cloudRepositoryStart: CloudRepositoryStart? = nil) {
         start = nil
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
+        self.ownerCloud = ownerCloud
+        self.cloudRepositoryRequest = cloudRepository
+        self.cloudRepositoryStart = cloudRepositoryStart
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
-    public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil) {
+    public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
+                ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
+                cloudRepositoryStart: CloudRepositoryStart? = nil) {
         self.start = start
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
+        self.ownerCloud = ownerCloud
+        self.cloudRepositoryRequest = cloudRepository
+        self.cloudRepositoryStart = cloudRepositoryStart
         state = Mutex(State())
     }
 
@@ -98,8 +134,15 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         case "initialize":
             // `acp.trust.set` listed: the person answers the folder question here (acpmux never
             // lists it, so a remote browser's page still cannot).
-            reply(id, ["protocolVersion": 1, "agentCapabilities": [String: Any](),
-                       "_meta": ["acpmux": ["origin": "remote", "extensions": trust == nil ? [] : ["acp.trust.set"]]]])
+            let extensions = trust == nil ? [] : ["acp.trust.set"]
+            guard let ownerCloud else {
+                return reply(id, Self.initialized(extensions: extensions, ownerCloud: false))
+            }
+            // task-owner: one owner-answer read per initialize; its reply ends it
+            Task { [weak self] in
+                let owned = await ownerCloud()
+                self?.reply(id, Self.initialized(extensions: extensions, ownerCloud: owned))
+            }
         case "_acpmux/status":
             reply(id, ["peers": [Any]()])
         case "session/new":
@@ -184,6 +227,19 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 }
                 return Self.json(AgentPaneReply.success(["src": source]))
             }
+        case "session/set_model", "session/set_mode", "session/set_config_option":
+            // The person's pick (the host checked its gesture and full-access rule, and took its
+            // ticket off): that machine's daemon sends it to acpmux on this chat's session only,
+            // and acpmux's answer goes back as it is (a config option's names the whole list).
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let setting = Self.setting(method, params) else { return refuse(id, method) }
+            run(id) { client in
+                switch setting {
+                case .model(let model): return try await client.setModel(model)
+                case .mode(let mode): return try await client.setMode(mode)
+                case .config(let config, let value): return try await client.setConfig(id: config, value: value)
+                }
+            }
         case "_acpmux/permission_respond":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
@@ -222,6 +278,35 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return try await client.media(path: path)
     }
 
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
+        if let cloudRepositoryRequest {
+            return try await cloudRepositoryRequest(method, params, timeout)
+        }
+        guard let cloudRepositoryStart, let surface = state.withLock({ $0.surface }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no Cloud repository route")
+        }
+        return try await cloudRepositoryStart(surface, method, params, timeout)
+    }
+
+    /// What a setting frame asks for; nil when a value is missing or not text.
+    enum Setting: Sendable, Equatable {
+        case model(String)
+        case mode(String)
+        case config(String, String)
+    }
+
+    static func setting(_ method: String, _ params: [String: Any]) -> Setting? {
+        let text = { (key: String) in (params[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        switch method {
+        case "session/set_model": return text("modelId").map(Setting.model)
+        case "session/set_mode": return text("modeId").map(Setting.mode)
+        case "session/set_config_option":
+            guard let config = text("configId"), let value = text("value") else { return nil }
+            return .config(config, value)
+        default: return nil
+        }
+    }
+
     // MARK: Start
 
     /// A new chat's `session/new` (its first send): starts the chat on that machine once and
@@ -241,12 +326,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         // task-owner: the one start of this wire's chat; its reply ends it
         Task { [weak self] in
             do {
-                let (client, session) = try await start(cwd, harness, model)
+                let (client, session, surface) = try await start(cwd, harness, model)
                 guard let self else { await client.close(); return }
                 let open = state.withLock { state -> Bool in
                     state.starting = false
                     guard !state.closed else { return false }
-                    (state.client, state.session) = (client, session)
+                    (state.client, state.session, state.surface) = (client, session, surface)
                     return true
                 }
                 // The page reconnects with a new wire, which finds the started chat.
@@ -438,6 +523,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard let id else { return }
         let error: [String: Any] = ["code": Self.unsupportedCode, "message": message, "data": data.merging(["code": code]) { $1 }]
         emit(#"{"jsonrpc":"2.0","id":\#(id),"error":"# + String(decoding: Self.json(error), as: UTF8.self) + "}")
+    }
+
+    /// The `initialize` answer: always `origin: "remote"`; `ownerCloud` only on the person's own Cloud VM.
+    static func initialized(extensions: [String], ownerCloud: Bool) -> [String: Any] {
+        var acpmux: [String: Any] = ["origin": "remote", "extensions": extensions]
+        if ownerCloud { acpmux["ownerCloud"] = true }
+        return ["protocolVersion": 1, "agentCapabilities": [String: Any](), "_meta": ["acpmux": acpmux]]
     }
 
     private func reply(_ id: String?, _ result: [String: Any]) {

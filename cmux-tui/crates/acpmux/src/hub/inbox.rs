@@ -14,6 +14,24 @@
 //! (the cmux daemon delivers and tracks it) and the prompts acpmux makes itself (lane reports,
 //! task cards, a paused pair's release) still queue.
 //!
+//! Those still steer into a running turn, but never while one of the person's prompts waits
+//! behind it ([`persons_prompt_waits`]; `turns.rs`, checked again as the steer is written,
+//! `steer_end.rs`), as no notice does. Then the message queues behind that prompt, one sent with
+//! `interrupt` stops nothing, and a steer-only one is refused (`promptWaits`). Another agent's
+//! steer kept a turn going past the person's queued prompt; Leo, 2026-10-29: "but even if im
+//! just queueing, your turn should still be ending". The person's own steer, the queue's Send
+//! now, and an inbox digest its drain asked to steer (`inbox_digest.rs`) still go in.
+//!
+//! Nor does any of them, or a notice, go into a turn the person's own prompt started
+//! ([`persons_prompt`], `TurnInfo::persons`, set while the inbox is on: with `agentInbox` off,
+//! agents' sends steer in as they did before it, `tests/send_steer.rs`): it waits for that
+//! turn's end and goes in as a turn of its own after it, the same way (`steerOnly` refused with
+//! `personsTurn`). A sub-session family message still goes in: the chat's own sub-session
+//! reporting to the turn that started it. A notice
+//! steered into the person's turn as it started, so it went in with the person's words, and
+//! other agents' steers went in at its next step; Leo, 2026-11-01: "why do the x messages from
+//! y sessions seem to always piggyback on my messages instead of going on their own".
+//!
 //! A chat's first work is no inbox item either ([`first_work`]): the first message another agent
 //! sends a chat that never ran a turn, with none running and nothing waiting (`lane-place
 //! --prompt-file`, `acpmux new` with a prompt), runs as that prompt, and its sender is the chat's
@@ -47,19 +65,21 @@
 //! agent started before the inbox has instead of `inbox_read`.
 //!
 //! The agent hears of its inbox as ONE notice (provenance `inbox_notice`), one line per thread
-//! with new messages (how many, from whom, the newest one's first line), blockers first, the way
+//! with new messages (how many, from whom, and the messages whole when they are short, else the
+//! newest one's first line, [`render`]), blockers first, the way
 //! Claude Code tells it of background work; it reads a thread whole with the `inbox_read` tool
 //! (`_acpmux/inbox_thread`), which marks it read, and answers with `inbox_reply`
 //! (`_acpmux/inbox_reply`), which lands in the sender's inbox under the same thread. One notice
 //! is in flight at a time ([`Inbox::in_flight`]):
 //!
-//! - into a running turn that steers, is under its cap (`turn_cap.rs`), and has none of the
-//!   person's prompts waiting behind it: as a steer, which Claude Code reads at its next tool
-//!   step; what comes meanwhile goes in the next one, so a turn takes at most one per step. A
-//!   prompt that waits is never held up by notices: the notice goes into its turn instead;
-//! - into the next turn that starts, as a steer at its start;
-//! - an idle chat: as ONE turn of its own, [`WAKE_DEBOUNCE_MS`] after the oldest message that
-//!   may wake it came (a burst is one turn), or [`FLUSH_MS`] after the oldest of any, so none is
+//! - into a running turn that steers, is under its cap (`turn_cap.rs`), has none of the
+//!   person's prompts waiting behind it, and was not started by the person's own prompt: as a
+//!   steer, which Claude Code reads at its next tool step; what comes meanwhile goes in the next
+//!   one, so a turn takes at most one per step. A prompt that waits is never held up by notices;
+//! - into the next such turn that starts, as a steer at its start;
+//! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
+//!   ([`Inbox::held_by_person`]), else [`WAKE_DEBOUNCE_MS`] after the oldest message that may
+//!   wake it came (a burst is one turn), or [`FLUSH_MS`] after the oldest of any, so none is
 //!   stranded. A message that may wake it: a blocker (a block or a question,
 //!   `prompt_class.rs`), a report of work it gave (a lane's report, a task's result), or an
 //!   action (a result, the default) from the session that started it
@@ -109,6 +129,8 @@ pub const REFUSED_RETRY_MS: u64 = 30_000;
 pub const FLUSH_MS: u64 = 10 * 60 * 1000;
 /// A notice line shows this much of the newest message's first line, in characters.
 const PREVIEW_CHARS: usize = 120;
+/// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
+const WHOLE_BYTES: usize = 4 * 1024;
 /// Messages a chat keeps in memory; the oldest read ones go first (the log keeps them all).
 const KEEP: usize = 500;
 /// The client a notice goes under.
@@ -196,6 +218,9 @@ pub struct Inbox {
     /// The prompt that holds the chat's first work ([`FirstWork`]) while it runs: another agent's
     /// message meanwhile is no first work.
     pub(super) first: Option<String>,
+    /// The person's own turn held a notice back (module docs): its messages are due as a turn of
+    /// their own once the chat is idle, whatever their class. Cleared when a notice goes.
+    pub(super) held_by_person: bool,
 }
 
 /// How [`Hub::inbox_route`] routes a prompt.
@@ -346,6 +371,15 @@ pub(super) fn review_box_steer_refused() -> RpcError {
     .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "reviewBox": true}))
 }
 
+/// The refusal of another agent's steer-only prompt while one of the person's prompts waits
+/// behind the running turn (module docs).
+pub(super) fn prompt_waits_steer_refused() -> RpcError {
+    RpcError::invalid_params(
+        "steer.unavailable: a prompt waits behind the running turn; another agent's message goes in after it, so send without steer-only to queue",
+    )
+    .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "promptWaits": true}))
+}
+
 /// Whether a prompt's provenance is a notice's.
 pub(crate) fn is_notice(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(NOTICE_KIND)
@@ -406,9 +440,9 @@ fn first_pr(line: &str) -> Option<u64> {
         n.parse::<u64>().ok().filter(|n| *n > 0)
     };
     let mut best: Option<(usize, u64)> = None;
-    for (marker, skip) in [("#", 1), ("pull/", 5)] {
+    for marker in ["#", "pull/"] {
         for (i, _) in line.match_indices(marker) {
-            if let Some(n) = line.get(i + skip..).and_then(digits)
+            if let Some(n) = line.get(i..).and_then(|s| s.strip_prefix(marker)).and_then(digits)
                 && best.is_none_or(|(at, _)| i < at)
             {
                 best = Some((i, n));
@@ -472,7 +506,17 @@ fn preview(text: &str) -> String {
 }
 
 /// The notice of `items` (the new ones, in their order): one line per thread, blockers first,
-/// then the thread with the newest message first.
+/// then the thread with the newest message first. When their text is [`WHOLE_BYTES`] or less,
+/// the notice holds every message whole: a one-line message alone in its thread on its thread's
+/// line, the others quoted under it, oldest first. Otherwise each line has the newest one's
+/// preview, and the notice says how to read a thread whole: the `inbox_read` tool, or the shell
+/// for an agent that has no such tool (one started before the inbox, a harness without acpmux's
+/// MCP server). What the inbox is (no turn of its own, answer or leave it) is the tools' to say,
+/// not every notice's (Leo, 2026-10-31: "why is there so much additional text?").
+///
+/// The parts (the notice's provenance `threads`) are what the transcript draws: per thread its
+/// id, label, senders, new messages, whether it holds a blocker, the newest one's preview and its
+/// sender's session, and the messages whole when the notice holds them.
 pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
     for item in items {
@@ -484,13 +528,18 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent());
     let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
     threads.sort_by_key(|(_, list)| (!blocker(list), std::cmp::Reverse(newest(list))));
+    let whole = items.iter().map(|i| i.text.len()).sum::<usize>() <= WHOLE_BYTES;
     let n = threads.len();
     let mut text = format!(
-        "[inbox] New messages from other agents in {n} thread{}. They need no turn of your own: \
-         read a thread whole with the inbox_read tool (its thread id), answer in it with \
-         inbox_reply, or leave it for later.",
+        "[inbox] New messages from other agents in {n} thread{}.",
         if n == 1 { "" } else { "s" }
     );
+    if !whole {
+        text.push_str(
+            " Read one whole with inbox_read (its thread id), or at a shell: \
+             acpmux session inbox \"$ACPMUX_SESSION_ID\" --thread ID --mark-read",
+        );
+    }
     let mut parts = Vec::new();
     for (key, list) in &threads {
         let last = list.iter().max_by_key(|i| i.at).copied();
@@ -501,17 +550,64 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
             }
         }
         let tag = if blocker(list) { "[blocker] " } else { "" };
-        let line = last.map(|i| preview(&i.text)).unwrap_or_default();
-        text.push_str(&format!(
-            "\n- {tag}{} new in {} from {}: {line} (thread {key})",
-            list.len(),
-            label(key),
-            from.join(", ")
-        ));
+        let head = format!("{tag}{} new in {} from {}", list.len(), label(key), from.join(", "));
+        let one_line = match list.as_slice() {
+            [only] if whole && !body(&only.text).is_empty() && !body(&only.text).contains('\n') => {
+                Some(body(&only.text))
+            }
+            _ => None,
+        };
+        if let Some(line) = one_line {
+            text.push_str(&format!("\n- {head}: {line} (thread {key})"));
+        } else if whole {
+            text.push_str(&format!("\n- {head} (thread {key}):"));
+            for (at, item) in list.iter().enumerate() {
+                if at > 0 {
+                    text.push_str("\n  >");
+                }
+                // Several messages each name their sender first.
+                let lead = if list.len() > 1 { format!("{}: ", item.from) } else { String::new() };
+                // A message of no text still gets its quote line, so none goes missing.
+                let mut lines: Vec<&str> = body(&item.text).lines().collect();
+                if lines.is_empty() {
+                    lines.push("");
+                }
+                for (row, line) in lines.into_iter().enumerate() {
+                    let lead = if row == 0 { lead.as_str() } else { "" };
+                    let quoted = format!("  > {lead}{line}");
+                    text.push('\n');
+                    text.push_str(quoted.trim_end());
+                }
+            }
+        } else {
+            let line = last.map(|i| preview(&i.text)).unwrap_or_default();
+            text.push_str(&format!("\n- {head}: {line} (thread {key})"));
+        }
         let ids: Vec<&str> = list.iter().map(|i| i.prompt_id.as_str()).collect();
-        parts.push(json!({"threadId": key, "new": list.len(), "from": from, "promptIds": ids}));
+        let mut part = json!({
+            "threadId": key, "label": label(key), "new": list.len(), "from": from,
+            "promptIds": ids, "blocker": blocker(list),
+            "preview": last.map(|i| preview(&i.text)), "newestAt": newest(list),
+        });
+        if let Some(session) = last.and_then(|i| i.from_session.as_deref()) {
+            part.set("fromSession", json!(session));
+        }
+        if whole {
+            let messages: Vec<Value> = list
+                .iter()
+                .map(|i| json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text}))
+                .collect();
+            part.set("messages", json!(messages));
+        }
+        parts.push(part);
     }
     (text, json!(parts))
+}
+
+/// A message's text as the notice quotes it: without the blank lines around it, and with the first
+/// line's indent kept (an indented code block stays one).
+fn body(text: &str) -> &str {
+    text.trim_start_matches(['\n', '\r']).trim_end()
 }
 
 /// Whether `item` may wake the idle chat of `meta`.
@@ -535,6 +631,14 @@ fn prompt_waits(session: &Session) -> bool {
     session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.held)
 }
 
+/// Whether one of the person's prompts waits in the queue (not held, no agent's message): no other
+/// agent's steer goes into the running turn then (`turns.rs`), so the turn can end for it.
+/// Other agents' messages waiting do not hold one: they never held each other up.
+pub(super) fn persons_prompt_waits(session: &Session) -> bool {
+    let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+    queue.iter().any(|q| !q.held && q.run.agent.is_none())
+}
+
 /// Whether a chat's first work waits in its queue ([`FIRST_WORK`] on its provenance), as one a
 /// person's prompt went ahead of does, and one a restart rebuilt with no hold of its own.
 fn first_work_waits(session: &Session) -> bool {
@@ -542,13 +646,43 @@ fn first_work_waits(session: &Session) -> bool {
     queue.iter().any(|q| !q.held && is_first_work(q.run.provenance.as_ref()))
 }
 
-/// Whether a notice may not steer into the running turn now: a prompt waits, or the turn is
-/// past its cap (`turns.rs` checks it again at dispatch).
+/// Whether a prompt is the person's own (module docs): no other agent's message, and none of
+/// acpmux's own prompts (a notice, a digest, the turn cap's notice, a subagent's retry, a cut
+/// turn's automatic continuation), whose turns take notices and steers as before.
+pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) -> bool {
+    let auto_resume =
+        provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some("auto_resume");
+    agent.is_none()
+        && !auto_resume
+        && !is_notice(provenance)
+        && !super::digest::inbox_digest::is_digest(provenance)
+        && !super::turn_cap::is_notice(provenance)
+        && !super::subagent_retry::is_retry(provenance)
+}
+
+/// Whether the running turn is one the person's own prompt started: no notice and no other
+/// agent's steer goes into it (module docs).
+pub(super) fn persons_turn(session: &Session) -> bool {
+    session.turn().is_some_and(|t| t.persons)
+}
+
+/// The refusal of another agent's steer-only prompt while the person's own turn runs (module
+/// docs): it goes in after that turn, as a turn of its own.
+pub(super) fn persons_turn_steer_refused() -> RpcError {
+    RpcError::invalid_params(
+        "steer.unavailable: the person's own turn runs; another agent's message goes in after it, as a turn of its own, so send without steer-only to queue",
+    )
+    .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "personsTurn": true}))
+}
+
+/// Whether a notice may not steer into the running turn now: a prompt waits, the person's own
+/// prompt started the turn, or the turn is past its cap (`turns.rs` checks it again at dispatch).
 pub(super) fn notice_held(session: &Session) -> bool {
-    let started = session.turn().map(|t| t.started_at);
+    let turn = session.turn();
     prompt_waits(session)
         || review_box(session)
-        || started.is_some_and(|at| capped(&session.meta(), at, now_ms()))
+        || turn.as_ref().is_some_and(|t| t.persons)
+        || turn.is_some_and(|t| capped(&session.meta(), t.started_at, now_ms()))
 }
 
 /// Whether the session's running turn is past its cap.
@@ -857,6 +991,8 @@ impl Hub {
         let continuing = self.continuation_pending(session);
         let next = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            // Set once `new` lets go of the inbox (below).
+            let mut held_by_person = false;
             let next = {
                 let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
                 if new.is_empty()
@@ -873,8 +1009,13 @@ impl Hub {
                                 at => at.saturating_add(REFUSED_RETRY_MS),
                             };
                             // A review box's turn takes no notice: what its inbox held before
-                            // it became one waits for the turn's end (module docs).
+                            // it became one waits for the turn's end (module docs). Nor does
+                            // the person's own: the notice goes in as a turn after it, never
+                            // into a turn carried on from it (`carried_turn.rs`).
+                            held_by_person = turn.persons;
                             if !steers
+                                || turn.persons
+                                || inbox.held_by_person
                                 || capped(&meta, turn.started_at, now)
                                 || prompt_waits(session)
                                 || crate::review_box::of_meta(&meta)
@@ -898,11 +1039,18 @@ impl Hub {
                         None => {
                             // A waking message after the debounce; anything after the flush, so no
                             // message is stranded in an idle chat.
+                            // Messages the person's own turn held back are due now: they would
+                            // have gone into that turn.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
                             let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
                             let flush = oldest.saturating_add(FLUSH_MS);
-                            let due = waking
-                                .map_or(flush, |at| at.saturating_add(WAKE_DEBOUNCE_MS).min(flush));
+                            let due = if inbox.held_by_person {
+                                now
+                            } else {
+                                waking.map_or(flush, |at| {
+                                    at.saturating_add(WAKE_DEBOUNCE_MS).min(flush)
+                                })
+                            };
                             let retry = match inbox.refused_at {
                                 0 => 0,
                                 at => at.saturating_add(REFUSED_RETRY_MS),
@@ -923,6 +1071,9 @@ impl Hub {
                     }
                 }
             };
+            if held_by_person {
+                inbox.held_by_person = true;
+            }
             match next {
                 Next::Nothing => {
                     if let Some(timer) = inbox.timer.take() {
@@ -959,6 +1110,7 @@ impl Hub {
             if let Some(timer) = inbox.timer.take() {
                 timer.abort();
             }
+            inbox.held_by_person = false;
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
             let (text, parts) = render(&new);
             let whole = team_page::whole_notice(&new);
@@ -1082,7 +1234,14 @@ impl Hub {
     /// back, and its wake timer is done.
     pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>) {
         self.disarm_inbox(session);
-        session.inbox.lock().unwrap_or_else(|e| e.into_inner()).refused_at = 0;
+        let persons = persons_turn(session);
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        inbox.refused_at = 0;
+        // What waits as the person's own turn starts would have gone into it: due at its end. A
+        // notice in flight that is refused comes back new, and its review marks it so.
+        if persons && inbox.items.iter().any(|i| !i.noticed) {
+            inbox.held_by_person = true;
+        }
     }
 
     /// A prompt was written to its agent (a turn's in `run_prompt_joined`, a steer's in

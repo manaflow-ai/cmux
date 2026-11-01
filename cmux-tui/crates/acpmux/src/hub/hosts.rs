@@ -27,9 +27,14 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// That turn's line on the summary (`turn_started` `promptLine`, `prompt_line.rs`); `None`
+    /// for an older record.
+    turn_line: Option<String>,
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
+    /// The person's own prompt started that turn (`turn_started` `persons`, `inbox.rs`).
+    turn_persons: bool,
     /// The last turn ended naming the turn it carried into (`turn_result` `carriedTo`), which
     /// never logged its start: the restart came in between.
     carry_next: Option<(String, Value)>,
@@ -477,6 +482,9 @@ impl Hub {
             return Ok(());
         }
         let resume_after = self.last_host_seq(session, &record.incarnation);
+        // The subagents the host still runs, before its first replayed line reaches the tap:
+        // a child's line is tagged with its session from the first one (`work_below.rs`).
+        self.seed_subagents_from_log(session);
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
@@ -492,6 +500,18 @@ impl Hub {
         let (child, adopted) = match attached {
             Attached::Ready(child, adopted, _) => (child, adopted),
             Attached::Incompatible { min, max, host_build } => {
+                // Its replay is never read, so what it kept while no daemon was attached is
+                // unknown: under MDM's off it counts as full access, now and at any later off
+                // (`unjudged_host`), and ends by its nonce. A host whose end fails stays held and
+                // is never reached (`FullAccessEnd::StillRunning`). With MDM unset it runs on,
+                // unadoptable, as before (#26337).
+                session.floor.unjudged_host.store(true, Ordering::SeqCst);
+                let ended = off.off()
+                    && self.end_managed_full_access(session).await == FullAccessEnd::Ended;
+                if ended {
+                    hold.take();
+                    return Ok(());
+                }
                 self.mark_unadoptable(
                     session,
                     json!({"hostProtocol": [min, max], "hostBuild": host_build}),
@@ -580,14 +600,29 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
-        self.set_status(session, SessionStatus::Ready);
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
+        let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
+        // The status after recovery, not before it: set before, `ready` was logged and shown
+        // between `host_adopted` and a turn the host still runs (an idle chat that was working).
+        // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
+        // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
+        // also have ended by now; a permission asked again), it stands. Else the status loaded from
+        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // something still asks the person, `ready` otherwise, read under the permissions lock
+        // that an answer takes.
+        if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            let status = if asking { SessionStatus::Waiting } else { SessionStatus::Ready };
+            self.set_status(session, status);
+            drop(state);
+        }
         self.restart_unproven(session, proven);
         self.save_meta(session);
         Ok(())
@@ -851,6 +886,7 @@ impl Hub {
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
                     work.turn_carried = false;
+                    // The open turn is still the person's own on a new harness (`turn_started`).
                     work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
@@ -877,8 +913,11 @@ impl Hub {
                             Control::from_recorded(e.msg.get("control").and_then(Value::as_str))
                         },
                     ));
+                    work.turn_line =
+                        e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
+                    work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                     work.carry_next = None;
                     work.next_raised = false;
                     work.heard_at = 0;
@@ -915,7 +954,9 @@ impl Hub {
                         (from.unwrap_or_default(), c.clone())
                     });
                     work.turn = None;
+                    work.turn_line = None;
                     work.turn_carried = false;
+                    work.turn_persons = false;
                     work.next_raised = false;
                     work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
@@ -1117,6 +1158,9 @@ impl Hub {
             && work.prompt_request.is_none()
         {
             let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
+            if let Some(line) = &work.turn_line {
+                turn.show(line);
+            }
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
@@ -1150,10 +1194,16 @@ impl Hub {
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
                     let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
+                    // Its line on the summary as the turn showed it (`prompt_line.rs`); an older
+                    // record's as its client tells it.
+                    let line = work
+                        .turn_line
+                        .clone()
+                        .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         started_at,
                         client,
-                        masked_preview: crate::secret_scan::mask(&prompt),
+                        masked_preview: super::auto_resume::shown_line(&line),
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
@@ -1161,6 +1211,10 @@ impl Hub {
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         doing: work.doing.clone(),
+                        // A restart keeps no provenance of the turn: its History line stays.
+                        notice: false,
+                        // As logged (`turn_started` `persons`); an older record's takes notices.
+                        persons: work.turn_persons,
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not
@@ -1731,8 +1785,9 @@ impl Hub {
         } else {
             crate::agent::command_env(&cmd)
         };
-        // From the harness's own env: its profile's value as resolved (`cpu_class.rs`).
-        let cpu_class = crate::cpu_class::CpuClass::for_session(
+        // The class it runs at once its start is over, from the harness's own env: its profile's
+        // value as resolved (`cpu_class.rs`). It starts at normal class.
+        let run_class = crate::cpu_class::CpuClass::for_session(
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut spec = crate::agent_host::SpawnSpec {
@@ -1748,7 +1803,6 @@ impl Hub {
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
-            cpu_class,
             orphan_exit: None,
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
@@ -1758,6 +1812,7 @@ impl Hub {
         spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
             child.record_launch(servers.clone());
+            child.set_run_class(run_class);
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
@@ -1797,9 +1852,18 @@ impl Hub {
         spec: &crate::agent_host::SpawnSpec,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, HostStartFailed> {
+        // A start runs only once the session's old host is gone (`ensure_child`), so a host this
+        // build could not speak to no longer counts: cleared before the new host's record is
+        // live, so no off push in between ends the new one for it (#26337).
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
+        // Not at a background class another process set (`cpu_class.rs`, item 1). Its host reaps
+        // it: a harness that already ended leaves the pid to a process of this user at most.
+        if let Some(pid) = record.harness_pid {
+            crate::cpu_class::clear_running(pid);
+        }
         self.forget_adopted_caller(&session.id);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.
@@ -1907,18 +1971,8 @@ fn open_work_reads(head: &RecordHead<'_>, current: bool, turn_open: bool) -> boo
         "in" => {
             // An open turn's records: the model's signs of work, its tools, steers' answers.
             turn_open
-                // Every subagent the log starts, which a later turn's update may belong to
-                // (`SubagentTree::annotate`, replayed history included; Codex's legacy ones are
-                // a `spawnAgent` call or a `_meta.codex.subagent` object).
-                || matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "subagent_spawned" | "subagent_state_update" | "subagent_progress"
-                )
-                || (matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "tool_call" | "tool_call_update"
-                ) && (head.may_contain(b"\"spawnAgent\"")
-                    || head.may_contain(b"\"subagent\":{")))
+                // Every subagent the log starts, which a later turn's update may belong to.
+                || super::work_below::names_subagents(head)
                 // An agent request (an `id` and a `method`), answered or not.
                 || (current && head.may_contain(b"\"id\":") && head.may_contain(b"\"method\":"))
         }

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# cmux-tui's Rust checks on a macOS fleet host, as a cmux-ci step:
+# cmux-tui's Rust checks on a fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
-#     --arg MODE [--arg TEST_FILTER]
+#     --os linux|macos --arg MODE [--arg TEST_FILTER]
+# --os: fmt, clippy, test, all, terminal, api-compat and panic go to Blacksmith Linux first (as
+# cmux-tui.yml gates them) unless the step asks for macOS; a test behind cfg(target_os = "macos")
+# needs --os macos, or it runs nothing on Linux. The other modes run on macOS only.
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
 # panic: the "Rust panic ratchet" step of cmux-tui.yml's Linux lint job, the same two commands
@@ -63,7 +66,8 @@ set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
 cmux-tui-rust-check.sh runs cargo and runs only as a fleet step:
-  cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY --arg all
+  cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY --os linux --arg all
+  (--os macos for a test that runs only on macOS)
 MSG
   exit 2
 fi

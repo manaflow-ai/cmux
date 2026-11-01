@@ -2,6 +2,7 @@
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextResources
+import CmuxNextTestSupport
 import AppKit
 import Testing
 
@@ -45,7 +46,7 @@ private final class HoverInteractionSource: HoverCardSource {
     func hoverCardDeactivated(_: HoverTargetID) {}
 }
 
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct WorkspaceTabHoverCardTests {
     @Test func clickingAnInactiveWorkspaceTabSendsBothIDsAndKeepsRichContent() throws {
         _ = NSApplication.shared
@@ -158,37 +159,53 @@ struct WorkspaceTabHoverCardTests {
         #expect(!list.hoverCard.resources.isScheduled)
     }
 
-    @Test func overflowExpandsWithoutRemovingDetailsAndResetsForAnotherWorkspace() throws {
-        let card = WorkspaceHoverCardView()
-        card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
-                       facts: [.init(icon: .folder, text: "Keep this detail", kind: "folder")]))
-        let tabs = (1...7).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") }
-        card.tabList.configure(title: "project", tabs: tabs)
-        #expect(card.tabList.reportedLines.count == 5)
-        let more = try #require(card.tabList.subviews.first?.subviews.compactMap { $0 as? NSButton }.first)
-        more.performClick(nil)
-        #expect(card.tabList.reportedLines.count == 7)
+    /// Leo 2026-11-01: "the show 1 more is reallly bad when it's this small like you need to be
+    /// able to scroll through them". Every tab is listed, with no Show N more: one past the row
+    /// limit fits without scrolling, a longer list scrolls in place.
+    @Test func everyTabIsListedAndALongListScrolls() throws {
+        func layout(_ count: Int) throws -> (WorkspaceHoverCardView, NSScrollView) {
+            let card = WorkspaceHoverCardView()
+            card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
+                           facts: [.init(icon: .folder, text: "Keep this detail", kind: "folder")]))
+            card.tabList.configure(title: "project", tabs: (1...count).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
+            card.frame = NSRect(x: 0, y: 0, width: 280, height: 600)
+            card.layoutSubtreeIfNeeded()
+            card.tabList.layoutSubtreeIfNeeded()
+            let shownButtons = Self.descendants(of: card.tabList).compactMap { $0 as? NSButton }.filter { !$0.isHidden }
+            #expect(shownButtons.isEmpty, "a Show more control")
+            #expect(card.tabList.reportedLines.count == count)
+            return (card, try #require(Self.descendants(of: card.tabList).compactMap { $0 as? NSScrollView }.first))
+        }
+        let (_, five) = try layout(5)
+        let fiveDocument = try #require(five.documentView)
+        #expect(fiveDocument.frame.height <= five.contentSize.height + 0.5, "five tabs scroll: \(fiveDocument.frame) in \(five.contentSize)")
+        let (card, seven) = try layout(7)
+        let sevenDocument = try #require(seven.documentView)
+        #expect(sevenDocument.frame.height > seven.contentSize.height, "seven tabs do not scroll")
+        let rows = Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }.filter { !$0.isHidden }
+        #expect(rows.count == 7)
         card.detailsToggle.performClick(nil)
         #expect(card.lines.contains("Keep this detail"))
-        card.tabList.configure(title: "other-workspace", tabs: tabs)
-        #expect(card.tabList.reportedLines.count == 5)
     }
 
-    @Test func overflowMoreControlIsAnInteractiveHoverCardTarget() throws {
+    /// The whole list (its rows, the gaps between them and the scroller) takes the pointer, so a
+    /// click or a wheel between two rows never falls through and ends the card.
+    @Test func theGapBetweenRowsIsPartOfTheInteractiveList() throws {
         let view = WorkspaceTabHoverCardView(rowLimit: 1)
-        view.configure(title: "project", tabs: (1...3).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 280, height: 160), styleMask: [.borderless], backing: .buffered, defer: false)
+        view.configure(title: "project", tabs: (1...6).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 280, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.contentView = nil; window.close() }
         window.contentView = view
         view.frame = window.contentView?.bounds ?? .zero
         view.layoutSubtreeIfNeeded()
-        let more = try #require(view.subviews.first?.subviews.compactMap { $0 as? NSButton }.first)
-        let screenPoint = window.convertPoint(toScreen: more.convert(NSPoint(x: more.bounds.midX, y: more.bounds.midY), to: nil))
-        #expect(view.acceptsHoverCardMouse(at: screenPoint, in: window))
+        let rows = Self.descendants(of: view).compactMap { $0 as? WorkspaceTabHoverCardRow }.filter { !$0.isHidden }
+        let first = try #require(rows.first)
+        let gap = first.convert(NSPoint(x: first.bounds.midX, y: first.bounds.maxY + Metrics.space1 / 2), to: nil)
+        #expect(view.acceptsHoverCardMouse(at: window.convertPoint(toScreen: gap), in: window))
     }
 
-    @Test func hostedCardAcceptsRowsAndOverflowAtTheirRealOrigins() throws {
+    @Test func hostedCardAcceptsRowsAtTheirRealOrigins() throws {
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal, facts: []))
         card.tabList.configure(title: "project", tabs: (1...6).map {
@@ -206,16 +223,38 @@ struct WorkspaceTabHoverCardTests {
 
         let rows = Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }
             .filter { !$0.isHidden }
-        #expect(rows.count == 4)
-        for row in [rows.first, rows.last].compactMap({ $0 }) {
+        #expect(rows.count == 6)
+        for row in [rows.first].compactMap({ $0 }) {
             let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
             let screenPoint = window.convertPoint(toScreen: point)
             #expect(card.acceptsHoverCardMouse(at: screenPoint, in: window))
         }
-        let more = try #require(Self.descendants(of: card.tabList).compactMap { $0 as? NSButton }
-            .first { !$0.isHidden && $0.title.localizedCaseInsensitiveContains("more") })
-        let point = more.convert(NSPoint(x: more.bounds.midX, y: more.bounds.midY), to: nil)
-        #expect(card.acceptsHoverCardMouse(at: window.convertPoint(toScreen: point), in: window))
+    }
+
+    /// Leo 2026-11-01 on Show details: "make the thing a little bit less completely unstyled". It
+    /// spans the list's width, its words start on the tab titles' column, and its chevron says
+    /// which way it goes.
+    @Test func showDetailsIsStyledLikeTheTabRows() throws {
+        let card = WorkspaceHoverCardView()
+        card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
+                       facts: [.init(icon: .folder, text: "docs", kind: "folder")]))
+        card.tabList.configure(title: "project", tabs: [SidebarTab(id: TabID("only"), title: "shell")])
+        card.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
+        card.layoutSubtreeIfNeeded()
+        let toggle = card.detailsToggle
+        #expect(!toggle.isHidden)
+        #expect(abs(toggle.frame.width - card.tabList.frame.width) < 0.5, "toggle \(toggle.frame) list \(card.tabList.frame)")
+        #expect(abs(toggle.frame.minX - card.tabList.frame.minX) < 0.5)
+        let label = try #require(toggle.subviews.compactMap { $0 as? ChromeLabel }.first)
+        let row = try #require(Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }.first)
+        row.layoutSubtreeIfNeeded()
+        let title = try #require(Self.descendants(of: row).compactMap { $0 as? ChromeLabel }.first)
+        let labelX = label.convert(NSPoint.zero, to: card).x
+        let titleX = title.convert(NSPoint.zero, to: card).x
+        #expect(abs(labelX - titleX) < 0.5, "Show details at \(labelX), tab titles at \(titleX)")
+        #expect(!toggle.isExpanded)
+        toggle.performClick(nil)
+        #expect(toggle.isExpanded && card.isDetailsExpanded)
     }
 
     /// `NSView.hitTest(_:)` takes a point in the receiver's superview space, so the tab list (below

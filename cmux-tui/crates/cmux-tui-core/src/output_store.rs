@@ -225,6 +225,54 @@ impl LogState {
     fn next_offset(&self) -> u64 {
         self.tail_start + self.tail.len() as u64
     }
+
+    /// The first byte not yet in a segment file (full mode), else the end.
+    fn unflushed_start(&self) -> u64 {
+        if self.pending.is_empty() { self.next_offset() } else { self.pending_start }
+    }
+
+    /// Extend a window read from the segment files with the bytes memory
+    /// holds right after it, within `budget`. Nothing changes when memory
+    /// does not reach back to the window's end.
+    fn continue_window(&self, window: &mut OutputWindow, budget: usize) {
+        let room = budget.saturating_sub(window.bytes.len());
+        if room == 0 {
+            return;
+        }
+        let rest = self.memory_window(window.next_offset, room);
+        if rest.start_offset != window.next_offset || rest.bytes.is_empty() {
+            return;
+        }
+        window.bytes.extend_from_slice(&rest.bytes);
+        window.next_offset = rest.next_offset;
+        window.truncated = rest.truncated;
+    }
+
+    /// Kept bytes at or after `after`, at most `budget`, from memory.
+    fn memory_window(&self, after: u64, budget: usize) -> OutputWindow {
+        let end = self.next_offset();
+        // Unflushed bytes (full mode) can reach further back than the tail;
+        // they always end at the stream end.
+        let from_pending = !self.pending.is_empty()
+            && self.pending_start < self.tail_start
+            && self.pending_start + self.pending.len() as u64 == end;
+        let source_start = if from_pending { self.pending_start } else { self.tail_start };
+        let start = after.clamp(source_start, end);
+        let skip = usize::try_from(start - source_start).unwrap_or(usize::MAX);
+        let available = usize::try_from(end - start).unwrap_or(usize::MAX);
+        let take = available.min(budget);
+        let bytes = if from_pending {
+            self.pending.get(skip..skip.saturating_add(take)).unwrap_or_default().to_vec()
+        } else {
+            self.tail.iter().skip(skip).take(take).copied().collect()
+        };
+        OutputWindow {
+            start_offset: start,
+            next_offset: start + take as u64,
+            bytes,
+            truncated: take < available,
+        }
+    }
 }
 
 /// One terminal's output log.
@@ -309,6 +357,9 @@ pub(crate) struct OutputStore {
     resident_trigger: std::sync::atomic::AtomicU64,
     /// Stream ends the snapshots recorded, by terminal: (generation, end).
     resume: Mutex<HashMap<TerminalPublicId, (String, u64)>>,
+    /// Stored segment stream ends, by terminal and generation key (full
+    /// mode; read once at start).
+    segment_resume: Mutex<HashMap<(TerminalPublicId, String), u64>>,
 }
 
 impl OutputStore {
@@ -330,6 +381,7 @@ impl OutputStore {
             resident_total: std::sync::atomic::AtomicU64::new(0),
             resident_trigger: std::sync::atomic::AtomicU64::new(u64::MAX),
             resume: Mutex::new(HashMap::new()),
+            segment_resume: Mutex::new(HashMap::new()),
         }
     }
 
@@ -362,6 +414,10 @@ impl OutputStore {
         }
         *self.resume.lock().unwrap_or_else(PoisonError::into_inner) =
             snapshot::stream_ends(directory);
+        if policy.mode == PersistenceMode::Full {
+            *self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner) =
+                segments::all_stream_ends(directory);
+        }
         self.writer.start(Arc::downgrade(mux))
     }
 
@@ -371,14 +427,26 @@ impl OutputStore {
             return log.clone();
         }
         // A terminal this daemon re-adopted continues its stream where the
-        // last snapshot left it (a client's cursor stays meaningful).
-        let start = self
+        // last snapshot or stored segment frame left it (a client's cursor
+        // stays meaningful, and no stored offset is used twice). Segments
+        // flush more often than snapshots, and a snapshot can be gone (the
+        // total cap) while its segments stay. Both were read at start: no
+        // IO here.
+        let snapshot_end = self
             .resume
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(terminal_id)
             .filter(|(resumed, _)| resumed.as_str() == generation.as_ref())
-            .map_or(0, |(_, end)| end);
+            .map(|(_, end)| end);
+        let segment_end = {
+            let mut ends = self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner);
+            segments::keys_of(generation)
+                .into_iter()
+                .filter_map(|key| ends.remove(&(terminal_id.clone(), key)))
+                .max()
+        };
+        let start = snapshot_end.into_iter().chain(segment_end).max().unwrap_or(0);
         let log = Arc::new(TerminalLog {
             terminal_id: terminal_id.clone(),
             state: Mutex::new(LogState {
@@ -403,11 +471,12 @@ impl OutputStore {
     }
 
     /// Record output the terminal's parser accepted. Memory only: no disk
-    /// IO and no syscall on this path. `history` is the terminal's history
-    /// size after the parser took `bytes` (O(1) reads under the parser lock;
-    /// `None` when the caller has no terminal). When the history grew by a
-    /// step since the terminal's last measurement, the writer is asked to
-    /// measure it (`memory_budget.rs`); this path never walks its pages.
+    /// IO and no syscall on this path (resume offsets were read at start).
+    /// `history` is the terminal's history size after the parser took
+    /// `bytes` (O(1) reads under the parser lock; `None` when the caller has
+    /// no terminal). When the history grew by a step since the terminal's
+    /// last measurement, the writer is asked to measure it
+    /// (`memory_budget.rs`); this path never walks its pages.
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,
@@ -499,41 +568,58 @@ impl OutputStore {
         let log =
             self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
         let budget = usize::try_from(max_bytes.max(1)).unwrap_or(usize::MAX);
-        let (generation, end, unflushed_start) = {
+        // A flush drops bytes from memory only after their frame is written,
+        // so every byte before an observed `unflushed_start` is already in a
+        // segment file. A try that finds the bytes at `after` in neither
+        // place saw a flush finish meanwhile; the next try's segment read
+        // then has them (a pruned or cleared file is the only other cause).
+        const TRIES: usize = 3;
+        for attempt in 1..=TRIES {
+            let (generation, end, unflushed_start) = {
+                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                (state.generation.clone(), state.next_offset(), state.unflushed_start())
+            };
+            if self.full.enabled()
+                && after < unflushed_start
+                && let Some(directory) = self.directory.as_deref()
+                && let Some(mut window) =
+                    segments::read_after(directory, terminal_id, &generation, after, budget)
+            {
+                // Memory holds every byte from the first unflushed one on
+                // (and the recent tail): the window goes on from there when
+                // memory reaches back to the window's end.
+                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                if state.generation != generation {
+                    window.truncated |= window.next_offset < end;
+                    return Some(window);
+                }
+                state.continue_window(&mut window, budget);
+                let end = state.next_offset();
+                // Still short of the end with room left while a flush
+                // finished meanwhile (its bytes left memory after the
+                // segment read): read again, the files now hold them.
+                if window.next_offset < end
+                    && window.bytes.len() < budget
+                    && state.unflushed_start() != unflushed_start
+                    && attempt < TRIES
+                {
+                    continue;
+                }
+                window.truncated |= window.next_offset < end;
+                return Some(window);
+            }
             let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let unflushed_start =
-                if state.pending.is_empty() { state.next_offset() } else { state.pending_start };
-            (state.generation.clone(), state.next_offset(), unflushed_start)
-        };
-        if self.full.enabled()
-            && after < unflushed_start
-            && let Some(directory) = self.directory.as_deref()
-            && let Some(mut window) =
-                segments::read_after(directory, terminal_id, &generation, after, budget)
-        {
-            window.truncated |= window.next_offset < end;
-            return Some(window);
+            if self.full.enabled()
+                && after < state.tail_start
+                && after < state.unflushed_start()
+                && state.unflushed_start() != unflushed_start
+            {
+                continue;
+            }
+            return Some(state.memory_window(after, budget));
         }
         let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let end = state.next_offset();
-        // The unflushed bytes (full mode) reach further back than the tail.
-        let from_pending = !state.pending.is_empty() && state.pending_start < state.tail_start;
-        let source_start = if from_pending { state.pending_start } else { state.tail_start };
-        let start = after.clamp(source_start, end);
-        let skip = usize::try_from(start - source_start).unwrap_or(usize::MAX);
-        let available = usize::try_from(end - start).unwrap_or(usize::MAX);
-        let take = available.min(budget);
-        let bytes = if from_pending {
-            state.pending.get(skip..skip.saturating_add(take))?.to_vec()
-        } else {
-            state.tail.iter().skip(skip).take(take).copied().collect()
-        };
-        Some(OutputWindow {
-            start_offset: start,
-            next_offset: start + take as u64,
-            bytes,
-            truncated: take < available,
-        })
+        Some(state.memory_window(after, budget))
     }
 
     /// The person cleared this terminal's history: drop the stored output

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21 (ask-13d9bbd5e3): "have we fixed this dragging workspace sidebar things hiding random groups? and
@@ -8,7 +9,7 @@ import Testing
 /// every "Done (N)" row (#23633): at the lift the Done rows vanished, every Done workspace showed in its place and the
 /// rows below moved down, then the drop folded them again and the rows moved back. A drag keeps the folds: the only
 /// row that leaves its place is the dragged one, and the drop shows the order the drag showed.
-@MainActor @Suite(.serialized) struct SidebarDragKeepsDoneFoldTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDragKeepsDoneFoldTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let section = SectionID.machine(.local)
     static let group = GroupID("g")

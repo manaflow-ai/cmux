@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// browser tabs, New Tab, the diff page; folders through ``LinkOpener/openFolder(_:from:)``) and
 /// ``AgentTabStore/openOnRight(of:origin:open:created:finished:)`` (subagents, side chats, Session Info
 /// sessions, transcript session cards). One asked for while another is under way waits, then decides.
-@MainActor @Suite(.serialized) struct RightColumnEntryPointTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct RightColumnEntryPointTests {
     private static func tree() -> DaemonTree {
         let chat = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "chat")])
         let right = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "diff")])
@@ -34,8 +35,7 @@ import Testing
         let state = WindowState(record: record)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1600, height: 900), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
         content.contentView.frame = NSRect(x: 0, y: 0, width: 1600, height: 900)
         window.contentView = content.contentView
@@ -79,8 +79,7 @@ import Testing
         let state = WindowState(record: record)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1600, height: 900), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
         content.contentView.frame = NSRect(x: 0, y: 0, width: 1600, height: 900)
         window.contentView = content.contentView

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 532,
+  "count": 541,
   "sections": [
     {
       "id": "general",
@@ -15,7 +15,8 @@
           "group": "Agent Chat",
           "values": [
             "inline",
-            "strip"
+            "strip",
+            "both"
           ]
         },
         {
@@ -89,6 +90,18 @@
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.newChatsIn",
+          "title": "Start New Chats In",
+          "help": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+          "kind": "choice",
+          "default": "local",
+          "group": "Agent Chat",
+          "values": [
+            "local",
+            "cloud"
+          ]
         },
         {
           "key": "agentPane.scrollToBottomOnSend",
@@ -215,7 +228,7 @@
           "title": "Open Sub-sessions per Session",
           "help": "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
           "kind": "number",
-          "default": 50,
+          "default": 1000,
           "group": "Sub-sessions",
           "range": {
             "min": 1,
@@ -241,7 +254,7 @@
           "title": "Running Sub-sessions per Session",
           "help": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
           "kind": "number",
-          "default": 16,
+          "default": 1000,
           "group": "Sub-sessions",
           "range": {
             "min": 1,
@@ -352,6 +365,19 @@
           "group": "Tabs"
         },
         {
+          "key": "appearance.metrics.tabFontSize",
+          "title": "Tab Text Size",
+          "help": "Text size of tab titles. Unset, tabs follow the interface size.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 10,
+            "max": 18,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.tabMaxWidth",
           "title": "Maximum Tab Width",
           "help": "Widest a tab gets when the strip has room.",
@@ -400,6 +426,19 @@
           "range": {
             "min": 24,
             "max": 120,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.tabStripHeight",
+          "title": "Tab Bar Height",
+          "help": "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 22,
+            "max": 44,
             "unit": "points"
           }
         },
@@ -1462,6 +1501,19 @@
           "group": "Hibernation"
         },
         {
+          "key": "workspaces.hibernation.hiddenSpaceMinutes",
+          "title": "Hibernate Hidden Spaces After",
+          "help": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+          "kind": "number",
+          "default": 15,
+          "group": "Hibernation",
+          "range": {
+            "min": 5,
+            "max": 1440,
+            "unit": "minutes"
+          }
+        },
+        {
           "key": "workspaces.hibernation.idleMinutes",
           "title": "Hibernate After",
           "help": "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
@@ -1610,6 +1662,19 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptView",
+          "title": "Transcript View",
+          "help": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+          "kind": "choice",
+          "default": "normal",
+          "group": "Agent Chat",
+          "values": [
+            "normal",
+            "thinking",
+            "verbose"
           ]
         },
         {
@@ -3145,7 +3210,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 1300,
+          "default": 400,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3449,6 +3514,14 @@
           "key": "sidebar.showLocalMachine",
           "title": "Mark This Mac's Workspaces",
           "help": "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showNewWorkspaceChooser",
+          "title": "Show New Workspace Menu Button",
+          "help": "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -3910,6 +3983,19 @@
             "max": 160,
             "unit": "points"
           }
+        },
+        {
+          "key": "workspaceColors.indicatorStyle",
+          "title": "Workspace Color Style",
+          "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+          "kind": "choice",
+          "default": "dot",
+          "group": "Sidebar",
+          "values": [
+            "dot",
+            "leftRail",
+            "fill"
+          ]
         }
       ]
     },
@@ -5166,16 +5252,20 @@
           "default": "orb",
           "group": "Chief Pet",
           "values": [
-            "orb",
-            "orb-spark",
-            "orb-hood",
+            "fox",
             "machine",
             "machine-cyan",
             "machine-blue",
             "moon",
             "moon-blue",
-            "fox",
-            "mochi"
+            "mochi",
+            "fox-arctic",
+            "machine-violet",
+            "machine-gold",
+            "moon-rose",
+            "orb",
+            "orb-spark",
+            "orb-hood"
           ]
         },
         {
@@ -5707,6 +5797,26 @@
           "kind": "string_map",
           "default": {},
           "group": "Machine Colors"
+        },
+        {
+          "key": "cloud.newWorkspaceFolder",
+          "title": "New Cloud Workspaces Start In",
+          "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+          "kind": "choice",
+          "default": "inherit",
+          "group": "Cloud Workspaces",
+          "values": [
+            "inherit",
+            "empty"
+          ]
+        },
+        {
+          "key": "cloud.newWorkspacesInCloud",
+          "title": "Run New Workspaces in Cloud",
+          "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
         },
         {
           "key": "phone.allowConnections",

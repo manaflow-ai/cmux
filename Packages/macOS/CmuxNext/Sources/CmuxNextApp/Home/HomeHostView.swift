@@ -289,7 +289,7 @@ final class HomeHostView: NSView {
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
                       summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
                 let me = store.me?.id
-                let others = TopHomePageView.visible(store.rows, archivedChiefs: service.directory.archivedChiefs, me: me)
+                let others = HomeArchivedChiefs(service.directory.archivedChiefs, me: me).visible(store.rows)
                     .filter { $0.kind == .chief && $0.id != id }.count
                 return intro.intro(for: id, otherChiefs: others)
             }) {
@@ -298,7 +298,7 @@ final class HomeHostView: NSView {
                 // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
                 if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
                                                                connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                                               intro: intro) { return }
+                                                               intro: intro, text: ChiefWelcome.text(services.registry)) { return }
                 self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
