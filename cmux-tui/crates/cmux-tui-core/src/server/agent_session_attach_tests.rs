@@ -972,7 +972,7 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"claude"}),
             "_acpmux/agent_login/start",
-            json!({"agent": "claude"}),
+            json!({"agent": "claude", "sessionId": SESSION}),
             json!({"loginId": "login_1", "url": "https://claude.ai/oauth/authorize",
                    "needsCode": true}),
         ),
@@ -1001,7 +1001,7 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
                    "login_id":"login_1"}),
             "_acpmux/agent_login/cancel",
-            json!({"loginId": "login_1"}),
+            json!({"loginId": "login_1", "sessionId": SESSION}),
             json!({}),
         ),
     ] {

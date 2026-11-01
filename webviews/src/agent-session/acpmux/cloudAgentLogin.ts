@@ -26,6 +26,8 @@ export type LoginFailure =
   | "shared_machine"
   | "cli_missing"
   | "busy"
+  | "remote_refused"
+  | "unknown_session"
   | "unsupported"
   | "failed";
 
@@ -63,6 +65,8 @@ export function loginFailure(error: unknown): LoginFailure {
     case "shared_machine":
     case "cli_missing":
     case "busy":
+    case "remote_refused":
+    case "unknown_session":
       return reason;
     // The login the card holds is gone (acpmux restarted, or it lapsed): start again.
     case "unknown_login":
@@ -174,14 +178,15 @@ export function cloudAgentLogin(options: {
     agent,
     start: () =>
       step(async () => {
-        const reply = await client().agentLoginStart(agent);
+        // Every call names the chat, so it runs on the chat's machine (acpmux forwards it there).
+        const reply = await client().agentLoginStart(agent, sessionId);
         const started = startOf(reply);
         if (!started) {
           // A page this Mac will not open: stop the login acpmux started, so it holds nothing.
           const loginId = (reply as { loginId?: unknown } | undefined)?.loginId;
           if (typeof loginId === "string" && loginId)
             void currentClient()
-              ?.agentLoginCancel(loginId)
+              ?.agentLoginCancel(loginId, sessionId)
               .catch(() => undefined);
           throw new LoginStepError("failed");
         }
@@ -203,7 +208,7 @@ export function cloudAgentLogin(options: {
       }),
     cancel: (loginId) => {
       void currentClient()
-        ?.agentLoginCancel(loginId)
+        ?.agentLoginCancel(loginId, sessionId)
         .catch(() => undefined);
     },
     reserve: () => {

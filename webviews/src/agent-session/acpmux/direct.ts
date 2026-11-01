@@ -7060,15 +7060,16 @@ export class AcpmuxDirectClient {
   }
   /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
-  /// Whether this acpmux runs an agent's own login on its machine (`agent_login`, named in
-  /// `initialize`'s `_meta.acpmux.capabilities` or `features`): a Cloud chat's sign-in card.
+  /// Whether this acpmux runs an agent's own login on its machine (`agent_login` in `initialize`'s
+  /// `_meta.acpmux.features`, or `agent-login-v1` in its capabilities): a Cloud chat's sign-in card.
   get supportsAgentLogin(): boolean {
     return AGENT_LOGIN_CAPABILITIES.some((id) => this.capabilities?.has(id) || this.features.has(id));
   }
-  /// Starts `agent`'s own login on this acpmux's machine (`_acpmux/agent_login/start`): the page to
-  /// open, Codex's device code, and whether the page gives a code to paste back (Claude).
-  agentLoginStart(agent: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/start", { agent });
+  /// Starts `agent`'s own login on chat `sessionId`'s machine (`_acpmux/agent_login/start`; acpmux
+  /// forwards a call that names a chat to the machine it lives on): the page to open, Codex's
+  /// device code, and whether the page gives a code to paste back (Claude).
+  agentLoginStart(agent: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/start", { agent, sessionId });
   }
   /// Finishes login `loginId` (`_acpmux/agent_login/finish`) with Claude's pasted `code`, or waits
   /// for Codex's approval; acpmux restarts chat `sessionId`'s agent signed in. The wire log keeps
@@ -7081,9 +7082,9 @@ export class AcpmuxDirectClient {
   agentLoginApiKey(agent: string, sessionId: string, key: string): Promise<unknown> {
     return this.request("_acpmux/agent_login/api_key", { agent, key, sessionId });
   }
-  /// Stops login `loginId` (`_acpmux/agent_login/cancel`).
-  agentLoginCancel(loginId: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/cancel", { loginId });
+  /// Stops login `loginId` on chat `sessionId`'s machine (`_acpmux/agent_login/cancel`).
+  agentLoginCancel(loginId: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/cancel", { loginId, sessionId });
   }
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;

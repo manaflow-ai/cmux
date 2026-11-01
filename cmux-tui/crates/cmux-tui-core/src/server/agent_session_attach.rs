@@ -451,15 +451,16 @@ struct LoginParams {
     key: Option<String>,
 }
 
-/// acpmux's params of one login step, with the attached `session` where acpmux restarts its agent
-/// signed in; `None` for a step whose fields are missing or out of bounds.
+/// acpmux's params of one login step, each naming the attached `session` (acpmux runs the sign-in
+/// on the machine that chat lives on, and restarts its agent signed in); `None` for a step whose
+/// fields are missing or out of bounds.
 fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, Duration)> {
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
     let agent = || text(&params.agent).filter(|a| matches!(*a, "claude" | "codex"));
     let (body, timeout) = match params.op.as_str() {
-        "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
+        "start" => (json!({"agent": agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
         "finish" => {
             let mut body = json!({"loginId": text(&params.login_id)?, "sessionId": session});
             if params.code.is_some() {
@@ -471,7 +472,7 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
             json!({"agent": agent()?, "key": text(&params.key)?, "sessionId": session}),
             CALL_TIMEOUT * 6,
         ),
-        "cancel" => (json!({"loginId": text(&params.login_id)?}), CALL_TIMEOUT),
+        "cancel" => (json!({"loginId": text(&params.login_id)?, "sessionId": session}), CALL_TIMEOUT),
         _ => return None,
     };
     Some((format!("_acpmux/agent_login/{}", params.op), body, timeout))

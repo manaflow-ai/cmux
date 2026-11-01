@@ -243943,6 +243943,60 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入未完成。請再試一次。" } }
       }
     },
+    "turn.signIn.error.remoteRefused": {
+      "comment": "Agent pane: Cloud sign-in card, the machine takes a sign-in only from its owner's own Mac.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign-in on this machine works only from your own Mac." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يعمل تسجيل الدخول على هذا الجهاز من جهاز Mac الخاص بك فقط." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prijava na ovoj mašini radi samo s tvog Maca." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Login på denne maskine virker kun fra din egen Mac." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Anmeldung auf dieser Maschine geht nur von deinem eigenen Mac aus." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El inicio de sesión en esta máquina solo funciona desde tu propio Mac." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La connexion sur cette machine ne fonctionne que depuis votre propre Mac." } },
+        "it": { "stringUnit": { "state": "translated", "value": "L’accesso su questa macchina funziona solo dal tuo Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このマシンへのサインインは、自分の Mac からのみ行えます。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការចូលលើម៉ាស៊ីននេះដំណើរការតែពី Mac ផ្ទាល់ខ្លួនរបស់អ្នកប៉ុណ្ណោះ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 머신의 로그인은 내 Mac에서만 할 수 있습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Pålogging på denne maskinen virker bare fra din egen Mac." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Logowanie na tej maszynie działa tylko z Twojego Maca." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O acesso nesta máquina só funciona a partir do seu próprio Mac." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Вход на этой машине работает только с вашего собственного Mac." } },
+        "th": { "stringUnit": { "state": "translated", "value": "การลงชื่อเข้าใช้บนเครื่องนี้ทำได้จาก Mac ของคุณเองเท่านั้น" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu makinede oturum açma yalnızca kendi Mac'inizden çalışır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вхід на цій машині працює лише з вашого власного Mac." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Chỉ có thể đăng nhập trên máy này từ Mac của chính bạn." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "只能从你自己的 Mac 登录这台机器。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "只能從你自己的 Mac 登入這台機器。" } }
+      }
+    },
+    "turn.signIn.error.unknownSession": {
+      "comment": "Agent pane: Cloud sign-in card, the chat's machine no longer has this chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This chat isn't on that machine anymore. Open the chat again." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لم تعد هذه الدردشة على ذلك الجهاز. افتح الدردشة مرة أخرى." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ovaj chat više nije na toj mašini. Ponovo otvori chat." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Denne chat er ikke længere på den maskine. Åbn chatten igen." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Dieser Chat ist nicht mehr auf dieser Maschine. Öffne den Chat erneut." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Este chat ya no está en esa máquina. Vuelve a abrir el chat." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Cette discussion n’est plus sur cette machine. Rouvrez-la." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Questa chat non è più su quella macchina. Riapri la chat." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このチャットはもうそのマシンにありません。チャットを開き直してください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការជជែកនេះលែងនៅលើម៉ាស៊ីននោះទៀតហើយ។ បើកការជជែកម្ដងទៀត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 채팅은 더 이상 그 머신에 없습니다. 채팅을 다시 여세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Denne chatten er ikke lenger på den maskinen. Åpne chatten på nytt." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Tego czatu nie ma już na tej maszynie. Otwórz czat ponownie." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Este chat não está mais naquela máquina. Abra o chat novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Этого чата больше нет на той машине. Откройте чат снова." } },
+        "th": { "stringUnit": { "state": "translated", "value": "แชตนี้ไม่ได้อยู่บนเครื่องนั้นแล้ว เปิดแชตอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu sohbet artık o makinede değil. Sohbeti yeniden açın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Цього чату більше немає на тій машині. Відкрийте чат знову." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Cuộc trò chuyện này không còn trên máy đó. Hãy mở lại cuộc trò chuyện." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "这个对话已不在那台机器上。请重新打开对话。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這個對話已不在那台機器上。請重新開啟對話。" } }
+      }
+    },
     "turn.transferCredentials": {
       "comment": "Agent pane: button that explicitly transfers provider credentials to this Cloud chat machine.",
       "extractionState": "manual",

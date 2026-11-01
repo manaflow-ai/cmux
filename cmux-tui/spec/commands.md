@@ -9503,11 +9503,11 @@ machine's cmux-tui updated.
 chat's own sign-in on this machine, from the app's sign-in card. On an attached
 tab, `{id, cmd:"agent-session-login", surface, op, ...}` sends acpmux's
 `_acpmux/agent_login/<op>`: `op:"start"` with `agent` (`claude` or `codex`)
-sends `{agent}`; `op:"finish"` with `login_id` and optionally Claude's `code`
+sends `{agent, sessionId}`; `op:"finish"` with `login_id` and optionally Claude's `code`
 sends `{loginId, sessionId, code?}` and may wait up to 15 minutes (Codex waits
 for the person's approval); `op:"api_key"` with `agent` and `key` sends `{agent,
-key, sessionId}`; `op:"cancel"` with `login_id` sends `{loginId}`. `sessionId`
-is always the tab's own session. acpmux's result comes back unchanged; its
+key, sessionId}`; `op:"cancel"` with `login_id` sends `{loginId,
+sessionId}`. `sessionId` is always the tab's own session. acpmux's result comes back unchanged; its
 refusal comes back as an answer, `{refused:{reason}}` with its `data.reason`
 (`unsupported` from an acpmux without the method). A missing or oversized field,
 another agent, another `op` or any other param is `agent_session.bad_request`.

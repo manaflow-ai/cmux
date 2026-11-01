@@ -31,6 +31,8 @@ const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   shared_machine: "turn.signIn.error.sharedMachine",
   cli_missing: "turn.signIn.error.cliMissing",
   busy: "turn.signIn.error.busy",
+  remote_refused: "turn.signIn.error.remoteRefused",
+  unknown_session: "turn.signIn.error.unknownSession",
   unsupported: "turn.signIn.error.failed",
   failed: "turn.signIn.error.failed",
 };
@@ -369,7 +371,7 @@ export function CloudSignIn({
       return (
         <span className="cv-turn-signin cv-turn-signin__row">
           <output className="cv-turn-signin__error">{t(FAILURE_COPY[stage.failure])}</output>
-          {stage.failure !== "shared_machine" && (
+          {stage.failure !== "shared_machine" && stage.failure !== "remote_refused" && (
             <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={retry}>
               {t("turn.retry")}
             </button>

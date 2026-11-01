@@ -170,6 +170,8 @@ test("each refusal reason has its own failure", () => {
   expect(loginFailure(refusal("shared_machine"))).toBe("shared_machine");
   expect(loginFailure(refusal("cli_missing"))).toBe("cli_missing");
   expect(loginFailure(refusal("busy"))).toBe("busy");
+  expect(loginFailure(refusal("remote_refused"))).toBe("remote_refused");
+  expect(loginFailure(refusal("unknown_session"))).toBe("unknown_session");
   expect(loginFailure(refusal("no_url"))).toBe("failed");
   expect(loginFailure(refusal("unsupported_agent"))).toBe("unsupported");
   expect(loginFailure(Object.assign(new Error("Method not found"), { code: -32601 }))).toBe("unsupported");
@@ -247,7 +249,8 @@ test("Claude: start, open the page, paste the code, finish, then send the failed
   await render({ route: cloudRoute, cloudSignIn: signIn });
   await act(async () => button("Sign in to Claude")!.click());
   await flush();
-  expect(calls[0]).toEqual(["start", "claude"]);
+  // Every call names the chat, so the sign-in runs on the chat's machine.
+  expect(calls[0]).toEqual(["start", "claude", "chat-1"]);
   // The Sign in click's gesture went to the start: the page opens on its own click, which leads.
   expect(opened).toEqual([]);
   expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
@@ -356,6 +359,8 @@ test("a refused step names its reason, with Retry", async () => {
     ["expired", "The sign-in expired. Start again.", true],
     ["shared_machine", "This is a shared team machine; sign-in is only available on your own machine.", false],
     ["cli_missing", "The agent isn't installed on this machine.", true],
+    ["remote_refused", "Sign-in on this machine works only from your own Mac.", false],
+    ["unknown_session", "This chat isn't on that machine anymore. Open the chat again.", true],
     ["failed", "Sign-in didn't finish. Try again.", true],
   ];
   for (const [reason, copy, retry] of cases) {
@@ -394,7 +399,7 @@ test("Cancel stops the login on the machine", async () => {
   await flush();
   await act(async () => button("Cancel")!.click());
   await flush();
-  expect(calls).toContainEqual(["cancel", "login-5"]);
+  expect(calls).toContainEqual(["cancel", "login-5", "chat-1"]);
   expect(button("Sign in to Claude")).toBeDefined();
 });
 
@@ -409,7 +414,7 @@ test("a start reply whose page is not an allowed host is a failure, and nothing 
   await flush();
   expect(opened).toEqual([]);
   // The login acpmux started for it is stopped.
-  expect(calls).toContainEqual(["cancel", "login-6"]);
+  expect(calls).toContainEqual(["cancel", "login-6", "chat-1"]);
   expect(host.querySelector(".cv-turn-signin__error")!.textContent).toBe("Sign-in didn't finish. Try again.");
 });
 
@@ -459,7 +464,7 @@ test("a card that goes away cancels its login and sends nothing after", async ()
   await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "code-7");
   await act(async () => button("Continue")!.click());
   await act(async () => root.render(<></>));
-  expect(calls).toContainEqual(["cancel", "login-7"]);
+  expect(calls).toContainEqual(["cancel", "login-7", "chat-1"]);
   await act(async () => finish({ signedIn: true }));
   await flush();
   expect(sent).toEqual([]);
