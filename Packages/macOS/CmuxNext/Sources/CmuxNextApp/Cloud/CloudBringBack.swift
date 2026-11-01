@@ -8,8 +8,9 @@ import Foundation
 /// Bring Back Local (cmuxterm-hq#1874 slice 4): the one action behind the palette's "Bring Back
 /// Local", the Cloud chat tab and chat page right-click menus and `cmux cloud bring-back`; the
 /// reverse of ``CloudMove``. For a chat a move took from this Mac (``CloudMovedChats``) it merges
-/// the machine's folder back into the chat's folder here (`cmux link sync pull`, a three-way merge
-/// against what the move pushed), moves the chat from the machine's tab to this Mac in that folder
+/// the machine's folder back into the chat's folder here (`cmux link seed pull --or-copy`: a seeded
+/// git project as the seed's diff, a copied folder as `cmux link sync pull`'s three-way merge
+/// against what the move pushed; the CLI picks), moves the chat from the machine's tab to this Mac in that folder
 /// (`cmux link agent move`; this Mac's daemon takes it under its own guard, never with a VM's
 /// control), and opens it here: a workspace whose terminal runs in the folder and whose chat tab
 /// is bound to the session on this Mac. The machine's tab, whose chat closed, closes only then.
@@ -136,7 +137,7 @@ struct CloudBringBack {
         }
         let pulled: CloudMoveCLI.Answer
         do {
-            pulled = try await cli.syncPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
+            pulled = try await cli.bringBackPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
         } catch {
             // Timed out or didn't launch: nothing moved, so Retry runs it again on this machine.
             throw Failure(message: CloudBringBackStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
