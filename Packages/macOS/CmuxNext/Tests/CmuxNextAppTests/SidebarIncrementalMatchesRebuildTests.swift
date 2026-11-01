@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
+import QuartzCore
 @testable import CmuxNextSidebar
 import Testing
 
@@ -237,17 +238,28 @@ import Testing
     /// loaded runner a spring can miss every display frame between them and stop half a point short.
     static func expectMatchesRebuild(_ sidebar: SidebarView, _ when: String) async {
         let list = sidebar.list
+        let d0 = CACurrentMediaTime()
         for _ in 0..<3 {
             if let landing = list.landing { list.finishLand(landing, then: nil) }
             sidebar.renderNow()
             try? await Task.sleep(for: .milliseconds(30))
         }
+        let d1 = CACurrentMediaTime()
         let (fresh, window) = rebuilt(from: list.model, design: sidebar.design)
-        defer { window.close() }
+        let d2 = CACurrentMediaTime()
+        defer { let d4 = CACurrentMediaTime(); window.close(); print(String(format: "MATCH-REBUILD-DIAG close=%.1fms", (CACurrentMediaTime() - d4) * 1000)) }
         let theirs = snapshot(fresh.list)
+        let d3 = CACurrentMediaTime()
+        var sleeps = 0, differs = 0, anim = 0, fading = 0
         for _ in 0..<200 where snapshot(list) != theirs || animates(list) || !list.fadingRows.isEmpty {
+            if snapshot(list) != theirs { differs += 1 }
+            if animates(list) { anim += 1 }
+            if !list.fadingRows.isEmpty { fading += 1 }
+            sleeps += 1
             try? await Task.sleep(for: .milliseconds(50))
         }
+        let d5 = CACurrentMediaTime()
+        print(String(format: "MATCH-REBUILD-DIAG %@ settle=%.1fms rebuild=%.1fms snap=%.1fms poll=%.1fms sleeps=%d differs=%d anim=%d fading=%d", when, (d1 - d0) * 1000, (d2 - d1) * 1000, (d3 - d2) * 1000, (d5 - d3) * 1000, sleeps, differs, anim, fading))
         let mine = snapshot(list)
         #expect(mine == theirs, "\(when): the list differs from a fresh rebuild (+ only on screen, - only in the rebuild):\n\(mine.diff(theirs))")
     }

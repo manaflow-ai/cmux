@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextTestSupport
 import Darwin
 import Foundation
+import QuartzCore
 import Testing
 
 /// Lawrence 2026-10-21: "i feel like sidebar got a lot laggier recently." Scrolling, hovering, agents
@@ -11,10 +12,14 @@ import Testing
 /// screen. Prints one `SIDEBAR-LAG-BENCH` line per scenario and size (sidebar-lag-DESIGN.md).
 @MainActor @Suite(.serialized)
 struct SidebarLagTests {
+    static var diag: [String] = []
     static func measure(_ scenario: SidebarLagBench.Scenario, _ count: Int) -> [SidebarLagBench.Frame] {
+        let t0 = CACurrentMediaTime(), c0 = SidebarLagBench.threadCPU()
         let bench = SidebarLagBench(count: count)
+        let t1 = CACurrentMediaTime(), c1 = SidebarLagBench.threadCPU()
         defer { bench.close() }
         let frames = bench.run(scenario)
+        diag.append(String(format: "SIDEBAR-LAG-DIAG %@ n=%d init wall %.0fms cpu %.0fms run wall %.0fms cpu %.0fms frames %d", scenario.rawValue, count, (t1 - t0) * 1000, (c1 - c0) * 1000, (CACurrentMediaTime() - t1) * 1000, (SidebarLagBench.threadCPU() - c1) * 1000, frames.count))
         print(SidebarLagBench.summary(scenario, count, frames))
         return frames
     }
@@ -92,7 +97,9 @@ struct SidebarLagTests {
         // Only this run's child writes the report: an older one never stands in for it.
         if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         defer { try? FileManager.default.removeItem(at: url) }
+        let x0 = CACurrentMediaTime()
         await #expect(processExitsWith: .success) { await SidebarLagTests.measureInChild() }
+        print(String(format: "SIDEBAR-LAG-DIAG child %.0fms", (CACurrentMediaTime() - x0) * 1000))
         let data = try #require(try? Data(contentsOf: url), "the child left no sidebar-lag report")
         let r = try JSONDecoder().decode(Report.self, from: data)
         try #require(r.parent == getpid(), "the report is another process's (parent \(r.parent))")
@@ -160,6 +167,7 @@ struct SidebarLagTests {
             calibration.checkpoint()
             report.scenarios.append(ScenarioReport(scenario: scenario.rawValue, p95At150: p95s, p95At500: p95l, reloadsAt150: reloads))
         }
+        report.lines += diag
         report.lines.append(calibration.summary)
         report.factor = calibration.factor
         report.budget1 = calibration.budget(1)

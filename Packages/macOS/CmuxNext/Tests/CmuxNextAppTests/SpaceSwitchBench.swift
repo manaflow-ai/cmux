@@ -39,6 +39,8 @@ final class SpaceSwitchBench {
     ///     parked as in a long-running window (`WindowController.park`).
     init(total: Int, spaces: Int = 2, panes: Bool = false, parked: Int = 0) async throws {
         _ = NSApplication.shared
+        let i0 = CACurrentMediaTime()
+        defer { print(String(format: "SPACE-SWITCH-DIAG init n=%d total=%.0fms", total, (CACurrentMediaTime() - i0) * 1000)) }
         services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.machines.local.store
         let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1","capabilities":["profiles-v1","personal-mixed-order-v1"]}"#
@@ -70,11 +72,21 @@ final class SpaceSwitchBench {
         try await Task.sleep(for: .milliseconds(300))
         drain()
         // Visit `parked` workspaces of each room (alternating rooms), then go back to the first.
+        var p0 = CACurrentMediaTime(), c0 = Self.threadCPU()
+        var sel = 0.0, show = 0.0, drn = 0.0
         for index in 0..<min(parked, total) {
+            let a = CACurrentMediaTime()
             services.windows.select(keys[index], in: state)
+            let b = CACurrentMediaTime()
             controller.showWorkspace(requested: state.workspaceID)
+            let c = CACurrentMediaTime()
             drain()
-            if index % 10 == 9 { print("SPACE-SWITCH-BENCH parked \(index + 1) of \(total)") } // progress for the suite watchdog
+            let d = CACurrentMediaTime()
+            sel += b - a; show += c - b; drn += d - c
+            if index % 10 == 9 {
+                print(String(format: "SPACE-SWITCH-BENCH parked %d of %d wall=%.0fms cpu=%.0fms select=%.0f show=%.0f drain=%.0f mounted=%d", index + 1, total, (CACurrentMediaTime() - p0) * 1000, (Self.threadCPU() - c0) * 1000, sel * 1000, show * 1000, drn * 1000, controller.mountedContents.count))
+                p0 = CACurrentMediaTime(); c0 = Self.threadCPU(); sel = 0; show = 0; drn = 0
+            }
         }
         if parked > 0 {
             services.windows.select(keys[0], in: state)
