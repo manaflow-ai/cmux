@@ -96,7 +96,8 @@ struct SidebarInsertBurstTests {
             if let id = sections.first?.workspaces.first?.id { model.activeWorkspaceID = id }
             list.reload(animated: true)
             let key = try Self.key(1_000 + burst)
-            views[key] = try #require(list.rowViews[key], "\(motion): insert \(burst) has no view")
+            let made: SidebarRowView = try #require(list.rowViews[key], "\(motion): insert \(burst) has no view")
+            views[key] = made
             for (key, view) in views where list.rowViews[key] != nil {
                 if list.rowViews[key] !== view { rebuilt += 1 }
                 if view.opens > 1 { reopened += 1 }
