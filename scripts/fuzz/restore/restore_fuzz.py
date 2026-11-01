@@ -1433,6 +1433,66 @@ def recover_after_space(target, old_daemons):
     return out
 
 
+def app_view():
+    """{"app": workspace ids the app shows, "daemon": workspace ids the daemon lists, "notices": toasts + dialogs
+    shown, "texts": their text, "raw": the raw answers}."""
+    snap = rpc("snapshot.get")
+    topo = snap.get("topology") if isinstance(snap, dict) else None
+    app_ids = {w.get("id") for w in (topo or {}).get("workspaces", []) if w.get("id")}
+    wsl, _ = cli("workspace", "list")
+    daemon_ids = {first(w, "id", "workspace_id") for w in listed(wsl, "workspaces")} - {None}
+    toast = rpc("debug.toast", {})
+    dialog = rpc("debug.dialog", {})
+    texts, count = [], 0
+    for answer in (toast, dialog):
+        items = answer if isinstance(answer, list) else next(
+            (v for v in (answer or {}).values() if isinstance(v, list)), []) if isinstance(answer, dict) else []
+        for item in items:
+            count += 1
+            texts.append(json.dumps(item)[:300])
+    return {"app": app_ids, "daemon": daemon_ids, "notices": count, "texts": texts,
+            "raw": {"toast": json.dumps(toast)[:600], "dialog": json.dumps(dialog)[:600]}}
+
+
+def judge_app_create(before, after, relaunched):
+    """Problems of the app-path create under a full disk: a workspace the app shows and the daemon does not (a ghost),
+    now or after a relaunch (a saved record); a refusal with no toast or dialog for the person."""
+    problems = []
+    for label, view in (("after the create", after), ("after the relaunch", relaunched)):
+        ghost = (view["app"] - view["daemon"]) - (before["app"] - before["daemon"])
+        if ghost:
+            problems.append(f"{label}: ghost workspace(s) {sorted(ghost)} in the app, not in the daemon")
+    made = after["daemon"] - before["daemon"]
+    if not made and after["notices"] <= before["notices"]:
+        problems.append("the create was refused, but no visible refusal (no new toast or dialog) for the person")
+    return problems
+
+
+def app_create_probe():
+    """The person's create (action.run newWorkspace) on the full disk, judged by judge_app_create. Runs once per
+    diskfull run, before the iterations. Returns a record for iterations.jsonl-style evidence."""
+    before = app_view()
+    answer = rpc("action.run", {"action": "newWorkspace"}, timeout=20)
+    time.sleep(3)
+    after = app_view()
+    stop_build_processes(exclude=set(APP.daemon_pids()) | set(APP.acpmux_pids()))
+    relaunched_ok = APP.relaunch()
+    wait(lambda: app_state() and app_state()[1], 30, 0.5)
+    relaunched = app_view() if relaunched_ok else {"app": set(), "daemon": set(), "notices": 0, "texts": []}
+    problems = judge_app_create(before, after, relaunched)
+    if not relaunched_ok:
+        problems.append("the app did not answer after the relaunch")
+    rec = {"probe": "app_create", "action_answer": json.dumps(answer)[:400], "problems": problems,
+           "verdict": "fail" if problems else "pass",
+           "before": {k: sorted(v) if isinstance(v, set) else v for k, v in before.items()},
+           "after": {k: sorted(v) if isinstance(v, set) else v for k, v in after.items()},
+           "relaunched": {k: sorted(v) if isinstance(v, set) else v for k, v in relaunched.items()}}
+    with open(os.path.join(opts.out, "app-create-probe.json"), "w") as f:
+        json.dump(rec, f, indent=1, default=str)
+    say(f"  app create probe: {rec['verdict']} {'; '.join(problems)[:300]} notices {after['notices']} {after['texts'][:2]}")
+    return rec
+
+
 def teardown_diskfull():
     """Detaches the image, puts the original state dir back, removes the image file. Signals are ignored meanwhile
     and each step runs even if one before it failed; nothing here uses wait() or needs stdout."""
@@ -1488,6 +1548,7 @@ def restore_moved_state(state, orig):
 # ---- chaos -------------------------------------------------------------------------------------
 
 CHAOS_PROCS = []
+PROBE = []  # the diskfull app-path create probe record
 
 
 def start_chaos():
@@ -1519,6 +1580,8 @@ def start_chaos():
         say("chaos slowdisk: every app relaunch runs under taskpolicy -d throttle (disk I/O throttled)")
     elif opts.chaos == "diskfull":
         why = setup_diskfull()
+        if not why:
+            PROBE.append(app_create_probe())
         if why:
             teardown_diskfull()
             say(f"RESTORE-FUZZ SUMMARY seed=none chaos=diskfull iterations=0 judged=0 not_run=0 violations=0 "
@@ -1639,6 +1702,10 @@ def main():
     degraded = [r for r in records if r["verdict"] == "degraded"]
     kills = kill_counts(records)
     settle = sorted(r["timings"]["settled_s"] for r in judged if r.get("timings", {}).get("settled_s") is not None)
+    for p in PROBE:
+        if p["verdict"] == "fail":
+            violations.append({"record": {"seed": seed, "iteration": "probe", "target": "app-create", "point": "full disk",
+                                          "problems": p["problems"]}, "shrink": None})
     for v in violations:
         r = v["record"]
         say(f"RESTORE-FUZZ VIOLATION seed={r['seed']} iter={r['iteration']} chaos={opts.chaos} target={r.get('target')} "
@@ -1646,7 +1713,7 @@ def main():
     p = lambda q: settle[min(len(settle) - 1, int(q * len(settle)))] if settle else None
     say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged={len(judged)} "
         f"not_run={len(records) - len(judged)} kills={json.dumps(kills, sort_keys=True)} violations={len(violations)} "
-        f"chaos_lost={chaos_lost[0]} degraded={len(degraded)} app_daemon_differ={sum(1 for r in records if r.get('app_daemon_differ'))} errors_untyped={sum(r.get('errors_untyped', 0) for r in records)} "
+        f"chaos_lost={chaos_lost[0]} degraded={len(degraded)} app_create_probe={PROBE[0]['verdict'] if PROBE else 'none'} app_daemon_differ={sum(1 for r in records if r.get('app_daemon_differ'))} errors_untyped={sum(r.get('errors_untyped', 0) for r in records)} "
         f"hosts_max={HOSTS_MAX[0]} listed_minus_shown_max={EXCESS_MAX[0]} "
         f"listed_minus_shown_minus_closed30s_max={EXCESS_MAX[1]} "
         f"settle_s p50={p(0.5)} p95={p(0.95)} max={settle[-1] if settle else None}")

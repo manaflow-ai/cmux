@@ -406,6 +406,25 @@ class NotRunFails(unittest.TestCase):
         self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": [reason]}, []), "not run")
 
 
+class AppCreateProbe(unittest.TestCase):
+    """diskfull: the app's own create path (action.run newWorkspace) under a full disk."""
+
+    def test_judge(self):
+        before = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0}
+        ok = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 1, "texts": ["The disk is full"]}
+        self.assertEqual(rf.judge_app_create(before, ok, ok), [])
+        ghost = {"app": {"ws_1", "ws_2"}, "daemon": {"ws_1"}, "notices": 1, "texts": ["x"]}
+        self.assertTrue(any("ghost" in p for p in rf.judge_app_create(before, ghost, ok)))
+        self.assertTrue(any("after the relaunch" in p for p in rf.judge_app_create(before, ok, ghost)))
+        silent = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0, "texts": []}
+        self.assertTrue(any("no visible refusal" in p for p in rf.judge_app_create(before, silent, silent)))
+
+    def test_created_for_real_is_not_a_ghost(self):
+        before = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0}
+        made = {"app": {"ws_1", "ws_2"}, "daemon": {"ws_1", "ws_2"}, "notices": 0, "texts": []}
+        self.assertEqual(rf.judge_app_create(before, made, made), [])
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).
