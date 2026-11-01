@@ -98,6 +98,10 @@ final class TerminalEntry {
     private var watch: TerminalLinkWatch
     /// The TextBox composer under this terminal, made the first time a TextBox action runs on it.
     var textBox: TextBoxController?
+    /// A New Terminal Tab stand-in's terminal id (the one its create chose): the daemon's tab carrying it adopts this
+    /// entry (`TabContentCache.adoptStandIn`), once. Nil for every other terminal, and after the adoption.
+    var standInTerminal: TerminalID?
+    weak var standInDaemon: DaemonService? // the stand-in's daemon, whose store names its tab
 
     // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).

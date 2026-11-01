@@ -13,7 +13,7 @@ struct DaemonPrompts {
         prompts.pairings.start()
         _ = services.daemon.store.sideEvents.subscribe { [weak services] event in
             guard let unclaimed = TerminalInputUnclaimed(event), let bytes = unclaimed.bytes else { return }
-            services?.keyRouter.creationInputCoordinator.giveBack(bytes, terminal: unclaimed.terminalId)
+            services?.keyRouter.giveBack(bytes, terminal: unclaimed.terminalId)
         }
         return prompts
     }

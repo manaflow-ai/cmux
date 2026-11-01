@@ -191,6 +191,9 @@ final class TabContentCache {
             if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
             return entry
         }
+        // The daemon's tab of a Ctrl-` stand-in (the terminal id that create chose): the stand-in's view, session and
+        // input lane become this tab's, so the keys typed into it meanwhile reach the PTY in order and none is dropped.
+        if let adopted = adoptStandIn(for: tab, daemon: daemon) { return adopted }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
         if let stale = terminals.removeValue(forKey: tab.id) {
@@ -212,6 +215,7 @@ final class TabContentCache {
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
+        if gate != nil { (entry.standInTerminal, entry.standInDaemon) = (tab.terminalID, daemon) }
         terminals[tab.id] = entry
         // The delegate builds a machine-aware link filter. Install it only
         // after this session can be resolved back to its owning tab.
