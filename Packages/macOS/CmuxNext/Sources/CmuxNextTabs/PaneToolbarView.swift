@@ -27,8 +27,8 @@ public struct PaneToolbarItem: Equatable, Sendable {
 /// 2026-10-12): the pinned actions' buttons, then "…". They hide at rest (`tabs.restingControlOpacity`,
 /// 0 by default; Lawrence 2026-10-20) and fade in while the pointer is over the tab bar or these
 /// controls (`HoverReveal`, like the strip's plus), while "…"'s menu is open and while one has keyboard
-/// focus, and stay shown, "…" and the zoom button lit, while the pane is zoomed (the zoom button
-/// shows then even when not pinned, and its click restores the layout). Their width is kept while they are faded,
+/// focus, and stay shown, "…" and a pinned zoom button lit, while the pane is zoomed (the selected
+/// tab carries the zoom indicator, `TabStripModel.zoomsSelected`). Their width is kept while they are faded,
 /// so no tab moves when they appear. The overflow glyph also stays in its trailing slot throughout
 /// the opacity fade (Leo 2026-10-26). "…"'s menu opens on press (press-drag-release) and lists what
 /// opens in the pane, then the actions without a button, Search Tabs, then Show in Tab Bar.
@@ -203,6 +203,13 @@ public final class PaneToolbarView: NSView {
         for item in rows {
             if item.separatorBefore { menu.addItem(.separator()) }
             menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke))
+        }
+        if tool.id == "chat-menu", menuItemID == nil {
+            let overflow = nativeOverflowItems()
+            if !overflow.isEmpty {
+                if !menu.items.isEmpty { menu.addItem(.separator()) }
+                overflow.forEach { menu.addItem($0) }
+            }
         }
         return menu
     }

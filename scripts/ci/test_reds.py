@@ -19,8 +19,9 @@ red was other tests. A job-level comparison hid a real crash. So:
    or a summary counts fewer tests than ran) is the head's own red: an unreadable red fails closed.
 4. No base log, or one that names no failing test while the head's does, excuses nothing.
 
-It reads Swift Testing, XCTest, cargo test, unittest, pytest and `bun test` output (a bun failure is `FILE > TEST`;
-a bun run that printed no closing ` N pass` / ` N fail` counts after its last result was cut short).
+It reads Swift Testing, XCTest, xcodebuild and xcresult, cargo test, unittest, pytest and `bun test` output (a bun
+failure is `FILE > TEST`; a bun run that printed no closing ` N pass` / ` N fail` counts after its last result was cut
+short). It reads only what the steps printed, never the runner's echo of a step's script (echoed).
 
     test_reds.py classify --head HEAD.log [--base BASE.log] [--job NAME] [--base-name feat-cmux-next] [--json]
 
@@ -57,6 +58,23 @@ FAILED = (
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
+# A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
+# it): `FAILED: <scheme> / <target> / <suite> / <test>()`, named `<suite>.<test>()` like xcodebuild's own
+# `Failing tests:` list (`\t<suite>.<test>()` lines under it, up to a blank line).
+XCRESULT_FAILED = re.compile(r"^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\(.*\))$")
+XCODEBUILD_FAILING = "Failing tests:"
+XCODEBUILD_FAILED = re.compile(r"^\s+(\S+\.\S+\(.*\))$")
+# The runner echoes each step before running it: `##[group]Run <first line>`, the step's script (or nothing for an
+# action), then its `shell:` line and its `with:` / `env:` blocks, then `##[endgroup]`. That is the step's source,
+# not its output: a script that prints, greps or filters test names, or has an `echo "::error::..."` branch, puts
+# them in every run's log, green or red (2026-10-30: cmux#28145 excused because base run 41138142557 echoed the
+# kit step's script). A group is an echo only when it closes before any other group opens and ends in the runner's
+# settings block: from its first `shell:`, `with:` or `env:` line to its `##[endgroup]`, every line is one of those or
+# an indented value under them. A step's own `::group::Run ...` output does not end that way, so it is read.
+ECHO_START = re.compile(r"^(?:﻿)?##\[group\]Run ")
+ECHO_SETTINGS = re.compile(r"^(?:shell: \S.*|with:|env:)$")
+ECHO_VALUE = re.compile(r"^  \S")
+GROUP_EDGE = re.compile(r"^##\[(?:group|endgroup)\]")
 # A line that says the job ran tests at all.
 RAN = re.compile(r"[◇✔✘] (?:Test|Suite) |Test Case '-\[|Test Suite '|^test \S+ \.\.\. |^running \d+ tests?$|"
                  r"^Ran \d+ tests? in |^=+ (?:test session starts|FAILURES)|Executed \d+ tests?")
@@ -81,6 +99,13 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
                           r"(?::? \d+)? +\S")
 SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
+# Such a report is a signal someone sent (a test that kills its own children, `timeout`), not a fault. It is a crash
+# only in a step that failed or never finished: a step that printed no error and was followed by the next step passed,
+# so a kill inside it is that test's own doing, not the job's red (2026-10-31: cmuxterm-hq's
+# scripts/test-reload-cloud-terminate-app.sh kills the children it starts and passes, and every red in its Fleet
+# tests job read as "the test process crashed (signal 9)"). A fault (`Segmentation fault`, a signal code from SwiftPM,
+# an exit status of 128 + N) is a crash wherever it is.
+STEP_ERROR = re.compile(r"^(?:##\[error\]|::error)")
 # Actions may preserve only the shell status when a process dies after printing its test summary.
 # A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
 # Match the runner annotation, never a test name or an assertion quoting the diagnostic.
@@ -113,6 +138,8 @@ NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests di
 BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
 BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.[cm]?[jt]sx?)(?: |$)")
 BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
+# The shell self-test keeps a Swift crash report and its `signal 5` fixture in source lines.
+SWIFT_TEST_SUMMARY_FIXTURE = re.compile(r"swift-test-summary\.test\.sh:\d+:")
 # `bun test` itself (a raw run, or a file's log inside run-webviews-tests.sh): a header per file (`::group::FILE:` in
 # Actions, which the job log shows as `##[group]FILE:`), a `(pass)` or `(fail) <describe> > <test> [1.23ms]` line per
 # test, the failure's `error:` printed above its line and a timeout note below it, a closing recap of the failures
@@ -179,8 +206,69 @@ class Verdict:
         self.own, self.reasons, self.shared = own, reasons, list(shared)
 
 
-def lines_of(log: str) -> list[str]:
+def echoed(lines: list[str]) -> set[int]:
+    """The indexes of LINES (one per line of the log, timestamps and colours removed) that are the runner's echo of a
+    step (ECHO_START): its source, never its output."""
+    found: set[int] = set()
+    at = 0
+    while at < len(lines):
+        if ECHO_START.match(lines[at]):
+            end = next((n for n in range(at + 1, len(lines)) if GROUP_EDGE.match(lines[n])), None)
+            first = None if end is None else next(
+                (n for n in range(at + 1, end) if ECHO_SETTINGS.match(lines[n])), None)
+            if (first is not None and lines[end].startswith("##[endgroup]")
+                    and all(ECHO_SETTINGS.match(lines[n]) or ECHO_VALUE.match(lines[n]) for n in range(first, end))):
+                found.update(range(at, end + 1))
+                at = end + 1
+                continue
+        at += 1
+    return found
+
+
+def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
+    """The indexes of LINES (log_lines) inside a step that passed: from a step's echo (echoed) to the next step's, with
+    no error line between. The last step (no step after it) never passed: it may be the one that died."""
+    skip = echoed(lines) if skip is None else skip
+    starts = [n for n in sorted(skip) if ECHO_START.match(lines[n])]
+    found: set[int] = set()
+    for start, end in zip(starts, starts[1:]):
+        if not any(STEP_ERROR.match(lines[n]) for n in range(start, end) if n not in skip):
+            found.update(range(start, end))
+    return found
+
+
+def log_lines(log: str) -> list[str]:
+    """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
     return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
+
+
+def lines_of(log: str) -> list[str]:
+    """What the job's steps printed: log_lines without the runner's echo of each step's script (echoed)."""
+    lines = log_lines(log)
+    skip = echoed(lines)
+    return [text for n, text in enumerate(lines) if n not in skip]
+
+
+def failed_names(lines: list[str]) -> set[str]:
+    """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
+    xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
+    found: set[str] = set()
+    listing = False
+    for text in lines:
+        if listing:
+            if match := XCODEBUILD_FAILED.match(text):
+                found.add(match.group(1))
+                continue
+            listing = False
+        if text.strip() == XCODEBUILD_FAILING:
+            listing = True
+            continue
+        for pattern in FAILED:
+            if match := pattern.search(text):
+                found.add(match.group(1))
+        if match := XCRESULT_FAILED.match(text):
+            found.add(f"{match.group(1)}.{match.group(2)}")
+    return found
 
 
 def _words(text: str, words: list[str]) -> None:
@@ -337,6 +425,8 @@ def read_bun(lines: list[str], result: Result) -> None:
         open_run = False
 
     for text in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
         if BUN_RUN.match(text) or BUN_FILE.match(text) or text == WEB_RETRY or BUN_TEST.match(text) or \
                 BUN_UNHANDLED.match(text) or BUN_COUNT.match(text):
             flush()
@@ -412,23 +502,25 @@ def read(log: str | None, bun: bool = True) -> Result:
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
-    lines = lines_of(log)
+    every = log_lines(log)
+    skip = echoed(every)
+    passed = passed_steps(every, skip)
+    kept = [n for n in range(len(every)) if n not in skip]
+    lines = [every[n] for n in kept]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
     signals: list[str] = []
     named: list[str] = []
     crashed = False
-    for text in lines:
+    for at, text in enumerate(lines):
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
         if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
             result.ran = True
         if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
             result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
         if BUN_PANIC.match(text):
             crashed = True
-        for pattern in FAILED:
-            if match := pattern.search(text):
-                result.failed.add(match.group(1))
-                result.ran = True
         if match := XCTEST_RESTART.search(text):
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
@@ -438,7 +530,8 @@ def read(log: str | None, bun: bool = True) -> Result:
         if 1 <= signal_exit <= 64:
             crashed = True
             signals.append(str(signal_exit))
-        runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
+        killed = SHELL_SIGNAL.search(text) and kept[at] not in passed
+        runtime = HELPER_KILLED.search(text) or killed or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
             crashed = True
@@ -449,6 +542,9 @@ def read(log: str | None, bun: bool = True) -> Result:
         if TRUNCATED.search(text) or NO_RESULT.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
+    if names := failed_names([text for text in lines if not SWIFT_TEST_SUMMARY_FIXTURE.search(text)]):
+        result.failed |= names
+        result.ran = True
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})

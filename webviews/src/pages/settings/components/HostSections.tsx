@@ -58,8 +58,8 @@ function ListRows({
           {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
+        {trailing?.(row)}
       </div>
-      {trailing?.(row)}
       {below?.(row)}
     </div>
   ));
@@ -206,7 +206,10 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                       labelId={`device-full-access-${row.id}`}
                       onToggle={(on) => {
                         markSetting(row.id, true);
-                        void store.setDeviceFullAccess(row.id, on).finally(() => markSetting(row.id, false));
+                        void store
+                          .setDeviceFullAccess(row.id, on)
+                          .finally(() => markSetting(row.id, false))
+                          .catch(() => undefined);
                       }}
                     />
                   </div>

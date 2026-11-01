@@ -8,7 +8,9 @@ import AppKit
 /// parts at a time, so the step now and its time stay whole and no stub ("Ran 3 co…") is drawn.
 ///
 /// User 2026-10-29: "reading/starting agents should be one line": the row no longer grows a row per
-/// part, so it keeps upstream's 16 pt as steps finish and thoughts arrive.
+/// part, so it keeps upstream's 16 pt as steps finish and thoughts arrive. User 2026-10-30: "make it
+/// just one line with shimmer text": it is the whole running indicator (no typing bubble under it) and
+/// a light band sweeps its text (`HomeNoticeShimmer`).
 enum HomeNoticeRows {
     /// The row's height: upstream's one-line status row, for every notice.
     static let firstHeight: CGFloat = 16
@@ -82,15 +84,22 @@ enum HomeNoticeRows {
     static func draw(_ notice: String, x: CGFloat, baseline: CGFloat, maxWidth: CGFloat, in ctx: CGContext) {
         let font = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs), upstream's notice face
         let (lead, last) = fittedParts(notice, font: font, maxWidth: maxWidth)
+        // The text color at full strength: the cell's shimmer mask (HomeNoticeShimmer) dims it to the caption
+        // grey and its sweeping band lifts it back.
+        let color = textColor
         var left = x
         if let lead {
-            let quiet = Fixture.secondaryText.withAlphaComponent(0.72)
+            let quiet = color.withAlphaComponent(0.72)
             let head = lead + gap(after: lead)
             TextDraw.line(head, font: font, color: quiet, x: left, baseline: baseline, in: ctx)
             left += TextDraw.width(head, font: font)
         }
-        TextDraw.line(last, font: font, color: Fixture.secondaryText, x: left, baseline: baseline, in: ctx)
+        TextDraw.line(last, font: font, color: color, x: left, baseline: baseline, in: ctx)
     }
+
+    /// The line's text color under the shimmer's band (a message's text color); elsewhere the mask's
+    /// ``HomeNoticeShimmer/restAlpha`` makes it the caption grey.
+    static var textColor: NSColor { Fixture.incomingText }
 
     /// `line`, or its head and "…" when it is wider than `maxWidth`.
     static func fitted(_ line: String, font: NSFont, maxWidth: CGFloat) -> String {

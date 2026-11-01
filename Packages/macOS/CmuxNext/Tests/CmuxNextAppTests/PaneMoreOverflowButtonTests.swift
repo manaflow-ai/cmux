@@ -68,6 +68,41 @@ import Testing
         #expect(shown?.items.map(\.title) == ["Codex"])
     }
 
+    @Test func nativeChatMenuKeepsHiddenToolsReachable() throws {
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
+        let chatMenu = PaneTabRowTool(id: "chat-menu", symbol: "action.more.vertical", label: "Chat menu", menu: [
+            PaneTabRowMenuItem(id: "rename", label: "Rename"),
+            PaneTabRowMenuItem(id: "continue", label: "Continue In", children: [
+                PaneTabRowMenuItem(id: "codex", label: "Codex"),
+            ]),
+        ])
+        let summary = PaneTabRowTool(id: "summary", symbol: "list.bullet", label: "Summary", toggled: true)
+        view.show(more: true, lit: false, nativeItems: [chatMenu, summary])
+        var invoked: [String] = []
+        view.onNativeTool = { id, _ in invoked.append(id) }
+        var shown: NSMenu?
+        view.moreButton.presentMenu = { menu, _ in shown = menu }
+        #expect(view.moreButton.accessibilityPerformPress())
+        #expect(view.nativeButtons.first?.isHidden == true)
+        let menu = try #require(shown)
+        #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == ["Rename", "Continue In", "Summary"])
+        let row = try #require(menu.items.last)
+        #expect(row.state == .on)
+        #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
+        #expect(invoked == ["summary"])
+
+        view.presentNativeMenu(toolID: "chat-menu")
+        #expect(shown?.items.last?.title == "Summary", "programmatic opening keeps hidden tools too")
+        view.presentNativeMenu(toolID: "chat-menu", menuItemID: "continue")
+        #expect(shown?.items.map(\.title) == ["Codex"], "palette children do not include unrelated tools")
+
+        view.setFrameSize(NSSize(width: 400, height: 30))
+        view.needsLayout = true
+        #expect(view.moreButton.accessibilityPerformPress())
+        #expect(view.nativeButtons.first?.isHidden == false)
+        #expect(shown?.items.map(\.title) == ["Rename", "Continue In"], "visible tools are not duplicated")
+    }
+
     @Test func nativeToolContextMenuUsesItsCustomizeRows() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
         let tool = PaneTabRowTool(id: "terminal", symbol: "terminal", label: "Terminal",

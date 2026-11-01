@@ -19,6 +19,7 @@ import {
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools } from "./headerQuickTools";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
@@ -26,7 +27,17 @@ import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
-import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
+import {
+  Menu,
+  MenuButton,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  Submenu,
+} from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
@@ -45,7 +56,7 @@ import {
 } from "./quickActions";
 
 /// Every header button's glyph (header.css): Claude Code desktop's top strip draws one size for all of
-/// them, the Needs you inbox and the Inspector toggle included.
+/// them, the Needs you inbox and Session Info toggle included.
 export const HEADER_GLYPH = 16;
 
 export { HEADER_ACTIONS } from "./headerActions";
@@ -58,9 +69,9 @@ export type ChatMenuItem =
       icon: string;
       /// An app action id whose keycap the row shows.
       shortcutAction?: string;
-      /// A product-level key hint when the action has no registered host shortcut (for example, the
-      /// title menu's Rename R and Fork F, matching Claude Code's session menu).
-      shortcutLabel?: string;
+      /// A letter that picks the row while the menu is open (Rename R, Fork F). It is never drawn: a
+      /// bare letter on the row's right reads as meaningless (design/menus.md, Leo 2026-10-31).
+      accelerator?: string;
       disabled?: boolean;
       onSelect?: (event?: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => void;
       children?: ChatMenuChild[];
@@ -70,15 +81,30 @@ export type ChatMenuItem =
 export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
   groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
 
-/// A submenu row: its label, and the keycap of `shortcutAction` when it has one.
+/// A submenu row: its label, and the keycap of `shortcutAction` when it has one. A row with `checked`
+/// is one of a choice (the rows next to it with `checked` too), drawn with a check on the picked one;
+/// `separatorBefore` draws a line above the row.
 export type ChatMenuChild = {
   key: string;
   label: string;
   disabled?: boolean;
   shortcutAction?: string;
-  shortcutLabel?: string;
+  accelerator?: string;
+  checked?: boolean;
+  /// A row that is on or off on its own (Transcript view's Wrap lines), drawn with a check when on.
+  on?: boolean;
+  separatorBefore?: boolean;
   onSelect: () => void;
 };
+
+/// Modifier glyphs a drawn menu keycap must carry, as in ⌘N or ⇧⌘I.
+const MODIFIER_GLYPHS = /[⌘⌥⌃⇧]/;
+
+/// The keycap a menu row may draw: a real shortcut with a modifier, never a bare letter (a bare
+/// letter only works while the menu is open, so it reads as meaningless on the row's right).
+export function menuKeycap(shortcut: string | undefined): string | undefined {
+  return shortcut && MODIFIER_GLYPHS.test(shortcut) ? shortcut : undefined;
+}
 
 type ShortcutMenuItem = Exclude<ChatMenuItem, "separator"> | ChatMenuChild;
 
@@ -89,7 +115,7 @@ export function menuItemForShortcut(
   const normalized = key.length === 1 ? key.toUpperCase() : "";
   if (!normalized) return undefined;
   return items.find(
-    (item): item is ShortcutMenuItem => item !== "separator" && item.shortcutLabel?.toUpperCase() === normalized,
+    (item): item is ShortcutMenuItem => item !== "separator" && item.accelerator?.toUpperCase() === normalized,
   );
 }
 
@@ -141,7 +167,7 @@ export function ChatHeaderTools({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
-  inspector,
+  sessionInfo,
   inbox,
   nativeRowTools,
 }: {
@@ -191,9 +217,9 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): with it,
+  /// Session Info's toggle (Debug Settings `agent.inspector`, session-info/SessionInfo.tsx): with it,
   /// the right-side panel's toggle in the summary's place, the first of the icons.
-  inspector?: ReactNode;
+  sessionInfo?: ReactNode;
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
   /// the first of the top-right icons.
   inbox?: ReactNode;
@@ -380,7 +406,7 @@ export function ChatHeaderTools({
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
-      {!native && inspector}
+      {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
       {inbox}
       {buttons ? (
@@ -610,11 +636,15 @@ export function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
+  // A row's letter (`accelerator`, never drawn) picks it, as Claude Code desktop's R, F, A; never a
+  // key that is text (menuLetters.ts: a field, an editor, an IME composition, the typeahead).
+  const typing = useRef<MenuTyping>({ last: 0 });
   const shortcutRows = children ?? rows;
   const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.key.length !== 1) return;
-    const key = event.key.toUpperCase();
-    const item = menuItemForShortcut(rows, key) ?? menuItemForShortcut(shortcutRows, key);
+    if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return;
+    const letter = menuLetter(event, typing.current);
+    if (!letter) return;
+    const item = menuItemForShortcut(rows, letter) ?? menuItemForShortcut(shortcutRows, letter);
     if (!item || item.disabled || !item.onSelect) return;
     event.preventDefault();
     event.stopPropagation();
@@ -635,7 +665,7 @@ export function ChatMenu({
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end" onKeyDown={onMenuKeyDown}>
         {children
-          ? children.map((child) => <ChatMenuChildRow key={child.key} child={child} />)
+          ? childRows(children)
           : rows.map((row, index) =>
               row === "separator" ? (
                 // oxlint-disable-next-line react/no-array-index-key
@@ -650,13 +680,10 @@ export function ChatMenu({
                     <>
                       <Icon name={row.icon} size={15} />
                       <span className="acpmux-chat-menu-label">{row.label}</span>
-                      {row.shortcutLabel && <kbd className="acpmux-chat-menu-key">{row.shortcutLabel}</kbd>}
                     </>
                   }
                 >
-                  {row.children.map((child) => (
-                    <ChatMenuChildRow key={child.key} child={child} />
-                  ))}
+                  {childRows(row.children)}
                 </Submenu>
               ) : (
                 <ChatMenuRow key={row.key} item={row} />
@@ -669,7 +696,7 @@ export function ChatMenu({
 
 function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const registeredShortcut = useShortcut(item.shortcutAction ?? "");
-  const shortcut = item.shortcutLabel ?? registeredShortcut;
+  const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
       <Icon name={item.icon} size={15} />
@@ -679,9 +706,74 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   );
 }
 
+/// A submenu's rows: each run of rows with `checked` is one radio group (Transcript view's Normal,
+/// Thinking, Verbose), the others plain rows, with a line above each `separatorBefore`.
+function childRows(children: readonly ChatMenuChild[]): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  for (let index = 0; index < children.length;) {
+    const child = children[index]!;
+    if (child.separatorBefore && index > 0) nodes.push(<MenuSeparator key={`separator-${child.key}`} />);
+    if (child.on !== undefined) {
+      nodes.push(<ChatMenuToggleRow key={child.key} child={child} />);
+      index += 1;
+      continue;
+    }
+    if (child.checked === undefined) {
+      nodes.push(<ChatMenuChildRow key={child.key} child={child} />);
+      index += 1;
+      continue;
+    }
+    const group = [child];
+    for (index += 1; index < children.length; index += 1) {
+      const next = children[index]!;
+      if (next.separatorBefore || next.checked === undefined) break;
+      group.push(next);
+    }
+    nodes.push(<ChatMenuChoice key={`choice-${child.key}`} rows={group} />);
+  }
+  return nodes;
+}
+
+function ChatMenuChoice({ rows }: { rows: readonly ChatMenuChild[] }) {
+  const picked = rows.find((row) => row.checked)?.key ?? "";
+  return (
+    <MenuRadioGroup value={picked} onValueChange={(key) => rows.find((row) => row.key === key)?.onSelect()}>
+      {rows.map((row) => (
+        <MenuRadioItem
+          key={row.key}
+          value={row.key}
+          className="acpmux-chat-menu-item"
+          disabled={row.disabled}
+          closeOnClick
+        >
+          <span className="acpmux-chat-menu-label">{row.label}</span>
+        </MenuRadioItem>
+      ))}
+    </MenuRadioGroup>
+  );
+}
+
+/// A row that flips on or off; the menu stays open, so the row keeps its own state after a flip.
+function ChatMenuToggleRow({ child }: { child: ChatMenuChild }) {
+  const [on, setOn] = useState(child.on ?? false);
+  return (
+    <MenuCheckboxItem
+      className="acpmux-chat-menu-item"
+      disabled={child.disabled}
+      checked={on}
+      onCheckedChange={() => {
+        setOn(!on);
+        child.onSelect();
+      }}
+    >
+      <span className="acpmux-chat-menu-label">{child.label}</span>
+    </MenuCheckboxItem>
+  );
+}
+
 function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
   const registeredShortcut = useShortcut(child.shortcutAction ?? "");
-  const shortcut = child.shortcutLabel ?? registeredShortcut;
+  const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={child.disabled} onSelect={child.onSelect}>
       <span className="acpmux-chat-menu-label">{child.label}</span>

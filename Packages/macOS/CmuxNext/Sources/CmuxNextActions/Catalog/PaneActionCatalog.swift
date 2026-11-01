@@ -35,7 +35,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "newColumnLeft",
                 title: String(localized: "action.newColumnLeft", defaultValue: "New Column Left", bundle: .module),
                 keywords: ["new column", "scroll", "column", "pane", "left", "add", "before"],
-                category: .pane, symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                category: .pane, symbol: "rectangle.lefthalf.inset.filled", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 targets: [.pane], cliName: "pane new-column-left", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
@@ -377,12 +377,13 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
             // files (#16723), the palette and the File menu (no path: the cmux
-            // picker at the pane's folder, R89), and `cmux file open`.
+            // picker at the pane's folder, R89), and `cmux file open`. `asText` (`--as-text`):
+            // HTML, SVG or Markdown opens as its source in the code editor (u18462).
             ActionDescriptor(
                 id: "file.open",
                 title: String(localized: "action.file.open", defaultValue: "Open File…", bundle: .module),
                 keywords: ["file", "editor", "preview", "path"], category: .pane, symbol: "doc",
-                surfaces: [.palette, .menu], arguments: [CatalogArgument.optionalPathString, CatalogArgument.whereChoice],
+                surfaces: [.palette, .menu], arguments: [CatalogArgument.optionalPathString, CatalogArgument.whereChoice, CatalogArgument.asTextBool],
                 targets: [.pane], cliName: "file open", mainMenu: .file
             ),
         ]

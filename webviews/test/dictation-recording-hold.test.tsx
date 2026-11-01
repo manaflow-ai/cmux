@@ -146,23 +146,40 @@ test("the pending recording's x lets the waiting send go without it", async () =
   expect(intake.pending).toEqual([]);
 });
 
-test("a failed upload leaves the chip with its note and Retry; the waiting send goes without it", async () => {
+test("a failed upload keeps the waiting send blocked with the failed chip; Retry's answer lets it go with the audio", async () => {
   await fresh();
   const host = upload();
   await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
   await act(async () => send());
-  await act(async () => host.refuse(Object.assign(new Error("no route"), { code: "upload_failed" })));
-  expect(sent).toEqual([[]]);
+  // The stager refuses the recording (Cloud's `upload_refused` at begin, a peer's `too_large`).
+  await act(async () => host.refuse(Object.assign(new Error("refused"), { code: "upload_refused" })));
+  // The send does not go without its audio: it waits, and the chip says why, with Retry.
+  expect(sent).toEqual([]);
   expect(intake.pending).toMatchObject([{ name: "Recording.wav", failed: FAILED }]);
-  // Retry asks the host again; its answer becomes the saved chip, for the next prompt.
+  // A send pressed again while the chip shows its failure waits too.
+  await act(async () => send());
+  expect(sent).toEqual([]);
+  // Retry asks the host again; its answer becomes the chip, and the waiting send goes with it, once.
   await act(async () => intake.retry(intake.pending[0]!.id));
   expect(host.asked).toHaveLength(2);
   expect(intake.pending[0]?.failed).toBeUndefined();
+  expect(sent).toEqual([]);
   await act(async () => host.answer({ path: remote }));
   expect(intake.pending).toEqual([]);
-  expect(intake.attachments).toMatchObject([{ kind: "link", saved: true, path: remote }]);
+  expect(sent).toEqual([[remote]]);
+});
+
+test("the failed recording's x lets the waiting send go with the text alone", async () => {
+  await fresh();
+  const host = upload();
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
   await act(async () => send());
-  expect(sent).toEqual([[], [remote]]);
+  await act(async () => host.answer(null));
+  expect(sent).toEqual([]);
+  expect(intake.pending).toMatchObject([{ name: "Recording.wav", failed: FAILED }]);
+  await act(async () => intake.cancel(intake.pending[0]!.id));
+  expect(sent).toEqual([[]]);
+  expect(intake.pending).toEqual([]);
 });
 
 // Review of #26953 at 06aa3fc4: a switch that carries the prompt (a harness switch) moved the
@@ -182,4 +199,46 @@ test("a switch that carries the prompt leaves the uploading recording with its o
   await act(async () => host.answer({ path: remote }));
   expect(intake.attachments).toEqual([]);
   expect(handedOff).toEqual([["chat-a", [remote]]]);
+});
+
+// A composer that goes away while the host still streams the recording has nowhere to put its
+// chip, so the upload stops (`dictation.recording.cancel`). One whose upload already answered is
+// not cancelled.
+test("a composer that goes away while the recording uploads stops the upload, once", async () => {
+  await fresh();
+  const host = upload();
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
+  // The composer showed another chat before it went, so a late answer would go to chat A's kept chips.
+  chat = "chat-b";
+  await act(async () => root.render(<Probe />));
+  await act(async () => root.render(null));
+  expect(stopped).toBe(1);
+  // A late answer (a transfer that committed anyway) goes nowhere, not even to its chat's kept chips.
+  await act(async () => host.answer({ path: remote }));
+  expect(stopped).toBe(1);
+  expect(handedOff).toEqual([]);
+});
+
+test("a composer that goes away after the upload answered asks no cancel", async () => {
+  await fresh();
+  const host = upload();
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
+  await act(async () => host.answer({ path: remote }));
+  await act(async () => root.render(null));
+  expect(stopped).toBe(0);
+});
+
+// A host-made chip with nothing to stop on the host still loses its late answer when the
+// composer goes away: it is dropped, not handed to its chat's kept chips.
+test("a composer that goes away drops a late answer for a chip with no stop", async () => {
+  await fresh();
+  const host = upload();
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
+  chat = "chat-b";
+  await act(async () => root.render(<Probe />));
+  await act(async () => root.render(null));
+  await act(async () => host.answer({ path: remote }));
+  expect(handedOff).toEqual([]);
 });
