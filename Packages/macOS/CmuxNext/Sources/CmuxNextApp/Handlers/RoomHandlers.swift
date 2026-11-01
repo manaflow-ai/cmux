@@ -192,6 +192,8 @@ enum RoomHandlers {
         let browser = incognito ? nil : active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
         let services = context.services
+        // Marked before the daemon mirrors it, so no normal window's space bar lists it for a frame.
+        if incognito { services.windows.incognitoSpaceMarks.mark(id) }
         services.registry.track(Task {
             guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {

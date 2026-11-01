@@ -196,6 +196,7 @@ public final class MockAgentSession: AgentSessionSource {
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
         let second = Date().addingTimeInterval(-1800)
         replaySubagentTurn(at: second)
+        replayStressTurns(ListStressSettings.shared.historyTurns)
         checkpointLog = [
             AgentCheckpoint(id: "cp-h1", title: "What does the link framing look like today?", turnID: turnID, createdAt: start,
                             branch: summary.branch, head: "4d81e0c", files: 0),
@@ -205,6 +206,46 @@ public final class MockAgentSession: AgentSessionSource {
                             createdAt: second.addingTimeInterval(41), branch: summary.branch, head: "4d81e0c", files: 5,
                             complete: false, skipped: 1),
         ]
+    }
+
+    // MARK: List stress rig
+
+    /// `count` replayed turns shaped like real agent work (a thought, a read, an edit, a command
+    /// with output, a markdown answer with code and a table), for the list scroll rig
+    /// (`verify/listperf/`). The newest one edits a small file and a long one, the diff screen's case.
+    private func replayStressTurns(_ count: Int) {
+        guard count > 0 else { return }
+        let base = Date().addingTimeInterval(-1500)
+        for index in 0..<count {
+            let turnID = "stress-\(index)"
+            let at = base.addingTimeInterval(Double(index) * 2)
+            emit(.userMessage(text: MockStressContent.prompt(index), promptId: "p-\(turnID)", turnId: turnID, attachments: [], at: at))
+            emit(.turnStarted(turnId: turnID, at: at))
+            emit(.update(.agentThoughtChunk(text: MockStressContent.thought(index))))
+            emit(.update(.toolCall(ACPToolCall(
+                id: "\(turnID)-read", title: "Read LinkDialer.swift", kind: .read, status: .completed,
+                content: [.content(.text(MockStressContent.code(lines: 12, seed: index)))],
+                locations: [.init(path: "CmuxMobileTransport/LinkDialer.swift")]
+            ))))
+            var diffs: [ACPToolCall.Content] = [.diff(path: "Sources/Stress\(index).swift",
+                                                      oldText: MockStressContent.code(lines: 30, seed: index),
+                                                      newText: MockStressContent.code(lines: 30, seed: index, edited: true))]
+            if index == count - 1, ListStressSettings.shared.largeDiff {
+                diffs.append(.diff(path: "Sources/Generated/Large.swift",
+                                   oldText: MockStressContent.code(lines: MockStressContent.largeDiffLines, seed: 7),
+                                   newText: MockStressContent.code(lines: MockStressContent.largeDiffLines, seed: 7, edited: true)))
+            }
+            emit(.update(.toolCall(ACPToolCall(id: "\(turnID)-edit", title: "Edit Stress\(index).swift", kind: .edit, status: .completed, content: diffs))))
+            emit(.update(.toolCall(ACPToolCall(
+                id: "\(turnID)-run", title: "swift test --filter Link", kind: .execute, status: .completed,
+                content: [.content(.text(MockStressContent.testOutput(index)))],
+                rawInput: .object(["command": .string("swift test --filter Link")])
+            ))))
+            let answer = MockStressContent.answer(index)
+                + (ListStressSettings.shared.screen == "artifacts" ? "\n\n" + MockStressContent.artifacts(index) : "")
+            emit(.update(.agentMessageChunk(text: answer, messageId: "\(turnID)-m")))
+            emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: at.addingTimeInterval(1)))
+        }
     }
 
     // MARK: Turns
@@ -222,7 +263,9 @@ public final class MockAgentSession: AgentSessionSource {
         running = Task { [weak self] in
             guard let self else { return }
             do {
-                if rich {
+                if ListStressSettings.shared.streams {
+                    try await self.stream(MockStressContent.streamedAnswer, messageID: "stress-stream-\(turnID)")
+                } else if rich {
                     try await self.richTurn()
                 } else {
                     try await self.shortTurn(prompt: text)

@@ -30,6 +30,7 @@ import { EditDiff } from "./EditDiff";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 /// Find in Chat's reveal for `row` only: the card draws outside ToolRows (which passes the reveal to
@@ -145,7 +146,9 @@ function Card({
   const shown = single || !open ? [] : showAll ? entries : entries.slice(0, limit);
   const more = single ? 0 : total - shown.length;
   const reviewable = onOpenDiff && files.length > 0;
-  const undoable = row.ended === true && changes.files.some((file) => file.undo.kind !== "cannot");
+  // Read only, Undo would write the owner's files.
+  const readOnly = useTranscriptReadOnly();
+  const undoable = !readOnly && row.ended === true && changes.files.some((file) => file.undo.kind !== "cannot");
   const title = single
     ? t("tools.edited.file", { file: single.path.split("/").pop() ?? single.path })
     : total === 1

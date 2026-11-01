@@ -6,7 +6,8 @@
       "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
       "enum" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "title" : "Attachment View",
       "type" : "string"
@@ -87,6 +88,16 @@
         "off"
       ],
       "title" : "Chat Minimap",
+      "type" : "string"
+    },
+    "agentPane.display.presentation" : {
+      "default" : "transcript",
+      "description" : "agentPane.display.presentation",
+      "enum" : [
+        "transcript",
+        "messages"
+      ],
+      "title" : "Chat Presentation",
       "type" : "string"
     },
     "agentPane.display.rail.side" : {
@@ -1799,6 +1810,12 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "chief.autoRouteSubagents" : {
+      "default" : false,
+      "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+      "title" : "Route Subagents to the Best Agent",
+      "type" : "boolean"
+    },
     "chief.reactionClassifier.harness" : {
       "default" : "",
       "description" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -2562,19 +2579,32 @@
       "default" : "orb",
       "description" : "home.chiefPetMascot",
       "enum" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
+        "fox",
         "machine",
         "machine-cyan",
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox",
-        "mochi"
+        "mochi",
+        "captain",
+        "sprout",
+        "bolt",
+        "fox-arctic",
+        "machine-violet",
+        "machine-gold",
+        "moon-rose",
+        "orb",
+        "orb-spark",
+        "orb-hood"
       ],
       "title" : "Character",
       "type" : "string"
+    },
+    "home.feedInChief" : {
+      "default" : true,
+      "description" : "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
+      "title" : "Show the Feed in Chief",
+      "type" : "boolean"
     },
     "home.server" : {
       "default" : "hosted",
@@ -3638,6 +3668,12 @@
       "title" : "Show Tips",
       "type" : "boolean"
     },
+    "sidebar.chromeGroups" : {
+      "default" : false,
+      "description" : "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups.",
+      "title" : "Chrome-Style Groups",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
@@ -3979,6 +4015,12 @@
       ],
       "title" : "Sidebar Side",
       "type" : "string"
+    },
+    "sidebar.sideBySide" : {
+      "default" : false,
+      "description" : "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted.",
+      "title" : "Workspaces Side by Side",
+      "type" : "boolean"
     },
     "sidebar.spacesPosition" : {
       "default" : "bottom",
@@ -4475,6 +4517,12 @@
       "default" : true,
       "description" : "A mark while an agent works in the workspace.",
       "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspacesAsTabs" : {
+      "default" : false,
+      "description" : "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab.",
+      "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },
     "ssh.linkAllowedHosts" : {
@@ -5065,6 +5113,14 @@
       "description" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
       "title" : "Hibernate Idle Workspaces",
       "type" : "boolean"
+    },
+    "workspaces.hibernation.hiddenSpaceMinutes" : {
+      "default" : 15,
+      "description" : "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+      "maximum" : 1440,
+      "minimum" : 5,
+      "title" : "Hibernate Hidden Spaces After",
+      "type" : "number"
     },
     "workspaces.hibernation.idleMinutes" : {
       "default" : 60,

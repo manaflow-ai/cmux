@@ -491,7 +491,7 @@ fn local_names(local: &Path, dir: &str) -> Vec<String> {
 /// The working-tree folders whose files this working copy's git runs as
 /// hooks: `core.hooksPath` when it is inside the folder, and the folder
 /// above it for husky's `.husky/_` (whose hooks call `.husky/<hook>`).
-fn hook_folders(local: &Path) -> anyhow::Result<Vec<String>> {
+pub(super) fn hook_folders(local: &Path) -> anyhow::Result<Vec<String>> {
     let Some(path) = git_back::hooks_path(local)? else { return Ok(Vec::new()) };
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let path = match (path.strip_prefix("~/"), home) {

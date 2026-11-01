@@ -21,6 +21,7 @@ interface Rpc {
   shape(c: unknown, machine: string): Promise<Reply>
   pause(c: unknown, machine: string): Promise<Reply>
   resume(c: unknown, machine: string): Promise<Reply>
+  resize(c: unknown, machine: string, shape: { vcpu: number; memGiB: number; diskGiB: number }): Promise<Reply>
   fork(c: unknown, machine: string, name: string): Promise<Reply>
   exec(c: unknown, machine: string, command: string, stdin: string | null, timeoutMs: number): Promise<Reply>
   snapshot(c: unknown, machine: string, name: string): Promise<Reply>
@@ -323,6 +324,10 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.pause(c, "vm_x")).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.resume(c, "vm_x")).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.fork(c, "vm_x", nameOf())).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.resize(c, "vm_x", { vcpu: 4, memGiB: 8, diskGiB: 32 })).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.resize(c, `vm_${"a".repeat(20)}`, { vcpu: 4, memGiB: 0.5, diskGiB: 32 })).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.resize(c, `vm_${"a".repeat(20)}`, { vcpu: Number.NaN, memGiB: 8, diskGiB: 32 })).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.resize(c, `vm_${"a".repeat(20)}`, null as never)).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.create(c, nameOf(), { vcpu: 0, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.create(c, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 }, null, { bad: 1 } as never)).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(((await cloudStub(c.team).fakeControl({})) as any).creates).toBe(0)
@@ -333,6 +338,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const c = caller()
     expect(await off.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off", retryable: false })
     expect(await off.deleteSnapshot(c, `snap_${"a".repeat(20)}`)).toMatchObject({ ok: false, code: "platform.machines_off" })
+    expect(await off.resize(c, `vm_${"a".repeat(20)}`, { vcpu: 4, memGiB: 8, diskGiB: 32 })).toMatchObject({ ok: false, code: "platform.machines_off" })
     expect(await off.providerInfo(c)).toMatchObject({ ok: true, value: { available: false } })
     expect(await off.create(c, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "cloud.provider.unavailable" })
     const { machine, name, stub } = await bootAndBind(c)
@@ -413,6 +419,63 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     await fireAlarm(stub)
     expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 0, starts: 1, pauses: 3 })
     expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine: id })).value).toMatchObject({ status: "paused" })
+  })
+
+  it("grows a platform machine in place one step, idempotently, and never shrinks it", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const before = await rpc.get(c, machine)
+    expect(before).toMatchObject({ ok: true, value: { state: "running", shape: { vcpu: 2, memGiB: 4, diskGiB: 16 } } })
+    const target = { vcpu: 4, memGiB: 8, diskGiB: 32 }
+    expect(await rpc.resize(c, machine, target)).toEqual({ ok: true, value: { id: machine, region: "global", state: "running", shape: target } })
+    expect(await stub.fakeControl({})).toMatchObject({ resizes: 1 })
+    // A retry of the same shape answers the machine as it is: no second provider call.
+    expect(await rpc.resize(c, machine, target)).toMatchObject({ ok: true, value: { shape: target } })
+    expect(await stub.fakeControl({})).toMatchObject({ resizes: 1 })
+    expect(await rpc.resize(c, machine, { vcpu: 2, memGiB: 8, diskGiB: 32 })).toMatchObject({ ok: false, code: "cloud.size.grow_only", retryable: false })
+    expect(await rpc.shape(c, machine)).toEqual({ ok: true, value: target })
+    // A provider refusal is final for that attempt; the next call starts a new one at the new revision.
+    const next = { vcpu: 8, memGiB: 16, diskGiB: 64 }
+    await stub.fakeControl({ resize_refuse: 1 } as never)
+    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "cloud.provider.refused", retryable: false, message: expect.stringContaining("resize refused") })
+    expect(await rpc.shape(c, machine)).toEqual({ ok: true, value: target })
+    // A provider call that did not answer stays pending: retries answer indeterminate, never a second intent.
+    // Two misses: the shape read before the intent, then the resize call itself.
+    await stub.fakeControl({ fail_next: 2 } as never)
+    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "mutation.indeterminate", retryable: true })
+    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "mutation.indeterminate", retryable: true })
+    await stub.fakeControl({ advance_ms: 60_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ resizes: 2 })
+    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: true, value: { state: "running", shape: next } })
+    expect(await stub.fakeControl({})).toMatchObject({ resizes: 2 })
+  })
+
+  it("asks the caller to retry a resize while a booted machine is still provisioning", async () => {
+    const c = caller()
+    const booted = await rpc.boot(c, nameOf())
+    expect(booted).toMatchObject({ ok: true })
+    expect(await rpc.resize(c, booted.value.id, { vcpu: 4, memGiB: 8, diskGiB: 32 })).toMatchObject({ ok: false, code: "mutation.indeterminate", retryable: true })
+    expect(await cloudStub(c.team).fakeControl({})).toMatchObject({ resizes: 0 })
+  })
+
+  it("resizes only the caller's own platform machines, and only while the caller may use the team", async () => {
+    const stub = cloudStub(SHARED_TEAM)
+    await inDO(stub, async (instance) => {
+      instance.creatorIsMember = async () => true
+    })
+    const a = { user: caller().user, team: SHARED_TEAM }
+    const b = { user: caller().user, team: SHARED_TEAM }
+    const { machine } = await bootAndBind(a)
+    const target = { vcpu: 4, memGiB: 8, diskGiB: 32 }
+    expect(await rpc.resize(b, machine, target)).toMatchObject({ ok: false, code: "cloud.machine.not_found", retryable: false })
+    // A person's own machine is never a setup machine, even for its creator.
+    const own = reply(await stub.submit(SHARED_TEAM, { identity: `user:${a.user}`, kind: "session", user: a.user, team: SHARED_TEAM }, frame("cloud.machine.create", { size: SIZE })))
+    expect(await rpc.resize(a, own.value.machine.id, target)).toMatchObject({ ok: false, code: "cloud.machine.not_found" })
+    await inDO(stub, async (instance) => {
+      instance.creatorIsMember = async () => false
+    })
+    expect(await rpc.resize(a, machine, target)).toMatchObject({ ok: false, code: "auth.forbidden", retryable: false })
   })
 
   it("refuses an image larger than the offer and durably removes its VM", async () => {

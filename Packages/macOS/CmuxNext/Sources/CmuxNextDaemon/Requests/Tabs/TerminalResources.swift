@@ -12,7 +12,7 @@ public struct TerminalResourcesRequest: DaemonRequest {
     public static let capability = "terminal-resources-v1"
 
     /// Nil asks for every PTY surface.
-    public var surfaces: [SurfaceID]?
+    public private(set) var surfaces: [SurfaceID]?
 
     /// A stand-in tab's surface (a Ctrl-` or split still opening) is left out: its terminal has no process in the daemon
     /// yet, and a request that names a stand-in is refused before it is sent (rule b), which showed the person "This pane

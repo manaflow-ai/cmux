@@ -201,7 +201,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         // place a terminal's stream later (Full -> other -> Full).
         store.segment_resume.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
-    let dirty = store.take_dirty();
+    let dirty = store.without_private(mux, store.take_dirty());
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
     if !dirty.is_empty() {
         // Memory grows only when terminals print.
@@ -309,6 +309,11 @@ fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
         .unwrap_or(MAX_SNAPSHOT_REPLAY_BYTES)
         .min(MAX_SNAPSHOT_REPLAY_BYTES);
     estimate.clamp(MIN_SNAPSHOT_REPLAY_BYTES.min(cap), cap)
+}
+
+/// Remove terminal `terminal_id`'s snapshot (an incognito terminal).
+pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
+    let _ = fs::remove_file(path(directory, terminal_id));
 }
 
 fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {

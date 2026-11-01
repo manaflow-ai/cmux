@@ -81,6 +81,8 @@ pub(crate) struct Snapshot {
     /// What it was built at (`key`).
     key: Key,
     serial: u64,
+    /// Whether this snapshot intentionally omits closed records for the Mac census path.
+    live_only: bool,
     started: Instant,
     /// How long it is reused, and how far the next build waits behind it.
     window: Duration,
@@ -126,9 +128,26 @@ impl FullRows {
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 impl Snapshot {
-    fn new(key: Key, serial: u64, window: Duration, (text, spans, keys): Built) -> Self {
+    fn new(
+        key: Key,
+        serial: u64,
+        window: Duration,
+        live_only: bool,
+        (text, spans, keys): Built,
+    ) -> Self {
         let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
-        Self { key, serial, started, window, whole, spans, keys, made, full: Default::default() }
+        Self {
+            key,
+            serial,
+            live_only,
+            started,
+            window,
+            whole,
+            spans,
+            keys,
+            made,
+            full: Default::default(),
+        }
     }
 
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
@@ -137,6 +156,12 @@ impl Snapshot {
     fn build(hub: &Hub) -> Built {
         let mut rows = Rows::default();
         hub.visit_session_summaries(false, |row| rows.push(&row));
+        rows.finish()
+    }
+
+    fn build_live(hub: &Hub) -> Built {
+        let mut rows = Rows::default();
+        hub.visit_live_session_summaries(false, |row| rows.push(&row));
         rows.finish()
     }
 
@@ -158,7 +183,11 @@ impl Snapshot {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
             let mut rows = Rows::default();
-            hub.visit_session_summaries(true, |row| rows.push(&row));
+            if self.live_only {
+                hub.visit_live_session_summaries(true, |row| rows.push(&row));
+            } else {
+                hub.visit_session_summaries(true, |row| rows.push(&row));
+            }
             let (whole, spans, keys) = rows.finish();
             Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
@@ -493,13 +522,16 @@ impl ListGuard {
         let mut pace = pace.lock().unwrap_or_else(|e| e.into_inner());
         // Sending even a shared list copies it into the reply line.
         let mut replies = self.replies.lock().unwrap_or_else(|e| e.into_inner());
-        let wait = pace.wait(now, window * (CONN_BURST - 1));
-        let more = replies.wait(now + wait, window);
+        let wait = pace.wait(now, window * (CONN_BURST - 1), window);
+        // Reprice at the real clock before probing a hypothetical admission time.
+        // A rejected request must not advance shared debt to `now + wait`.
+        replies.reprice(now, window / REPLIES);
+        let more = replies.wait(now + wait, window, window / REPLIES);
         if wait + more > MAX_WAIT {
             return Err(wait + more);
         }
-        pace.spend(now + wait, window.mul_f64(share));
-        replies.spend(now + wait + more, window.mul_f64(share) / REPLIES);
+        pace.spend(now + wait, window.mul_f64(share), window);
+        replies.spend(now + wait + more, window.mul_f64(share) / REPLIES, window / REPLIES);
         tracing::debug!(target: "acpmux::list_cost", window_us = window.as_micros(),
             wait_us = (wait + more).as_micros(), share, "list_reply_reservation");
         Ok(wait + more)
@@ -508,33 +540,47 @@ impl ListGuard {
     /// The list for a request that arrived now: the shared snapshot while nothing it
     /// shows changed, or one begun since; else a new build once the pace allows.
     pub(crate) async fn snapshot(&self, hub: &Hub) -> Arc<Snapshot> {
+        self.snapshot_for(hub, false).await
+    }
+
+    /// Build the cheaper census projection when the caller explicitly excludes closed rows.
+    pub(crate) async fn snapshot_live(&self, hub: &Hub) -> Arc<Snapshot> {
+        self.snapshot_for(hub, true).await
+    }
+
+    async fn snapshot_for(&self, hub: &Hub, live_only: bool) -> Arc<Snapshot> {
         let asked = self.begun.load(Ordering::SeqCst);
         // One build at a time; requests that arrive meanwhile wait for it and share it.
         let mut state = self.state.lock().await;
         if let Some(last) = &state.last
+            && last.live_only == live_only
             && last.key.0
             && (last.serial > asked || last.current(hub) && last.started.elapsed() < last.window)
         {
             return last.clone();
         }
-        let wait = state.pace.wait(Instant::now(), self.window() * (BURST - 1));
+        let window = self.window();
+        // A fresh snapshot waits at most one current window, even if an earlier
+        // reservation used a much more expensive build. Lock/build time is separate.
+        let wait = state.pace.wait(Instant::now(), window * (BURST - 1), window).min(window);
         if !wait.is_zero() {
             tokio::time::sleep(wait).await;
         }
         // Counted before its key is read: it is as new as any request that came before.
         let serial = self.begun.fetch_add(1, Ordering::SeqCst) + 1;
         let (started, key) = (Instant::now(), key(hub));
-        let built = Snapshot::build(hub);
+        let built = if live_only { Snapshot::build_live(hub) } else { Snapshot::build(hub) };
         let elapsed = started.elapsed();
         let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
             build_us = elapsed.as_micros(), window_us = window.as_micros(),
             builder_wait_us = wait.as_micros(), "list_snapshot_build");
-        state.pace.spend(started, window);
+        state.pace.spend(started, window, window);
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
-        let snapshot = Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, built) });
+        let snapshot =
+            Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, live_only, built) });
         state.last = Some(snapshot.clone());
         drop(state);
         self.expire(serial, window);
@@ -575,14 +621,39 @@ fn key(hub: &Hub) -> Key {
 #[derive(Default)]
 pub(crate) struct Pacer {
     ahead_to: Option<Instant>,
+    /// Debt is measured in lists, so a new build cost rescales its time value.
+    period: Duration,
 }
 
 impl Pacer {
-    fn wait(&self, now: Instant, burst: Duration) -> Duration {
+    fn wait(&mut self, now: Instant, burst: Duration, period: Duration) -> Duration {
+        self.reprice(now, period);
         self.ahead_to.map_or(Duration::ZERO, |to| to.saturating_duration_since(now + burst))
     }
 
-    fn spend(&mut self, at: Instant, cost: Duration) {
+    fn reprice(&mut self, now: Instant, period: Duration) {
+        if self.period != period {
+            // A busy host can briefly take seconds to build a list. Keeping that build's
+            // absolute-time debt after the next cheap build made a 15 s window impose
+            // nearly a minute of sleep: the burst allowance had already shrunk. Preserve
+            // the number of lists owed in both directions. Discounting falls but not
+            // charging rises would forgive debt on every oscillation, removing pacing.
+            // Previously returned reservation sleeps are not rescheduled.
+            self.ahead_to = self.ahead_to.map(|to| {
+                let remaining = to.saturating_duration_since(now);
+                let scaled = if self.period.is_zero() {
+                    Duration::ZERO
+                } else {
+                    remaining.mul_f64(period.as_secs_f64() / self.period.as_secs_f64())
+                };
+                now + scaled
+            });
+            self.period = period;
+        }
+    }
+
+    fn spend(&mut self, at: Instant, cost: Duration, period: Duration) {
+        self.reprice(at, period);
         self.ahead_to = Some(self.ahead_to.map_or(at, |to| to.max(at)) + cost);
     }
 }
@@ -613,7 +684,7 @@ mod tests {
         let built = Snapshot::serialize(&rows);
         assert_eq!(built.0, json!({"sessions": rows}).to_string());
         assert_eq!(Snapshot::serialize(&[]).0, r#"{"sessions":[]}"#);
-        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, built);
+        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
         assert_eq!(list.values(), rows);
         let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
         let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
@@ -643,8 +714,13 @@ mod tests {
             .map(|(i, id)| json!({"sessionId": id, "updatedAt": 10 - i, "pad": "x".repeat(40)}))
             .collect();
         super::super::session_pages::sort_session_summaries(&mut rows);
-        let list =
-            Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
+        let list = Snapshot::new(
+            (false, 0, 0, Vec::new()),
+            0,
+            Duration::ZERO,
+            false,
+            Snapshot::serialize(&rows),
+        );
         let after_b =
             super::super::session_pages::session_list_reply(rows.clone(), &json!({"limit": 2}))
                 .unwrap()["nextCursor"]
@@ -671,8 +747,13 @@ mod tests {
             json!({"sessionId": "small", "updatedAt": 5, "status": "idle"}),
         ];
         super::super::session_pages::sort_session_summaries(&mut rows);
-        let list =
-            Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
+        let list = Snapshot::new(
+            (false, 0, 0, Vec::new()),
+            0,
+            Duration::ZERO,
+            false,
+            Snapshot::serialize(&rows),
+        );
         let first: Value = serde_json::from_str(&list.bounded_text(&json!({}), 1000)).unwrap();
         // Pages go in an order updates do not change (`byte_page`), not newest first.
         let listed = first["sessions"].as_array().unwrap();
@@ -702,7 +783,7 @@ mod tests {
         let built = Snapshot::serialize(&rows);
         super::super::session_pages::sort_session_summaries(&mut rows);
         assert_eq!(built.0, json!({"sessions": rows}).to_string());
-        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, built);
+        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
         assert_eq!(list.values(), rows);
         for params in
             [json!({}), json!({"limit": 2}), json!({"status": "closed"}), json!({"peer": "remote"})]
@@ -758,7 +839,7 @@ mod tests {
     }
 
     async fn hold_at(hub: &Hub, window: Duration, serial: u64) -> Arc<Snapshot> {
-        let held = Arc::new(Snapshot::new(key(hub), serial, window, Default::default()));
+        let held = Arc::new(Snapshot::new(key(hub), serial, window, false, Default::default()));
         hub.list_guard.state.lock().await.last = Some(held.clone());
         held
     }
@@ -834,3 +915,7 @@ mod tests {
         assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
     }
 }
+
+#[cfg(test)]
+#[path = "list_scale_tests.rs"]
+mod scale_tests;

@@ -66,8 +66,8 @@ public final class DaemonStore: StateResourceQueries {
     /// connecting) and no live snapshot has replaced it yet.
     public internal(set) var isProvisional = false
     /// The highest event sequence the tree reflects: advanced after a batch
-    /// applies without needing a resync, and to a snapshot's barrier once
-    /// that snapshot is applied. Readers compare it with
+    /// applies without needing a resync. A snapshot can cover consumed tree events,
+    /// but cannot acknowledge session events still waiting in the inbox or pump. Readers compare it with
     /// `DaemonConnection.eventSequence()` taken after a write (read-your-writes
     /// without refetching the tree).
     public internal(set) var appliedSequence: UInt64 = 0
@@ -177,6 +177,10 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
+    /// Test seam (nil in the app): while it returns true for the buffered events, `drain` leaves them
+    /// buffered and asks for no frame, as a daemon whose events arrive late; ``releaseHeldEvents()``
+    /// applies them. A test holds one report this way to order it after an app step deterministically.
+    @ObservationIgnored public var eventHold: (@MainActor ([DaemonEventEnvelope]) -> Bool)?
     @ObservationIgnored var isResyncing = false
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()
@@ -215,6 +219,13 @@ public final class DaemonStore: StateResourceQueries {
     public func screen(_ handle: ScreenID) -> ScreenModel? { index.screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { index.panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { index.tabsBySurface[surface] }
+    /// The current tab records, invalidated only when the tab/pane topology
+    /// changes. Callers that need to inspect every tab without observing row
+    /// status should use this instead of walking ``workspaces``.
+    public var liveTabs: [TabModel] {
+        _ = tabListRevision
+        return Array(index.tabsByID.values)
+    }
     /// The shell's reported folder (OSC 7); a remote terminal's is never a local cwd.
     public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
         guard let tab = index.tabsBySurface[surface], tab.kind != .remoteTerminal else { return }

@@ -27,6 +27,10 @@ public final class AgentPaneModel {
     /// own give-up path, each of which keeps the fade.
     public internal(set) var paintedFromKeptTail = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
+    /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
+    /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
+    @ObservationIgnored public internal(set) var clientReady = false
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
@@ -66,15 +70,26 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// A new chat's Sandboxed send (`sandbox.run`, hq#3367): the App runs one task on a throwaway
     /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
-    /// sandboxes in this app.
-    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String) async -> [String: Any])?
+    /// sandboxes in this app. `incognito` is ``sendIsIncognito``'s answer as the send was issued.
+    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String, _ incognito: Bool) async -> [String: Any])?
+    /// Whether this pane's tab is in an incognito window now, as the App knows it. Read when a
+    /// Sandboxed send is issued, before its send line drains: the tab may close during that wait
+    /// (#31109). Nil: taken as incognito.
+    @ObservationIgnored public var sendIsIncognito: (@MainActor () -> Bool)?
     /// A Cloud chat's hand-off turn (`cloud.handoffTurn`, ``AgentPaneHandoffPrompt``): the App opens
     /// it and answers `{turn}` or a refusal. Nil: no hand-offs in this app.
+    /// Another machine picked for this pane's Cloud chat whose first send has not run
+    /// (``AgentPaneCloudRepick``): the App moves the chat there and sends its first prompt again.
+    @ObservationIgnored public var onCloudRepickChat: (@MainActor (AgentPaneCloudRepick) async -> [String: Any])?
     @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
     /// The session a pane with no chat yet asked hand-off turns for (`cloud.handoffTurn`).
     @ObservationIgnored private var handoffSession: String?
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
+    /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
+    @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
+    /// For a Cloud chat, forwards machine actions through its tab host even while the page's
+    /// ACP transport is a local connection.
     /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
     @ObservationIgnored public let sandboxRuns = AgentPaneSandboxRuns()
     /// Agent session avatars (the app's ``ChiefAvatarUploads``, keyed per session): the avatar as a
@@ -293,6 +308,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var remoteControl: AgentPaneRemoteControl?
     /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
     @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
+    @ObservationIgnored public var onCloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
@@ -312,6 +328,23 @@ public final class AgentPaneModel {
         newTab = page
     }
 
+    /// A tab bound to session `session` (an existing chat it opens) adopted this prewarmed, connected
+    /// New Tab page: the model is that tab's from here, as if its handshake had named the session
+    /// (``AgentPaneView/adoptSession(_:revealTurn:)``). Its first paint is ahead again: the pane
+    /// keeps its cover until the page draws the chat. False, changing nothing, for a page that is
+    /// not an untouched, connected New Tab page.
+    @discardableResult
+    public func adoptSpareSession(_ session: String) -> Bool {
+        guard sessionId == nil, newTab != nil, hasHandshake, !userTouched, !remoteChat, !neverPooled else { return false }
+        sessionId = session
+        transport.sessions.add(session)
+        newTab = nil
+        // The spare's start folder was no tab's; the chat's folder comes with its session.
+        handshakeCwd = nil
+        (hasPainted, paintedFromKeptTail) = (false, false)
+        return true
+    }
+
     /// A new workspace's first tab (its view made before the store's reply
     /// named it a new tab page): a chat that has no session yet becomes the
     /// page. A chat with a session keeps it.
@@ -323,13 +356,20 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
              .sandboxState, .subagentShown: break
+        // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
+        // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
+        case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         case .reply(let reply) where reply.isPassive: break
+        case .cloudEnvironment(let request) where request.action != "update": break
         default:
-            if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
+            let name = String(String(describing: request).prefix { $0 != "(" })
+            if touchedBy?.split(separator: ",").contains(Substring(name)) != true, (touchedBy?.count ?? 0) < 200 {
+                touchedBy = touchedBy.map { $0 + "," + name } ?? name
+            }
             userTouched = true
         }
         switch request {
@@ -348,6 +388,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .commandAvailability(let commands):
             pageCommands = Set(commands)
+            return AgentPaneReply.success()
+        case .clientReady(let ready):
+            clientReady = ready
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
@@ -460,6 +503,11 @@ public final class AgentPaneModel {
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
+        // Only a chat on another machine, on the person's own pick (one gesture).
+        case .cloudRepickChat(let repick):
+            guard let onCloudRepickChat, remoteChat, newTab == nil else { return Self.unsupported("cloud.repickChat") }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            return await onCloudRepickChat(repick)
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
         case .cloudHandoffTurn(let session):
@@ -473,6 +521,18 @@ public final class AgentPaneModel {
             if sessionId == nil { handoffSession = session }
             return await onCloudHandoffTurn(session)
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
+        case .cloudRepository(let request):
+            return await request.reply(remoteChat: remoteChat, sessionID: sessionId,
+                                       request: transport.cloudRepository ?? { [host] method, params, timeout in
+                                           try await host.cloudRepository(method: method, params: params, timeout: timeout)
+                                       },
+                                       localRequest: onCloudRepositoryLocal)
+        case .cloudEnvironment(let request):
+            guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
+            if request.action == "update", !transport.gestures.consume() {
+                return Self.transportFailure(.gestureRequired)
+            }
+            return await onCloudEnvironment(request)
         case .cloudCredentialTransfer(let request):
             guard remoteChat, newTab == nil, sessionId == request.sessionID else {
                 return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
