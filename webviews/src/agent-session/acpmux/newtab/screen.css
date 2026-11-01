@@ -349,11 +349,11 @@
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
-.nt-all-group-chevron{flex:none;transform:rotate(90deg);transition:transform var(--agent-motion-in,.12s) var(--agent-ease-out,ease-out)}
+.nt-all-group-chevron{flex:none;transform:rotate(90deg)}
 .nt-all-group[aria-expanded=false] .nt-all-group-chevron{transform:none}
 .nt-all-group-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .nt-all-group-count{flex:none;font-variant-numeric:tabular-nums;opacity:.8}
-@media (prefers-reduced-motion:reduce){.nt-all-group-chevron{transition:none}}
+
 .nt-closed .nt-open-tab:disabled{opacity:.45;cursor:default}
 
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
@@ -469,7 +469,7 @@
 .nt-style-options{position:relative;display:flex}
 .nt-style-option{position:relative;display:flex;align-items:center;justify-content:center;width:24px;height:24px}
 .nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
-.nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}
+@media (hover: hover) and (pointer: fine){.nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}}
 .nt-style-option:has(:focus-visible)::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
 .nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
@@ -580,7 +580,9 @@
 .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){animation-duration:1.9s}
 @keyframes nt-player-level{0%,100%{transform:scaleY(.4)}25%{transform:scaleY(.95)}50%{transform:scaleY(.55)}75%{transform:scaleY(.85)}}
 .nt-player-track{height:3px;border-radius:0;background:color-mix(in srgb,var(--agent-text) 12%,transparent);overflow:hidden}
-.nt-player-played{height:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transition:width 1s linear} /* motion-allow: playback progress */
+.nt-player-played{height:100%;width:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transform-origin:left center;transition:transform 1s linear} /* motion-allow: playback progress */
+/* The bar fills from the inline start: right to left under RTL. */
+.nt-player-played:dir(rtl){transform-origin:right center}
 .nt-player-controls{display:flex;align-items:center;gap:10px;margin-left:-4px}
 .nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;
   background:transparent;color:var(--agent-text)}
