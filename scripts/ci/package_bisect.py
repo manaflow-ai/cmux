@@ -261,9 +261,11 @@ def job_log(job_id: int) -> str:
     excuse = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(excuse)
     route = f"repos/{REPO}/actions/jobs/{job_id}/logs"
-    result = subprocess.run(["gh", "api", route], text=True, capture_output=True)
+    result = subprocess.run(["gh", "api", excuse.ESCAPE_FLAG, route], text=True, capture_output=True)
+    if result.returncode != 0 and excuse.escape_flag_unknown(result.stderr):
+        result = subprocess.run(["gh", "api", route], text=True, capture_output=True)
     if result.returncode != 0:
-        raise SystemExit(f"gh api {route} failed: {result.stderr.strip()}")
+        raise SystemExit(f"gh api {excuse.ESCAPE_FLAG} {route} failed: {result.stderr.strip()}")
     return result.stdout
 
 

@@ -639,12 +639,15 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
         self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
 
-    def test_job_log_uses_the_portable_api_route(self):
+    def test_job_log_uses_the_flag_with_old_gh_fallback(self):
         controller = self.controller()
-        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, CHECKS_LOG, "")
+        controller.gh.gh.side_effect = [
+            subprocess.CompletedProcess([], 1, "", "unknown flag: --allow-escape-sequences\n\nUsage:  gh api"),
+            subprocess.CompletedProcess([], 0, CHECKS_LOG, "")]
         self.assertEqual(controller.job_log(7), CHECKS_LOG)
         self.assertEqual([c.args for c in controller.gh.gh.call_args_list],
-                         [("api", "repos/o/r/actions/jobs/7/logs")])
+                         [("api", "--allow-escape-sequences", "repos/o/r/actions/jobs/7/logs"),
+                          ("api", "repos/o/r/actions/jobs/7/logs")])
 
     def test_any_other_log_failure_is_not_retried(self):
         controller = self.controller()

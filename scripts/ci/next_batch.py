@@ -1331,10 +1331,12 @@ class Controller:
         return sorted(failed)
 
     def job_log(self, job_id: int | str) -> str | None:
-        # The job's log, readable while the rest of its run still goes. ANSI is
-        # normalized by base_red_excuse's Python parsers; keep the gh request portable.
+        # The job's log, readable while the rest of its run still goes. The classifier
+        # strips ANSI in Python; use its compatible flag-first request here too.
         route = f"repos/{self.args.repo}/actions/jobs/{job_id}/logs"
-        got = self.gh.gh("api", route, check=False)
+        got = self.gh.gh("api", base_red_excuse.ESCAPE_FLAG, route, check=False)
+        if got.returncode != 0 and base_red_excuse.escape_flag_unknown(got.stderr):
+            got = self.gh.gh("api", route, check=False)
         return got.stdout if got.returncode == 0 else None
 
     def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:

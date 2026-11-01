@@ -189,7 +189,7 @@ class SaveTests(unittest.TestCase):
 
 
 class JobLogTests(unittest.TestCase):
-    """Job logs use the portable API route; Python consumers strip ANSI."""
+    """Job logs use the flag-capable API route; Python consumers strip ANSI."""
 
     def answers(self, *results):
         calls = []
@@ -199,12 +199,13 @@ class JobLogTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, *results[len(calls) - 1])
         return calls, mock.patch.object(MODULE.subprocess, "run", side_effect=fake)
 
-    def test_job_log_uses_the_portable_api_route(self):
-        calls, patch = self.answers((0, "the log", ""))
+    def test_job_log_uses_the_flag_with_old_gh_fallback(self):
+        calls, patch = self.answers((1, "", "unknown flag: --allow-escape-sequences\n\nUsage:  gh api"),
+                                    (0, "the log", ""))
         with patch:
             self.assertEqual(MODULE.job_log(5), "the log")
         route = f"repos/{MODULE.REPO}/actions/jobs/5/logs"
-        self.assertEqual(calls, [["gh", "api", route]])
+        self.assertEqual(calls, [["gh", "api", "--allow-escape-sequences", route], ["gh", "api", route]])
 
     def test_any_other_failure_exits_with_no_retry(self):
         calls, patch = self.answers((1, "", "gh: Not Found (HTTP 404)"))

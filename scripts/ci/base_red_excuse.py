@@ -49,6 +49,17 @@ _spec.loader.exec_module(_evidence)
 Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidence.latest_checks
 
 
+ESCAPE_FLAG = "--allow-escape-sequences"
+UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
+REQUEST_FAILED = "GitHub evidence request failed: "
+
+
+def escape_flag_unknown(stderr: str) -> bool:
+    """Whether an old gh rejected the optional ANSI-output flag itself."""
+    lines = (stderr or "").strip().splitlines()
+    return bool(lines) and lines[0].strip() == UNKNOWN_ESCAPE_FLAG
+
+
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
@@ -56,8 +67,14 @@ class GitHub(_evidence.GitHub):
         # `gh run view --log` waits for every job in the run. The Actions job
         # endpoint serves a finished job while sibling jobs remain queued.
         route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
-        # Keep the request portable across gh versions. ANSI bytes are normalized below in
-        # Python instead of relying on gh's optional --allow-escape-sequences flag.
+        # Request ANSI-capable output first; old gh versions reject the flag, while modern
+        # versions reject coloured output without it. Either way, normalize bytes in Python.
+        try:
+            return self.run(["api", ESCAPE_FLAG, route])
+        except Refused as error:
+            said = str(error)
+            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
+                raise
         return self.run(["api", route])
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
@@ -184,7 +201,7 @@ WARNING = re.compile(r"##\[warning\]|\bwarning:")
 GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
 SUMMARY_FAILURE = re.compile(
     r"(?i)\b(?:changed|stale|missing|mismatch|not stamped|not found|out of date|invalid|unavailable|"
-    r"cannot|could not|failure|failed|fail)\b"
+    r"cannot|could not|failure|failed|fail|does not match|not match)\b"
 )
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 # SwiftPM's line for a killed test helper, and the hang sampler's ::error lines for it.
