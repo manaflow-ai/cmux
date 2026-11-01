@@ -129,7 +129,7 @@ fn complete_words(text: &str) -> impl Iterator<Item = &str> {
 /// `-`, with at least one letter or digit.
 pub fn device_code(plain: &str) -> Option<String> {
     let complete = match plain.rfind('\n') {
-        Some(end) => &plain[..end],
+        Some(end) => plain.get(..end).unwrap_or_default(),
         None => return None,
     };
     let mut lines =

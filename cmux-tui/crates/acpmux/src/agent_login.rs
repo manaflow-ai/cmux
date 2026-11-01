@@ -225,7 +225,7 @@ impl Machine {
             Err(_) => true,
             Ok(_) => match std::fs::read(&kind) {
                 Ok(bytes) => {
-                    String::from_utf8_lossy(&bytes[..bytes.len().min(64)]).trim() != "owner"
+                    String::from_utf8_lossy(bytes.get(..64).unwrap_or(&bytes)).trim() != "owner"
                 }
                 Err(_) => true,
             },
@@ -484,7 +484,7 @@ async fn pump<R: AsyncRead + Unpin>(
             Ok(n) => {
                 let mut buf = out.lock().unwrap_or_else(|e| e.into_inner());
                 let room = OUTPUT_CAP.saturating_sub(buf.len());
-                buf.extend_from_slice(&chunk[..n.min(room)]);
+                buf.extend_from_slice(chunk.get(..n.min(room)).unwrap_or_default());
             }
         }
         notify.notify_one();
