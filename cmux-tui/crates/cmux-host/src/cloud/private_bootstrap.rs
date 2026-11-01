@@ -112,14 +112,15 @@ impl NativeBootstrap {
         if bytes.len() != length {
             return Err(UNAVAILABLE.into());
         }
-        let header = &bytes[4..length - 32];
+        let (header, private) =
+            bytes.get(4..).and_then(<[u8]>::split_last_chunk::<32>).ok_or(UNAVAILABLE)?;
         let _: UniqueJson = serde_json::from_slice(header).map_err(|_| UNAVAILABLE)?;
         let header: Header = serde_json::from_slice(header).map_err(|_| UNAVAILABLE)?;
         if header.version != 2 {
             return Err(UNAVAILABLE.into());
         }
         let keys = read_keyset(&header.keyset).map_err(|_| UNAVAILABLE)?;
-        let private = Zeroizing::new(bytes[length - 32..].try_into().map_err(|_| UNAVAILABLE)?);
+        let private = Zeroizing::new(*private);
         Self::new(header.binding, keys, private, header.generation)
     }
 }

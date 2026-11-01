@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # nightly.yml build-nightly-app: "Bound the kept Rust target directories (warm nightly-next builder)". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The warm builder keeps the Rust target directories (above). Cargo
+# never deletes old artifacts, so start them over above 30 GiB.
 set -euo pipefail
 dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cmux-next-ios/rust/target)
 kib=0

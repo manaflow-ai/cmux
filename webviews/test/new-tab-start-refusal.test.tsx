@@ -295,12 +295,16 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
           (button) => button.textContent === t("trust.notNow"),
         )!;
         await act(async () => notNow.click());
-        await until(() => !!host.querySelector('[role="alert"]'), "declined start settles with the draft retained");
+        const undoButton = () =>
+          [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
+            (button) => button.textContent === t("trust.undo"),
+          );
+        await until(() => undoButton() !== undefined, "declined start settles with the draft retained");
+        // Not now cancelled the start; it did not fail, so no failure notice shows (#28543 review).
+        expect(host.querySelector('.acpmux-switch-notice[role="alert"]')).toBeNull();
         expect(host.querySelector(".nt-field")).toBe(field);
         expect(prompts).toHaveLength(0);
-        const undo = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
-          (button) => button.textContent === t("trust.undo"),
-        )!;
+        const undo = undoButton()!;
         await act(async () => undo.click());
         await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Undo offers Trust again");
       }
