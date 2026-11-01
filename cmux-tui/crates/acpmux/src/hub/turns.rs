@@ -896,6 +896,14 @@ impl Hub {
             } else {
                 None
             };
+            // A chat on a Cloud machine, or one a remote connection started, never falls over
+            // onto the local CodeRouter, nor names it in its error: the machine is signed in from
+            // the Mac (Leo, 2026-10-31: "STOP USING CODEROUTER").
+            if let Some(to) = &target
+                && self.no_coderouter_fallback(session, to).await
+            {
+                target = None;
+            }
             // Its route cannot start (a local router that is down): the chat stays where it is
             // rather than moving onto a profile every later turn fails on (`fallback_start.rs`).
             if let Some(to) = &target
@@ -1269,8 +1277,9 @@ impl Hub {
         // A Claude agent that is not signed in: say what it had, how the
         // person's terminal signs in, and the fix (`claude_auth.rs`).
         let mut signed_out = false;
+        let cloud_host = result.is_err() && self.config.read().await.cloud_host;
         if let Err(e) = &mut result
-            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message)
+            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message, cloud_host)
         {
             tracing::warn!(session = %session.id, "Claude agent is not signed in");
             e.message = text;
@@ -1578,6 +1587,16 @@ impl Hub {
         session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
+    }
+
+    /// Whether the failover onto profile `to` is skipped because it runs through the local
+    /// CodeRouter (the built-in `cmux` profile or route) and this chat is on a Cloud machine or
+    /// came over a remote connection (`fallback_start::coderouter_fallback_skipped`).
+    async fn no_coderouter_fallback(&self, session: &Session, to: &str) -> bool {
+        let cfg = self.config.read().await;
+        let Some(profile) = cfg.harnesses.get(to) else { return false };
+        let remote = session.meta().remote_origin;
+        super::fallback_start::coderouter_fallback_skipped(cfg.cloud_host, remote, to, profile)
     }
 
     /// The profile to fall over to, when the current one names one that exists.

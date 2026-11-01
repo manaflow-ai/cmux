@@ -1241,6 +1241,10 @@ pub struct Config {
     /// No config.json was there at load (`hub/policy_source.rs`: absence proves nothing).
     #[serde(skip)]
     pub file_missing: bool,
+    /// This machine is a cmux Cloud VM (`cloud_host.rs`), read at load: a chat here never fails
+    /// over onto the local CodeRouter, and a sign-in failure says only how to sign it in.
+    #[serde(skip)]
+    pub cloud_host: bool,
     /// The `defaults.claude.prefer` list discovery filled in, not the user.
     /// `save` drops it only while it is still unchanged.
     #[serde(skip)]
@@ -1533,6 +1537,7 @@ impl Config {
         }
         cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
         cfg.profile_sources = sources.clone();
+        cfg.cloud_host = crate::cloud_host::is_cloud_vm();
         cfg.path = Some(path);
         Ok(cfg)
     }
