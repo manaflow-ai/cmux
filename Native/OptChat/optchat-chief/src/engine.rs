@@ -114,10 +114,11 @@ pub fn apply_preset(mut choice: EngineChoice, preset: &str) -> Result<EngineChoi
     choice.harness = harness;
     choice.model = model;
     choice.effort = effort;
+    // The compactor runs at the turns' speed (fast only on codex).
+    choice.compactor_speed = speed.clone();
     choice.speed = speed;
     choice.compactor_harness = compactor;
     choice.compactor_model = None;
-    choice.compactor_speed = None;
     choice.subagent_harness = subagents;
     choice.subagent_routing = some("off");
     Ok(choice)

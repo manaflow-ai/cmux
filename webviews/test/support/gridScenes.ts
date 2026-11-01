@@ -166,6 +166,9 @@ const card = (
     mid(title, icon),
   ]);
 
+// A 28 control (grid.md section 4) and the harness rows' text: lead 8 + the 20 box + 8.
+const control28 = `calc(${token("base")} * 7)`;
+const harnessText = `calc(${token("gap")} + ${token("icon-box-comfortable")} + ${token("gap")})`;
 const noticeCard = ".acpmux-host-error-card";
 
 /** Promotion is per surface and requires a fleet measurement; no surface is assumed to pass. */
@@ -460,6 +463,61 @@ export const gridScenes: GridScene[] = [
     }
     return entry;
   }),
+  // Settings-style lists in a pane (grid.md 5.7): the Harnesses page (HarnessesScreen.tsx). Its rows
+  // are section 3 rows with the row box as the highlight: the mark's 20 box 8 in, the name and
+  // status 8 after it, the trailing action ending 8 in. The page's 28 controls and its side inset
+  // sit on the 4 grid (16 minimum).
+  ...[
+    ["this-mac", "claude"],
+    // this-mac's play signs Codex in, which takes its action away: its Codex row is measured in
+    // hover, the variant with no play.
+    ["hover", "codex"],
+  ].map(([variant, harness]): GridScene => ({
+    ...scene("pane.lists", "agent-pane.harnesses", variant!, `.acpmux-harness-row[data-harness-row="${harness}"]`, [
+      left("lead", ".agent-mark", "left", token("gap")),
+      value("icon box", ".agent-mark", "width", token("icon-box-comfortable")),
+      left("text: name", ".acpmux-harness-name", "text", harnessText),
+      left("text: detail", ".acpmux-harness-detail", "text", harnessText),
+      trail(".acpmux-harness-action", token("gap"), "right"),
+      value("action control", ".acpmux-harness-action", "height", control28),
+      value("mid: icon", ".agent-mark", "cy", point(":scope", "cy")),
+      value("mid: action", ".acpmux-harness-action", "cy", point(":scope", "cy")),
+    ]),
+    level: "fail",
+  })),
+  {
+    ...scene("pane.lists", "agent-pane.harnesses", "this-mac", ".acpmux-harnesses", [
+      value(
+        "edge: side inset",
+        ":scope",
+        "padding",
+        // The page centres a 560 column in the pane (the gallery's pane is the viewport); the inset
+        // rounds down to the 4 grid, 16 at least.
+        `max(calc(${token("base")} * 4), round(down, calc((100vw - 560px) / 2), ${token("base")}))`,
+      ),
+      value("close control", ".acpmux-harnesses-close", "height", control28),
+      value("close control: width", ".acpmux-harnesses-close", "width", control28),
+      value("close radius", ".acpmux-harnesses-close", "radius", `calc(${token("base")} * 1.5)`),
+      ...centered(".acpmux-harnesses-close svg", ".acpmux-harnesses-close"),
+      // Custom harness… is a row of the same list (#28906): its text on the rows' text column, its
+      // end 8 in like theirs.
+      from(
+        "custom: text",
+        ".acpmux-harnesses-custom .acpmux-harness-name",
+        "text",
+        point(".acpmux-harnesses-custom", "left"),
+        harnessText,
+      ),
+      from(
+        "custom: end",
+        ".acpmux-harnesses-custom",
+        "right",
+        point(".acpmux-harnesses-custom .acpmux-harness-detail", "right"),
+        token("gap"),
+      ),
+    ]),
+    level: "fail",
+  },
 ];
 
 // These are omissions in the current component design, not selector fallbacks. All other
