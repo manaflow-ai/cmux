@@ -71,6 +71,22 @@ struct CloudStartChatLoginTests {
         #expect(step(provider: nil) == .skip)
     }
 
+    /// Leo's machines are all team-account machines he created (guest kind `team`), so a DEV build lets
+    /// the creator's team guest take the login (the platform's owner answer still required); without
+    /// that allowance it stays skipped, as in production.
+    @Test func aDevBuildPassesTheLoginToTheCreatorsTeamMachine() {
+        func step(owns: Bool = true, creatorTeam: Bool, cached: Bool = true) -> Step {
+            CloudStartChat.loginStep(enabled: true, provider: .claude, signedInUser: true, callerOwns: owns,
+                                     ownerGuest: false, creatorTeamGuest: creatorTeam, machineHasLogin: false, cachedLogin: cached)
+        }
+        #expect(step(creatorTeam: true) == .install)
+        #expect(step(creatorTeam: true, cached: false) == .confirmThenInstall)
+        #expect(step(creatorTeam: false) == .skip)
+        // A teammate's team machine: the platform does not answer owner, so never.
+        #expect(step(owns: false, creatorTeam: true) == .skip)
+        #expect(CloudStartChat.teamGuestProbe.contains("= team"))
+    }
+
     @Test func theMachineProbeUsesTheImagesOwnDetection() {
         #expect(CloudStartChat.machineLoginProbe.contains("cmux_agent_has_own_login claude"))
         #expect(!CloudStartChat.machineLoginProbe.contains("sk-ant"))
