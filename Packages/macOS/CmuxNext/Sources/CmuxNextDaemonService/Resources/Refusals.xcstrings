@@ -11268,6 +11268,402 @@
         }
       }
     },
+    "handlers.refusal.gatherWhileCreating": {
+      "comment": "Refusal of Move Space to This Window or Merge All Windows while a window it would close is still creating a workspace.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new workspace is still opening in a window this would close. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تزال مساحة عمل جديدة قيد الفتح في نافذة سيغلقها هذا الإجراء. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi radni prostor se još otvara u prozoru koji bi ovo zatvorilo. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et nyt arbejdsområde åbner stadig i et vindue, som dette ville lukke. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In einem Fenster, das dadurch geschlossen würde, wird noch ein neuer Arbeitsbereich geöffnet. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todavía se está abriendo un espacio de trabajo nuevo en una ventana que esto cerraría. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nouvel espace de travail s'ouvre encore dans une fenêtre que cette action fermerait. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nuovo spazio di lavoro si sta ancora aprendo in una finestra che questa azione chiuderebbe. Riprova tra un attimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作で閉じるウインドウで、新しいワークスペースをまだ開いています。少し待ってからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការថ្មីកំពុងបើកនៅឡើយក្នុងបង្អួចដែលសកម្មភាពនេះនឹងបិទ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업으로 닫힐 창에서 새 작업 공간이 아직 열리는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et nytt arbeidsområde åpnes fortsatt i et vindu som dette ville lukket. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W oknie, które to zamknie, nadal otwiera się nowy obszar roboczy. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um novo espaço de trabalho ainda está abrindo em uma janela que isto fecharia. Tente novamente em um instante."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В окне, которое это действие закроет, ещё открывается новое рабочее пространство. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานใหม่ยังเปิดอยู่ในหน้าต่างที่การทำงานนี้จะปิด โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunun kapatacağı bir pencerede yeni bir çalışma alanı hâlâ açılıyor. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У вікні, яке це закриє, ще відкривається новий робочий простір. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một không gian làm việc mới vẫn đang mở trong cửa sổ mà thao tác này sẽ đóng. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作将关闭的窗口中仍在打开新工作区。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作將關閉的視窗中仍在開啟新工作區。請稍後再試。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.gatherLocalTabs": {
+      "comment": "Refusal of Move Space to This Window or Merge All Windows when a window it takes workspaces from keeps its own browser tabs (a daemon without frontend browser tabs).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A window this would change keeps browser tabs that can't move with its workspaces. Close those tabs first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحتفظ نافذة سيغيّرها هذا الإجراء بعلامات تبويب متصفح لا يمكن نقلها مع مساحات العمل الخاصة بها. أغلق علامات التبويب هذه أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prozor koji bi ovo promijenilo čuva kartice preglednika koje se ne mogu premjestiti s njegovim radnim prostorima. Prvo zatvorite te kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et vindue, som dette ville ændre, har browserfaner, der ikke kan flyttes med dets arbejdsområder. Luk de faner først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Fenster, das dadurch geändert würde, hat Browser-Tabs, die nicht mit seinen Arbeitsbereichen verschoben werden können. Schließe diese Tabs zuerst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una ventana que esto cambiaría tiene pestañas del navegador que no pueden moverse con sus espacios de trabajo. Cierra esas pestañas primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une fenêtre que cette action modifierait contient des onglets de navigateur qui ne peuvent pas suivre ses espaces de travail. Fermez d'abord ces onglets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una finestra che questa azione modificherebbe ha schede del browser che non possono spostarsi con i suoi spazi di lavoro. Chiudi prima quelle schede."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作で変わるウインドウに、ワークスペースと一緒に移動できないブラウザタブがあります。先にそれらのタブを閉じてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចដែលសកម្មភាពនេះនឹងផ្លាស់ប្តូរ មានផ្ទាំងកម្មវិធីរុករកដែលមិនអាចផ្លាស់ទីជាមួយកន្លែងធ្វើការរបស់វាបានទេ។ សូមបិទផ្ទាំងទាំងនោះជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업으로 바뀔 창에 작업 공간과 함께 옮길 수 없는 브라우저 탭이 있습니다. 먼저 해당 탭을 닫으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et vindu som dette ville endre, har nettleserfaner som ikke kan flyttes med arbeidsområdene. Lukk disse fanene først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno, które to zmieni, ma karty przeglądarki, których nie można przenieść razem z jego obszarami roboczymi. Najpierw zamknij te karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma janela que isto mudaria tem abas do navegador que não podem ser movidas com os espaços de trabalho dela. Feche essas abas primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В окне, которое изменит это действие, есть вкладки браузера, которые нельзя перенести вместе с его рабочими пространствами. Сначала закройте эти вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างที่การทำงานนี้จะเปลี่ยนมีแท็บเบราว์เซอร์ที่ย้ายไปพร้อมพื้นที่ทำงานไม่ได้ โปรดปิดแท็บเหล่านั้นก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunun değiştireceği bir pencerede, çalışma alanlarıyla birlikte taşınamayan tarayıcı sekmeleri var. Önce bu sekmeleri kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У вікні, яке це змінить, є вкладки браузера, які не можна перенести разом із його робочими просторами. Спершу закрийте ці вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một cửa sổ mà thao tác này sẽ thay đổi có các tab trình duyệt không thể di chuyển cùng không gian làm việc của nó. Hãy đóng các tab đó trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作将更改的窗口中有无法随其工作区移动的浏览器标签页。请先关闭这些标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作將變更的視窗中有無法隨其工作區移動的瀏覽器分頁。請先關閉這些分頁。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.windowNotReady": {
+      "comment": "Refusal of a window action (Move Space to This Window, Merge All Windows) before the window has registered, such as the launch window while restoring.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This window isn't ready yet. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه النافذة ليست جاهزة بعد. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj prozor još nije spreman. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette vindue er ikke klar endnu. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Fenster ist noch nicht bereit. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta ventana aún no está lista. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette fenêtre n'est pas encore prête. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa finestra non è ancora pronta. Riprova tra un attimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウインドウはまだ準備ができていません。少し待ってからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចនេះមិនទាន់រួចរាល់នៅឡើយ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 창은 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette vinduet er ikke klart ennå. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To okno nie jest jeszcze gotowe. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta janela ainda não está pronta. Tente novamente em um instante."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это окно ещё не готово. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างนี้ยังไม่พร้อม โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu pencere henüz hazır değil. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Це вікно ще не готове. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ này chưa sẵn sàng. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗口尚未就绪。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此視窗尚未就緒。請稍後再試。"
+          }
+        }
+      }
+    },
     "handlers.refusal.unknownTheme": {
       "extractionState": "manual",
       "localizations": {
@@ -31052,6 +31448,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此工作區未停靠。"
+          }
+        }
+      }
+    },
+    "refusal.daemon.diskFull": {
+      "comment": "A reason, after '<action> did not apply: ' and inside cmux-tui's start notice: the disk under cmux-tui's state is full. Lowercase fragment.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the disk is full"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القرص ممتلئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disk je pun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disken er fuld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Festplatte ist voll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el disco está lleno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le disque est plein"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il disco è pieno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクがいっぱいです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថាសពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크가 가득 찼습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disken er full"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dysk jest pełny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o disco está cheio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "диск заполнен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดิสก์เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disk dolu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "диск заповнений"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ổ đĩa đã đầy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘已满"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁碟已滿"
           }
         }
       }

@@ -113,7 +113,9 @@ for (const code of [
     const client = new BridgePageClient(
       {
         async postMessage(body) {
-          const { id } = body as { id: number };
+          const { id, t } = body as { id: number; t: string };
+          // Only auth reads count: the account stream's subscribe (a `sub`) gets no sub id and is dropped.
+          if (t !== "call") return { t: "ok", id, value: {} };
           reads += 1;
           if (reads === 1) return { t: "err", id, code, message: "bridge unavailable" };
           return { t: "ok", id, value: { signedIn: false } };

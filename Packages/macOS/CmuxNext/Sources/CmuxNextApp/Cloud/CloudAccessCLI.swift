@@ -54,10 +54,17 @@ nonisolated struct CloudAccessCLI: Sendable {
         var failures = 0
         /// `upload`: where each file went on the machine, in the order given.
         var uploaded: [String] = []
+        /// `upload`: each file's upload id, in the same order (``removeUploads(socket:remoteRoot:ids:)``).
+        var uploadIDs: [String] = []
     }
 
     let binary: URL
     var timeout: Duration = .seconds(120)
+    /// Upload replies contain paths/errors, never file bytes. Retain enough for the legacy
+    /// multi-file reply as well as diagnostics, without reading all of a long transfer's heartbeats.
+    static let uploadOutputTailBytes = 4 * 1024 * 1024
+    /// An upload's stdout may stay silent this long: longer than the CLI's 60 s socket deadline.
+    static let uploadIdle: Duration = .seconds(90)
 
     /// `triage`: answers what needs no person and lists the rest, for the chats `sessions` only.
     func triage(socket: String, machine: String, sessions: [String]) async throws -> Answer {
@@ -78,8 +85,62 @@ nonisolated struct CloudAccessCLI: Sendable {
     }
 
     /// `upload`: copies `files` (in this Mac's temporary `cmux-pastes`) to the machine, each under `remoteRoot`.
+    /// Each file goes in its own call under an id of this app's (``Answer/uploadIDs``), so any count
+    /// of files is taken, and a failure or a cancel removes every file of this upload from the
+    /// machine, the partial one and those already sent, before it answers.
     func upload(socket: String, remoteRoot: String, files: [String]) async throws -> Answer {
-        try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot] + files)
+        var sent = Answer(ok: true)
+        for file in files {
+            let answer: Answer
+            do { answer = try await uploadOne(socket: socket, remoteRoot: remoteRoot, file: file) } catch {
+                try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: sent.uploadIDs)
+                throw error
+            }
+            guard answer.ok, answer.uploaded.count == 1 else {
+                try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: sent.uploadIDs + answer.uploadIDs)
+                return Answer(ok: false, errorCode: answer.errorCode, error: answer.error)
+            }
+            sent.uploaded += answer.uploaded
+            sent.uploadIDs += answer.uploadIDs
+        }
+        return sent
+    }
+
+    /// One file under a fresh upload id; a failed or cancelled transfer removes its partial file.
+    private func uploadOne(socket: String, remoteRoot: String, file: String) async throws -> Answer {
+        // Upload emits a heartbeat as each slice of a part reaches the socket and as each part's
+        // answer comes. Only a silent link times out, and the idle window outlasts the CLI's own
+        // 60 s per-read/write socket deadline (sync_cli/remote.rs IO_DEADLINE), so a transfer the
+        // transport still allows is never cut short; elapsed time never imposes a file-size ceiling.
+        let id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+        var answer: Answer
+        do {
+            answer = try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id, file],
+                                   progressIdle: Self.uploadIdle, outputTailBytes: Self.uploadOutputTailBytes)
+        } catch {
+            try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: [id])
+            throw error
+        }
+        if !answer.ok || Task.isCancelled {
+            try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: [id])
+            try Task.checkCancellation()
+            return answer
+        }
+        answer.uploadIDs = [id]
+        return answer
+    }
+
+    /// Removes uploads `ids` (each one's own folder) from the machine, trying every id and throwing
+    /// after them all when any stayed. It runs outside a cancelled caller's task (ProcessRunner reaps
+    /// a stopped child first), so the files are gone before a cancel answers.
+    func removeUploads(socket: String, remoteRoot: String, ids: [String]) async throws {
+        var removedAll = true
+        for id in ids {
+            let arguments = ["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id]
+            let cleanup = Task.detached(priority: .userInitiated) { try await run(arguments, outputTailBytes: Self.uploadOutputTailBytes) }
+            if (try? await cleanup.value)?.ok != true { removedAll = false }
+        }
+        if !removedAll { throw CancellationError() }
     }
 
     /// `sync`: copies chat `session`'s granted folders on the machine again.
@@ -92,9 +153,9 @@ nonisolated struct CloudAccessCLI: Sendable {
         try await run(["link", "access", "revoke", "--machine", machine, "--session", session] + (socket.map { ["--socket", $0] } ?? []) + ["--all"])
     }
 
-    private func run(_ arguments: [String], stdin: Data? = nil) async throws -> Answer {
+    private func run(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil, progressIdle: Duration? = nil, outputTailBytes: Int? = nil) async throws -> Answer {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
-                                                 timeout: timeout, clock: ContinuousClock())
+                                                 timeout: progressIdle == nil ? (timeout ?? self.timeout) : timeout, progressIdle: progressIdle, outputTailBytes: outputTailBytes, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],

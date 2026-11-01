@@ -141,7 +141,11 @@ impl Brain {
     /// mid-turn (running, a tool, a prompt, a pending tell) is live, so its
     /// VM never pauses; the pool tool also refuses while a turn or a
     /// background process runs on the VM, and that pause is tried again.
+    /// Only with `cloud.autoPause` on (default off: no auto pause).
     pub(super) fn cloud_tick(&mut self) {
+        if !self.chief.cloud_auto_pause {
+            return;
+        }
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
@@ -567,7 +571,11 @@ impl Brain {
     /// The host stops: each cloud VM with no live subagent pauses now, on
     /// this thread (the process exits next); one with a subagent mid-turn
     /// keeps running, and its report waits in acpmux for the next host.
+    /// Only with `cloud.autoPause` on (default off: no auto pause).
     pub(super) fn cloud_shutdown(&mut self) {
+        if !self.chief.cloud_auto_pause {
+            return;
+        }
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
@@ -809,6 +817,45 @@ impl Brain {
         name: String,
         ws: Option<String>,
     ) {
+        self.sub_workspace_opened(id, key, name, ws, true);
+    }
+
+    /// Its workspace exists; `at_start`: the spawn opened it (a subagent
+    /// that finished meanwhile is closed under the close setting), not a
+    /// `control show` the user asked for.
+    pub(super) fn sub_workspace_opened(
+        &mut self,
+        id: &str,
+        key: String,
+        name: String,
+        ws: Option<String>,
+        at_start: bool,
+    ) {
+        // A later hide or failure can supersede an automatic open too.
+        // Its slot's key fences startup; a manual show also reserves the
+        // visible key. Close a stale result even if hide reached the daemon
+        // before the open created the workspace.
+        if self.state.sub(id).is_some_and(|(_, s)| {
+            if at_start {
+                s.workspace_slot
+                    .as_ref()
+                    .is_some_and(|slot| slot.key != key)
+            } else {
+                s.workspace.as_deref() != Some(key.as_str())
+            }
+        }) {
+            if let Some(workspaces) = self.workspaces.clone() {
+                let (log, id) = (self.log.clone(), id.to_owned());
+                std::thread::spawn(move || {
+                    if let Err(e) = workspaces.close(&key) {
+                        log(&format!(
+                            "subagent {id}: closing its superseded workspace: {e}"
+                        ));
+                    }
+                });
+            }
+            return;
+        }
         let mut shown_session = None;
         let done = if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = Some(key);
@@ -826,9 +873,66 @@ impl Brain {
             self.forget_unanswered_of(&session);
         }
         // It finished before its workspace was made.
-        if done {
+        if done && at_start {
             self.mark_workspace(id, true);
         }
+    }
+
+    /// Where its workspace opens (`control show`), and its title.
+    pub(super) fn sub_workspace_slot(
+        &mut self,
+        id: &str,
+        name: String,
+        slot: crate::state::WorkspaceSlot,
+    ) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.workspace_slot = Some(slot);
+            sub.title = name;
+        }
+        self.save();
+    }
+
+    /// Workspace `key` is gone (opening it failed at spawn or on `control
+    /// show`, or a short task's idle close closed it): it is hidden, and the next `show` opens under a fresh key (a half-made
+    /// workspace was closed under this one, and the daemon replays its
+    /// mutations).
+    pub(super) fn sub_workspace_failed(&mut self, id: &str, key: &str) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            if sub.workspace.as_deref() == Some(key) {
+                sub.workspace = None;
+                sub.ws_id = None;
+            }
+            if sub.workspace_slot.as_ref().is_some_and(|s| s.key == key) {
+                super::control::retire_slot_key(sub);
+            }
+        }
+        self.save();
+        self.rewatch_permission(id);
+    }
+
+    /// `id` lost its workspace (hidden, or its open failed): a prompt it
+    /// still waits on has no Allow button any more, so it is watched again
+    /// and denied once overdue, as for any subagent without a workspace.
+    pub(super) fn rewatch_permission(&mut self, id: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        if Self::approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+            return;
+        }
+        let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
+            return;
+        };
+        self.watch_unanswered(
+            crate::approval::Pending {
+                session_id,
+                permission_id: p.id,
+                tool: crate::approval::tool_name(&p.request),
+                request: p.request,
+                child: Some(id.to_owned()),
+            },
+            "the app shows no working approval button for this subagent",
+        );
     }
 
     pub(super) fn sub_failed(&mut self, id: &str, error: &str) {
@@ -1319,7 +1423,7 @@ impl Brain {
 
     /// The engine of a subagent that starts on `harness`: the next turn's
     /// model and effort when it is that turn's harness.
-    fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
+    pub(super) fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
         let next = self.next_engine().0;
         let same = next.harness == harness;
         let family = self.family_of(harness);
@@ -1595,16 +1699,17 @@ impl Brain {
             return;
         };
         // The close setting closes every finished one and forgets it; a short
-        // task closes only while none of its terminals runs a command, so its
-        // key stays recorded (a later close of a closed one does nothing).
+        // task closes only while none of its terminals runs a command, and its
+        // key is forgotten once that close succeeds (a kept one stays).
         let explicit = self.sub_close_on_finish;
         if explicit {
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.workspace = None;
+                super::control::retire_slot_key(sub);
             }
             self.save();
         }
-        let (log, id) = (self.log.clone(), id.to_owned());
+        let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
         std::thread::spawn(move || {
             let closed = if explicit {
                 workspaces.close(&key).map(|()| true)
@@ -1612,6 +1717,11 @@ impl Brain {
                 workspaces.close_idle(&key)
             };
             match closed {
+                // A short task's key is forgotten once its workspace is gone,
+                // so a later `control show` opens a new one.
+                Ok(true) if !explicit => {
+                    let _ = tx.send(super::Input::SubagentWorkspaceFailed { id, key });
+                }
                 Ok(true) => {}
                 Ok(false) => log(&format!(
                     "subagent {id}: its workspace stays: a terminal runs a command"
@@ -2008,6 +2118,9 @@ impl Brain {
         key: Option<&str>,
         queue: bool,
     ) -> Result<String, String> {
+        if let Some(name) = super::session_tell::session_name(id) {
+            return self.session_tell(name, message);
+        }
         let Some((_, sub)) = self.state.sub(id) else {
             return Err(format!("no subagent {id}"));
         };
@@ -2640,9 +2753,10 @@ impl Brain {
     /// (`workspaces::link_subagents`): the user's reply shows them as links
     /// whether or not the model wrote one.
     ///
-    /// Then the last pass (`reply_links::link_refs`): a bare cmux id (`ws_…`, `tab_…`,
-    /// `pane_…`) and a path that exists on this Mac become their `cmux://` and `file://` links
-    /// (Lawrence 2026-10-26: "reply with links to stuff properly").
+    /// Then the last pass (`reply_links::link_refs_named`): a bare cmux id (`ws_…`, `tab_…`,
+    /// `pane_…`), a GitHub reference and a path that exists on this Mac become their
+    /// `cmux://`, `https://github.com` and `file://` links (Lawrence 2026-10-26: "reply with
+    /// links to stuff properly", cmux#25572); a subagent's workspace id is named by its title.
     pub(super) fn link_subagents(&self, text: &str) -> String {
         let linked = crate::workspaces::link_subagents(text, &self.settings.parent, |id| {
             self.state.sub(id).and_then(|(_, s)| s.session_id.clone())
@@ -2653,7 +2767,16 @@ impl Brain {
         // Paths only on a Chief host on the person's Mac: a cloud VM's paths are not files
         // that Home or iOS can open as `file://`.
         let mac = cfg!(target_os = "macos");
-        crate::reply_links::link_refs(&linked, &home, &|p| mac && p.exists())
+        let name_of = |ws: &str| {
+            self.state
+                .spawns
+                .values()
+                .flat_map(|r| &r.subs)
+                .find_map(|s| {
+                    (s.ws_id.as_deref() == Some(ws) && !s.title.is_empty()).then(|| s.title.clone())
+                })
+        };
+        crate::reply_links::link_refs_named(&linked, &home, &|p| mac && p.exists(), &name_of)
     }
 
     /// chief.stop {name}: subagent `name` stops as with chief.stop (its

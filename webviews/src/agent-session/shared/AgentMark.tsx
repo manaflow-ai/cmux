@@ -5,6 +5,7 @@ import {
   harnessIcon,
   harnessIconImageURL,
   harnessIconsSnapshot,
+  harnessSymbolHostSnapshot,
   harnessSymbolsSnapshot,
   loadHarnessSymbol,
   monogramColors,
@@ -76,6 +77,9 @@ type MarkProps = {
   reserve?: boolean;
   /** Drawn instead when the agent has no mark and no harness icon (a generic agent glyph). */
   fallback?: React.ReactNode;
+  /** Themed: the mark in the surrounding text colour (`currentColor`), with no brand colour or tile,
+      so a row of marks takes the theme's colours and its selected one can be lit. */
+  tint?: boolean;
 };
 
 /// A harness's own icon wins over the mark its id suggests when its profile sets one ("claude-sr2"
@@ -99,13 +103,19 @@ function HarnessIcon({
   size = 16,
   label,
   onDark,
+  tint,
 }: MarkProps & { spec: Exclude<HarnessIconSpec, { kind: "brand" | "glyph" }> }) {
   const [scheme] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
   const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
+  const symbolHostRevision = useSyncExternalStore(
+    subscribeHarnessIcons,
+    harnessSymbolHostSnapshot,
+    harnessSymbolHostSnapshot,
+  );
   const symbolName = spec.kind === "symbol" ? spec.name : undefined;
   useEffect(() => {
     if (symbolName) loadHarnessSymbol(symbolName);
-  }, [symbolName]);
+  }, [symbolName, symbolHostRevision]);
   const dark = onDark ?? scheme === "dark";
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
   const symbolSrc = symbolName ? symbols.get(symbolName) : undefined;
@@ -129,6 +139,17 @@ function HarnessIcon({
     );
   }
   const box: React.CSSProperties = { display: "inline-flex", flex: "none", width: size, height: size };
+  // Themed, a custom image is its shape in the text colour, as a symbol is.
+  if (spec.kind === "image" && tint) {
+    const mask = `url("${harnessIconImageURL(spec)}") center / contain no-repeat`;
+    return (
+      <span
+        className="agent-mark agent-mark-image"
+        style={{ ...box, backgroundColor: "currentColor", mask, WebkitMask: mask }}
+        {...a11y}
+      />
+    );
+  }
   if (spec.kind === "image") {
     return (
       <img
@@ -147,7 +168,15 @@ function HarnessIcon({
     return (
       <span
         className="agent-mark agent-mark-emoji"
-        style={{ ...box, alignItems: "center", justifyContent: "center", fontSize: size * 0.9, lineHeight: 1 }}
+        style={{
+          ...box,
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: size * 0.9,
+          lineHeight: 1,
+          // Themed, an emoji (which has no single colour to take) drops its colours.
+          ...(tint ? { filter: "grayscale(1)" } : {}),
+        }}
         {...a11y}
       >
         {spec.text}
@@ -177,11 +206,11 @@ function HarnessIcon({
   );
 }
 
-function BrandMark({ agent, size = 16, label, onDark, reserve, fallback }: MarkProps) {
+function BrandMark({ agent, size = 16, label, onDark, reserve, fallback, tint }: MarkProps) {
   const key = agentBrand(agent);
   const [scheme, style] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
   const dark = onDark ?? scheme === "dark";
-  const brand = style === "brand";
+  const brand = style === "brand" && !tint;
   // useId's punctuation would need escaping inside url(#…).
   const gradientId = `agent-mark${useId().replace(/[^\w-]/g, "")}`;
   const full: AgentBrandSpec | undefined = key ? AGENT_BRANDS[key] : undefined;
@@ -203,7 +232,7 @@ function BrandMark({ agent, size = 16, label, onDark, reserve, fallback }: MarkP
       />
     ) : null;
   const tile = brand ? spec.tile : undefined;
-  const fill = brand ? tone(spec.tone, dark) : dark ? "#fff" : "#000";
+  const fill = tint ? "currentColor" : brand ? tone(spec.tone, dark) : dark ? "#fff" : "#000";
   const drawPath = (path: AgentBrandSpec["paths"][number], index: number, paint?: string) => {
     const own = brand && path.tone ? tone(path.tone, dark) : undefined;
     const opacity = brand ? undefined : path.monoOpacity;

@@ -31,17 +31,10 @@ final class SSHService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
-    /// Removes the acpmux peers whose ssh `[user@]host` the predicate picks: by default the app's own
-    /// cmux-tui (`acp host ls`, then `acp host rm` for each match); tests replace it. A written Forget
-    /// takes out the peer enroll added for the same host, so the machine leaves the agent list too
-    /// (HQ #4877 break 8).
-    @ObservationIgnored var removePeers: (((String) -> Bool) async -> Void)?
+    /// A written Forget's acpmux peer removal (HQ #4877 break 8); tests replace its `remove`.
+    @ObservationIgnored let peerForgets: SSHPeerForgets
     /// Forgotten machines, so a stale registry echo does not bring them back.
     @ObservationIgnored private var forgotten: Set<String> = []
-    /// Forgets still showing their Undo, by machine: their routes keep their acpmux peer, since an
-    /// Undo brings the machine back and must find its peer there.
-    /// Keyed by each Forget's own token, so an older Forget's write never clears a newer one's mark.
-    @ObservationIgnored private var undoable: [UUID: (machineID: String, route: SSHDestination)] = [:]
     /// Saved hosts on the home daemon's current connection (`SSHService+SavedHosts`).
     @ObservationIgnored var savedHosts: (connection: ObjectIdentifier, store: SavedHostsStore)?
     /// Machines with an install (and its handoffs) running from this app: one at a time (cx-3r9mt).
@@ -60,19 +53,7 @@ final class SSHService {
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         installer = RemoteInstaller(paths: paths)
-        removePeers = binary.map(Self.removePeers(cli:))
-    }
-
-    /// The default ``removePeers``: the app's own cmux-tui at `cli` lists the peers, then removes each
-    /// match, asking the predicate again right before each remove.
-    private static func removePeers(cli binary: URL) -> ((String) -> Bool) async -> Void {
-        let cli = HostCLI(binary: binary, environment: SSHService.environment)
-        return { matches in
-            guard let data = await cli.json(["acp", "host", "ls", "--json"], label: "host ls") else { return }
-            for peer in DeviceDirectory.sshPeers(data) where matches(peer.destination) {
-                _ = await cli.json(["acp", "host", "rm", peer.name, "--json"], label: "host rm")
-            }
-        }
+        peerForgets = SSHPeerForgets(cli: binary, environment: Self.environment)
     }
 
     /// Why SSH machines cannot connect in this build, or nil.
@@ -168,10 +149,10 @@ final class SSHService {
 
     // MARK: Connect, disconnect, forget
 
-    /// Connects to `destination` (or reconnects the saved machine it names).
+    /// Connects to `destination` (or reconnects the saved machine it names); `byPerson` as ``reconnect(_:byPerson:)``.
     @discardableResult
     func connect(destination text: String, session name: String?, binary: String? = nil, stateDir: String? = nil,
-                 offerInstall: Bool) throws -> SSHMachineSession {
+                 offerInstall: Bool, byPerson: Bool = true) throws -> SSHMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         let destination: SSHDestination
         do { destination = try SSHDestination(parsing: text) } catch { throw ActionFailure(message: RemoteStrings.invalidDestination(text, error)) }
@@ -182,7 +163,7 @@ final class SSHService {
             rememberHost(saved)
             saved.offersInstall = offerInstall
             if offerInstall { offerInstallWhenOld(saved) }
-            reconnect(saved)
+            reconnect(saved, byPerson: byPerson)
             logger.info("connect \(destination.description, privacy: .public): reusing \(saved.machineID, privacy: .public)")
             return saved
         }
@@ -196,7 +177,7 @@ final class SSHService {
             throw ActionFailure(message: RemoteStrings.invalidPath((error as? SSHHost.Invalid)?.field == "remote_state_dir" ? stateDir ?? "" : binary ?? ""))
         }
         forgotten.remove(host.machineID)
-        undoable = undoable.filter { $0.value.machineID != host.machineID }
+        peerForgets.connected(host.machineID)
         // The same machine (route, session, state directory) with another
         // cmux-tui path: the old link goes and the record takes the new
         // path, so a connect never runs the old binary again (cx-vuvc).
@@ -207,6 +188,7 @@ final class SSHService {
         }
         let session = machines.sshSession(host.machineID) ?? makeSession(host)
         guard let session else { throw ActionFailure(message: RemoteStrings.noClient) }
+        if !byPerson, session.waitsForUser { return session }
         // Saved now, before the first connect succeeds (no session id yet).
         session.autoConnect = true
         rememberHost(session)
@@ -238,13 +220,15 @@ final class SSHService {
         return text
     }
 
-    func reconnect(_ session: SSHMachineSession) {
-        guard !policyDisabled else { return }
+    func reconnect(_ session: SSHMachineSession, byPerson: Bool = true) {
+        guard !policyDisabled, byPerson || !session.waitsForUser else { return } // only a person takes over a session in use (G5)
         // A retry gets a fresh error from the new attempt. Do not let the
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
-        switch Self.reconnectStep(link: session.linkStatus, daemon: session.daemon.startup, daemonFailed: session.daemonFailure != nil) {
+        switch session.linkStatus.reconnectStep(daemonConnected: session.daemon.startup == .connected, daemonFailed: session.daemonFailure != nil,
+                                                retriesSpent: session.retriesSpent) {
         case .connect: session.connect()
+        case .restart: session.restart()
         case .reconnectDaemon: session.reconnectDaemon()
         case .wake: session.wake(.user)
         case .newAttempt:
@@ -254,48 +238,10 @@ final class SSHService {
         }
     }
 
-    /// What Reconnect does for a link in status `link` whose daemon startup is `daemon`.
-    enum ReconnectStep: Equatable { case connect, reconnectDaemon, wake, newAttempt, nothing }
-
-    static func reconnectStep(link: SSHConnectionMachine.Status, daemon: DaemonStartupState, daemonFailed: Bool) -> ReconnectStep {
-        switch link {
-        case .offline, .unreachable, .failed:
-            // These failures leave the gate open for automatic backoff, so a user
-            // Retry must start a fresh attempt rather than only waking the loop.
-            return .connect
-        case .connected:
-            // A healthy transport has no reconnect to perform. If only the daemon
-            // handshake failed, retry that daemon attempt explicitly; otherwise a
-            // plain Reconnect must not arm a timeout on a live connection.
-            return daemonFailed ? .reconnectDaemon : .nothing
-        case .reconnecting where daemon == .connected:
-            // A transient interruption under an established daemon connection: the link may
-            // recover with its socket and connection intact, and no didConnect would then cancel
-            // a new startup deadline. Only wake the link.
-            return .wake
-        default:
-            return .newAttempt
-        }
-    }
-
     func disconnect(_ session: SSHMachineSession) {
         session.disconnect()
         updateSavedHost(session)
         logger.info("disconnected \(session.host.destination.description, privacy: .public)")
-    }
-
-    /// A Forget shown but not yet written: the machine is gone from this
-    /// run, while the saved list and the home session still hold it.
-    struct PendingForget {
-        let machineID: String
-        /// This Forget's own mark among the ones whose Undo still shows.
-        let token = UUID()
-        let label: String
-        /// Where it was reached: a written Forget also removes the acpmux peer at this route.
-        let destination: SSHDestination
-        /// The registry transport, with its `connect` flag.
-        let fields: [String: String]
-        let sessionID: String?
     }
 
     /// Disconnects and removes the machine from the saved list, with its
@@ -306,12 +252,11 @@ final class SSHService {
 
     /// Disconnects the machine and takes it out of this run at once; the
     /// writes wait for `commitForget` (the undo toast's end, `RemoteForgetUndo`).
-    func hide(_ session: SSHMachineSession) -> PendingForget {
+    func hide(_ session: SSHMachineSession) -> SSHPeerForgets.Pending {
         forgotten.insert(session.machineID)
-        let pending = PendingForget(machineID: session.machineID, label: session.host.label, destination: session.host.destination,
-                                    fields: Self.fields(Self.transport(session)) ?? [:],
-                                    sessionID: session.daemon.identity?.sessionID ?? recordID(for: session.host))
-        undoable[pending.token] = (session.machineID, session.host.destination)
+        let pending = peerForgets.hide(machineID: session.machineID, label: session.host.label, destination: session.host.destination,
+                                       fields: Self.fields(Self.transport(session)) ?? [:],
+                                       sessionID: session.daemon.identity?.sessionID ?? recordID(for: session.host))
         session.close()
         _ = machines.removeSSH(session.machineID)
         return pending
@@ -319,17 +264,17 @@ final class SSHService {
 
     /// Undo of a hidden Forget: the machine comes back as it was saved, and
     /// connects again when it was set to connect.
-    func unhide(_ pending: PendingForget) {
+    func unhide(_ pending: SSHPeerForgets.Pending) {
         forgotten.remove(pending.machineID)
-        undoable[pending.token] = nil
+        peerForgets.ended(pending)
         restore(pending.fields)
     }
 
     /// Writes a hidden Forget: the saved list entry and the home session's
     /// record with its personal organization go.
-    func commitForget(_ pending: PendingForget) async {
+    func commitForget(_ pending: SSHPeerForgets.Pending) async {
         // A connect to the same machine while the toast showed took it back.
-        undoable[pending.token] = nil
+        peerForgets.ended(pending)
         guard stillForgotten(pending) else { return }
         forgetSavedHost(pending.machineID)
         if let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
@@ -340,47 +285,26 @@ final class SSHService {
                 logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
         }
-        // Last, after every write, and checked again after the await above: the peer goes only while
-        // the Forget still holds and nothing else uses its route (another session there, or a Forget
-        // whose Undo still shows).
-        // The predicate runs again before each `host rm`, after every await of the removal.
+        // Last, after every write: the peer goes only while the Forget still holds and no other
+        // session reaches its route (checked again before each `host rm`).
         let route = pending.destination
-        await removePeers?({ [weak self] peer in
-            guard let self, self.stillForgotten(pending), !self.routeInUse(route) else { return false }
-            return Self.reaches(route, peer: peer)
-        })
+        await peerForgets.removePeers(at: route) { [weak self] in
+            guard let self else { return false }
+            return stillForgotten(pending) && !machines.ssh.contains { SSHPeerForgets.sameRoute($0.host.destination, route) }
+        }
     }
 
     /// A connect to the same machine (while the toast showed, or during a write) takes it back.
-    private func stillForgotten(_ pending: PendingForget) -> Bool {
+    private func stillForgotten(_ pending: SSHPeerForgets.Pending) -> Bool {
         forgotten.contains(pending.machineID) && machines.sshSession(pending.machineID) == nil
-    }
-
-    /// Whether a machine in the list, or a Forget still showing its Undo, reaches `route`.
-    private func routeInUse(_ route: SSHDestination) -> Bool {
-        machines.ssh.contains { Self.sameRoute($0.host.destination, route) } || undoable.values.contains { Self.sameRoute($0.route, route) }
     }
 
     /// Settings > Devices removed the acpmux peer at `peer` (`[user@]host`): the SSH machines that
     /// reach the same route leave too, written at once (Remove for Good was confirmed already).
     func forgetMachines(reachingPeer peer: String) async {
-        for session in machines.ssh where Self.reaches(session.host.destination, peer: peer) {
+        for session in machines.ssh where SSHPeerForgets.reaches(session.host.destination, peer: peer) {
             await forget(session)
         }
-    }
-
-    /// Whether an SSH machine at `destination` and an acpmux peer whose `ssh://` URL dials `peer`
-    /// (`[user@]host`, as enroll adds it for that machine) are the same route: the same host (any
-    /// case) and the same user, and no ssh port on the machine (a peer URL's port is its daemon's,
-    /// never ssh's, so a machine on another ssh port is never taken for it).
-    static func reaches(_ destination: SSHDestination, peer: String) -> Bool {
-        guard destination.port == nil, let target = try? SSHDestination(parsing: peer), target.port == nil else { return false }
-        return sameRoute(destination, target)
-    }
-
-    /// The same host (any case), user and port.
-    static func sameRoute(_ a: SSHDestination, _ b: SSHDestination) -> Bool {
-        a.host.caseInsensitiveCompare(b.host) == .orderedSame && a.user == b.user && a.port == b.port
     }
 
     /// The registry record's session id for `host`, when it was saved.

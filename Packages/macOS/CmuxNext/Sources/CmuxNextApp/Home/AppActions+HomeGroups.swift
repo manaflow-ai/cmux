@@ -89,23 +89,8 @@ extension AppActions {
             }
             runGroup(services) { await $0.setChiefReplies(policy, id) }
         })
-        // One pin path for a Home conversation: the row's Pin/Unpin and grid drags call it too.
-        registry.bind("home.togglePin", invoke: { invocation in
-            guard let id = conversation(invocation, services) else { return }
-            let source = pinSource(services)
-            let pinned = invocation["pinned"]?.boolValue ?? !source.isPinned(id)
-            source.setPinned(pinned, id)
-            shownPage(services)?.listPinsChanged()
-        })
-        ActionTargetTitles.set("home.togglePin", in: registry) { invocation in
-            let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-            guard let id = text.flatMap({ $0.isEmpty ? nil : ConversationID($0) }) ?? shownPage(services)?.shown else { return nil }
-            return pinSource(services).isPinned(id) ? PinStrings.unpinConversation : PinStrings.pinConversation
-        }
-        ActionTargetTitles.setPaletteState("home.togglePin", in: registry) {
-            guard let id = shownPage(services)?.shown else { return false }
-            return pinSource(services).isPinned(id)
-        }
+        HomeListActions(page: { shownPage(services) }, source: { pinSource(services) }, conversation: { conversation($0, services) },
+                        notReady: RefusalStrings.homeNotReady, pinTitles: (PinStrings.pinConversation, PinStrings.unpinConversation)).bind(into: registry)
         // A chat's own colours: arguments set them (`cmux chat colors`, MCP); a person's run with none opens the panel.
         registry.bindEffect("home.chatColors", requires: nil, effect: { invocation in
             guard let id = conversation(invocation, services) else { return .done }

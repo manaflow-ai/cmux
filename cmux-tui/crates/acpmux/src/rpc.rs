@@ -60,11 +60,10 @@ impl RpcError {
     }
 }
 
-/// The most one JSON-RPC message takes on any acpmux transport: under the 16 MiB WebSocket frame
-/// every acpmux build reads with, with room for a daemon that relays it to add its peer's name. A
-/// larger frame resets the whole connection on the side that reads it, with every chat on it: a
-/// 32.8 MB history reply did that to a peer link at 2026-10-21 06:23Z.
-pub const MAX_MESSAGE_BYTES: usize = 15 << 20;
+/// The most one JSON-RPC message takes on any acpmux transport. The app accepts 32 MiB frames and
+/// the daemon accepts 64 MiB WebSocket frames, so 31 MiB leaves room for the envelope and a peer
+/// relay's metadata without falling back to a connection-reset failure.
+pub const MAX_MESSAGE_BYTES: usize = 31 << 20;
 
 impl RpcError {
     /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
@@ -94,31 +93,69 @@ impl Message {
         Self::from_value(value)
     }
 
+    /// Moves the fields out of `value`: no part of it is copied (perf100: the copy of
+    /// each streamed delta's params ran on every message, in the host and the daemon).
     pub fn from_value(value: Value) -> Result<Self, RpcError> {
-        let obj = value
-            .as_object()
-            .ok_or_else(|| RpcError::new(-32600, "Invalid request: not an object"))?;
-        let method = obj.get("method").and_then(Value::as_str).map(str::to_owned);
-        let id = obj.get("id").cloned().filter(|v| !v.is_null());
+        let Value::Object(mut obj) = value else {
+            return Err(RpcError::new(-32600, "Invalid request: not an object"));
+        };
+        let method = match obj.remove("method") {
+            Some(Value::String(m)) => Some(m),
+            _ => None,
+        };
+        let id = obj.remove("id").filter(|v| !v.is_null());
         match (method, id) {
             (Some(method), Some(id)) => {
-                Ok(Message::Request { id, method, params: obj.get("params").cloned() })
+                Ok(Message::Request { id, method, params: obj.remove("params") })
             }
             (Some(method), None) => {
-                Ok(Message::Notification { method, params: obj.get("params").cloned() })
+                Ok(Message::Notification { method, params: obj.remove("params") })
             }
             (None, Some(id)) => {
-                let error = match obj.get("error") {
+                let error = match obj.remove("error") {
                     Some(e) if !e.is_null() => Some(
                         serde_json::from_value::<RpcError>(e.clone())
                             .unwrap_or_else(|_| RpcError::internal(e.to_string())),
                     ),
                     _ => None,
                 };
-                Ok(Message::Response { id, result: obj.get("result").cloned(), error })
+                Ok(Message::Response { id, result: obj.remove("result"), error })
             }
             (None, None) => Err(RpcError::new(-32600, "Invalid request: no method or id")),
         }
+    }
+
+    /// `to_value`, moving the params and result instead of copying them.
+    pub fn into_value(self) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("jsonrpc".into(), Value::from("2.0"));
+        match self {
+            Message::Request { id, method, params } => {
+                obj.insert("id".into(), id);
+                obj.insert("method".into(), Value::String(method));
+                if let Some(p) = params {
+                    obj.insert("params".into(), p);
+                }
+            }
+            Message::Notification { method, params } => {
+                obj.insert("method".into(), Value::String(method));
+                if let Some(p) = params {
+                    obj.insert("params".into(), p);
+                }
+            }
+            Message::Response { id, result, error } => {
+                obj.insert("id".into(), id);
+                match error {
+                    Some(e) => {
+                        obj.insert("error".into(), json!(e));
+                    }
+                    None => {
+                        obj.insert("result".into(), result.unwrap_or(Value::Null));
+                    }
+                }
+            }
+        }
+        Value::Object(obj)
     }
 
     pub fn to_value(&self) -> Value {
@@ -146,8 +183,66 @@ impl Message {
         }
     }
 
+    /// The message as one JSON line, serialized from the borrowed fields (`to_value`
+    /// copied every param first; each client got one copy per streamed update).
+    /// The fields are in the sorted key order `to_value().to_string()` writes, so
+    /// the bytes are the same as before: `server/list_reply.rs` writes reply lines
+    /// itself and relies on that.
     pub fn to_line(&self) -> String {
-        let mut s = self.to_value().to_string();
+        #[derive(Serialize)]
+        struct Line<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            error: Option<ErrorLine<'a>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            id: Option<&'a Value>,
+            jsonrpc: &'static str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            method: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            params: Option<&'a Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            result: Option<&'a Value>,
+        }
+        /// [`RpcError`] with its keys sorted, as `to_value` writes it.
+        #[derive(Serialize)]
+        struct ErrorLine<'a> {
+            code: i64,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            data: Option<&'a Value>,
+            message: &'a str,
+        }
+        const NULL: Value = Value::Null;
+        let line = match self {
+            Message::Request { id, method, params } => Line {
+                jsonrpc: "2.0",
+                id: Some(id),
+                method: Some(method),
+                params: params.as_ref(),
+                result: None,
+                error: None,
+            },
+            Message::Notification { method, params } => Line {
+                jsonrpc: "2.0",
+                id: None,
+                method: Some(method),
+                params: params.as_ref(),
+                result: None,
+                error: None,
+            },
+            Message::Response { id, result, error } => Line {
+                jsonrpc: "2.0",
+                id: Some(id),
+                method: None,
+                params: None,
+                result: if error.is_some() { None } else { Some(result.as_ref().unwrap_or(&NULL)) },
+                error: error.as_ref().map(|error| ErrorLine {
+                    code: error.code,
+                    data: error.data.as_ref(),
+                    message: &error.message,
+                }),
+            },
+        };
+        let mut s = serde_json::to_string(&line).unwrap_or_else(|_| self.to_value().to_string());
         s.push('\n');
         s
     }
@@ -222,6 +317,11 @@ pub mod method {
     pub const SESSION_DELETE: &str = "session/delete";
     pub const SESSION_PROMPT: &str = "session/prompt";
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Dedicated, scoped Cloud trigger chat operations. These never fall
+    /// through to the ordinary session/new, session/prompt or info paths.
+    pub const TRIGGER_CHAT_ENSURE: &str = "trigger/chat.ensure";
+    pub const TRIGGER_CHAT_SEND: &str = "trigger/chat.send";
+    pub const TRIGGER_CHAT_STATUS: &str = "trigger/chat.status";
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
@@ -284,6 +384,12 @@ pub mod method {
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// The owner lets a person's prompt that waits for them run, `{sessionId, promptId}`
+    /// (`hub/queue_approve.rs`): `{sessionId, promptId, turnId, revision, approved}`.
+    pub const MUX_QUEUE_APPROVE: &str = "_acpmux/queue_approve";
+    /// The owner drops a person's prompt that waits for them, `{sessionId, promptId}`: its
+    /// `session/prompt` answers `queue.declined`. `{sessionId, promptId, declined}`.
+    pub const MUX_QUEUE_DECLINE: &str = "_acpmux/queue_decline";
     /// One queued prompt's whole text and blocks, `{sessionId, promptId}` →
     /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
     /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
@@ -372,6 +478,8 @@ pub mod method {
     /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
     /// (0 turns it off), null clears it, absent reads it.
     pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
+    pub const AGENT_SESSION_TURN_PREPARE: &str = "agent-session-turn-prepare";
+    pub const AGENT_SESSION_TURN_ABANDON: &str = "agent-session-turn-abandon";
     /// A chat's inbox threads (`hub/inbox.rs`): `{sessionId}`.
     pub const MUX_INBOX_THREADS: &str = "_acpmux/inbox_threads";
     /// One inbox thread's messages: `{sessionId, threadId, markRead?}`.
@@ -401,6 +509,9 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// Stop and delete every chat of one cmux workspace, an incognito one when its window
+    /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
+    pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
@@ -470,6 +581,12 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// An agent CLI's own sign-in on this machine (`agent_login.rs`): the
+    /// unix socket, the local app and the owner's own peer daemon.
+    pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
+    pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
+    pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
+    pub const MUX_AGENT_LOGIN_API_KEY: &str = "_acpmux/agent_login/api_key";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
     /// Local socket only: refresh registries for cached installs, never run CLIs or updates.
@@ -615,5 +732,33 @@ mod bounded_tests {
         assert!(Message::notification("_acpmux/event", big).bounded_line().is_err());
         let small = Message::ok(json!(9), json!({"ok": true}));
         assert_eq!(small.bounded_line().unwrap(), small.to_line());
+    }
+}
+
+#[cfg(test)]
+mod line_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// `to_line` writes from borrowed fields the bytes `to_value` wrote, keys in
+    /// the same order, so readers that compare lines byte for byte
+    /// (`server/list_reply.rs`) see no change.
+    #[test]
+    fn a_line_is_the_bytes_of_the_value() {
+        let error =
+            RpcError { code: -32000, message: "no".into(), data: Some(json!({"b": 1, "a": 2})) };
+        for message in [
+            Message::request(1, "session/prompt", json!({"z": 1, "a": [1, 2]})),
+            Message::notification("_acpmux/event", json!({"kind": "x"})),
+            Message::Request { id: json!(5), method: "session/cancel".into(), params: None },
+            Message::Notification { method: "_acpmux/ping".into(), params: None },
+            Message::Response { id: json!(6), result: None, error: None },
+            Message::ok(json!("id"), json!({"ok": true})),
+            Message::ok(json!(2), Value::Null),
+            Message::err(json!(3), error),
+            Message::err(json!(4), RpcError::new(-1, "bare")),
+        ] {
+            assert_eq!(message.to_line(), format!("{}\n", message.to_value()), "{message:?}");
+        }
     }
 }

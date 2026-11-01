@@ -59,13 +59,15 @@ const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/su
 const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray } =
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
+const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
+const { nestAgents } = await import("../src/agent-session/acpmux/subagents/AgentsPill");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/inspector/processes");
+const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/session-info/processes");
 const { runningBackgroundTasks } = await import("../src/agent-session/acpmux/summary/sessionSummary");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
-type BackgroundCommand = import("../src/agent-session/acpmux/inspector/processes").BackgroundCommand;
+type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
 type StartedSession = import("../src/agent-session/acpmux/started/startedSessions").StartedSession;
 type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
@@ -107,7 +109,17 @@ const row = (id: string, kind: string, seconds: number, fields: Partial<Row> = {
   ...fields,
 });
 
-async function render(node: ReturnType<typeof createElement>): Promise<{
+/// Where focus is, as a short name: a failed match prints this, not a whole DOM node.
+const focusedName = () => {
+  const node = dom.window.document.activeElement;
+  return node ? `${node.tagName.toLowerCase()}.${[...node.classList].join(".")}` : "none";
+};
+/// Mounts `node`. With `open`, a headed tray, which starts folded to its header (cmux#28875), is
+/// opened as the person would, by clicking its header.
+async function render(
+  node: ReturnType<typeof createElement>,
+  { open = false }: { open?: boolean } = {},
+): Promise<{
   root: HTMLElement;
   show: (next: ReturnType<typeof createElement>) => Promise<void>;
   done: () => Promise<void>;
@@ -115,6 +127,8 @@ async function render(node: ReturnType<typeof createElement>): Promise<{
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   await act(async () => root.render(node));
+  const head = host.querySelector<HTMLButtonElement>('.acpmux-running-tray__head[aria-expanded="false"]');
+  if (open && head) await act(async () => head.click());
   return {
     root: host,
     show: async (next) => act(async () => root.render(next)),
@@ -183,7 +197,8 @@ describe("the transcript keeps no running card", () => {
     );
     try {
       const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
-      expect(lines.map((line) => [line.dataset.state, line.textContent])).toEqual([
+      // The duration is the row's trailing column; the line's button still reads it whole.
+      expect(lines.map((line) => [line.dataset.state, line.getAttribute("aria-label")])).toEqual([
         ["failed", "Subagent failed: Tester · 30s"],
         ["completed", "Subagent finished: Reviewer · 1m 20s"],
       ]);
@@ -220,7 +235,7 @@ describe("a stopped subagent's line says why, and offers Restart", () => {
     );
     try {
       const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
-      expect(lines.map((line) => line.textContent)).toEqual([
+      expect(lines.map((line) => line.getAttribute("aria-label"))).toEqual([
         "Subagent stopped: Linter · 30s",
         "Subagent stopped: Reviewer · stopped by you · 30s",
         "Subagent stopped: Tester · interrupted by Send now · 30s",
@@ -291,9 +306,16 @@ describe("the tray", () => {
     expect(between.map((item) => item.id)).toEqual(["Watcher", "c1"]);
   });
 
-  test("one running subagent is its line alone: name, what it does now, its time and state", async () => {
+  // Leo, 2026-10-31: "why is this still so ass in latest nightly"; earlier "eg a lot of these
+  // subtitles are bad" (design/chat-transcript.md "Subagent row anatomy").
+  test("one running subagent is its line alone: one glyph, its name and its time, what it does in the tooltip", async () => {
     const now = Date.now();
-    const items = trayItems([agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash" })], [], NONE, true);
+    const items = trayItems(
+      [agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash", kind: "general-purpose" })],
+      [],
+      NONE,
+      true,
+    );
     const opened: string[] = [];
     const { root, done } = await render(
       createElement(SubagentTray, {
@@ -309,8 +331,12 @@ describe("the tray", () => {
       expect(lines.length).toBe(1);
       const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
       expect(text(".acpmux-summary-agent__name")).toBe("Explore the daemon");
-      expect(text(".acpmux-summary-agent__kind")).toBe("Bash");
+      // No type subtitle; the status word occupies the shared tray status track.
+      expect(lines[0]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
       expect(text(".acpmux-summary-agent__state")).toBe("Running");
+      const tooltip = lines[0]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title;
+      expect(tooltip).toContain("general-purpose");
+      expect(tooltip).toContain("Bash");
       expect(text(".acpmux-agent-line__time")).toMatch(/^1m 2\ds$/);
       expect(lines[0]!.querySelector(".acpmux-lineage__icon")?.getAttribute("data-state")).toBe("running");
       await act(async () => lines[0]!.querySelector("button")!.click());
@@ -351,7 +377,7 @@ describe("the tray", () => {
     }
   });
 
-  test("several get a header; past three they start folded", async () => {
+  test("several get a header and start folded to it, however few (cmux#28875)", async () => {
     const now = Date.now();
     const few = trayItems(
       [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
@@ -364,8 +390,14 @@ describe("the tray", () => {
     );
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      // Folded to its one line: no line under the header until it is opened.
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+      await act(async () => head.click());
       expect(head.getAttribute("aria-expanded")).toBe("true");
-      expect(head.querySelector('svg[data-icon="agent.session"]')).not.toBeNull();
+      // A fixed running-work mark, never the spinner (#27103) and never the chat bubble.
+      expect(head.querySelector('svg[data-icon="app.sample.runningagents"]')).not.toBeNull();
+      expect(head.querySelector('svg[data-icon="agent.session"]')).toBeNull();
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
@@ -397,6 +429,156 @@ describe("the tray", () => {
     }
   });
 
+  test("a chat's open or fold holds when the person switches away and back; another chat starts folded", async () => {
+    resetTrayOpenMemory();
+    const now = Date.now();
+    const items = trayItems(
+      // Between turns: a background subagent and two commands with their own processes.
+      [agent("A", { background: true, startedAt: now - 5000 })],
+      [
+        command("s/1", { command: "bun run dev", processId: "s/1", startedAt: now - 3000 }),
+        command("s/2", { processId: "s/2", startedAt: now - 2000 }),
+      ],
+      NONE,
+      false,
+    );
+    // App.tsx keys the tray by chat, so a switch remounts it.
+    const tray = (chat: string) =>
+      createElement(SubagentTray, {
+        key: chat,
+        chat,
+        items,
+        working: false,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      });
+    const { root, show, done } = await render(tray("chat-1"));
+    const head = () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+    try {
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+      expect(head().querySelector(".acpmux-running-tray__title")?.textContent).toBe(
+        "Running in background · 1 subagent · 2 commands",
+      );
+      await act(async () => head().click());
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
+      await show(tray("chat-2"));
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+      await show(tray("chat-1"));
+      expect(head().getAttribute("aria-expanded")).toBe("true");
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
+      // Folding it again holds too.
+      await act(async () => head().click());
+      await show(tray("chat-2"));
+      await show(tray("chat-1"));
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await done();
+      resetTrayOpenMemory();
+    }
+  });
+
+  for (const motion of ["on", "off"] as const)
+    test(`a lone line gaining a header folds the list; focus on the line moves to the header (motion ${motion})`, async () => {
+      // With motion off the fold leaves in the same commit, taking the focused line with it.
+      if (motion === "off") dom.window.document.documentElement.dataset.agentMotion = "off";
+      const now = Date.now();
+      const tray = (agents: Subagent[]) =>
+        createElement(SubagentTray, {
+          items: trayItems(agents, [], NONE, true),
+          working: true,
+          waiting: new Set<string>(),
+          onOpen: () => {},
+        });
+      const first = agent("Reviewer", { startedAt: now - 5000 });
+      const { root, show, done } = await render(tray([first]));
+      try {
+        const line = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+        line.focus();
+        expect(focusedName()).toBe(
+          "button.acpmux-summary-row.acpmux-summary-link.acpmux-summary-agent.acpmux-agent-line__button",
+        );
+        await show(tray([first, agent("Tester", { startedAt: now - 1000 })]));
+        const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+        expect(head.getAttribute("aria-expanded")).toBe("false");
+        expect(focusedName()).toBe("button.acpmux-summary-row.acpmux-summary-link.acpmux-running-tray__head");
+      } finally {
+        await done();
+        delete dom.window.document.documentElement.dataset.agentMotion;
+      }
+    });
+
+  test("focus the person moved out of the list stays where they put it when the list folds", async () => {
+    const now = Date.now();
+    const outside = dom.window.document.createElement("button");
+    dom.window.document.body.append(outside);
+    const tray = (agents: Subagent[]) =>
+      createElement(SubagentTray, {
+        items: trayItems(agents, [], NONE, true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      });
+    const first = agent("Reviewer", { startedAt: now - 5000 });
+    const { root, show, done } = await render(tray([first]));
+    try {
+      root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!.focus();
+      outside.focus();
+      await show(tray([first, agent("Tester", { startedAt: now - 1000 })]));
+      expect(dom.window.document.activeElement === outside).toBe(true);
+    } finally {
+      await done();
+      outside.remove();
+    }
+  });
+
+  test("300 sibling agents keep their order without repeated group copies", () => {
+    const agents = Array.from({ length: 300 }, (_, index) => agent(`Agent ${index}`, { startedAt: at(index) }));
+    const rows = nestAgents(agents);
+    expect(rows).toHaveLength(300);
+    expect(rows.map((row) => row.agent.id)).toEqual(agents.map((item) => item.id));
+    expect(rows.every((row) => row.depth === 0)).toBe(true);
+    // Malformed parent loops still draw their members once, as the existing pill/tray promises.
+    const cycle = nestAgents([agent("a", { parent: "b" }), agent("b", { parent: "a" })]);
+    expect(cycle.map((row) => row.agent.id)).toEqual(["a", "b"]);
+  });
+
+  test("300 collapsed agents do not construct hidden row elements until opened", async () => {
+    const now = Date.now();
+    const agents = Array.from({ length: 300 }, (_, index) => agent(`Agent ${index}`, { startedAt: now - index }));
+    const items = trayItems(agents, [], NONE, true);
+    let nameReads = 0;
+    // Header totals and elapsed time need the running state, never a row's name.
+    // Reading it proves the component constructed a hidden AgentLine element.
+    for (const item of items) {
+      if (item.kind !== "agent") continue;
+      const name = item.agent.name;
+      Object.defineProperty(item.agent, "name", {
+        get: () => {
+          nameReads++;
+          return name;
+        },
+      });
+    }
+    const { root, show, done } = await render(
+      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(root.querySelectorAll(".acpmux-agent-line")).toHaveLength(0);
+      expect(nameReads).toBe(0);
+      // A header rerender while collapsed must also skip all row construction.
+      await show(createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }));
+      expect(nameReads).toBe(0);
+      await act(async () => head.click());
+      expect(root.querySelectorAll(".acpmux-agent-line")).toHaveLength(300);
+      expect(nameReads).toBeGreaterThanOrEqual(300);
+    } finally {
+      await done();
+    }
+  });
+
   test("tray rows reserve the time, status and stop tracks when values are missing", async () => {
     const running = agent("Reviewer", { startedAt: Date.now() - 5_000 });
     const chat: StartedSession = { sessionId: "child", title: "Started chat", state: "running" };
@@ -409,6 +591,7 @@ describe("the tray", () => {
         onOpenSession: () => {},
         stop: async () => {},
       }),
+      { open: true },
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -417,7 +600,7 @@ describe("the tray", () => {
       const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines).toHaveLength(2);
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__time"))).toBe(true);
-      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__status"))).toBe(true);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__stop-track"))).toBe(true);
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__stop-slot"))).toBe(true);
       expect(
         lines.find((line) => line.textContent?.includes("Started chat"))?.querySelector(".acpmux-agent-line__time")
@@ -485,6 +668,7 @@ describe("the tray", () => {
         onOpenSession: (id: string) => opened.push(`chat:${id}`),
         stopProcess: async (id: string) => void stopped.push(id),
       }),
+      { open: true },
     );
     try {
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
@@ -498,7 +682,7 @@ describe("the tray", () => {
       ]);
       for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
       expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
-      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-stop")!.click());
+      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-session-info-stop")!.click());
       expect(stopped).toEqual(["s/1"]);
     } finally {
       await done();
@@ -647,24 +831,77 @@ describe("a tray line says what it is and what a click does", () => {
 
   // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
   // the icon when it's in here."
-  test("a subagent leads with its icon, not the word, keeps its spinner and ends in a chevron", async () => {
-    const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
+  // and 2026-10-31, on a line with a chat bubble and a fork glyph before its title: "why is this
+  // still so ass in latest nightly", then "the leading icons — just the stupid fork one".
+  test("a subagent leads with one glyph: the spinner while it runs, its mark once it ended", async () => {
+    const now = Date.now();
+    const running = agent("Reviewer", { startedAt: now, action: "Read src/app.ts", tokens: 236_600, toolUses: 112 });
+    const ended = agent("Linter", {
+      state: "completed",
+      kind: "general-purpose",
+      startedAt: now - 90_000,
+      endedAt: now - 6000,
+    });
     const { root, done } = await render(
-      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      createElement(SubagentTray, {
+        items: trayItems([running], [], NONE, true),
+        finished: finishedTrayItems([ended], NONE),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
     );
     try {
-      const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
-      expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
-      const kind = line.querySelector<HTMLElement>(".acpmux-agent-line__kind-icon");
-      // The kind is an accessible SVG title, with no repeated visible label beside the icon.
-      expect(kind?.querySelector('svg[role="img"]')?.getAttribute("aria-label")).toBe("Subagent");
-      expect(kind?.querySelector("title")?.textContent).toBe("Subagent");
-      // The working-state mark stays a spinner, before the subagent's icon.
+      const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head");
+      if (head && head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
+      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+      expect(lines).toHaveLength(2);
+      for (const line of lines) {
+        // One glyph: no word and no second icon before the name.
+        expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
+        expect(line.querySelector(".acpmux-agent-line__kind-icon")).toBeNull();
+        const button = line.querySelector<HTMLElement>(".acpmux-agent-line__button")!;
+        const beforeName = [...button.querySelector(".acpmux-summary-text")!.children].findIndex((child) =>
+          child.classList.contains("acpmux-summary-agent__name"),
+        );
+        expect(beforeName).toBe(0);
+        expect(button.querySelectorAll(".acpmux-lineage__icon svg").length).toBe(1);
+        expect(line.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+        expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
+      }
+      const [live, finished] = lines;
+      // The working-state mark stays a spinner, and is the glyph.
       expect(
-        line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
+        live!.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
       ).not.toBeNull();
-      expect(line.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
-      expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
+      // No tokens or tool uses on the line (Leo, 2026-10-31: "we can remove the symbols and the
+      // tokens"); each line keeps its status word.
+      expect(live!.querySelector(".acpmux-agent-line__stats, .acpmux-agent-line__progress")).toBeNull();
+      expect(finished!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Done");
+      // The button's accessible name carries the quiet state, since an aria-label overrides its text.
+      expect(finished!.querySelector(".acpmux-agent-line__button")!.getAttribute("aria-label")).toContain("Done");
+      expect(live!.querySelector(".acpmux-agent-line__button")!.getAttribute("aria-label")).toContain("Running");
+      expect(finished!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toContain("general-purpose");
+      expect(root.querySelector(".acpmux-running-tray")!.hasAttribute("data-settled")).toBe(false);
+    } finally {
+      await done();
+    }
+  });
+
+  test("a tray with nothing running is settled: no card around what ended", async () => {
+    const now = Date.now();
+    const ended = agent("Linter", { state: "completed", startedAt: now - 90_000, endedAt: now - 6000 });
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: [],
+        finished: finishedTrayItems([ended], NONE),
+        working: false,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    try {
+      expect(root.querySelector(".acpmux-running-tray")!.hasAttribute("data-settled")).toBe(true);
     } finally {
       await done();
     }
@@ -740,8 +977,9 @@ describe("the tray tells the truth", () => {
         "Port the history page",
         "Draft the notes",
       ]);
-      // A chat says what it does now; one waiting on the person says so.
-      expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")?.textContent).toBe("Run the tests");
+      // A chat says what it does now in its tooltip, never as a subtitle; one waiting on the person says so.
+      expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+      expect(lines[3]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toBe("Run the tests");
       expect(lines[4]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
       // Finished work is visible as cards without changing the running count.
       const more = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
@@ -755,12 +993,10 @@ describe("the tray tells the truth", () => {
       await act(async () => more.click());
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
       expect(names(ended)).toEqual(["Fuzzer", "Linter", "Fix the dock", "Retry the upload"]);
-      expect(ended.map((line) => line.querySelector(".acpmux-summary-agent__state")?.textContent)).toEqual([
-        "Failed",
-        "Done",
-        "Done",
-        "Failed",
-      ]);
+      // Ended rows keep their status words in the same track.
+      expect(
+        ended.map((line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent),
+      ).toEqual(["Failed", "Done", "Done", "Failed"]);
       expect(more.textContent).toContain("Show fewer");
       expect(more.getAttribute("aria-expanded")).toBe("true");
       expect(liveLines(root).length).toBe(5);
@@ -923,6 +1159,7 @@ describe("the tray tells the truth", () => {
     const items = trayItems([], commands, NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      { open: true },
     );
     try {
       expect(names(liveLines(root))).toEqual(["Start the dev server", "nice bun test"]);
@@ -952,6 +1189,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     const { items, finished } = panel(2, 116);
     const { root, done } = await render(
       createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      { open: true },
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -1001,6 +1239,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
+      await act(async () => head.click());
       head.focus();
       // Run 1 ends: one runs, one ended. The header stays, the same node, focused and open.
       await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
@@ -1068,7 +1307,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     expect(doingDetail(t as never, "Check the card · Read AgentCard.tsx", "Read AgentCard.tsx")).toBe(
       "Check the card · Read AgentCard.tsx",
     );
-    // An ended agent keeps its kind, never a "Running …" of its last call.
+    // An ended agent keeps its kind in its tooltip, never a "Running …" of its last call.
     const now = Date.now();
     const ended = agent("Linter", {
       state: "completed",
@@ -1087,7 +1326,10 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       }),
     );
     try {
-      expect(root.querySelector(".acpmux-summary-agent__kind")?.textContent).toBe("Explore");
+      const tooltip = root.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title;
+      expect(tooltip).toContain("Explore");
+      expect(tooltip).not.toContain("git status");
+      expect(root.querySelector(".acpmux-summary-agent__kind")).toBeNull();
     } finally {
       await done();
     }
@@ -1155,13 +1397,12 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("4 subagents running");
       // Four lines start folded: open them.
       await act(async () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
-      const details = [...root.querySelectorAll(".acpmux-summary-agent__kind")].map((node) => node.textContent);
-      expect(details).toEqual([
-        "Running bun test test/subagent-tray.test.tsx",
-        "find the bug in the fold",
-        "Running sed -i '' 's/a/b/' broker.ts",
-        "Check the card · Read AgentCard.tsx",
-      ]);
+      // What it does is the tooltip's, in words; the line has no subtitle.
+      expect(root.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+      const tips = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")].map((node) => node.title);
+      expect(tips[0]).toContain("Running bun test test/subagent-tray.test.tsx");
+      expect(tips[0]).not.toContain("FOO=1");
+      expect(tips[1]).toContain("find the bug in the fold");
       // The whole doing line is still the chat line's tooltip.
       const chat = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")][2]!;
       expect(chat.title).toContain("cd /Users/you/Projects/checkouts/ws/broker");
@@ -1188,7 +1429,7 @@ describe("a failed sub-session's line", () => {
       ),
     );
     try {
-      expect(root.querySelector(".cv-subagent-done")?.textContent).toBe(
+      expect(root.querySelector(".cv-subagent-done")?.getAttribute("aria-label")).toBe(
         "Subagent failed: Overview · 30s · model overloaded",
       );
     } finally {
@@ -1197,11 +1438,11 @@ describe("a failed sub-session's line", () => {
   });
 });
 
-describe("workflow progress in the default tray and Inspector", () => {
+describe("workflow progress in the default tray and Session Info", () => {
   const waiting = new Set<string>();
   for (const surface of ["tray", "inspector"] as const) {
-    test(`${surface} updates counts, warnings and tokens without replacing another row`, async () => {
-      const { SubagentsSection } = await import("../src/agent-session/acpmux/inspector/SubagentsSection");
+    test(`${surface} updates counts and warnings without replacing another row`, async () => {
+      const { SubagentsSection } = await import("../src/agent-session/acpmux/session-info/SubagentsSection");
       const workflow = agent("Review modules", { kind: "workflow", action: "Review" });
       const other = agent("Unrelated agent");
       const draw = (current: Subagent) =>
@@ -1213,22 +1454,23 @@ describe("workflow progress in the default tray and Inspector", () => {
               onOpen: () => {},
             })
           : createElement(SubagentsSection, { agents: [current, other], waiting, onOpen: () => {} });
-      const view = await render(draw(workflow));
+      const view = await render(draw(workflow), { open: true });
       try {
-        expect(view.root.querySelector(".acpmux-agent-line__progress")).toBeNull();
+        expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")).toBeNull();
         const buttons = () => [...view.root.querySelectorAll(".acpmux-agent-line__button")];
         const unrelated = buttons().find((button) => button.textContent?.includes("Unrelated agent"));
         expect(unrelated).toBeDefined();
         await view.show(
           draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
         );
-        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
-          "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+        // Every subagent list omits usage; the dedicated Context section retains it.
+        expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
+          "37/101 agents · 2 failed · 4 queued",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
         await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
-        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
-          "40/101 agents · 1.3M tokens",
+        expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
+          "40/101 agents",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
       } finally {

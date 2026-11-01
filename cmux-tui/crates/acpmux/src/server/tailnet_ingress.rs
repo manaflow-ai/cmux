@@ -76,7 +76,14 @@ pub async fn serve(
                 });
                 let (stream, remote) = match accepted {
                     Err(_) => continue,
-                    Ok(Err(e)) => break Err(e.into()),
+                    // Only a closed listener ends the ingress (the service then waits for an
+                    // explicit retry); one lost connection or a descriptor shortage does not.
+                    Ok(Err(e)) if super::accept_ends_listener(&e) => break Err(e.into()),
+                    Ok(Err(e)) => {
+                        tracing::warn!("tailnet accept failed: {e}");
+                        tokio::time::sleep(super::accept_retry_delay(&e)).await;
+                        continue;
+                    }
                     Ok(Ok(accepted)) => accepted,
                 };
                 let Ok(slot) = slots.clone().try_acquire_owned() else { continue };

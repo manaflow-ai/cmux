@@ -92,8 +92,9 @@ enum AddMachineShotState: String, CaseIterable {
             host.live?.yield(Flow.step("install", "fixed", "pushed cmux-tui 5eac889"))
             for _ in 0..<100 where model.checklist.row(.daemon)?.status != .running { await Task.yield() }
         case .ready:
-            host.scripts = [Array(Flow.okSteps.dropLast(2)) + [Flow.step("peer-back", "warn", "huge-blue cannot ssh back", fix: "Add this Mac's key on huge-blue."),
-                                                        Flow.step("identity", "ok"), Flow.report("huge-blue", "huge-blue", ok: true, Flow.okSteps)]]
+            host.scripts = [Array(Flow.okSteps.dropLast(3)) + [Flow.step("peer-back", "warn", "huge-blue cannot ssh back", fix: "Add this Mac's key on huge-blue."),
+                                                        Flow.step("identity", "ok"), Flow.step("approvals", "ok"),
+                                                        Flow.report("huge-blue", "huge-blue", ok: true, Flow.okSteps)]]
             model.begin(destination: "huge-blue")
             model.perform(.add)
             _ = await model.finished()

@@ -28,7 +28,8 @@ pub struct LsArgs {
     /// The same as a PATTERN (repeatable): `--name 'review-*'`.
     #[arg(long = "name", value_name = "PATTERN")]
     name_patterns: Vec<String>,
-    /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
+    /// Include tool inventories in JSON rows (otherwise read `session info SESSION`); a peer's
+    /// rows' are read from each session's peer.
     #[arg(long)]
     with_tools: bool,
     /// Only sessions in this state: running, ready, idle, closed, waiting.
@@ -61,8 +62,9 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
-    /// Only sessions on this host: a peer's name, or this machine's (`local` too).
-    #[arg(long, value_name = "HOST")]
+    /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
+    /// works.
+    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     host: Option<String>,
     /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
     #[arg(long, short)]
@@ -123,9 +125,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // Only a listing that shows usage has the daemon read it first (`hub/usage_view.rs`); the
     // compact one shows the rows as they are. Every page asks; the daemon reads at most once
     // in 5 s, so the pages after the first take the rows that read left.
-    let usage = wide
-        || json_out
-        || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
+    let usage = shows_usage(wide, json_out, fields.as_deref());
     if usage {
         params.set("usage", json!(true));
     }
@@ -188,6 +188,23 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     };
     let read = ls_pages::read(params, cursor.filter(|c| !c.is_empty()), plan, step, fetch).await?;
     let mut sessions = read.rows;
+    // A peer's row comes without its tools (`ls_tools.rs`): each is read from the peer, for
+    // the views that print them.
+    if with_tools && (json_out || fields.is_some()) {
+        let unread = super::ls_tools::fill(&mut sessions, |key| {
+            let client = client.clone();
+            async move {
+                let params = json!({"sessionId": key, "waitLogs": false});
+                client.request(method::MUX_INFO, params).await
+            }
+        })
+        .await;
+        if unread > 0 {
+            eprintln!(
+                "acpmux: the tools of {unread} peer session(s) could not be read; they are listed without them"
+            );
+        }
+    }
     if selected {
         sessions.sort_by(|a, b| {
             b.get("updatedAt")
@@ -296,6 +313,14 @@ pub(super) fn parse_duration_ms(text: &str) -> Result<u64> {
     Ok(total)
 }
 
+/// A projected listing reads usage only if that projection includes it.
+fn shows_usage(wide: bool, json_out: bool, fields: Option<&[String]>) -> bool {
+    match fields {
+        Some(fields) => fields.iter().any(|f| f == "usageStats" || f.starts_with("usageStats.")),
+        None => wide || json_out,
+    }
+}
+
 /// The rows `--live` and `--host` keep.
 pub(super) struct RowFilter {
     live: bool,
@@ -358,6 +383,17 @@ mod tests {
             .filter(|r| filter.keeps(r))
             .map(|r| r["name"].as_str().unwrap().into())
             .collect()
+    }
+
+    #[test]
+    fn projected_listings_only_refresh_usage_when_they_show_it() {
+        let plain = vec!["sessionId".to_owned(), "name".to_owned(), "status".to_owned()];
+        assert!(!shows_usage(false, true, Some(&plain)));
+        assert!(!shows_usage(true, false, Some(&plain)));
+        assert!(shows_usage(false, false, Some(&["usageStats.cost".to_owned()])));
+        assert!(shows_usage(false, true, None));
+        assert!(shows_usage(true, false, None));
+        assert!(!shows_usage(false, false, None));
     }
 
     #[test]

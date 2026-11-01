@@ -1,0 +1,70 @@
+{
+ "id": "lawrence-cmd-t-slow",
+ "priority": "P1",
+ "title": "fuzz corpus: Lawrence's report as a fixed sequence (new_workspace new_terminal new_tab new_tab new_tab), every fuzz oracle after each burst",
+ "why": "Lawrence 2026-10-31 (STATUS 914 A): Cmd-T is slow on feat-tip-fixes-v1; its typeable mark is compared to the base build.",
+ "source": "ext_fuzz.CORPUS (scripts/journeys/fuzz.py --corpus plays the same sequences)",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "fuzz_run",
+   "sequence": [
+    {
+     "a": "new_workspace",
+     "t": "slow"
+    },
+    {
+     "a": "new_terminal",
+     "t": "slow"
+    },
+    {
+     "a": "new_tab",
+     "t": "slow"
+    },
+    {
+     "a": "new_tab",
+     "t": "pair"
+    },
+    {
+     "a": "new_tab",
+     "t": "slow"
+    }
+   ],
+   "shrink": false,
+   "budget_s": 190
+  },
+  {
+   "do": "expect",
+   "title": "the fuzz found no failure, the daemon agrees with the app, and the window is not blank",
+   "timeout": 20,
+   "all": [
+    {
+     "fuzz_clean": {}
+    },
+    {
+     "fuzz_daemon_agrees": {}
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ]
+}

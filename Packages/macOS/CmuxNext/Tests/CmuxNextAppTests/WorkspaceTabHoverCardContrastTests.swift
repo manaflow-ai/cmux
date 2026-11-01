@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// each tab's name draws in the theme's primary text, and its path in the theme's secondary text
 /// (the token the card's facts use), not a washed-out tertiary grey on the glass (review of the
 /// #24785 dark capture; the list landed in #28897).
-@MainActor @Suite(.serialized) struct WorkspaceTabHoverCardContrastTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WorkspaceTabHoverCardContrastTests {
     private struct Mounted {
         let window: NSWindow
         let scope: ThemeScope
@@ -18,13 +19,13 @@ import Testing
 
     private static func mount(_ body: NSView, recolor: @escaping () -> Void) throws -> Mounted {
         _ = NSApplication.shared
+        let input = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(try #require(ThemeSpec("Tab Card Dark")), input: input, animated: false)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 260), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
-        let input = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
-        let scope = ThemeScope(level: .room)
-        scope.setOverride(try #require(ThemeSpec("Tab Card Dark")), input: input, animated: false)
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 260))
         window.contentView = root
         scope.root(root)
@@ -61,8 +62,12 @@ import Testing
         var best = 0.0
         let y0 = Int((host.isFlipped ? rect.minY : host.bounds.height - rect.maxY) * scale)
         let y1 = Int((host.isFlipped ? rect.maxY : host.bounds.height - rect.minY) * scale)
-        for y in max(0, y0)..<min(rep.pixelsHigh, y1) {
-            for x in max(0, Int(rect.minX * scale))..<min(rep.pixelsWide, Int(rect.maxX * scale)) {
+        // A row scrolled out of the list (every tab is listed since #29980) lies outside the host: no pixels.
+        let rows = max(0, y0)..<max(max(0, y0), min(rep.pixelsHigh, y1))
+        let x0 = max(0, Int(rect.minX * scale))
+        let columns = x0..<max(x0, min(rep.pixelsWide, Int(rect.maxX * scale)))
+        for y in rows {
+            for x in columns {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 let lum = ThemeRGB(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent)).relativeLuminance
                 best = max(best, lum)
@@ -90,7 +95,7 @@ import Testing
             SidebarTab(id: TabID("t2"), title: "shell", kind: .terminal, folder: "~", state: .success),
         ])
         let mounted = try Self.mount(card) { [weak card] in card?.applyColors() }
-        defer { mounted.window.close() }
+        defer { mounted.window.closeAfterTest() }
         let primary = try #require(Self.rgb(mounted.scope.perform { Palette.textPrimary }))
         let secondary = try #require(Self.rgb(mounted.scope.perform { Palette.textSecondary }))
         let byText = Dictionary(Self.labels(in: card).map { ($0.stringValue, $0) }, uniquingKeysWith: { a, _ in a })
@@ -99,7 +104,8 @@ import Testing
             let color = try #require(Self.rgb(label.textColor), "\(name) has no color")
             #expect(Self.same(color, primary), "\(name) draws in \(color), not the primary text \(primary)")
         }
-        for path in ["~/Projects/cmux", "~"] {
+        // Each tab's detail line: its folder and its status (Lawrence msg 19245).
+        for path in ["~/Projects/cmux · Working", "~ · Done"] {
             let label = try #require(byText[path], "no label \(path)")
             let color = try #require(Self.rgb(label.textColor), "\(path) has no color")
             #expect(Self.same(color, secondary), "\(path) draws in \(color), not the secondary text \(secondary)")
@@ -117,6 +123,7 @@ import Testing
             let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 460, height: 640), styleMask: [.borderless],
                                   backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            defer { window.closeAfterTest() }
             window.appearance = NSAppearance(named: .darkAqua)
             let input = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
             let scope = ThemeScope(level: .room)
@@ -140,7 +147,6 @@ import Testing
                 out[label.stringValue] = Self.brightestInk(label, in: host, rep: rep)
                 report.append("\(label.stringValue): color=\(String(describing: Self.rgb(label.textColor))) ink=\(out[label.stringValue] ?? -1)")
             }
-            window.close()
             return out
         }
         let inks = try measure(host)
@@ -150,7 +156,7 @@ import Testing
             let ink = try #require(inks[name], "no \(name) label")
             #expect(ink >= richTitle * 0.9, "\(name) ink \(ink) is dimmer than the card title \(richTitle)")
         }
-        let path = try #require(inks["~/Projects/cmux"])
+        let path = try #require(inks["~/Projects/cmux · Working"])
         #expect(path >= richTitle * 0.45, "the path ink \(path) is washed out next to the title \(richTitle)")
     }
 }

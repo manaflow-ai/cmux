@@ -69,7 +69,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
       // The computer use card moves under the panel by design (computerUsePreview.css), and the
       // toggle draws its on state (a fill, design/session-panel.md); the rest stays.
       const outside = (element: Element) =>
-        !element.closest("aside.acpmux-chat-inspector, .acpmux-cu-preview, button.acpmux-chat-inspector-toggle") &&
+        !element.closest("aside.acpmux-session-info, .acpmux-cu-preview, button.acpmux-session-info-toggle") &&
         (element as HTMLElement).offsetParent !== null;
       probe.__stillBefore = new Map();
       probe.__stillWorst = new Map();
@@ -135,8 +135,8 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
         trailingInset: 40,
       }),
     );
-  const panel = (page: Page) => page.locator("aside.acpmux-chat-inspector");
-  const toggle = (page: Page) => page.locator("button.acpmux-chat-inspector-toggle");
+  const panel = (page: Page) => page.locator("aside.acpmux-session-info");
+  const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
   const close = async (page: Page) => {
     if ((await panel(page).count()) === 0) return;
     await toggle(page).click({ force: true });
@@ -187,7 +187,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
 
             await mark(page);
             await toggle(page).click({ force: true });
-            await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+            await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
             await settle(page);
             const opening = await moved(page);
 
@@ -242,7 +242,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
           await settle(page);
           await page.screenshot({ path: path.join(out, "stills", `session-info-closed-${colorScheme}.png`) });
           await toggle(page).click({ force: true });
-          await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+          await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
           await settle(page);
           await page.screenshot({ path: path.join(out, "stills", `session-info-open-${colorScheme}.png`) });
         } finally {

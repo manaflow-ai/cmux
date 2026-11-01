@@ -731,6 +731,56 @@
       "owner": "cloud-sidebar-vms",
       "receipt": "Review (codex gpt-6-astra): SHIP at 5f7db1579443b56e7f57e17ff14e9c82bba8578c",
       "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 3,
+      "why": "#28613 (Leo: 'we should just have it', Codex/opencode on the person's own Cloud VM): AgentTabRemoteHost's ownerCloud field and the one composition-root line in AgentTabs+Wiring that builds it from the machine's CloudMachineLinks and the daemon's agent-session-start-owner-cloud-v1. The decision lives in CmuxNextAgentPane (RemoteAcpmuxWire.ownerCloud) and cmux-tui-core; the PR had offset these lines by moving the owner-answer helper out of the App, which base's #29365 (CloudMachineLinks) has since done itself.",
+      "author": "cloud-codex (claude)",
+      "owner": "cloud-codex",
+      "receipt": "Review (codex gpt-6.1-sol xhigh via router-review): SHIP at 9a033c254b4ab6e660557c8c93b3a4cdb15fd1b9",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/FrameScheduler+Sight.swift:53: the one app-wide NSWindow.didChangeOcclusionStateNotification observer (started once by watchSight, held by FrameScheduler.app). Its handler finds the posting window's SightNote and its existing scheduler through associated objects (O(1)) and tells only that scheduler to end its animations (scheduler(of:) makes none). The row's fix shape: one observation per app in an adapter that tells only the affected subscriber. It lets a window out of sight get no animation frames (Chrome's hidden-tab rule; found while triaging the feat tip Swift suite 41190088925, whose hang it does not change: the test process gets no occlusion reports).",
+      "author": "lead base-red owner (claude, triage of feat reds 2026-10-31)",
+      "owner": "Performance Lead (Wakeups)",
+      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 663aaac4021910486e5c921cda36f0ddde13511b",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 24,
+      "why": "#28794 (HQ #4877 G4/G5, Leo's recovery-flow ask): SSHMachineSession's retriesSpent/waitsForUser reads and its restart() (a fresh link and daemon connection once the daemon reconnect gave up), and SSHService's byPerson gate on reconnect and connect. The decisions live outside the App (DaemonConnection.observeRetriesSpent, DaemonStore.retriesSpent, SSHConnectionMachine.waitsForUser, Status.reconnectStep's .restart). The PR had offset these lines by moving the reconnect step out of SSHService, which base's #28799 (SSHConnectionMachine+Reconnect) has since done itself.",
+      "author": "cloud-ux-flows builder (claude)",
+      "owner": "cloud-ux-flows",
+      "receipt": "Review (codex gpt-6-astra high via router-review): SHIP at c11edce515cad9c92dc27832f162b82f6125e044",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 24,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/TabHandlers+More.swift moveToSpace and the tab.moveToSpace bind (+24 lines): Move Tab to Space moves only the tab (a lone tab pins its workspace; a tab with siblings goes to a new workspace through TabMoves.toNewWorkspace, then that workspace is pinned to the space). It reads App-only types (TabMoves, WindowProfiles, TabPromotion, AppServices, AppActionContext), so it cannot move to a package until those do; the handler folder's destination-map row owns that move.",
+      "author": "aid-68ba07270dde07b96ff4",
+      "owner": "aid-68ba07270dde07b96ff4",
+      "receipt": "Review (codex gpt-6-astra high fast): SHIP at 75ee0affe9dc80b0a7550cc2533d46b54538403b",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 34,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AgentChatCopyHandlers.swift (+34 lines, Leo's ask ask-70ded0db7b): the five Cmd+Shift+P session-file copy binds (paths, transcript, harness config, harness settings, acpmux session.json), their refusal strings and a filesReader beside the existing infoReader. The reads, labels and stale-clipboard logic live outside the App (CmuxNextAgentPane AgentChatCopyOperations, AgentChatCopyText, AgentPaneSessionCopySocket); the binds use App-only AppActionContext, AgentPaneView and focus checks, so they move with the Handlers folder's destination-map row.",
+      "author": "aid-cd1f8adf631e85594229",
+      "owner": "aid-cd1f8adf631e85594229",
+      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 7c12f1e51b1540c3940e7c8452119fd7c73762b5",
+      "expiry": "2026-12-31"
     }
   ],
   "escape_reviews": [

@@ -2,6 +2,26 @@ import { pathToFileURL } from "node:url";
 import { NodeClient } from "../src/node.ts";
 import { CloudClient, cloudTransportFromEnvironment } from "./cloud.ts";
 
+// Arm this in the actual payload, after bwrap has finished its namespace and
+// credential setup (those transitions can clear a parent's death signal).
+// Killing namespace PID 1 already ends its processes; arming the payload
+// itself avoids relying on a signal inherited through fork/exec.
+if (process.platform === "linux") {
+  const parent = process.ppid;
+  const { dlopen, FFIType } = await import("bun:ffi");
+  const libc = dlopen("libc.so.6", {
+    prctl: { args: [FFIType.i32, FFIType.u64, FFIType.u64, FFIType.u64, FFIType.u64], returns: FFIType.i32 },
+  });
+  try {
+    // PR_SET_PDEATHSIG=1, SIGKILL=9. Check again to close the arm/parent-exit race.
+    if (libc.symbols.prctl(1, 9, 0, 0, 0) !== 0 || process.ppid !== parent || parent === 0) {
+      throw new Error("cmux run: could not bind script lifetime to its sandbox parent");
+    }
+  } finally {
+    libc.close();
+  }
+}
+
 const script = Bun.argv[2];
 if (!script) throw new Error("cmux run needs a script path");
 

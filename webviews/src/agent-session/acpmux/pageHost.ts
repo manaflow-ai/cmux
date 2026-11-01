@@ -155,6 +155,9 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.dictation?.(value);
     case "designSelection":
       return bridge?.designSelection?.(value);
+    case "cloudStartProgress":
+      // How a Cloud start goes (cloudStartProgress.ts): the page checks every field.
+      return bridge?.cloudStartProgress?.(event.value);
     case "revealTurn":
       return bridge?.revealTurn?.(String(event.value));
     case "command":

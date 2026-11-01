@@ -78,6 +78,9 @@ FULL_INPUTS = (
     "scripts/ci/select_package_tests.py",
     "scripts/cmux-next/ci-target-graph.py",
     "scripts/cmux-next/swift-test-with-hang-sampler.sh",
+    # Which suites run in which test process, for every target (#26809).
+    "scripts/cmux-next/main-thread-heavy-suites.py",
+    "scripts/cmux-next/swift-test-shards.py",
     "scripts/cmux-next/compile-string-catalogs.sh",
     "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt",
@@ -103,6 +106,8 @@ DAEMON_PATHS = (
     "scripts/cmux-next/check-daemon-capabilities.sh",
     "scripts/cmux-next/cmux-tui.pin",
     PACKAGE + "Tests/CmuxNextAppTests/FirstLaunchTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
     # The classic import and migration suites start the live daemon too.
     PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
     PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
@@ -231,7 +236,7 @@ BUNDLE_INPUTS = (
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
-    "schemas/sync-motion/*",
+    "schemas/sync-motion/*", "schemas/agent-pane/*",
     # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )

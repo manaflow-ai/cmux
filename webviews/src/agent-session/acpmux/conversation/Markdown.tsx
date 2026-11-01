@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
@@ -20,12 +20,13 @@ import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
+import { fenceStep } from "./fenceRule";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
-import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
+import { codePath, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -63,6 +64,32 @@ export type MdBlock =
 export type MdListItem = { text: string; task?: boolean; checked?: boolean; children: MdBlock[] };
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+
+/// A paragraph's lines, each break kept, except one inside a reference: a line that ends with
+/// `repo#` and one that starts with its number are one `repo#N`, so it links and wraps whole.
+function joinParagraph(lines: string[]): string {
+  return lines.reduce((text, line) =>
+    /(?:^|[^\s#])#$/.test(text) && /^\d/.test(line) ? text + line : `${text}\n${line}`,
+  );
+}
+
+/// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
+/// number of one or two digits keeps the list's usual indent.
+function listNumberStyle(block: { ordered: boolean; start: number; items: unknown[] }): CSSProperties | undefined {
+  if (!block.ordered) return undefined;
+  const digits = String(block.start + block.items.length - 1).length;
+  return digits > 2 ? ({ "--cv-ol-digits": digits } as CSSProperties) : undefined;
+}
+
+/// Whether a line starts a list inside a paragraph. A numbered line does so only from 1, as
+/// CommonMark and GitHub read it: a reply wrapped as "the cards (cmux#\n29613) and the fix" kept
+/// its text, where reading "29613)" as a list's number drew it bold over "and" (Leo 2026-10-31:
+/// "WTF HAPPENED WITH THIS" / "F***ING TEXT????").
+function interruptsParagraph(line: string): boolean {
+  const m = LIST_RE.exec(line);
+  return Boolean(m && (!/\d/.test(m[2]!) || parseInt(m[2]!, 10) === 1));
+}
+
 /// The deepest nesting of quotes and lists the parser builds. A reply is untrusted, and each level
 /// costs stack while it draws (800 list levels overflowed it), so content below this depth draws
 /// as the plain text of one paragraph.
@@ -119,16 +146,19 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i++;
       continue;
     }
-    const fence = line.match(/^\s*```([^\s`]*)[^`]*$/);
+    // A fence is three or more backticks and closes on a line of at least as many (a reply that
+    // quotes Markdown opens with four to show its own three).
+    const fence = line.match(/^\s*(`{3,})([^\s`]*)[^`]*$/);
     if (fence) {
       const body: string[] = [];
+      const closer = new RegExp(`^\\s*\`{${fence[1]!.length},}\\s*$`);
       i++;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i++]);
+      while (i < lines.length && !closer.test(lines[i])) body.push(lines[i++]);
       const open = i >= lines.length;
       i++;
       out.push({
         type: "code",
-        lang: fence[1] || "text",
+        lang: fence[2] || "text",
         code: body.join("\n"),
         ...(open ? { open: true as const } : {}),
       });
@@ -171,13 +201,14 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i + 1 < lines.length &&
       /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])
     ) {
+      // An escaped pipe (`\|`) is a literal one inside its cell, not a column break.
       const cells = (l: string) =>
         l
           .trim()
           .replace(/^\|/, "")
-          .replace(/\|$/, "")
-          .split("|")
-          .map((c) => c.trim());
+          .replace(/(?<!\\)\|$/, "")
+          .split(/(?<!\\)\|/)
+          .map((c) => c.replace(/\\\|/g, "|").trim());
       const header = cells(line);
       const align = cells(lines[i + 1]).map<Align>((c) =>
         c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : c.startsWith(":") ? "left" : null,
@@ -202,13 +233,13 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       lines[i].trim() &&
       !/^(#{1,6})\s/.test(lines[i]) &&
       !FOOTNOTE_DEF.test(lines[i]) &&
-      !/^\s*```/.test(lines[i]) &&
+      fenceStep(0, lines[i]) === 0 &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
-      !LIST_RE.test(lines[i])
+      !interruptsParagraph(lines[i])
     )
       para.push(lines[i++].trim());
-    out.push({ type: "paragraph", text: para.join("\n") });
+    out.push({ type: "paragraph", text: joinParagraph(para) });
   }
   return out;
 }
@@ -419,7 +450,7 @@ export function linkKind(href: string): "github" | "citation" | "file" | "web" {
 
 export const linkIcon = (href: string) => {
   const kind = linkKind(href);
-  if (kind === "github") return <GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />;
+  if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileDoc size={16} className="cv-link__icon" />;
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
@@ -477,7 +508,7 @@ function linkedGithubText(
         <UrlChip
           key={`${key}-${index}`}
           href={reference.href}
-          icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+          icon={<GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />}
         >
           {reference.text}
         </UrlChip>
@@ -622,6 +653,9 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             {renderInline(lm[1], labelOpts)}
           </a>,
         );
+      // A template (`${variant}.png`) names no file: its text.
+      else if (!href && isTemplatePath(lm[2]))
+        out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file">
@@ -906,6 +940,7 @@ function Block({
           className={`cv-list ${block.ordered ? "cv-ol" : "cv-ul"}${tasks ? " cv-tasks" : ""}${motion}`}
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
+          style={listNumberStyle(block)}
         >
           {block.items.map((it, i) => (
             <li key={i} className={it.task ? "cv-task" : undefined}>

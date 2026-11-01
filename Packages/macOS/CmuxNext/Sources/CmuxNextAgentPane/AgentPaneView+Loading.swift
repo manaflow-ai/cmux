@@ -17,12 +17,6 @@ private let loadingLogger = Logger(subsystem: "com.cmuxterm.app.next", category:
 public final class AgentPaneLoadingView: NSView {
     /// The shared busy mark (`appearance.statusIndicator.style`; `none` draws only the background).
     let indicator = StatusIndicatorView.spinner()
-    /// Static transcript-shaped placeholders keep the first frame occupied while the page's
-    /// handshake and chat read are pending. They are deliberately views rather than a shimmer:
-    /// loading is seen on every chat open, so movement would add noise and would not match the
-    /// page's reduced-motion contract.
-    let placeholderRows: [NSView]
-    private let placeholderWidths: [CGFloat] = [0.72, 0.48, 0.64, 0.38]
     static let markSide: CGFloat = 18
     /// How long the mark waits: a page that paints sooner shows only its background before it
     /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
@@ -69,16 +63,10 @@ public final class AgentPaneLoadingView: NSView {
     private(set) var leftFading: Bool?
 
     override init(frame: NSRect) {
-        placeholderRows = (0..<4).map { _ in NSView(frame: .zero) }
         super.init(frame: frame)
         wantsLayer = true
         autoresizingMask = [.width, .height]
         indicator.configure(.busy(progress: nil))
-        for row in placeholderRows {
-            row.wantsLayer = true
-            row.setAccessibilityElement(false)
-            addSubview(row)
-        }
         setAccessibilityElement(true)
         setAccessibilityRole(.progressIndicator)
         setAccessibilityLabel(Self.label)
@@ -93,17 +81,6 @@ public final class AgentPaneLoadingView: NSView {
 
     override public func layout() {
         super.layout()
-        let inset = Metrics.space5
-        let rowHeight = Metrics.space2
-        let rowGap = Metrics.space3
-        let availableWidth = max(0, bounds.width - (inset * 2))
-        for (index, row) in placeholderRows.enumerated() {
-            row.frame = NSRect(x: inset,
-                               y: inset + CGFloat(index) * (rowHeight + rowGap),
-                               width: availableWidth * placeholderWidths[index],
-                               height: rowHeight)
-            row.layer?.cornerRadius = rowHeight / 2
-        }
         let side = Self.markSide
         indicator.frame = NSRect(x: ((bounds.width - side) / 2).rounded(), y: ((bounds.height - side) / 2).rounded(),
                                  width: side, height: side)
@@ -112,13 +89,6 @@ public final class AgentPaneLoadingView: NSView {
     /// The page's background, so the pane looks like the page it becomes.
     func paint(_ color: NSColor) {
         layer?.backgroundColor = color.cgColor
-    }
-
-    /// Applies the page's semantic text tint to the placeholders. This keeps the cover legible in
-    /// both themes without introducing a native loading-only colour token or a hard-coded RGB.
-    func themePlaceholders(_ tokens: ThemeTokens) {
-        let fill = tokens.textSecondary.nsColor.withAlphaComponent(0.18).cgColor
-        placeholderRows.forEach { $0.layer?.backgroundColor = fill }
     }
 
     /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
@@ -288,7 +258,6 @@ extension AgentPaneView {
         guard loadingView.superview != nil else { return }
         // In this view's scope: over its workspace's picture the loading state stays clear (#28867).
         loadingView.paint(performWithTheme { AgentPaneTheme.underPageColor(tokens, surface: surfaceKind) }.nsColor)
-        loadingView.themePlaceholders(tokens)
     }
 }
 

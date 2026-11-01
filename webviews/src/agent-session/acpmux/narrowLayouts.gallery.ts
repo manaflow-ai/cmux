@@ -93,7 +93,6 @@ export function narrowProblems(document: Document): string[] {
     [".acpmux-composer-bar", "composer bar"],
     [".nt-pickers", "New Tab chips"],
     [".acpmux-composer-context", "location row"],
-    [".acpmux-pr-dock", "pull request bar"],
   ];
   for (const [selector, name] of rows)
     for (const row of document.querySelectorAll(selector)) {
@@ -186,7 +185,7 @@ export function narrowProblems(document: Document): string[] {
       problems.push(`${row.className.toString().split(" ")[0]}: Send wraps below the chips`);
   }
   // The turn's own controls never shrink: a squeezed Send is the first thing a narrow pane breaks.
-  for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer-now", ".acpmux-mic"])
+  for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-mic"])
     for (const control of document.querySelectorAll(selector)) {
       if (!visible(control)) continue;
       const rect = control.getBoundingClientRect();
@@ -254,7 +253,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
-    "agent-session/acpmux/summary/PullRequestDock.tsx",
   ],
   variants: {
     controls: {

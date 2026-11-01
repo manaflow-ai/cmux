@@ -19,21 +19,25 @@ const update = (update: Record<string, unknown>) => ({
 export type PapercutStep = [dir: string, kind: string, msg: Record<string, unknown>, at?: number];
 type Step = PapercutStep;
 
-/// `extra` steps follow the chat's last turn (inside the running turn when `running`); `session`
-/// adds to or replaces the chat's summary fields (a queue, say).
+/// `extra` steps follow the chat's last turn (inside the running turn when `running`); `lead` steps
+/// come first, before the first turn; `session` adds to or replaces the chat's summary fields (a
+/// queue, say).
 export function papercutEvents({
   turns,
   running,
   extra = [],
+  lead = [],
   session: fields = {},
 }: {
   turns: number;
   running: boolean;
   extra?: Step[];
+  lead?: Step[];
   session?: Record<string, unknown>;
 }) {
   const steps: Step[] = [];
   let clock = START;
+  for (const [dir, kind, msg, at] of lead) steps.push([dir, kind, msg, at ?? clock]);
   for (let n = 1; n <= turns; n++) {
     steps.push(["mux", "user_message", { text: `Question ${n}` }, clock]);
     steps.push(["mux", "turn_started", {}, clock]);
@@ -105,8 +109,12 @@ export async function papercutPane(
     turns: number;
     running: boolean;
     extra?: PapercutStep[];
+    lead?: PapercutStep[];
     session?: Record<string, unknown>;
     ready?: string;
+    /// Attach sends only the newest `attachPage` records and pages older ones in through
+    /// `_acpmux/events` (`beforeSeq`, `limit`), as acpmux does for a long chat. Unset, attach sends all.
+    attachPage?: number;
     /// Additional chats reuse these fixture events with their own identity and folder.
     otherSessions?: Array<{ sessionId: string; cwd: string }>;
     /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
@@ -127,15 +135,21 @@ export async function papercutPane(
         return { sessions };
       case "_acpmux/attach": {
         const selected = sessions.find((one) => one.sessionId === params?.sessionId) ?? session;
+        const from = options.attachPage ? Math.max(0, events.length - options.attachPage) : 0;
         return {
           session: selected,
           lastSeq: events.length,
-          events: events.map((event) => ({ ...event, sessionId: selected.sessionId })),
-          hasMore: false,
+          events: events.slice(from).map((event) => ({ ...event, sessionId: selected.sessionId })),
+          hasMore: from > 0,
         };
       }
-      case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+      case "_acpmux/events": {
+        const before = typeof params?.beforeSeq === "number" ? params.beforeSeq : undefined;
+        if (!options.attachPage || before === undefined) return { events: [], hasMore: false, lastSeq: events.length };
+        const end = Math.max(0, before - 1);
+        const start = Math.max(0, end - Math.min(options.attachPage, Number(params?.limit) || options.attachPage));
+        return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
+      }
       default:
         return null;
     }
@@ -248,9 +262,9 @@ export async function papercutPane(
   return { open, close, methods, prompts, record, drop, sent };
 }
 
-/// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`
-/// event sets it (chatDisplay.ts). By default the Inspector floats and never takes a column.
-export async function inspectorPushAlways(page: Page, on = true) {
+/// Settings > Agent Chat > Session Info: Push always (or back to the default), as the host's `display`
+/// event sets it (chatDisplay.ts). By default Session Info floats and never takes a column.
+export async function sessionInfoPushAlways(page: Page, on = true) {
   await page.evaluate(async (on) => {
     // The pane's dev server serves src/agent-session/acpmux at its root (vite.config.acpmux-pane.mjs),
     // so this is the module the page already loaded.

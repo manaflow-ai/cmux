@@ -32,6 +32,22 @@ mid-run, background shells under the harness process group, streamed output not 
 pending permission prompts, and the Claude stdio translator state (pending ACP
 request map, control-request map: `claude_stdio/mod.rs:147-165`).
 
+On a Cloud machine the transcript also lives outside the VM (#25584). The `cmux host` Cloud role
+(`cmux-host/src/cloud/trajectory.rs`) sends every acpmux session's records, verbatim and in seq order,
+and the agent's own resume file (Claude project `.jsonl`, Codex rollout) as appended byte ranges, to
+`/v1/cloud/machines/{machine}/trajectories/*` (`backend/apps/api/src/cloud-trajectory.ts`), one
+`TrajectoryDO` per team and machine, written only by that machine's VM install. The creator reads a
+paused machine's chats without waking the VM. A machine restored from one of its creator's snapshots
+reads the source machine's copy (read only) and, once its acpmux runs, imports each chat its disk lacks
+as an `acpmux.bundle.v1` (`acp session import`), so the history is intact and the next prompt resumes
+the agent; from then on the chat is the new machine's, kept in its own copy. A chat the snapshot's disk
+has continues from the snapshot's point. The server keeps a contiguous log and refuses a gap or a
+changed record. Not covered yet: `cmux-harness` chats (their durable journal is not bundled), records
+written in the last pass (5 s) before a VM is lost, records over 1 MiB (that chat stops being kept),
+deleting kept copies with their machine, and showing the server copy in the Mac's pane (Leo's
+peer-snapshot series covers the Mac-side copy). Off unless the deployment sets
+`CLOUD_TRAJECTORIES_ENABLED=1` (development).
+
 Gaps on the PTY side (it is the model, but not complete):
 1. An updated app never moves onto the new daemon build, so a fix in the daemon or host reaches a
    user only after a manual "End Sessions" or a reboot.

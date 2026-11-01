@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture pull requests, not shipped UI.
-// The Inspector's Changes reads every pull request's title, state, conflicts, line counts and
+// Session Info's Changes reads every pull request's title, state, conflicts, line counts and
 // checks from the App's one pull request cache (AgentReplyPullRequests), never from GitHub per
 // row: it registers the list with the host up to sixty-four links to a `link.inspect` (one batched GraphQL
 // read on the host), at most once a minute per link, then asks `pr.inspect` for each answer.
@@ -15,8 +15,8 @@ import {
   resetChangesStatuses,
   stableUrls,
   withHeader,
-} from "../src/agent-session/acpmux/inspector/changesStatus";
-import { rowState } from "../src/agent-session/acpmux/inspector/ChangesSection";
+} from "../src/agent-session/acpmux/session-info/changesStatus";
+import { rowState } from "../src/agent-session/acpmux/session-info/ChangesSection";
 import { pageClocks } from "../src/ui/pageClock";
 
 afterEach(() => {
@@ -47,8 +47,8 @@ test("an answer becomes the row's title, state, conflicts, lines by kind and fai
       additions: 758,
       deletions: 265,
       files: [
-        { path: "webviews/src/agent-session/acpmux/inspector/ChangesSection.tsx", additions: 700, deletions: 260 },
-        { path: "webviews/test/chat-inspector-changes.test.tsx", additions: 58, deletions: 5 },
+        { path: "webviews/src/agent-session/acpmux/session-info/ChangesSection.tsx", additions: 700, deletions: 260 },
+        { path: "webviews/test/session-info-changes.test.tsx", additions: 58, deletions: 5 },
       ],
       comments: 13,
       checks: { state: "failing", passed: 1, total: 3, failingOnBase: 1 },

@@ -141,7 +141,7 @@
 
 .group-title {
   margin: 0 0 7px 2px;
-  font-size: 12.5px;
+  font-size: var(--text-detail);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -253,7 +253,7 @@
 
 .row-help,
 .row-key {
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   line-height: 1.35;
 }
 
@@ -274,7 +274,7 @@
   align-items: center;
   gap: 6px;
   min-height: 26px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -549,7 +549,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -751,6 +751,7 @@
 }
 
 .theme-count {
+  font-variant-numeric: tabular-nums;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
   margin-top: 4px;

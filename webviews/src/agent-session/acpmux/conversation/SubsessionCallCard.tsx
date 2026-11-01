@@ -179,7 +179,6 @@ function SessionCard({
   shown,
   disclosure = false,
   disclosureKey,
-  started = false,
   children,
 }: {
   tool: Tool;
@@ -194,7 +193,6 @@ function SessionCard({
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   disclosure?: boolean;
   disclosureKey?: string;
-  started?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -224,7 +222,8 @@ function SessionCard({
       disclosure={disclosure}
       disclosureKey={disclosureKey}
       findItems={findItems}
-      disclosureLabel={started ? t("subsession.started", { name: live?.name ?? name }) : undefined}
+      // The row is the session's name by its harness's mark, no "Started sub-session" in front of it
+      // (design/chat-transcript.md: no narration, the icon names the type; transcript audit HQ#5154).
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
       {children}
@@ -247,7 +246,6 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       shown={call.prompt}
       disclosure={true}
       disclosureKey={`subsession-start:${tool.id}`}
-      started
     >
       {call.prompt && <CardCopy text={call.prompt} />}
       {call.prompt && (
@@ -337,6 +335,7 @@ function McpDetails({ tool, reveal = 0, promptFindId }: { tool: Tool; reveal?: n
       call={call}
       raw={mcpRawName(tool, call)}
       output={tool.output}
+      tool={tool}
       strip={false}
       reveal={reveal}
       requestFindAlternatives={promptFindId ? { prompt: promptFindId } : undefined}
