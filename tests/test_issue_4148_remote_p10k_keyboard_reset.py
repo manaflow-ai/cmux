@@ -19,12 +19,12 @@ INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integration.z
 RESET = "\x1b[>m\x1b[<8u"
 
 
-def run_reset(remote: bool, p10k: bool) -> subprocess.CompletedProcess[str]:
+def run_reset(remote: bool, p10k: str | None) -> subprocess.CompletedProcess[str]:
     setup = [f'source "$1"', 'export CMUX_TEST_FORCE_KEYBOARD_RESET=1']
     if remote:
         setup.append("export CMUX_REMOTE_TRANSPORT=ws")
     if p10k:
-        setup.append("p10k() { :; }")
+        setup.append(f"{p10k}() {{ :; }}")
     setup.append("_cmux_reset_terminal_keyboard_protocols")
     env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX")}
     env.update({"HOME": "/tmp", "LC_ALL": "C", "PATH": "/usr/bin:/bin"})
@@ -42,15 +42,19 @@ def test_remote_p10k_prompt_does_not_reset_kitty_protocol() -> None:
     if shutil.which("zsh") is None:
         return
 
-    remote_p10k = run_reset(remote=True, p10k=True)
+    remote_p10k = run_reset(remote=True, p10k="p10k")
     assert remote_p10k.returncode == 0, remote_p10k.stderr
     assert remote_p10k.stdout == ""
 
-    local_p10k = run_reset(remote=False, p10k=True)
+    remote_p9k_init = run_reset(remote=True, p10k="_p9k_init")
+    assert remote_p9k_init.returncode == 0, remote_p9k_init.stderr
+    assert remote_p9k_init.stdout == ""
+
+    local_p10k = run_reset(remote=False, p10k="p10k")
     assert local_p10k.returncode == 0, local_p10k.stderr
     assert local_p10k.stdout == RESET
 
-    remote_plain = run_reset(remote=True, p10k=False)
+    remote_plain = run_reset(remote=True, p10k=None)
     assert remote_plain.returncode == 0, remote_plain.stderr
     assert remote_plain.stdout == RESET
 

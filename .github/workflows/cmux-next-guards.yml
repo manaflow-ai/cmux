@@ -657,6 +657,14 @@ jobs:
       - name: The backdrop art catalog and brightness range
         run: python3 tests/test_backdrop_art_generator.py
 
+      - name: Remote Powerlevel10k prompt reset compatibility
+        run: |
+          if ! command -v zsh >/dev/null 2>&1; then
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
+          fi
+          python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
+
       - name: The fast gates workflow and its merge and gate script
         run: python3 tests/test_cmux_next_fast_gates.py
 
