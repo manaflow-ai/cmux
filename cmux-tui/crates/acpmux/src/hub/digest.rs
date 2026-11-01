@@ -343,6 +343,7 @@ impl Hub {
                     && !q.sent_now
                     && q.run.control == head.control
                     && q.run.trust_gate == head.trust_gate
+                    && q.run.cloud_mobile == head.cloud_mobile
                     && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
                     && !inbox_digest::is_digest(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
@@ -432,7 +433,7 @@ impl Hub {
         for q in &taken {
             position += 1;
             let text = prompt_text(&q.run.blocks);
-            let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "requeued": true});
+            let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "cloudMobile": q.run.cloud_mobile, "requeued": true});
             if let Some(agent) = &q.run.agent {
                 queued.set("fromAgent", json!(agent));
             }
