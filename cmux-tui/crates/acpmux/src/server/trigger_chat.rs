@@ -296,14 +296,17 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
         }));
     }
     let session = hub
-        .new_session_with_id(crate::hub::NewRequest {
-            harness: Some(scope.harness.clone()),
-            name: Some(scope.session.clone()),
-            cwd: Some(PathBuf::from(&scope.cwd)),
-            workspace_id: Some(scope.workspace.clone()),
-            remote: true,
-            ..Default::default()
-        }, Some(scope.session.clone()))
+        .new_session_with_id(
+            crate::hub::NewRequest {
+                harness: Some(scope.harness.clone()),
+                name: Some(scope.session.clone()),
+                cwd: Some(PathBuf::from(&scope.cwd)),
+                workspace_id: Some(scope.workspace.clone()),
+                remote: true,
+                ..Default::default()
+            },
+            Some(scope.session.clone()),
+        )
         .await?;
     hub.start_in_mode(
         false,
@@ -322,6 +325,7 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
 async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Value, RpcError> {
     let session = bound_session(hub, scope)?;
     let prior = hub.trigger_delivery(&session, &scope.delivery);
+    let replay = prior.get("turnId").and_then(Value::as_str).is_some();
     if prior.get("error").is_some() {
         return Err(RpcError::new(-32001, "trigger delivery journal is unavailable"));
     }
@@ -370,12 +374,12 @@ async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Valu
             )
             .await;
     });
-    let _accepted = tokio::time::timeout(std::time::Duration::from_secs(4), accepted_rx)
-        .await
-        .ok();
+    let _accepted = tokio::time::timeout(std::time::Duration::from_secs(4), accepted_rx).await.ok();
     // Always reconstruct from the strict journal. This recovers duplicate callbacks
     // whose accepted receipt is null and rejects a callback from another prompt id.
-    validate_durable_receipt(&hub.trigger_delivery(&session, &delivery), scope)
+    let mut receipt = validate_durable_receipt(&hub.trigger_delivery(&session, &delivery), scope)?;
+    receipt["duplicate"] = Value::Bool(replay);
+    Ok(receipt)
 }
 
 fn status(hub: &Hub, scope: &TriggerScope) -> Result<Value, RpcError> {
