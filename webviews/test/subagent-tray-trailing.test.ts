@@ -113,14 +113,16 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
             expect(slot.left).toBeGreaterThanOrEqual(line.time.right - 0.5);
             if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(slot.right - 0.5);
           }
-          // An empty slot never takes a click: at its centre the line's own button is under the pointer.
+          // A populated slot targets its Stop button; an empty slot targets the line's own button.
           const hits = await page.evaluate(() =>
             [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].map((line) => {
               const slot = line.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot")!;
               slot.scrollIntoView({ block: "nearest" });
               const rect = slot.getBoundingClientRect();
               const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-              return Boolean(hit && line.querySelector(".acpmux-agent-line__button")?.contains(hit));
+              const target =
+                slot.querySelector("button") ?? line.querySelector<HTMLElement>(".acpmux-agent-line__button");
+              return Boolean(hit && target?.contains(hit));
             }),
           );
           expect(hits.length).toBe(geometry.lines.length);
