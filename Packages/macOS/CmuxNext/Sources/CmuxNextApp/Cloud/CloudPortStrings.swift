@@ -113,4 +113,12 @@ enum CloudPortStrings {
     static var none: String {
         String(localized: "cloud.ports.none", defaultValue: "No port of this machine is forwarded to this Mac.", table: "CloudPorts", bundle: .module)
     }
+
+    static var openPreview: String {
+        String(localized: "cloud.ports.openPreview", defaultValue: "Open in Browser", table: "CloudPorts", bundle: .module)
+    }
+
+    static var noPreviews: String {
+        String(localized: "cloud.ports.noPreviews", defaultValue: "No live previews are available yet. Try again when the machine's web server is ready.", table: "CloudPorts", bundle: .module)
+    }
 }

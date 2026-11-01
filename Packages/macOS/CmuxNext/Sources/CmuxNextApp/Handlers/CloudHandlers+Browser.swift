@@ -90,8 +90,8 @@ extension CloudHandlers {
 
     /// Opens `port` (at `path`) of the machine in a Chromium tab and answers the URL and the tab.
     ///
-    /// - A machine on the Cloud app server's link: its `cloud.browser.open` route, opened in the
-    ///   active window's focused pane through ``BrowserTabOpen`` (the Cloud page's path).
+    /// - A machine on the Cloud app server's link: its authenticated platform preview URL, opened
+    ///   in the active window's focused pane.
     /// - A machine on the classic link: a tab in the machine's first workspace, whose `localhost`
     ///   the machine's loopback forward serves (remote localhost); the machine connects first.
     @MainActor
@@ -102,6 +102,13 @@ extension CloudHandlers {
             throw ActionFailure(message: CloudPortStrings.browserFailed(names, detail: BrowserTabService.message(reason)))
         }
         var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "port": .int(port)]
+        if session.appLink != nil, services.cloud.previewAPI != nil {
+            let inventory = try await refreshPreviews(session, names, context)
+            guard let preview = inventory.previews.first(where: { $0.port == port }) else {
+                throw ActionFailure(message: CloudPortStrings.failed(names, detail: CloudPortStrings.noPreviews))
+            }
+            return try await openPreview(preview, session: session, path: path, viewChange: viewChange, context)
+        }
         if session.appLink != nil {
             let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port)), "path": .string(path)]
             let route = try await portOp("cloud.browser.open", args, key: UUID().uuidString.lowercased(), names, invocation, context)
