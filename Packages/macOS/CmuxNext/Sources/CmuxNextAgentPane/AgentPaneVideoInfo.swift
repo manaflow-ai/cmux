@@ -108,7 +108,7 @@ nonisolated enum AgentPaneVideoInfo {
             frames.append(Frame(atMs: Int((min(max(at, 0), seconds) * 1000).rounded()), jpeg: data.base64EncodedString()))
         }
         guard let first, let poster = scaled(first, toFit: posterSide).flatMap(jpeg) else { return nil }
-        let probes = await Self.probes(asset, duration: seconds)
+        let probes = await Self.probes(file, duration: seconds)
         return Info(durationMs: Int((seconds * 1000).rounded()), width: width, height: height, poster: poster.base64EncodedString(),
                     frames: frames, probes: probes)
     }
@@ -120,11 +120,13 @@ nonisolated enum AgentPaneVideoInfo {
         return frameTimes(duration: duration, count: count)
     }
 
-    /// Small gray probes of `asset` (``Probe``), for the page's scene pick. A probe that does not
+    /// Small gray probes of the video at `file`, `duration` seconds long (``Probe``), for the page's
+    /// scene pick. Only the file's own media is read, as ``read(_:)`` reads it. A probe that does not
     /// decode is left out.
-    static func probes(_ asset: AVAsset, duration: Double) async -> [Probe] {
+    @concurrent static func probes(_ file: URL, duration: Double) async -> [Probe] {
         let times = probeTimes(duration: duration)
         guard times.count > 1 else { return [] }
+        let asset = AVURLAsset(url: file, options: [AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue])
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: probeGrid * 4, height: probeGrid * 4)
