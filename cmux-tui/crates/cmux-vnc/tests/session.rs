@@ -1,7 +1,7 @@
 //! End-to-end sessions against an in-process RFB server that speaks the
 //! way each guest OS's server does: macOS Screen Sharing (3.889, Apple
 //! DH), Windows (VNC password, and an RFB 3.3 server), Linux TigerVNC
-//! (no auth, ExtendedDesktopSize resize, VeNCrypt plain). Each test drives
+//! (no auth, ExtendedDesktopSize resize, VeNCrypt auth and refusal). Each test drives
 //! connect, render, keyboard and pointer input, resize and reconnect.
 
 use std::io::{Read, Write};
@@ -414,29 +414,66 @@ fn rfb_3_3_server_picks_the_security_type() {
 }
 
 #[test]
-fn tigervnc_vencrypt_plain() {
+fn tigervnc_plain_is_refused_before_any_password_bytes() {
+    let (listener, port) = listen();
+    let server = serve(listener, |server| {
+        server.send(b"RFB 003.008\n");
+        assert_eq!(server.read(12), b"RFB 003.008\n");
+        server.send(&[1, 19]); // VeNCrypt
+        assert_eq!(server.u8(), 19);
+        server.send(&[0, 2]); // version 0.2
+        assert_eq!(server.read(2), [0, 2]);
+        server.send(&[0]); // version accepted
+        server.send(&[3]); // TLS-only variants and the insecure Plain variant
+        for subtype in [262u32, 259, 256] {
+            server.send(&subtype.to_be_bytes());
+        }
+        // The client closes as soon as it sees that only insecure or
+        // unsupported variants remain: no username, password or length.
+        let mut leaked = Vec::new();
+        server.stream.read_to_end(&mut leaked).unwrap();
+        assert!(leaked.is_empty(), "credential bytes left the client: {leaked:?}");
+    });
+    let credentials = Credentials {
+        username: Some("bob".into()),
+        password: Some("sensitive-account-password".into()),
+    };
+    let error = connect(port, credentials).err().unwrap();
+    assert!(
+        matches!(&error, VncError::Protocol(message) if message.contains("VeNCrypt Plain")),
+        "{error}"
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn tigervnc_vencrypt_prefers_vnc_auth_to_plain() {
     let (listener, port) = listen();
     let server = serve(listener, |server| {
         server.send(b"RFB 003.008\n");
         server.read(12);
-        server.send(&[1, 19]);
+        server.send(&[1, 19]); // VeNCrypt
         assert_eq!(server.u8(), 19);
         server.send(&[0, 2]);
         assert_eq!(server.read(2), [0, 2]);
-        server.send(&[0, 3]);
-        for subtype in [262u32, 259, 256] {
+        server.send(&[0]);
+        server.send(&[2]);
+        for subtype in [256u32, 2] {
             server.send(&subtype.to_be_bytes());
         }
-        assert_eq!(server.u32(), 256);
-        assert_eq!(server.u32(), 3);
-        assert_eq!(server.u32(), 2);
-        assert_eq!(server.read(5), b"bobpw");
-        server.send(&0u32.to_be_bytes());
-        server.read(1);
-        server.server_init(2, 2, "x11");
+        assert_eq!(server.u32(), 2, "VNC authentication, not Plain");
+        let challenge = [7u8; 16];
+        server.send(&challenge);
+        assert_eq!(server.read(16), des::vnc_response(b"password", challenge));
+        server.send(&0u32.to_be_bytes()); // authenticated
+        assert_eq!(server.u8(), 1, "shared");
+        server.server_init(2, 2, "TigerVNC");
         server.client_setup();
     });
-    let credentials = Credentials { username: Some("bob".into()), password: Some("pw".into()) };
+    let credentials = Credentials {
+        username: Some("bob".into()),
+        password: Some("password".into()),
+    };
     let session = connect(port, credentials).unwrap();
     assert_eq!(session.server_init().security, 19);
     server.join().unwrap();
