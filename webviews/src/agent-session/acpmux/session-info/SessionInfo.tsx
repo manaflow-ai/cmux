@@ -69,6 +69,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { summarizeConnectors } from "./connectorState";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList } from "./SessionInfoGroup";
@@ -1232,7 +1233,7 @@ export function SessionInfo({
   const sources = made?.sources ?? [];
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
-  const reconnect = mcp.filter((server) => server.status === "failed").length;
+  const connectorSummary = summarizeConnectors(mcp);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has had subagents or sub-sessions, or whose running limit
   // someone set (its own, an ancestor's, the workspace's or the settings'): a chat that never used
@@ -1311,11 +1312,14 @@ export function SessionInfo({
       icon={rowIcon("extension")}
       open={state.connectors}
       onOpenChange={fold("connectors")}
-      // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+      // This count describes the attached harness inventory. A loaded MCP server is not proof
+      // of provider authentication or authorization, so never present it as a green connected count.
       meta={value(
-        reconnect > 0
-          ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-          : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
+        connectorSummary.kind === "reconnect"
+          ? t("sessionInfo.connectors.reconnect", { count: connectorSummary.count })
+          : connectorSummary.kind === "connecting"
+            ? t("sessionInfo.connectors.connecting", { count: connectorSummary.count })
+            : t("sessionInfo.connectors.loaded", { count: connectorSummary.count }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
