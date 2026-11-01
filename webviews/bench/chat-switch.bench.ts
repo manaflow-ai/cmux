@@ -113,7 +113,11 @@ try {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         calls.push({ method: message.method, at: Date.now(), sessionId: String(message.params?.sessionId ?? "") });
         if (message.id === undefined) return;
-        const reply = JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) });
+        const reply = JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          result: answer(message.method, message.params),
+        });
         if (LATENCY > 0) setTimeout(() => ws.send(reply), LATENCY);
         else ws.send(reply);
       },
