@@ -315,6 +315,7 @@ class NextApp:
         conn.connect(self.control.socket_path)
         replies, buf = [], b""
         total = 1 + len(typed)
+        arrived = {}  # reply id -> CLOCK_UPTIME_RAW ns when the reader took it
 
         def reader():
             nonlocal buf
@@ -329,7 +330,10 @@ class NextApp:
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     try:
-                        replies.append(json.loads(line))
+                        msg = json.loads(line)
+                        replies.append(msg)
+                        if isinstance(msg, dict) and msg.get("id") is not None:
+                            arrived.setdefault(msg["id"], NOW_NS())
                     except ValueError:
                         replies.append({"raw": line[:200].decode(errors="replace")})
         thread = threading.Thread(target=reader, daemon=True)
@@ -362,6 +366,8 @@ class NextApp:
             pass
         first = next((r for r in replies if r.get("id") == 0), {})
         reply = first.get("result") if first.get("ok") else first
+        # The open key's own reply time (None: no reply came), not the whole typing run's length.
+        self.open_reply_ns = arrived.get(0)
         return sent, reply, open_ns
 
     def close(self, scenario):
@@ -818,7 +824,9 @@ def run_round(app, scenario, index, sampled):
         mid = threading.Thread(target=read_mid, daemon=True)
         mid.start()
     sent, open_reply, open_ns = app.play(name, modifiers, typed)
-    open_reply_ms = round((NOW_NS() - open_ns) / 1e6, 1)
+    # The open key's reply as the reader took it (NextApp.play); before, this read the end of the 5 s typing run.
+    got = getattr(app, "open_reply_ns", None)
+    open_reply_ms = round((got - open_ns) / 1e6, 1) if got else None
     schedule = [open_ns + int((k + 1) * opts.interval * 1e9) for k in range(nkeys)]
     rest = (schedule[-1] - NOW_NS()) / 1e9
     if rest > 0:
