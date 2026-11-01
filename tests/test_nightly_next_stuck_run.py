@@ -184,7 +184,7 @@ class StuckRun(unittest.TestCase):
 
     def test_a_run_that_is_running_waiting_or_briefly_queued_is_never_cancelled(self):
         cases = {
-            "briefly queued": [job("decide", 19)],
+            "briefly queued": [job("decide", 2)],
             "another job running": [job("decide"), job("build", 5, status="in_progress", runner="r")],
             "a gate job waits": [job("decide"), job("sign", status="waiting")],
             "a job pending on a concurrency group": [job("decide"), job("publish", status="pending")],
@@ -198,7 +198,7 @@ class StuckRun(unittest.TestCase):
                 self.assertEqual(gh.writes(), [])
 
     def test_a_newly_unblocked_job_does_not_inherit_its_dependency_build_time(self):
-        for minutes, cancel in ((1, False), (19, False), (20, True), (30, True)):
+        for minutes, cancel in ((1, False), (2, False), (3, True), (10, True)):
             with self.subTest(minutes_since_build=minutes):
                 build = dict(done("build-nightly-app"), created_at=ago(70), completed_at=ago(minutes))
                 gh = FakeGh(runs=[run(7)], jobs={7: [job("sign", minutes=70), build]})

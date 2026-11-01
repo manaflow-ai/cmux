@@ -149,7 +149,7 @@ jobs:
           "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
           echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
 
-      # A nightly-next or promotion run with a job no runner took for 20 minutes (a label
+      # A nightly-next or promotion run with a job no runner took for 3 minutes (a label
       # that stopped serving, run 40771197361) is cancelled here when an existing path builds
       # it again: the step below re-runs the tip's push run, the tip builds over an older
       # commit's, and the promotion request asks again. Gated and running runs are never
