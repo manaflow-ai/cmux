@@ -1,4 +1,5 @@
-//! `cmux agent open SESSION [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP]`:
+//! `cmux agent open SESSION [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP]
+//! [--placement top]`:
 //! an existing acpmux session (one `cmux acp ensure` made) in a new workspace
 //! of the app, the app action with the CLI name `agent open`
 //! (`agent.openSessionWorkspace`). Scripts and coordinators make a session

@@ -812,6 +812,7 @@ class PathRoutingStructure(unittest.TestCase):
                         "needs.macos-placement.outputs.gui_runner": "stale-owned-label",
                         "needs.macos-placement.outputs.placed_attempt": "1",
                         "needs.macos-placement.outputs.retry_runner": "blacksmith-6vcpu-macos-26",
+                        "needs.macos-placement.outputs.retry_jobs": " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files ",
                         "vars.CI_PR_POOL_OWNED": "1",
                     }
                     # GUI/session routes need a fresh reading on human reruns too. Discover the role
@@ -2154,6 +2155,7 @@ class ReservedLaneLabels(unittest.TestCase):
                 "needs.macos-placement.outputs.fast_runner": fast,
                 "needs.macos-placement.outputs.runner": side,
                 "needs.macos-placement.outputs.placed_attempt": str(attempt),
+                "needs.macos-placement.outputs.retry_jobs": " fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files ",
             }
             values.update({f"needs.macos-placement.outputs.{key}": value for key, value in outputs.items()})
             return values

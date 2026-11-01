@@ -76,6 +76,8 @@ struct SidebarGroupEditing {
     /// Opens the editor next to what opened it (`opener`). A hidden sidebar,
     /// a drag or a group not shown opens nothing.
     func open(_ id: GroupID, from opener: Opener = .name) {
+        // A remote group has no name or color of its own: Return, the menu and the name show its machine's menu.
+        if SidebarGroup.hostMachine(id) != nil { return showMenu(id) }
         guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return }
         // A click whose mouse-down closed this group's editor toggles it closed.
         if list.groupEditor.closedByThisClick(id, event: NSApp.currentEvent) { return }
@@ -119,7 +121,8 @@ struct SidebarGroupEditing {
     /// The group's full menu under its more button, on the button's trailing
     /// edge (the editor's More Group Actions row, VoiceOver's menu action).
     func showMenu(_ id: GroupID) {
-        guard let menu = list.contextMenuProvider?(.group(id)) else { return }
+        let target = SidebarGroup.hostMachine(id).map { SidebarContextTarget.section(.machine($0)) } ?? .group(id)
+        guard let menu = list.contextMenuProvider?(target) else { return }
         guard let view = list.rowViews[.group(id)] as? GroupHeaderRowView else {
             // A group drawn as its one row: on that row's trailing edge.
             guard let row = list.displayed.groupRow(id), let view = list.rowViews[row.key] else { return }
