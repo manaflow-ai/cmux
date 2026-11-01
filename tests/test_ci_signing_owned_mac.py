@@ -360,7 +360,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                                 "SIGNING_JOBS, which gives it the whole mini)")
             for read in owned_reads:
                 clauses = attempt_clauses(jobs, read)
-                if read.endswith(".owned_pool"):
+                if read.endswith(".owned_pool") or read.endswith("_owned_pool"):
                     route_ok = any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" +
                                              re.escape(read), runs_on) for clause in clauses)
                     route_shape = f"{' or '.join(clauses)} && {read}"
@@ -933,7 +933,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             output = Path(tmp) / "out"
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read,
                                                  jobs), 0)
-            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\n')
+            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\nowned_pool={SIDE}\n')
             output.unlink()
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0"}, [],
                                                  read, jobs, lambda t, r: None), 0)

@@ -311,7 +311,10 @@ class WorkflowTests(unittest.TestCase):
     def test_publish_takes_every_build_detail_from_the_selected_source(self):
         job = workflow()["jobs"]["publish-nightly"]
         self.assertIn("recover-nightly-next-notarization", job["needs"])
-        self.assertEqual(job["steps"][0]["name"], "Select the build to publish")
+        # Credentialed publication must claim an owned Mac before checkout or any
+        # release token; source selection follows that gate.
+        self.assertEqual(job["steps"][0]["name"], "Hold the whole Mac before any credential")
+        self.assertEqual(step(job, "Select the build to publish")["id"], "source")
         text = yaml.safe_dump(job)
         for stale in (
             "needs.resolve-nightly-cmux-tui-client.outputs.build_sha",

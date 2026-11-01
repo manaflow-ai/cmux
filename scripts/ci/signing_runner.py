@@ -46,8 +46,8 @@ job and never prints an empty `runner`:
         SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> signing_runner.py
     -> owned=..., runner=..., alternate=..., placement=... in $GITHUB_OUTPUT
 
-`signing_runner.py owned` prints only `owned` (pick-nightly-sign-runner already
-prints the Blacksmith pair).
+`signing_runner.py owned` prints `owned` and its shared `owned_pool` label
+(pick-nightly-sign-runner already prints the Blacksmith pair).
 """
 
 from __future__ import annotations
