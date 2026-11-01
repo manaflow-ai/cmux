@@ -17,6 +17,7 @@ pub(super) struct PreparedTurn {
     pub(super) prompt_id: String,
     pub(super) turn_id: String,
     pub(super) queued: bool,
+    pub(super) abandoned: bool,
 }
 
 pub struct Session {
@@ -64,6 +65,7 @@ pub struct Session {
     /// reservations are retained briefly so a retried prepare can replay its stable turn id.
     pub(super) prepared: StdMutex<std::collections::VecDeque<PreparedTurn>>,
     pub(super) prepared_done: StdMutex<std::collections::VecDeque<PreparedTurn>>,
+    pub(super) cloud_generation: AtomicU64,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
     pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
@@ -299,7 +301,16 @@ impl Session {
         self.queue_moved.notified().await;
     }
 
-    pub(crate) async fn prepare_turn(&self, prompt_id: &str) -> (String, bool, bool) {
+    pub(crate) async fn prepare_turn(&self, prompt_id: &str, generation: Option<u64>) -> anyhow::Result<(String, bool, bool)> {
+        if let Some(generation) = generation {
+            let current = self.cloud_generation.load(Ordering::SeqCst);
+            anyhow::ensure!(generation >= current, "cloud generation is stale");
+            if generation > current {
+                self.cloud_generation.store(generation, Ordering::SeqCst);
+                self.prepared.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            }
+        }
         loop {
             let notified = self.queue_moved.notified();
             {
@@ -312,7 +323,7 @@ impl Session {
                     .find(|p| p.prompt_id == prompt_id)
                     .cloned()
                 {
-                    return (done.turn_id, done.queued, true);
+                    return Ok((done.turn_id, done.queued, true));
                 }
                 if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
                     if pending.front().is_some_and(|p| p.prompt_id == prompt_id)
@@ -320,7 +331,7 @@ impl Session {
                         && self.queue().iter().all(|q| q.held)
                         && self.queued() == 0
                     {
-                        return (existing.turn_id.clone(), existing.queued, false);
+                        return Ok((existing.turn_id.clone(), existing.queued, false));
                     }
                 } else {
                     let queued = self.turn().is_some()
@@ -331,6 +342,7 @@ impl Session {
                         prompt_id: prompt_id.to_owned(),
                         turn_id: uuid::Uuid::now_v7().to_string(),
                         queued,
+                        abandoned: false,
                     });
                     let first = pending.front().expect("prepared reservation").clone();
                     if first.prompt_id == prompt_id
@@ -338,7 +350,7 @@ impl Session {
                         && self.queue().iter().all(|q| q.held)
                         && self.queued() == 0
                     {
-                        return (first.turn_id, first.queued, false);
+                        return Ok((first.turn_id, first.queued, false));
                     }
                 }
             }
@@ -357,8 +369,8 @@ impl Session {
 
     pub(crate) fn abandon_prepared(&self, prompt_id: &str) -> bool {
         let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(pos) = pending.iter().position(|p| p.prompt_id == prompt_id) else { return false };
-        pending.remove(pos);
+        let Some(item) = pending.iter_mut().find(|p| p.prompt_id == prompt_id) else { return false };
+        item.abandoned = true;
         self.queue_moved.notify_waiters();
         true
     }

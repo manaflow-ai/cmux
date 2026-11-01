@@ -1133,7 +1133,6 @@ async fn dispatch_request(
             if !adopting && super::ephemeral::requested(&params) {
                 super::ephemeral::own(hub, conn, &s).await;
             }
-            let meta = s.meta();
             let mut summary = hub.session_summary(&s);
             if let Some(w) = worktree {
                 summary.set("worktree", w);
@@ -1142,6 +1141,7 @@ async fn dispatch_request(
             if let Some(w) = admitted.as_ref().and_then(|a| a.warning.clone()) {
                 summary.set("admission", w);
             }
+            let meta = s.meta();
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
@@ -1862,21 +1862,26 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|id| !id.is_empty())
                 .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
-            let meta = s.meta();
             if let Some(workspace) = params.get("workspace").and_then(Value::as_str)
-                && meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str) != Some(workspace)
+                && let Ok(expected) = std::env::var("CMUX_PLATFORM_WORKSPACE_ID")
+                && expected != workspace
             {
                 return Err(RpcError::invalid_params("workspace does not match session"));
             }
             if let Some(machine) = params.get("machine").and_then(Value::as_str)
-                && meta.session_env.get("CMUX_MACHINE_ID").map(String::as_str) != Some(machine)
+                && let Ok(expected) = std::env::var("CMUX_PLATFORM_MACHINE_ID")
+                && expected != machine
             {
-                return Err(RpcError::invalid_params("machine does not match session"));
+                return Err(RpcError::invalid_params("machine does not match daemon"));
             }
             if params.get("generation").is_some_and(|v| v.as_u64().is_none()) {
                 return Err(RpcError::invalid_params("generation must be a number"));
             }
-            let (turn_id, queued, accepted) = s.prepare_turn(prompt_id).await;
+            let generation = params.get("generation").and_then(Value::as_u64);
+            let (turn_id, queued, accepted) = s
+                .prepare_turn(prompt_id, generation)
+                .await
+                .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             if accepted {
                 Ok(json!({"accepted": {"prompt_id": prompt_id, "turn_id": turn_id, "queued": queued}}))
             } else {

@@ -80,13 +80,13 @@ fn receive(hub: &Hub, session: &Session, id: &str) -> bool {
 async fn cloud_turn_prepare_replays_and_serializes_fifo_ids() {
     let (hub, _) = hub();
     let session = session(&hub);
-    let (first, queued, replay) = session.prepare_turn("p1").await;
+    let (first, queued, replay) = session.prepare_turn("p1", Some(1)).await.unwrap();
     assert!(!queued && !replay);
-    let (again, _, replay) = session.prepare_turn("p1").await;
+    let (again, _, replay) = session.prepare_turn("p1", Some(1)).await.unwrap();
     assert_eq!(again, first);
     assert!(!replay, "pending reservation is not accepted yet");
     session.accept_prepared("p1", &first);
-    let (accepted, accepted_queued, replay) = session.prepare_turn("p1").await;
+    let (accepted, accepted_queued, replay) = session.prepare_turn("p1", Some(1)).await.unwrap();
     assert!(replay);
     assert_eq!((accepted, accepted_queued), (first, false));
 }

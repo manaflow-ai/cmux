@@ -242,21 +242,25 @@ impl Hub {
         turn_id: &str,
     ) {
         if let Some((cloud, scope)) = cloud_exec.take() {
-            let mut last = None;
-            for attempt in 0..3 {
-                match cloud.finish_execution(&scope).await {
-                    Ok(_) => return,
-                    Err(error) => {
-                        last = Some(error);
-                        if attempt < 2 {
-                            tokio::time::sleep(Duration::from_millis(100 * (attempt + 1))).await;
+            let session_id = session.id.clone();
+            let turn_id = turn_id.to_owned();
+            tokio::spawn(async move {
+                let mut delay = Duration::from_millis(100);
+                let mut attempts = 0u64;
+                loop {
+                    match cloud.finish_execution(&scope).await {
+                        Ok(_) => break,
+                        Err(error) => {
+                            attempts += 1;
+                            if attempts == 1 || attempts.is_power_of_two() {
+                                tracing::warn!(session = %session_id, turn = %turn_id, attempts, "cloud turn finish pending: {error}");
+                            }
+                            tokio::time::sleep(delay).await;
+                            delay = (delay * 2).min(Duration::from_secs(30));
                         }
                     }
                 }
-            }
-            if let Some(error) = last {
-                tracing::warn!(session = %session.id, turn = %turn_id, "cloud turn finish failed after retries: {error}");
-            }
+            });
         }
     }
 
