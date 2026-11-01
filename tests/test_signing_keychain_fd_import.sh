@@ -47,13 +47,24 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # Keep private-key text in pipes and shell variables only. OpenSSL output is
 # ASCII, so command substitution does not discard binary NUL bytes.
 KEY_PEM="$($OPENSSL genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)"
+CERT_CONFIG='[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = CMUX FD Credential Test
+[ext]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,codeSigning'
 CERT_PEM="$(printf '%s\n' "$KEY_PEM" | "$OPENSSL" req -new -x509 -days 1 -key /dev/stdin \
-  -subj "/CN=$SUBJECT/OU=CMUX-FD-TEST" 2>/dev/null)"
+  -config /dev/fd/4 -subj "/CN=$SUBJECT/OU=CMUX-FD-TEST" \
+  4< <(printf '%s\n' "$CERT_CONFIG") 2>/dev/null)"
 P12_B64="$(printf '%s\n' "$KEY_PEM" | "$OPENSSL" pkcs12 -export -inkey /dev/stdin \
   -in <(printf '%s\n' "$CERT_PEM") -passout "pass:$PASSWORD" -name "$SUBJECT" \
   -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 2>/dev/null | base64)"
 [ -n "$P12_B64" ] || fail "OpenSSL produced no PKCS#12 fixture"
-unset KEY_PEM CERT_PEM
+unset KEY_PEM CERT_PEM CERT_CONFIG
 
 mkdir -p "$TMP_DIR/runner-temp"
 export RUNNER_TEMP="$TMP_DIR/runner-temp"
