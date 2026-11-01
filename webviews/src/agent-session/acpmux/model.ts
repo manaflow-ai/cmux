@@ -1016,8 +1016,8 @@ function activityStepHeight(item: AcpmuxActivity): number {
 /// such run grows by its other lines when it mounts and the scroll thumb jumps (Leo, 2026-10-25:
 /// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
 /// confused").
-function foldedRunSteps(row: AcpmuxRow): number {
-  return runStretches(row, toolGroups(row.items ?? [])).reduce(
+function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
+  return runStretches(row, groups).reduce(
     (height, stretch) =>
       height +
       (stretch.fold ? TOOL_ROW_HEIGHT : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
@@ -1335,8 +1335,13 @@ function fallbackRowHeight(
       const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
       return finish(14 + editedCardHeight(files.size, plain.length));
     }
-    // A folded run (the Codex-style runs) draws its stretches: one summary line when it all folds.
-    if (row.foldRun && row.items?.length) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row));
+    // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
+    // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
+    if (row.foldRun && row.items?.length) {
+      const groups = toolGroups(row.items);
+      if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups));
+      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM);
+    }
     const items = row.items ?? [];
     const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : TOOL_ROW_HEIGHT;
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
@@ -1934,7 +1939,8 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { runStretches, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";

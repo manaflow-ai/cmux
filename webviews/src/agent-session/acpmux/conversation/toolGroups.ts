@@ -423,7 +423,7 @@ export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunS
 /// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
-function staysInSight(group: ToolGroup): boolean {
+export function staysInSight(group: ToolGroup): boolean {
   if (
     group.type === "message" ||
     group.type === "send" ||
