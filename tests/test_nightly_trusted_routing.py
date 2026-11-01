@@ -289,11 +289,18 @@ class NightlyTrustedRouting(unittest.TestCase):
             'needs.decide.outputs.track': 'nightly-next',
             'needs.decide.outputs.cold_cache': 'false',
             'steps.compilation-cache-bound.outputs.save': 'true',
+            'steps.compilation-cache-restore.outputs.cache-hit': 'false',
+            'steps.swift-packages-restore.outputs.cache-hit': 'false',
         }
+        # The dedicated builder keeps DerivedData and its cache on its own
+        # runner. A normal owned Mac starts clean but must use the shared cache.
         for name in ('Restore Xcode compilation cache', 'Cache Swift packages',
                      'Save Xcode compilation cache', 'Save Swift packages'):
             with self.subTest(step=name):
-                self.assertFalse(evaluate(parse_expression(steps[name]['if']), context))
+                self.assertFalse(evaluate(parse_expression(steps[name]['if']),
+                                          {**context, 'steps.release-derived-data.outputs.mode': 'incremental'}))
+                self.assertTrue(evaluate(parse_expression(steps[name]['if']),
+                                         {**context, 'steps.release-derived-data.outputs.mode': ''}))
 
     def test_next_runs_do_not_hold_the_workflow_lock_for_post_publication_checks(self):
         group = DOC["concurrency"]["group"]
