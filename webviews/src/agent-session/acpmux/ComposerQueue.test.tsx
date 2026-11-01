@@ -1284,3 +1284,16 @@ test("a Save begun while cancel and edit reads the row's images keeps the row qu
   expect(run.editor()).toBe("first, reworded");
   expect(run.lost).toEqual([]);
 });
+
+test("a Save begun and answered while cancel and edit reads the row's images keeps the row queued", async () => {
+  const run = await cancelAndEditWhileSaving(true);
+  await act(async () => run.cancel().click());
+  await run.save();
+  await act(async () => run.saves[0]!.reject(Object.assign(new Error("failed"), { code: "native.not_connected" })));
+  await settle();
+  await act(async () => run.reads.forEach((finish) => finish("data:image/png;base64,QQ==")));
+  await settle();
+  expect(run.taken).toEqual([]);
+  expect(run.editor()).toBe("first, reworded");
+  expect(run.lost).toEqual([]);
+});

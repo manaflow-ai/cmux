@@ -644,13 +644,16 @@ export function ComposerQueue({
       // A Save of this row is still out: its answer decides the text (a failed one brings it back
       // into the row's editor), so the row is taken back once it is answered.
       if (savesPending.current.has(entry.id)) return;
+      const began = saveGeneration.current.get(entry.id);
       const attachments = await queuedAttachments(entry.images, readImage);
       // An image that could not be read would be lost with the row: it stays queued.
       if (lacksImageBytes(attachments)) return;
       // Its images read, the row may have turned out to be a teammate's (or gone): then it is
       // theirs, and nothing is taken out of the queue.
       const now = drawnRows.current.find((row) => row.id === entry.id);
-      if (!now || theirs(now) || savesPending.current.has(entry.id)) return;
+      // A Save begun while the images were read (answered or not) changed what the row shows or
+      // what its editor holds: the click is not carried out on the text it was made on.
+      if (!now || theirs(now) || saveGeneration.current.get(entry.id) !== began) return;
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
