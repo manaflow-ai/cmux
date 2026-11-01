@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSidebar
 
@@ -125,21 +126,13 @@ final class AgentPageChats {
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
         tabs.pageChats.cloudEnvironment = { [weak services] request in
-            guard let services, !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud,
-                  let connection = services.machines.local.connection, let platform = ArtifactsPageProvider.apiBaseURL() else {
-                return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
-            }
-            do {
-                let token = try await services.cloud.installIdentity.accessToken(team: try await services.cloud.auth.accessTokenTeam(requested: nil))
-                let value = try await connection.request(
-                    CloudEnvironmentRequest(action: request.action, params: request.params,
-                                            platformOrigin: platform.absoluteString, accessToken: token.accessToken), timeout: .seconds(30))
-                return AgentPaneReply.success(try JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: [.fragmentsAllowed]))
-            } catch DaemonError.command(_, let message, let code, _, _) {
-                return AgentPaneReply.failure(code: code ?? "cloud_environment.failed", message: message)
-            } catch {
-                return AgentPaneReply.failure(code: "cloud_environment.unavailable", message: "cloud_environment.unavailable")
-            }
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            return await request.run(
+                allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
+                connection: services.machines.local.connection, platform: ArtifactsPageProvider.apiBaseURL()) {
+                    let team = try await services.cloud.auth.accessTokenTeam(requested: nil)
+                    return (try await services.cloud.installIdentity.accessToken(team: team)).accessToken
+                }
         }
         notices.start()
         let handoffs = HandoffNotices(services: services)
@@ -148,6 +141,8 @@ final class AgentPageChats {
         tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            // Read before any wait, while the pane holds the send: its tab may close before the create answers.
+            let incognito = notices.sendIsIncognito(key: key)
             // Cloud turned off by policy, or the managed team it requires missing: a definite
             // refusal, nothing was asked of the server.
             guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud else {
@@ -162,7 +157,7 @@ final class AgentPageChats {
             let team = await services.cloud.api.currentTeam()
             let api = services.cloud.api.pinningTeam(team)
             let follow: @Sendable (String) async throws -> Data = { id in
-                try await notices.follow(id: id, task: task, key: key, team: team)
+                try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }
             return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, follow: follow) },
                                                 code: AgentPageChats.sandboxCode)

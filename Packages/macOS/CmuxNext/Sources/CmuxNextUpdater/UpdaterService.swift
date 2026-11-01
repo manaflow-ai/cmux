@@ -40,8 +40,7 @@ public final class UpdaterService {
     public internal(set) var managedChannel: AppChannelSwitchTarget?
     /// `MinimumVersion` from the managed policy, or nil.
     public internal(set) var managedMinimumVersion: String?
-    /// Whether the circle shows the last probe's result (the user asked, in a
-    /// build without Sparkle).
+    /// Whether the circle shows the last probe's result (the user asked, in a build without Sparkle).
     public internal(set) var showsProbeResult = false
     /// A fixed circle phase for screenshots (`debug.update_indicator`).
     public var debugIndicatorPhase: UpdateIndicatorPhase? {
@@ -63,8 +62,7 @@ public final class UpdaterService {
     /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
     /// ``startKillSwitchReader()`` stops the one before through this property.
     @ObservationIgnored var killSwitchReader: KillSwitchReader?
-    /// The notice whose timeout is pending, and its one-shot deadline on the
-    /// injected clock (no `asyncAfter`).
+    /// The notice whose timeout is pending, and its one-shot deadline on the injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
     /// When the install phase began (``installStatus``), nil outside it.
@@ -88,8 +86,7 @@ public final class UpdaterService {
     @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
-    /// Opens the changelog page for the releases after `from` up to `to`
-    /// (set by the App).
+    /// Opens the changelog page for the releases after `from` up to `to` (set by the App).
     @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
     /// Opens a web release notes page in a browser tab (set by the App;
     /// "See all changes" when the staged build has no signed notes).
@@ -106,8 +103,7 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
-    /// Where a staged update is recorded for the next build's What's New
-    /// (nil: not recorded).
+    /// Where a staged update is recorded for the next build's What's New (nil: not recorded).
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
@@ -232,6 +228,8 @@ public final class UpdaterService {
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
     @ObservationIgnored var installingBuild: String?
+    /// The build whose install the last relaunch left undone, and why (``UpdateInstallCheck``).
+    public internal(set) var failedInstall: (build: String, failure: UpdateInstallFailure)?
     /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
     @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
     /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
@@ -341,6 +339,7 @@ public final class UpdaterService {
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        failedInstall = UpdateInstallCheck.launchFailure(defaults: defaults, build: identity.build, now: now(), log: log)
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
         // The app settled the install before making the updater (AppServices): an install that ran
@@ -453,8 +452,7 @@ public final class UpdaterService {
         }
     }
 
-    /// Reads the feed and records what it offers this Mac. Joins a probe
-    /// already in flight.
+    /// Reads the feed and records what it offers this Mac. Joins a probe already in flight.
     @discardableResult
     public func probe() -> Task<String?, Never> {
         if let probeTask { return probeTask }
@@ -592,8 +590,7 @@ public final class UpdaterService {
 }
 
 extension UpdaterService {
-    /// ``switchChannel(to:)`` by name (`stable`, `nightly`); nil means the
-    /// counterpart of the running app.
+    /// ``switchChannel(to:)`` by name (`stable`, `nightly`); nil means the counterpart of the running app.
     @discardableResult
     public func switchChannel(named name: String?) throws -> Task<String?, Never> {
         let requested = name.flatMap { AppChannelSwitchTarget(rawValue: $0.lowercased()) }
@@ -603,8 +600,7 @@ extension UpdaterService {
         return try switchChannel(to: target)
     }
 
-    /// Why switching channels is impossible here (DEV/RC builds have no
-    /// counterpart), or nil.
+    /// Why switching channels is impossible here (DEV/RC builds have no counterpart), or nil.
     public var channelSwitchUnavailableReason: String? {
         guard let target = identity.channelSwitchTarget else {
             return UpdaterUnavailable.cannotSwitch(to: "stable/nightly", from: identity.track).description

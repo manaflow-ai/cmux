@@ -1,15 +1,14 @@
 // The tray of running work at the foot of the chat (runningTray.ts): a part of the bottom stack
 // right above the composer (bottomStack.css), so it never scrolls away with history and the
 // transcript keeps its last row above it. It is the one place running background work shows, in a
-// turn and between turns. Each running subagent, background command (session-info/processes.ts
+// turn and between turns. Each running subagent, background command (inspector/processes.ts
 // `backgroundCommands`, the process registry's merged with the transcript's) and chat the agent
 // started is one line (AgentLine.tsx, the summary card's rows too): its icon in the theme's accent,
 // its name, what it does now, how long it has run (ticking) and its state, Running or Waiting. A
 // click opens it: a subagent's pane or view (App.tsx `showSubagent`), a command's terminal
-// (processTerminal.ts), a chat. A running subagent, and a command the registry lists, stops from
-// its line's context menu (a right-click, or Shift-F10 and the menu key on the focused line), never
-// a Stop on every line: a control repeated down the rows is a block on Leo's visual rule (#28533's
-// review, on a tray with a Stop per line). An agent another one spawned sits right under it.
+// (processTerminal.ts), a chat. A running subagent, and a command the registry lists, has a Stop
+// square in the fixed row track and the same action in its context menu (a right-click, or Shift-F10
+// and the menu key on the focused line). An agent another one spawned sits right under it.
 //
 // One item is its line alone. Several get a header first, as the Codex and Claude desktop apps
 // head their running agents: a still running-work mark (never the spinner, which stays on each
@@ -20,9 +19,11 @@
 // header counts exactly the lines under it: what runs or waits on the person. The chat's subagents
 // and the chats its agent started are all "subagents" (Leo 2026-10-21: "SHOULDN'T THIS SAY
 // SUBAGENTS?"). What ended stays as compact status cards after them, never counted. A command is
-// named by what its call says it does (session-info/processes.ts `commandLabel`), a chat by its title
-// and what its turn does now. Up to three lines show under it; more start folded to the header so
-// the tray never takes the transcript's room, and the chevron opens them. Its
+// named by what its call says it does (inspector/processes.ts `commandLabel`), a chat by its title
+// and what its turn does now. A headed tray starts folded to its header, one line, so the tray never
+// takes the transcript's room (https://github.com/manaflow-ai/cmux/issues/28875: two commands and a
+// done subagent stood open over the chat), and the chevron opens it. The person's choice holds for
+// that chat, across a switch away and back (trayFoldMemory.ts). Its
 // glass is the user bubble's: the theme's text at a low strength over the backdrop, with the
 // composer's hairline rim.
 //
@@ -60,13 +61,14 @@ import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../session-info/processes";
+import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
-import { elapsed, useNow } from "./SubagentGroup";
+import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import { toolDetail } from "./trayDetail";
 import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
@@ -76,8 +78,9 @@ import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
+import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 
-/// Lines the tray shows under its header without a click.
+/// Ended lines the tray shows before View all.
 export const TRAY_OPEN_MAX = 3;
 
 const ROW_ICON = rowIconSize(12);
@@ -115,6 +118,7 @@ export const SubagentTray = memo(function SubagentTray({
   placement = "tray",
   shown,
   enters = false,
+  chat,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -145,6 +149,8 @@ export const SubagentTray = memo(function SubagentTray({
   shown?: { readonly current: string | undefined };
   /// The tray appears in a chat that showed without it: it eases in.
   enters?: boolean;
+  /// The chat the tray belongs to: the person's open or fold holds for it (trayFoldMemory.ts).
+  chat?: string;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -152,8 +158,8 @@ export const SubagentTray = memo(function SubagentTray({
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
-  // The person's choice holds; until then a short list shows and a long one folds.
-  const [opened, setOpened] = useState<boolean>();
+  // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
+  const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
   const [showFinished, setShowFinished] = useState(false);
   const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
   // Each line's Stop, as its menu item: off while the request is out (and after it is taken, until
@@ -191,12 +197,28 @@ export const SubagentTray = memo(function SubagentTray({
   // The header stays while the tray has more than one line, running or ended: one of two running
   // ending never takes it (and its collapse) away.
   const headed = items.length + finished.length > 1;
-  const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
+  const open = !headed || opened === true;
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
-  // chevron or the list growing past TRAY_OPEN_MAX.
+  // chevron, or a lone line gaining a header (the tray then folds to it).
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
   // page-reveal gate (shared/pageReveal.ts), read only when the fold changes.
   const fold = useFold(open, entranceMayRun, false);
+  // A fold the person did not ask for (a lone line gaining a header) makes the list inert under a
+  // focused line or Stop: focus moves to the header that folded it, never to the page's body. With no
+  // motion the fold leaves in the same commit and takes the focused line with it, so whether focus
+  // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
+  const headButton = useRef<HTMLButtonElement | null>(null);
+  const focusInList = useRef(false);
+  useLayoutEffect(() => {
+    if (open || !focusInList.current) return;
+    focusInList.current = false;
+    const tray = trayNode.current;
+    const focused = tray?.ownerDocument.activeElement;
+    // Fell to the page (the line left with the fold), or still in the tray (an inert line): only
+    // then. Focus the person put elsewhere since stays where it is.
+    const fell = !focused || focused === tray?.ownerDocument.body;
+    if ((fell || tray?.contains(focused)) && focused !== headButton.current) headButton.current?.focus();
+  }, [open]);
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
   // Motion, the host's switch, a page away: hidden, or in its first frames back, shared/pageReveal.ts)
@@ -350,10 +372,14 @@ export const SubagentTray = memo(function SubagentTray({
       {headed && (
         <button
           type="button"
+          ref={headButton}
           className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
-          onClick={() => setOpened(!open)}
+          onClick={() => {
+            setOpened(!open);
+            rememberTrayOpen(chat, !open);
+          }}
         >
           {head !== "bare" && (
             <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
@@ -378,6 +404,16 @@ export const SubagentTray = memo(function SubagentTray({
           className="acpmux-running-tray__fold"
           inert={!open || undefined}
           aria-hidden={!open || undefined}
+          onFocus={() => {
+            focusInList.current = true;
+          }}
+          onBlur={(event) => {
+            // Only focus that moves to another control leaves the list. A blur to nothing (the
+            // focused line removed or made inert by the fold, the window losing focus) keeps it,
+            // for the effect above to read against where focus is then.
+            const to = event.relatedTarget as Node | null;
+            if (to && !event.currentTarget.contains(to)) focusInList.current = false;
+          }}
         >
           <ul id={listId} className="acpmux-running-tray__list">
             {cards}
@@ -427,6 +463,7 @@ export const SubagentTray = memo(function SubagentTray({
         <AgentLine
           name={item.agent.name}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
+          progressAgent={item.agent}
           mark={item.agent.harness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
@@ -444,6 +481,11 @@ export const SubagentTray = memo(function SubagentTray({
           // A narrow tray's second line is its time and controls: the stats wrap under the title.
           progressAt={row === "below" || narrow ? "below" : "meta"}
           onOpen={() => onOpen(item.agent.id)}
+          after={
+            stop &&
+            item.agent.state === "running" &&
+            !item.agent.command && <StopButton agent={item.agent} stop={stop} />
+          }
         />,
         // An agent a shell call started stops with that call, not through the harness.
         stop &&
@@ -488,6 +530,17 @@ export const SubagentTray = memo(function SubagentTray({
                       onOpenCommand(item.command);
                     }
                   : undefined
+              }
+              after={
+                stopProcess &&
+                processId && (
+                  <ProcessStopButton
+                    id={processId}
+                    name={item.command.command}
+                    label={t("tray.stopCommand")}
+                    stop={stopProcess}
+                  />
+                )
               }
             />,
             stopProcess &&

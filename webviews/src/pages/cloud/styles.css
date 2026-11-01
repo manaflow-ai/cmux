@@ -406,7 +406,8 @@ select {
 
 .cloud-detail-title {
   margin: 0;
-  font-size: 17px;
+  font-size: var(--text-heading);
+  letter-spacing: var(--text-heading--letter-spacing);
   font-weight: 600;
   min-width: 0;
   overflow: hidden;
@@ -620,7 +621,7 @@ select {
 }
 
 .cloud-badge {
-  font-size: 10px;
+  font-size: var(--text-caption);
   padding: 1px 6px;
   border-radius: 9px;
   border: 1px solid var(--cloud-separator);

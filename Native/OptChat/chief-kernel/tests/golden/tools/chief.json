@@ -64,6 +64,16 @@
           ],
           "type": "string"
         },
+        "harness": {
+          "description": "The agent harness they run on, chosen per task: codex (GPT) for long autonomous coding, refactors, CI fixes and a second opinion on Claude-written code; claude for writing, design, research, UI and computer use; another acpmux profile by its name. Split a spawn when tasks want different harnesses. By default, the one you run on. Routing is off unless the person turned it on, and a harness they have not granted is refused: then leave it out.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "model": {
+          "description": "The model they run on, an id the harness takes (for example gpt-6-astra or claude-sonnet-5-5); by default, the harness's. Refused, like harness, while routing is off: then leave it out.",
+          "minLength": 1,
+          "type": "string"
+        },
         "place": {
           "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here.",
           "enum": [
