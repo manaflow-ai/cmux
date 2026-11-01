@@ -112,6 +112,15 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, daemons: services.acpmuxDaemons,
                                  updates: services.daemonUpdates, peerApprover: services.peerApprover)
+        tabs.cloudRepositoryLocal = { [weak services] in
+            guard let services,
+                  let value = await services.daemon.request("cloud.repo.local", { connection in
+                      try await connection.request(AgentPaneCloudRepositoryLocalRequest(), timeout: .seconds(30))
+                  }) else {
+                throw DaemonError.notConnected
+            }
+            return try JSONEncoder().encode(value)
+        }
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
             // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or

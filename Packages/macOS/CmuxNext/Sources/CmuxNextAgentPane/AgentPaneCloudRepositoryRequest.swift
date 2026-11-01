@@ -20,6 +20,15 @@ private nonisolated extension JSONValue {
     }
 }
 
+/// The Mac daemon's local catalog read. This uses the raw cmux-tui command path; it is not an
+/// acpmux JSON-RPC method and does not carry a chat session.
+public struct AgentPaneCloudRepositoryLocalRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "cloud.repo.local"
+
+    public init() {}
+}
+
 /// The Cloud repository actions are daemon-owned. The page host only validates the action shape
 /// and forwards it to the pane's authenticated acpmux socket; it never handles repository data.
 public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
@@ -70,7 +79,8 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
     /// Forwards a validated action. Typed repository failures are successful daemon results and
     /// remain in `value`, so the web card can render the next action without treating it as transport failure.
     func reply(localSocketPath: String, machineSocketPath: String, remoteChat: Bool, sessionID: String?,
-               request: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)? = nil) async -> [String: Any] {
+               request: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)? = nil,
+               localRequest: (@MainActor () async throws -> Data)? = nil) async -> [String: Any] {
         guard remoteChat || method == "cloud.repo.local" || method == "cloud.repo.sync" else {
             return AgentPaneReply.failure(code: "unavailable", message: "Cloud repository actions require a Cloud chat.")
         }
@@ -86,10 +96,18 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
                 sendable["session"] = sessionID
             }
             let deadline: Duration? = method == "cloud.repo.wait_github" ? .seconds(65) : .seconds(120)
-            guard let request else {
-                return AgentPaneReply.failure(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")
+            let data: Data
+            if method == "cloud.repo.local" {
+                guard let localRequest else {
+                    return AgentPaneReply.failure(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")
+                }
+                data = try await localRequest()
+            } else {
+                guard let request else {
+                    return AgentPaneReply.failure(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")
+                }
+                data = try await request(method, sendable, deadline)
             }
-            let data = try await request(method, sendable, deadline)
             let value = (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             return AgentPaneReply.success(value)
         } catch let error as AgentSessionRemoteError {
