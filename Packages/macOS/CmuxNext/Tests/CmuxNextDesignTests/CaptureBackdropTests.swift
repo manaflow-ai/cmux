@@ -44,7 +44,9 @@ import Testing
         probe.isReleasedWhenClosed = false
         defer { probe.close() }
         probe.orderFrontRegardless()
-        return probe.isVisible && probe.windowNumber > 0
+        // A visible window is not enough on a worker without a composited window-server image.
+        // Display coverage is advisory, so skip this suite when capture is unavailable.
+        return probe.isVisible && probe.windowNumber > 0 && probe.compositedSnapshotWithOverlays() != nil
     }
 
     private static func translucent(_ frame: NSRect) -> NSWindow {
