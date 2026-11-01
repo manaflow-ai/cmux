@@ -983,6 +983,8 @@ impl Hub {
         let continuing = self.continuation_pending(session);
         let next = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            // Set once `new` lets go of the inbox (below).
+            let mut held_by_person = false;
             let next = {
                 let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
                 if new.is_empty()
@@ -1001,9 +1003,7 @@ impl Hub {
                             // A review box's turn takes no notice: what its inbox held before
                             // it became one waits for the turn's end (module docs). Nor does
                             // the person's own: the notice goes in as a turn after it.
-                            if turn.persons {
-                                inbox.held_by_person = true;
-                            }
+                            held_by_person = turn.persons;
                             if !steers
                                 || turn.persons
                                 || capped(&meta, turn.started_at, now)
@@ -1061,6 +1061,9 @@ impl Hub {
                     }
                 }
             };
+            if held_by_person {
+                inbox.held_by_person = true;
+            }
             match next {
                 Next::Nothing => {
                     if let Some(timer) = inbox.timer.take() {

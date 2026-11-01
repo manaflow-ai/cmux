@@ -66,7 +66,8 @@ async fn until(hub: &Arc<Hub>, id: &str, what: &str, done: impl Fn(&[Value]) -> 
 /// The chat's first work from another agent (`hub/inbox.rs` `first_work`): a turn that is not the
 /// person's own, gated on `gate`, which notices and other agents' steers may go into.
 fn agents_gated_turn(id: &str, gate: &std::path::Path) -> Value {
-    let mut msg = from_agent(id, "w-first", "orch", &format!("gate: {}", gate.display()), json!({}));
+    let mut msg =
+        from_agent(id, "w-first", "orch", &format!("gate: {}", gate.display()), json!({}));
     msg["_meta"]["acpmux"]["steer"] = json!(false);
     msg
 }
@@ -247,7 +248,11 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     open(&gate).await;
     until(&hub, &id, "the person's turn", |p| p.iter().any(|m| m["promptId"] == "p-me")).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(notices(&hub, &id).is_empty(), "nothing goes into the person's turn: {:?}", prompts(&hub, &id));
+    assert!(
+        notices(&hub, &id).is_empty(),
+        "nothing goes into the person's turn: {:?}",
+        prompts(&hub, &id)
+    );
     open(&next).await;
     let mut ids = sent.clone();
     ids.extend([turn, mine]);
