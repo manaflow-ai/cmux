@@ -438,11 +438,12 @@ fn terminal_is_ephemeral(
         .is_some())
 }
 
-/// [`terminal_is_ephemeral`] by public terminal id.
+/// [`terminal_is_ephemeral`] by public terminal id; `None` for a terminal
+/// the session does not (yet) have.
 pub(crate) fn public_terminal_is_ephemeral(
     connection: &Connection,
     public_id: &str,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<bool>> {
     let terminal = connection
         .query_row(
             "SELECT terminal_id FROM resource_terminals WHERE public_id = ?1",
@@ -451,7 +452,7 @@ pub(crate) fn public_terminal_is_ephemeral(
         )
         .optional()?;
     match terminal {
-        Some(terminal) => terminal_is_ephemeral(connection, &terminal),
-        None => Ok(false),
+        Some(terminal) => terminal_is_ephemeral(connection, &terminal).map(Some),
+        None => Ok(None),
     }
 }

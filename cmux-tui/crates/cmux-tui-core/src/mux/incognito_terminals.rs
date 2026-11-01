@@ -25,7 +25,7 @@ impl Mux {
     }
 
     /// Whether workspace `workspace_key` is incognito. A registry error
-    /// reads as not incognito.
+    /// reads as incognito (fail closed: history off, nothing kept).
     pub(crate) fn workspace_key_is_ephemeral(&self, workspace_key: &str) -> bool {
         if self
             .incognito_workspace_keys
@@ -41,7 +41,12 @@ impl Mux {
             .read_state(|connection| {
                 crate::state::store::workspace_key_is_ephemeral(connection, workspace_key)
             })
-            .unwrap_or(false)
+            .unwrap_or_else(|error| {
+                eprintln!(
+                    "cmux-tui: could not tell whether workspace {workspace_key} is incognito; treating it as incognito: {error:#}"
+                );
+                true
+            })
     }
 
     /// [`Self::terminal_spawn_options`] for a terminal of `workspace_key`:
