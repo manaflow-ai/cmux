@@ -57,6 +57,8 @@ pub(crate) mod frontend_browser_keys;
 #[cfg(test)]
 mod group_delete_tests;
 #[cfg(test)]
+mod incognito_terminal_tests;
+#[cfg(test)]
 mod group_icon_tests;
 #[cfg(test)]
 mod group_pin_tests;
