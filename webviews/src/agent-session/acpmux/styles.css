@@ -148,6 +148,9 @@
 .acpmux-menu-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-menu-description{color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-unrestricted .acpmux-menu-description{color:inherit}
+/* The `/` and `@` lists' layer (backdropLayer.tsx): out of the composer box's glass, on the box's place and size, so the list's own rules below place it as inside the box. Only the list takes presses. */
+.acpmux-composer-list-layer{position:absolute;pointer-events:none}
+.acpmux-composer-list-layer>*{pointer-events:auto}
 .acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
 .acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
