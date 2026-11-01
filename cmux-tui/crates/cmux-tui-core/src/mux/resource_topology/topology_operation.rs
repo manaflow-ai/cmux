@@ -425,6 +425,23 @@ impl Mux {
         {
             selectors.pane = Some(pane.as_str().to_string());
         }
+        // FC-1: a terminal tab aimed at a pinned column that takes no tabs (Home's dock before
+        // its `allow_tabs`, or one closed to tabs) opens in a new column right of the dock, in
+        // one `pane.split` commit, instead of a `dock-column-pinned` refusal. Every terminal tab
+        // commits here (the JSON-lines `new-tab`, `tab.create_terminal`, the frontend's
+        // creation), so no client needs a guard of its own. The split keeps the focus where it
+        // was unless the caller asked, as a tab made in another pane does.
+        let (operation, fields) = match operation {
+            ResourceOperation::TabCreateTerminal => {
+                match self.terminal_column_beside_closed_dock(&selectors) {
+                    Some(width) => {
+                        (ResourceOperation::PaneSplit, terminal_tab_as_column(fields, width))
+                    }
+                    None => (operation, fields),
+                }
+            }
+            _ => (operation, fields),
+        };
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?
@@ -530,6 +547,17 @@ impl Mux {
         Ok(commit)
     }
 
+    /// The new column's width when `selectors` name a pane in a pinned column that takes no
+    /// tabs ([`terminal_column_beside_closed_dock`]), else `None`.
+    fn terminal_column_beside_closed_dock(&self, selectors: &ResourceSelectors) -> Option<f32> {
+        selectors.pane.as_ref()?;
+        let pane = self.resolve_resource_path(ResourceTarget::Pane, selectors).ok()?.pane?;
+        self.with_state(|state| {
+            let pane = *state.resource_indexes.panes.get(&pane)?;
+            terminal_column_beside_closed_dock(state, pane)
+        })
+    }
+
     pub(crate) fn emit_resource_topology_legacy_events(
         &self,
         operation: ResourceOperation,
@@ -564,4 +592,15 @@ impl Mux {
             self.emit_layout_changed(screen, None);
         }
     }
+}
+
+/// A terminal tab's fields as the `pane.split` that opens it in a new column of `width` right
+/// of its pane (FC-1): its strip slot has no meaning in a new pane, and the split does not take
+/// the focus unless the caller asked.
+fn terminal_tab_as_column(mut fields: Map<String, Value>, width: f32) -> Map<String, Value> {
+    fields.remove(tab_strip::tab_slot::INDEX_FIELD);
+    fields.insert("direction".into(), Value::String("right".into()));
+    fields.insert("viewport_width".into(), Value::from(width));
+    fields.entry(PANE_SPLIT_FOCUS_FIELD).or_insert(Value::Bool(false));
+    fields
 }

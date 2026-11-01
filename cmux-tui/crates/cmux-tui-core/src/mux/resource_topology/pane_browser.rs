@@ -160,9 +160,10 @@ impl Mux {
         intent: &Value,
         target: PaneId,
         workspace_key: &str,
-        terminal: PaneTerminalSpawn,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        size: Option<(u16, u16)>,
     ) -> anyhow::Result<SpawnedPaneSurface<'_>> {
-        let PaneTerminalSpawn { argv, cwd, size, name, on_exit } = terminal;
         let fields =
             intent["fields"].as_object().context("stored topology intent omitted fields")?;
         if let Some(url) = pane_browser_url(ResourceOperation::PaneSplit, fields)? {
@@ -187,15 +188,12 @@ impl Mux {
             workspace_key,
             argv.as_deref(),
             cwd.as_deref(),
-            name.as_deref(),
+            None,
             size,
-            on_exit,
+            None,
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(workspace_key, cwd, size, argv, reservation)?;
-        if let Some(name) = name {
-            surface.set_name(Some(name));
-        }
         Ok(SpawnedPaneSurface::Terminal(surface))
     }
 
