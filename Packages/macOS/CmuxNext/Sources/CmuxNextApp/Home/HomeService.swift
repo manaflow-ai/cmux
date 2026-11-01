@@ -114,7 +114,7 @@ final class HomeService {
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
-    /// Shows the Feed's notices in the default Chief's transcript (HomeService+FeedRows).
+    /// Shows the Feed's notices in the default Chief's transcript (HomeService+ChiefRoster).
     @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
