@@ -70,6 +70,10 @@ struct ChatLinkReusesRightPaneTests {
         #expect(ChatColumnPlacement.pagePick(from: "chat", columns: columns) == "page")
         #expect(!ChatColumnPlacement.keepsNewTabPage(from: "below", columns: columns))
         #expect(ChatColumnPlacement.pagePick(from: "below", columns: columns) == nil, "a page below the chat is replaced in place")
+        // A browser typed on that page opens there too (review of #29848: it went through the dock's strip route).
+        #expect(ChatColumnPlacement.isBelowChat("below", columns: columns))
+        #expect(!ChatColumnPlacement.isBelowChat("chat", columns: columns), "the chat's own picks still go beside it")
+        #expect(!ChatColumnPlacement.isBelowChat("page", columns: columns))
     }
 
     /// #29848: Split Down grows an unpinned chat dock below the pane it splits; Home's pinned dock, a zoomed screen

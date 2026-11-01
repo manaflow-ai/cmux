@@ -62,6 +62,14 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
         return dock.role == .agentChat && !dock.isPinned
     }
 
+    /// Whether `pane` is one Split Down made below the chat in the chat dock (#29848): an ordinary pane,
+    /// so a person's browser from a New Tab page there (`newTab.submit`, typed in any mode) opens in it, not beside the chat.
+    public nonisolated static func isBelowChat(_ pane: PaneID, columns: [LayoutColumn]) -> Bool {
+        guard let column = columns.first(where: { $0.root.contains(pane) }), let dock = column.dock,
+              column.root.panes.first != pane else { return false }
+        return dock.role == .agentChat && !dock.isPinned
+    }
+
     /// Where a terminal or browser picked on a New Tab page in `pane` opens: for a page in the chat dock
     /// (``keepsNewTabPage(from:columns:)``), the strip pane its new tabs go to (the one used last, else the
     /// first), whatever else the dock holds, the page alone included. Nil anywhere else (the pick takes the
