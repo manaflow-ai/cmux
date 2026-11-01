@@ -3,8 +3,9 @@
 
 The controller owns the 180-second lease and dispatches the existing HQ JIT
 provisioner. A fleet receipt names an unconsumed runner for each requested job;
-only a matching expired lease authorizes Blacksmith. Unknown admission keeps
-work on the owned fleet. This client never cancels a job or workflow.
+the controller gives the fleet 180 seconds before overflow. If admission is
+unavailable, use declared hosted-light or measured overflow instead of an unregistered pool.
+This client never cancels a job or workflow.
 """
 from __future__ import annotations
 
@@ -117,18 +118,19 @@ def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[
     status = validate(receipt, request) if receipt is not None else "unknown"
     if status == "fleet":
         return dict(receipt["runners"])
-    # A configured label is not an admission receipt. Only owned-mini placement
-    # is used here; the Linux choice comes from the lease or the declared JIT pool.
+    # A configured label is not live runner evidence. Only a verified fleet
+    # receipt selects Linux; minis also require a successful capacity read.
     placement_env = {**env, "FLEET_LINUX": "", "LINUX_ONLY": "",
-                     "NIGHTLY": "1", "NIGHTLY_WAIT_FOR_FLEET": "1"}
+                     "NIGHTLY": "1", "NIGHTLY_WAIT_FOR_FLEET": ""}
     placed = portable.decide(placement_env, runners, snapshot, dt.datetime.now(dt.timezone.utc))
-    fallback = FLEET_LINUX
-    if status == "overflow":
-        candidate = env.get("OVERFLOW_LINUX", "")
-        if candidate not in OVERFLOW:
-            raise ValueError("overflow runner is outside the declared set")
-        fallback = candidate
-    result = {job: fallback for job in request["jobs"]}
+    fallback = env.get("OVERFLOW_LINUX", "")
+    if fallback not in OVERFLOW:
+        raise ValueError("overflow runner is outside the declared set")
+    # The central table is the only authority for hosted-light eligibility.
+    table = json.loads((Path(__file__).resolve().parents[2] / ".github/runners.json").read_text())
+    light = table.get("hosted_light_jobs", {})
+    result = {job: "ubuntu-24.04" if request["run_attempt"] == 1 and f"nightly.yml#{job}" in light else fallback
+              for job in request["jobs"]}
     for job in placed.mini_jobs:
         result[job] = placed.mini_runner
     return result
@@ -141,12 +143,13 @@ def output_key(job: str) -> str:
 
 
 def write(env: Mapping[str, str], selected: Mapping[str, str], receipt: Mapping[str, Any] | None,
-          error: str = "") -> None:
+          error: str = "", client_observation: Mapping[str, Any] | None = None) -> None:
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for job, label in selected.items():
                 output.write(f"{output_key(job)}_runner={label}\n")
-    record = {"identity": identity(env), "receipt": receipt, "runners": selected, "error": error}
+    record = {"identity": identity(env), "receipt": receipt, "runners": selected, "error": error,
+              "client_observation": client_observation}
     if env.get("ADMISSION_RECEIPT_PATH"):
         Path(env["ADMISSION_RECEIPT_PATH"]).write_text(json.dumps(record, sort_keys=True) + "\n")
     if env.get("GITHUB_STEP_SUMMARY"):
@@ -173,6 +176,9 @@ def read_minis(env: Mapping[str, str]):
 
 def main(env: Mapping[str, str] = os.environ) -> int:
     request = identity(env)
+    started = time.monotonic()
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    observation = None
     receipt = None
     error = ""
     runners = snapshot = None
@@ -182,11 +188,28 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             runners, snapshot = read_minis(env)
         selected = routes(env, request, receipt, runners, snapshot)
     except (Exception, portable.Deadline) as failure:
-        # Unavailable telemetry is never permission to start paid work.
+        # The pool may not be enrolled at all. Never strand a job on its label
+        # when the controller cannot prove a registered runner is ready.
         error = f"fleet admission unavailable: {type(failure).__name__}"
         receipt = None
-        selected = routes(env, request, None)
-    write(env, selected, receipt, error)
+        # An unread controller is not proof of zero registered runners. Give
+        # admission its original three-minute window, including time already
+        # spent in the controller deadline. Never fabricate a receipt.
+        remaining = WAIT_SECONDS - (time.monotonic() - started)
+        if remaining > 0:
+            time.sleep(remaining)
+        observation = {"source": "client", "status": "admission-unavailable",
+                       "started_at": started_at,
+                       "ended_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                       "no_start_seconds": time.monotonic() - started,
+                       "scope": "no admitted runner received; not a controller capacity receipt"}
+        # Read immediately before placing; a pre-wait idle snapshot is stale.
+        try:
+            runners, snapshot = read_minis(env)
+        except (Exception, portable.Deadline):
+            runners = snapshot = None
+        selected = routes(env, request, None, runners, snapshot)
+    write(env, selected, receipt, error, observation)
     return 0
 
 
