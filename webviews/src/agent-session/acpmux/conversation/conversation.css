@@ -100,6 +100,8 @@
      draw no action row, the plain gap on both sides (STATUS_GAP_PLAIN). */
   --cv-status-gap: calc(var(--cv-meta-gap) + var(--cv-meta-row) + 2px);
   --cv-status-gap-plain: 12px;
+  /* Above and below a short interim note folded into a run of calls (.cv-tool-note). */
+  --cv-note-gap: var(--cv-status-gap-plain);
   /* A plain reply's share of that gap over a status row: the step's 2px top margin is the rest. */
   --cv-status-gap-plain-over: calc(var(--cv-status-gap-plain) - 2px);
   /* What a reply keeps under its action row over a status row (none: the gap is the action row's). */
@@ -2012,6 +2014,18 @@ pre.cv-math-source {
   --cv-status-gap: var(--cv-message-gap);
   --cv-status-reply-tail: var(--cv-message-gap);
 }
+/* Gallery versions of the room around a short interim note in a run of calls
+   (agent-pane.interim-prose-gap): `tight` is the earlier 3px, `snug` the message gap, `roomy` the
+   turn gap. Capture-only comparisons. */
+:root[data-transcript-note-gap="tight"] {
+  --cv-note-gap: 3px;
+}
+:root[data-transcript-note-gap="snug"] {
+  --cv-note-gap: var(--cv-message-gap);
+}
+:root[data-transcript-note-gap="roomy"] {
+  --cv-note-gap: var(--cv-turn-gap);
+}
 /* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
    but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
    own their horizontal overflow below. */
@@ -2132,9 +2146,12 @@ pre.cv-math-source {
   pointer-events: none;
 }
 /* A short interim note folded into a run of calls (turns.ts mergeShortNotes): the agent's words in
-   the run's quiet color, wrapped on the rows' 20px lines. */
+   the run's quiet color, wrapped on the rows' 20px lines, with the plain status gap (12px, the
+   transcript's inner gap) to the tool rows above and below it, as a longer reply between two runs
+   has (Leo, 2026-11-01: "the thoughts in between tool calls probably want a bit more padding").
+   model.ts `activityStepHeight` estimates it with the same numbers (NOTE_LINE, NOTE_GAP). */
 .cv-tool-note {
-  margin: 3px 0;
+  margin: var(--cv-note-gap) 0;
   line-height: 20px;
   color: var(--cv-text-muted);
 }
