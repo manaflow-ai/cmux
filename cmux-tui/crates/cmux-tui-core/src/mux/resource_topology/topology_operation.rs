@@ -598,7 +598,7 @@ impl Mux {
 /// of its pane (FC-1): its strip slot has no meaning in a new pane, and the split does not take
 /// the focus unless the caller asked.
 fn terminal_tab_as_column(mut fields: Map<String, Value>, width: f32) -> Map<String, Value> {
-    fields.remove(crate::mux::tab_strip::tab_slot::INDEX_FIELD);
+    fields.remove(tab_strip::tab_slot::INDEX_FIELD);
     fields.insert("direction".into(), Value::String("right".into()));
     fields.insert("viewport_width".into(), Value::from(width));
     fields.entry(PANE_SPLIT_FOCUS_FIELD).or_insert(Value::Bool(false));
