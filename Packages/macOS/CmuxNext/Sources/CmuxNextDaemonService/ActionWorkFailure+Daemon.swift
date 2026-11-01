@@ -25,6 +25,8 @@ extension ActionWorkFailure {
         var timedOut = false
         if case .timedOut = daemonError { timedOut = true }
         self.init("\(label): \(error)", mayHaveApplied: timedOut, terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
+        // The person reads why in their language; a caller keeps the daemon's error (restore fuzz h3).
+        if daemonError?.isDiskFull == true { shownReason = RefusalStrings.diskFull }
     }
 }
 

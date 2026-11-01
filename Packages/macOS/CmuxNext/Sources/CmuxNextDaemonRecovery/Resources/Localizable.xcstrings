@@ -1581,133 +1581,133 @@
       }
     },
     "daemon.recovery.diskFull": {
-      "comment": "Why cmux-tui is not running: its start failed because the disk is full. Shown in the launch window and in the window notice beside Restart cmux-tui.",
+      "comment": "Why cmux-tui is not running: its start failed. %@ is the reason (refusal.daemon.diskFull: the disk is full). Launch window and the window notice beside Restart cmux-tui.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui could not start because the disk is full. Free some space and cmux starts it again by itself."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスクがいっぱいのため、cmux-tui を起動できませんでした。空き容量を確保すると、cmux が自動的に再起動します。"
+            "value": "cmux-tui could not start: %@. Free some space and cmux starts it again by itself."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر تشغيل cmux-tui لأن القرص ممتلئ. حرّر بعض المساحة وسيعيد cmux تشغيله تلقائيًا."
+            "value": "تعذّر تشغيل cmux-tui: %@. حرّر بعض المساحة وسيعيد cmux تشغيله تلقائيًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui se nije mogao pokrenuti jer je disk pun. Oslobodite malo prostora i cmux će ga sam ponovo pokrenuti."
+            "value": "cmux-tui se nije mogao pokrenuti: %@. Oslobodite malo prostora i cmux će ga sam ponovo pokrenuti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui kunne ikke starte, fordi disken er fuld. Frigør noget plads, så starter cmux den igen af sig selv."
+            "value": "cmux-tui kunne ikke starte: %@. Frigør noget plads, så starter cmux den igen af sig selv."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui konnte nicht starten, weil die Festplatte voll ist. Gib Speicherplatz frei, dann startet cmux es von selbst neu."
+            "value": "cmux-tui konnte nicht starten: %@. Gib Speicherplatz frei, dann startet cmux es von selbst neu."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui no pudo iniciarse porque el disco está lleno. Libera espacio y cmux lo iniciará de nuevo automáticamente."
+            "value": "cmux-tui no pudo iniciarse: %@. Libera espacio y cmux lo iniciará de nuevo automáticamente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui n’a pas pu démarrer car le disque est plein. Libérez de l’espace et cmux le redémarrera automatiquement."
+            "value": "cmux-tui n’a pas pu démarrer : %@. Libérez de l’espace et cmux le redémarrera automatiquement."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile avviare cmux-tui perché il disco è pieno. Libera spazio e cmux lo riavvierà automaticamente."
+            "value": "Impossibile avviare cmux-tui: %@. Libera spazio e cmux lo riavvierà automaticamente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui を起動できませんでした: %@。空き容量を確保すると、cmux が自動的に再起動します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចចាប់ផ្ដើម cmux-tui បានទេ ដោយសារថាសពេញ។ សូមបង្កើនទំហំទំនេរ ហើយ cmux នឹងចាប់ផ្ដើមវាឡើងវិញដោយខ្លួនឯង។"
+            "value": "មិនអាចចាប់ផ្ដើម cmux-tui បានទេ៖ %@។ សូមបង្កើនទំហំទំនេរ ហើយ cmux នឹងចាប់ផ្ដើមវាឡើងវិញដោយខ្លួនឯង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "디스크가 가득 차서 cmux-tui를 시작할 수 없습니다. 공간을 확보하면 cmux가 자동으로 다시 시작합니다."
+            "value": "cmux-tui를 시작할 수 없습니다: %@. 공간을 확보하면 cmux가 자동으로 다시 시작합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui kunne ikke starte fordi disken er full. Frigjør litt plass, så starter cmux den igjen automatisk."
+            "value": "cmux-tui kunne ikke starte: %@. Frigjør litt plass, så starter cmux den igjen automatisk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można uruchomić cmux-tui, ponieważ dysk jest pełny. Zwolnij trochę miejsca, a cmux uruchomi go ponownie automatycznie."
+            "value": "Nie można uruchomić cmux-tui: %@. Zwolnij trochę miejsca, a cmux uruchomi go ponownie automatycznie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível iniciar o cmux-tui porque o disco está cheio. Libere espaço e o cmux o iniciará novamente sozinho."
+            "value": "Não foi possível iniciar o cmux-tui: %@. Libere espaço e o cmux o iniciará novamente sozinho."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось запустить cmux-tui: диск заполнен. Освободите место, и cmux запустит его снова автоматически."
+            "value": "Не удалось запустить cmux-tui: %@. Освободите место, и cmux запустит его снова автоматически."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่สามารถเริ่ม cmux-tui ได้เนื่องจากดิสก์เต็ม เพิ่มพื้นที่ว่าง แล้ว cmux จะเริ่มใหม่ให้เอง"
+            "value": "ไม่สามารถเริ่ม cmux-tui ได้: %@ เพิ่มพื้นที่ว่าง แล้ว cmux จะเริ่มใหม่ให้เอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disk dolu olduğu için cmux-tui başlatılamadı. Biraz yer açın, cmux onu kendiliğinden yeniden başlatır."
+            "value": "cmux-tui başlatılamadı: %@. Biraz yer açın, cmux onu kendiliğinden yeniden başlatır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося запустити cmux-tui: диск заповнений. Звільніть місце, і cmux запустить його знову автоматично."
+            "value": "Не вдалося запустити cmux-tui: %@. Звільніть місце, і cmux запустить його знову автоматично."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể khởi động cmux-tui vì ổ đĩa đã đầy. Hãy giải phóng dung lượng, cmux sẽ tự khởi động lại."
+            "value": "Không thể khởi động cmux-tui: %@. Hãy giải phóng dung lượng, cmux sẽ tự khởi động lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "磁盘已满，cmux-tui 无法启动。释放一些空间后，cmux 会自动重新启动它。"
+            "value": "cmux-tui 无法启动：%@。释放一些空间后，cmux 会自动重新启动它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "磁碟已滿，cmux-tui 無法啟動。釋放一些空間後，cmux 會自動重新啟動它。"
+            "value": "cmux-tui 無法啟動：%@。釋放一些空間後，cmux 會自動重新啟動它。"
           }
         }
       }
