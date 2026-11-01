@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4135416855401",
+  "notes": "notes/4135416855401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31308,
+      "title": "base red: composer-pickers#fast-mode allows the Fast bolt's 16 px move (gallery)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27580,
+      "title": "fix(chat): align transcript columns and block spacing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31358,
+      "title": "cmux NEXT: menu tracking for the input yield starts with its source, not the first budget check (fixes #31357)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31355,
+      "title": "debug.object_menu: choose a row of the open tab or pane menu",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
