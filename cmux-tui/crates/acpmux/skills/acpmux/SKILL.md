@@ -1,13 +1,13 @@
 ---
 name: acpmux
-description: "Drive coding agents through acpmux, a daemon that keeps ACP agent sessions (Claude Code, Codex, OpenCode, pi, Gemini) alive as named sessions on this machine and on ssh peers. Use when a task says to run, prompt, wait on, or inspect an acpmux session, when ACPMUX_ENV=1, or when you need a second agent (a Claude, a Codex, an open model) for a subtask. Every command has --json."
+description: "Drive coding agents through acpmux, a daemon that keeps ACP agent sessions (Claude Code, Codex, OpenCode, pi, Gemini) alive as named sessions on this machine and on other machines you added. Use when a task says to run, prompt, wait on, or inspect an acpmux session, when ACPMUX_ENV=1, or when you need a second agent (a Claude, a Codex, an open model) for a subtask. Every command has --json."
 ---
 
 # acpmux guide
 
 acpmux is tmux for agents. A daemon keeps agent sessions alive; the `acpmux`
 CLI and a JSON-RPC socket drive them. Sessions survive your process, keep
-their history, and can live on other machines (`host/name`). The daemon
+their history, and can live on other machines (`machine/name`). The daemon
 starts on first use. Print this guide any time with `acpmux guide`
 (`--guide`, `--skill`); the binary is the authority: `acpmux --help`,
 `acpmux wait --help`, `acpmux session --help`.
@@ -26,12 +26,12 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message`,
 `stop_session` and `retry_session` (a child's failed turn or subagent, again now). Prefer
 them when you have them; this CLI is the fallback (`acpmux retry NAME`).
-At most `maxRunning` of your sub-sessions run at once (16 unless the user
+At most `maxRunning` of your sub-sessions run at once (1000 unless the user
 changed it); a start past it is queued and starts by itself when one finishes.
 `list_sessions` (under `self`) or `acpmux session limits @` shows your limits
 and how many run and wait; only the user or your parent session raises them.
 A sub-session runs on this machine; `host: "auto"` first checks it has room
-(the engine `acpmux new --host auto` uses) and refuses the start when not.
+(the engine `acpmux new --machine auto` uses) and refuses the start when not.
 A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
@@ -104,7 +104,7 @@ when you can safely do so; after that, use reload for configuration changes.
 
 Explicit flags always win: `-m`, `-e low|medium|high|xhigh|max`,
 `--policy ask|approve-reads|approve-edits|approve-all|deny-all`, `--cwd DIR`,
-`--host PEER`. A model the harness rejects fails the creation with the ids it
+`--machine MACHINE`. A model the harness rejects fails the creation with the ids it
 knows; the session is not created.
 
 ## 3. Core loop
@@ -120,15 +120,15 @@ acpmux send NAME --no-wait --no-steer "…"          # queue behind the running 
 acpmux send NAME --no-steer "…"                    # an agent's send that waits: queue behind the running turn instead
 acpmux send NAME --steer "…"                       # the person's send that waits: steer it (it queues by default)
 acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
-acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; any size and number (large ones are uploaded in chunks first)
+acpmux send MACHINE/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; any size and number (large ones are uploaded in chunks first)
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
-acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--host HOST]   # a filter hides nothing
+acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--machine MACHINE]   # a filter hides nothing
 acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
 acpmux session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
-acpmux ls 'review-*' --fields name,status          # name globs (`host/glob` for one peer); --fields takes dotted paths
+acpmux ls 'review-*' --fields name,status          # name globs (`machine/glob` for one machine); --fields takes dotted paths
 acpmux send --tag area=X [--dry-run] "…"           # a --no-wait message to every live session with the tag, one line each
 acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
@@ -226,58 +226,61 @@ resolve): your policy answers those, and `ask` sends them to a person.
 
 ## 6. Other machines
 
-A session on a peer is named `HOST/NAME` (`big-red/review-42`), and every command takes that
+A session on another machine is named `MACHINE/NAME` (`big-red/review-42`), and every command takes that
 form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
-host or its peers has it; when several do, the command refuses and prints the exact
-`HOST/NAME` command for each, so pick one and run it. Say and pass `HOST/NAME`: never ask the
+machine or the machines you added has it; when several do, the command refuses and prints the exact
+`MACHINE/NAME` command for each, so pick one and run it. Say and pass `MACHINE/NAME`: never ask the
 person for a session id.
 
 ```bash
-acpmux host status                               # each host: reachable, round trip, disk, load, build
-acpmux run -m claude --host HOST "…"             # start there; --cwd is a remote path
-acpmux ensure NAME -m codex --host HOST
-acpmux send HOST/NAME "…"                        # wait, tail, history, cancel work the same
+acpmux machine status                            # each machine: reachable, round trip, disk, load, build
+acpmux machine pick                              # which machine new work would go to, and why
+acpmux run -m claude --machine MACHINE "…"       # start there; --cwd is a remote path
+acpmux ensure NAME -m codex --machine MACHINE
+acpmux send MACHINE/NAME "…"                     # wait, tail, history, cancel work the same
 acpmux wait                                      # covers remote sessions too
 acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
-                                                 # the session a PR footer's link (or an id, host/name, name) names, here or on a peer: host, ids, model, cwd, lane, PRs, last turn
+                                                 # the session a PR footer's link (or an id, machine/name, name) names, here or on another machine: machine, ids, model, cwd, lane, PRs, last turn
 acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
 
-- **Check first.** Run `acpmux host status` before remote work and after any host request
-  fails. Don't guess from a timeout. It names the next command for a peer it cannot reach
-  (`acpmux host doctor HOST`) and for one on another build (`acpmux host update HOST`, or its
-  target-specific `--binary-dir DIR` form when the peer differs). The
-  update restarts that peer's daemon: run it only when the task asks for it (see below), and
+- **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
+  `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
+- **Check first.** Run `acpmux machine status` before remote work and after any request to a
+  machine fails. Don't guess from a timeout. It names the next command for a machine it cannot reach
+  (`acpmux machine doctor MACHINE`) and for one on another build (`acpmux machine update MACHINE`, or its
+  target-specific `--binary-dir DIR` form when the machine differs). The
+  update restarts that machine's daemon: run it only when the task asks for it (see below), and
   otherwise report the version mismatch.
-- **Unreachable peer.** acpmux reconnects by itself. A request refused as unreachable was not
-  sent, so send it again once `host status` shows the host reachable. Its sessions show
+- **Unreachable machine.** acpmux reconnects by itself. A request refused as unreachable was not
+  sent, so send it again once `machine status` shows the machine reachable. Its sessions show
   `unreachable` meanwhile; don't start a replacement elsewhere unless the task can't wait.
-- **Where files live.** A remote session reads and writes the peer's disk. `--cwd` and
+- **Where files live.** A remote session reads and writes that machine's disk. `--cwd` and
   `--worktree` are paths there, and its worktrees go to `~/.cmux/worktrees/<project>/<name>`
   on that machine. Nothing it writes appears here unless it pushes it (git) or you fetch it.
-- **Moving a session.** `acpmux session move SESSION... --host PEER` (or `--host auto`, the
-  placement's pick, never a reserved host; `--all-idle` for every idle chat here) moves chats from
-  this machine to an ssh peer with their history, queue and draft. A chat's worktree branch is
+- **Moving a session.** `acpmux session move SESSION... --machine MACHINE` (or `--machine auto`,
+  `machine pick`'s choice, never a reserved machine; `--all-idle` for every idle chat here) moves chats from
+  this machine to another one you added, with their history, queue and draft. A chat's worktree branch is
   pushed and checked out there as a fresh worktree; uncommitted changes refuse the move unless
   `--leave-dirty`. A running turn refuses it unless `--interrupt`. `--dry-run` says where each
   would go. The copy left here never runs again and `resolve` points at the new one.
-  `acpmux session export HOST/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
+  `acpmux session export MACHINE/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
   `acpmux session import DIR` restores a copy on this machine.
-- **What the host allows.** Some machines are not for builds or long jobs. When the task or the
-  session's first message names what a host must not run, honour it, and pick another host
-  from `host status`.
+- **What the machine allows.** Some machines are not for builds or long jobs. When the task or the
+  session's first message names what a machine must not run, honour it, and pick another one
+  from `machine status`.
 
-A remote start runs under the peer's rules. `--cwd` must sit inside the peer's
+A remote start runs under that machine's rules. `--cwd` must sit inside its
 `webRoots` (a missing folder there is made); with no `--cwd` the session gets a
 scratch folder. `--mode` is refused, and the session starts in the harness's
-asking mode. `--policy approve-all` passes only when the peer serves this machine
-as a peer (`servedAs` in `acpmux --json host ls`); otherwise start it on that
+asking mode. `--policy approve-all` passes only when that machine serves this one
+as a peer (`servedAs` in `acpmux --json machine ls`); otherwise start it on that
 machine itself, `ssh HOST 'acpmux new … --policy approve-all -d'`, and drive it
-from here as `HOST/NAME`. Every such refusal ends with the command that works
+from here as `MACHINE/NAME`. Every such refusal ends with the command that works
 (`--json`: `error.data.try`, with `error.data.reason`): run that, do not guess.
 
-`host setup HOST` installs a daemon over ssh; `host update --all` pushes the
-current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not
+`machine setup HOST` installs a daemon over ssh; `machine update --all` pushes the
+current binary (`--if-idle` leaves a machine mid-turn alone; a daemon that does not
 come back on the new build is rolled back). Only do either when the task asks
 for it.
 
@@ -301,6 +304,6 @@ turn was denied · 6 `session stop --if-idle` refused (`busy` or
   task needs something other than the defaults. Prefer a preset when one exists.
 - Name sessions for the task (`ensure review-pr-42`) so a later step or another
   agent can find them. Tag them (`session tag NAME task=review`) when many run.
-- Do not delete sessions you did not create. Do not change defaults, presets, or hosts
+- Do not delete sessions you did not create. Do not change defaults, presets, or machines
   unless the task is about them.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.

@@ -146,6 +146,11 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
 }
+/* A `/name` that names a command (composer/slashTokens.ts), at the prompt's start or after a space:
+   the link blue, so the person sees the agent will read it as a command. Only its colour changes. */
+.acpmux-md .acpmux-slash-token {
+  color: var(--agent-link, var(--agent-accent));
+}
 .acpmux-md code {
   padding: 1px 4px;
   border-radius: 4px;
@@ -307,6 +312,24 @@
   border-radius: var(--acpmux-attach-radius, 8px);
   user-select: none;
 }
+/* Inside a selection (Select All, a drag across it) the chip wears the selection's tint, as the text
+   around it does: the browser's highlight passes over a non-text atom (composer/inlineNode.ts). The
+   strip's chips wear it too while the whole draft is selected (ComposerBox, composerAttachments.css). */
+.acpmux-md-inline-selected {
+  position: relative;
+}
+.acpmux-md-inline-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(
+    in srgb,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)) 55%,
+    transparent
+  );
+  pointer-events: none;
+}
 .acpmux-md-inline-chip {
   position: relative;
   display: inline-flex;
@@ -351,6 +374,13 @@
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
   --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
 }
+/* A text file's page card in the text: as tall as a thumbnail there, two lines over its label. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card {
+  --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
+}
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card .acpmux-attachment-pasted-open {
+  padding-top: 4px;
+}
 .acpmux-md-inline-chip[data-chip="strip"] {
   min-width: 0;
   height: auto;
@@ -367,6 +397,33 @@
   color: var(--agent-text);
   font-size: inherit;
   text-decoration: underline;
+}
+/* A huge paste in the text: the strip's page of its first lines (composerAttachments.css
+   .acpmux-text-card), as tall as a thumbnail in the text (two control rows), two lines over its
+   label; never the underlined name above. */
+.acpmux-md-inline-chip[data-preview="text"] {
+  justify-content: stretch;
+  width: 168px;
+  max-width: 168px;
+  height: calc(var(--cmux-control-height, 24px) * 2);
+  padding: 0;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 12px;
+  border-radius: inherit;
+  text-decoration: none;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-remove {
+  top: 3px;
 }
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
 .acpmux-md-inline-chip[data-state="failed"] {

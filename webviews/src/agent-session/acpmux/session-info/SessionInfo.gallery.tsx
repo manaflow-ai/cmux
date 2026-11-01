@@ -28,6 +28,8 @@ import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./Sub
 import { subagentSummary, type SubagentScope } from "./subagentScope";
 import { outputArtifacts } from "./OutputsSection";
 import { DEFAULT_SECTIONS } from "./sessionInfoState";
+import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
+import type { SessionUsageStats } from "../usageStats";
 
 type Props = ComponentProps<typeof SessionInfo> & {
   placement?: SessionInfoPlacement;
@@ -268,9 +270,35 @@ const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
   { id: "call-gen", command: "bun scripts/pages/gen-strings.mjs", state: "completed", startedAt: started - 700_000 },
 ];
 
+/// What acpmux reports a session spent (usageStats.ts), for Usage.
+const spent = (fields: Partial<SessionUsageStats>): SessionUsageStats => ({
+  launcher: "claude",
+  autocompact: "none",
+  compactions24h: 0,
+  subagentsLive: 0,
+  subagents1h: 0,
+  subagents24h: 0,
+  tokens24h: 0,
+  updatedAt: Date.UTC(2026, 9, 30, 3),
+  ...fields,
+});
+const ownUsage = spent({
+  launcher: "claude-sr2",
+  autocompact: "capped",
+  autocompactCap: 200_000,
+  contextTokens: 94_000,
+  contextWindow: 200_000,
+  compactions24h: 2,
+  subagentsLive: 1,
+  subagents1h: 3,
+  subagents24h: 11,
+  tokens24h: 38_400_000,
+  costUsd24h: 61.2,
+});
 const summary = {
   ...local.summary!,
   usage: { used: 94_000, size: 200_000 },
+  usageStats: ownUsage,
   // At most 16 of the chats it started run at once (acpmux's default).
   subsessionLimits: { maxRunning: 16, maxRunningSource: "default" as const },
   branch: "feat/next-session-info",
@@ -296,7 +324,7 @@ const checkTopBlockAlignment: Play = async (ctx) => {
   const environment = '[data-section="environment"] .acpmux-session-info-row__name';
   await ctx.waitFor(() => ctx.document.querySelector(environment));
   const labelLeft = rect(environment).left;
-  for (const section of ["context", "connectors"]) {
+  for (const section of ["context", "usage", "connectors"]) {
     const title = rect(`[data-section="${section}"] .acpmux-session-info-section__title`);
     if (Math.abs(title.left - labelLeft) > 0.5)
       throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
@@ -306,8 +334,69 @@ const checkTopBlockAlignment: Play = async (ctx) => {
     throw new Error("The Changes heading moved from the shared text column");
 };
 
+/// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
+/// autocompact cap, 290-330k per call, 67-90 subagents a day) above this chat.
+const fleet: AcpmuxSessionEntry[] = [
+  sessionEntry({
+    sessionId: local.summary!.sessionId,
+    name: "session-info-polish",
+    harness: "claude",
+    usageStats: ownUsage,
+  }),
+  ...(
+    [
+      ["dep-fleet", 1_420.5, 312_000, 90],
+      ["dep-land", 1_288, 331_000, 84],
+      ["dep-asks", 1_204.75, 296_000, 71],
+      ["self-audit", 1_190, 290_000, 67],
+    ] as const
+  ).map(([name, costUsd24h, contextTokens, subagents24h]) =>
+    sessionEntry({
+      sessionId: `build-box-${name}`,
+      name: `build-box/${name}`,
+      peer: "build-box",
+      harness: "claude",
+      usageStats: spent({ costUsd24h, contextTokens, contextWindow: 1_000_000, subagents24h, tokens24h: 900_000_000 }),
+    }),
+  ),
+  sessionEntry({
+    sessionId: "gcp-review",
+    name: "lane-vm/review-27744",
+    peer: "lane-vm",
+    harness: "codex",
+    // acpmux has not read a whole day yet: the 24h counts are unknown, never 0.
+    usageStats: {
+      launcher: "codex-acp",
+      autocompact: "unknown",
+      contextTokens: 41_000,
+      updatedAt: Date.UTC(2026, 9, 30, 3),
+    },
+  }),
+  sessionEntry({
+    sessionId: "docs-pass",
+    name: "docs-pass",
+    harness: "claude",
+    usageStats: spent({ autocompact: "capped", costUsd24h: 4.1, contextTokens: 22_000, tokens24h: 1_300_000 }),
+  }),
+];
+
+/// A session whose tokens and context acpmux read but whose cost it could not (a harness with no
+/// price table): sorted by 24h cost it reads as an em dash, never its token count.
+const unpricedFleet: AcpmuxSessionEntry[] = [
+  ...fleet.slice(0, 3),
+  sessionEntry({
+    sessionId: "unpriced-codex",
+    name: "lane-vm/unpriced-codex",
+    peer: "lane-vm",
+    harness: "codex",
+    usageStats: spent({ launcher: "codex-acp", autocompact: "unknown", contextTokens: 41_000, tokens24h: 52_000_000 }),
+  }),
+];
+
 const full: Props = {
   summary,
+  allSessions: fleet,
+  onOpenChat: () => undefined,
   machineName: "Studio",
   repository: "manaflow-ai/cmux",
   made: {
@@ -406,6 +495,28 @@ const workflowProps = (
     onSaveEnvironment: () => undefined,
     remoteControl: { on: true, set: () => undefined },
   };
+};
+
+/// A provider failure after an earlier progress message, read through the real summary fold.
+const workflowFailureProps = (): Props => {
+  const nodes = workflowFixture("finished").map((node) => ({
+    ...node,
+    state: "failed",
+    workflowAgents: new Map(
+      [...(node.workflowAgents ?? [])].map(([index, agent]) => [
+        index,
+        index === 4
+          ? {
+              ...agent,
+              state: "failed",
+              error: "503: No provider capacity available",
+              lastMessage: "Earlier reply before the request failed",
+            }
+          : agent,
+      ]),
+    ),
+  }));
+  return { ...workflowProps("finished", "detail", 260), workflows: createWorkflowAdapter()(nodes, "gallery-chat") };
 };
 
 const assertNarrowWorkflowLayout: Play = async (ctx) => {
@@ -591,6 +702,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/session-info/SubagentScopeHeader.tsx",
     "agent-session/acpmux/session-info/subagentScope.ts",
     "agent-session/acpmux/session-info/TasksSection.tsx",
+    "agent-session/acpmux/session-info/UsageSection.tsx",
     "agent-session/acpmux/session-info/WorkflowTasks.tsx",
     "agent-session/acpmux/summary/foldWorkflows.ts",
     "agent-session/acpmux/subagents/AgentLine.tsx",
@@ -613,6 +725,19 @@ export default componentEntry<Props>({
       note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
+    },
+    "workflow-agent-failed": {
+      note: "A failed workflow agent shows the provider's failure reason in the existing message line instead of stale progress. At 260px the reason truncates and its full text remains in the tooltip and accessible name.",
+      props: workflowFailureProps(),
+      play: async (ctx) => {
+        await openPhase(2)(ctx);
+        const message = ctx.find({
+          selector: '.acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__doing',
+        });
+        if (message.textContent !== "503: No provider capacity available")
+          throw new Error("missing workflow failure reason");
+        await assertNarrowWorkflowLayout(ctx);
+      },
     },
     "workflow-agent-row-compact": {
       note: "Alternative (gallery only): a compact one-line workflow agent row keeps the action inline with the name for the highest density.",
@@ -639,6 +764,86 @@ export default componentEntry<Props>({
       note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
       play: assertNarrowWorkflowLayout,
+    },
+    usage: {
+      note: "Usage open (Leo, 2026-10-30, on the deputies nobody could see spending): this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
+      props: {
+        ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-no-cap": {
+      note: "Usage for a chat acpmux says runs with no autocompact cap: Autocompact reads No cap, with Restart with cap beside it, disabled until acpmux can restart a session with a cap. A cap acpmux could not read reads as an em dash and offers nothing.",
+      props: {
+        ...full,
+        summary: { ...summary, usageStats: { ...ownUsage, autocompact: "none" as const, autocompactCap: undefined } },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-context": {
+      note: "Usage sorted by Context: the sessions carrying the most context per call first, the uncapped deputies on build-box at 290-330k on top.",
+      props: {
+        ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-session-info-usage__sort-option:nth-child(2)" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-sort="context"]') !== null);
+      },
+    },
+    "usage-unknown-cost": {
+      note: "Usage sorted by 24h cost with a session whose cost acpmux could not read (its tokens and context it did): the row ends in an em dash, never its 24h token count under the cost heading. Sorted by Context it shows its context.",
+      props: {
+        ...full,
+        allSessions: unpricedFleet,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-all": {
+      note: "Usage with View all open: every session with usage, the lane VM's Codex review, whose 24h numbers acpmux has not read yet, shows an em dash, never $0.00.",
+      props: {
+        ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-session-info-usage-fold" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-sort] > li").length > 5);
+      },
     },
     "reorder-dragging": {
       note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Connectors and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
@@ -693,12 +898,40 @@ export default componentEntry<Props>({
       props: { ...environmentProps(), projectRowLook: "parent" },
     },
     "environment-remote-control": {
-      note: "Shipped (Leo, 2026-10-28: \"you don't even have the, like, remote control toggle functionality\"): a chat on this Mac while it can serve cmux on iPhone. Remote Control is the iPhone host's own switch (mobile.allowIPhoneConnections, as Settings > Mobile), so its tooltip says it covers every chat on this Mac. Off here; a chat on another machine, Quick Chat, or a Mac with no account signed in draws no row.",
+      note: 'Shipped (Leo, 2026-10-28: "you don\'t even have the, like, remote control toggle functionality"; its pointer icon, as Claude Code desktop\'s Remote Control row, since 2026-11-01: "i think we should rethink what symbol we have for remote control at least"): a chat on this Mac while it can serve cmux on iPhone. Remote Control is the iPhone host\'s own switch (mobile.allowIPhoneConnections, as Settings > Mobile), so its tooltip says it covers every chat on this Mac. Off here; a chat on another machine, Quick Chat, or a Mac with no account signed in draws no row.',
       props: { ...environmentProps(), remoteControl: { on: false, set: () => undefined } },
     },
     "environment-remote-control-on": {
       note: "Shipped: the same chat with Remote Control on; cmux on the same account's iPhone can open this Mac's chats.",
       props: { ...environmentProps(), remoteControl: { on: true, set: () => undefined } },
+    },
+    "environment-remote-control-icon-phone-waves": {
+      note: 'Alternative (not shipped): a phone with signal waves. Says "from your phone" more plainly than the bare outline it replaces, but it is still a phone first, the shape Leo asked to rethink, and the waves get busy at row size.',
+      props: {
+        ...environmentProps(),
+        remoteControl: { on: true, set: () => undefined },
+        remoteControlIcon: "mobile.pair",
+      },
+    },
+    "environment-remote-control-icon-display": {
+      note: 'Alternative (not shipped): a display. Reads as "a screen" rather than "control this chat from elsewhere", and beside the machine row\'s own Mac glyph it looks like a second machine.',
+      props: {
+        ...environmentProps(),
+        remoteControl: { on: true, set: () => undefined },
+        remoteControlIcon: "remote.display",
+      },
+    },
+    "environment-remote-control-icon-phone": {
+      note: 'Replaced (before 2026-11-01): the bare phone outline Leo asked to rethink ("i think we should rethink what symbol we have for remote control at least"). Taller and narrower than every other row icon.',
+      props: {
+        ...environmentProps(),
+        remoteControl: { on: true, set: () => undefined },
+        remoteControlIcon: "device.phone",
+      },
+    },
+    "environment-remote-control-icon-link": {
+      note: "Alternative (not shipped): a chain link. Fits the icon box well, but in this list it reads as a URL row (the repository and branch rows already link out).",
+      props: { ...environmentProps(), remoteControl: { on: true, set: () => undefined }, remoteControlIcon: "link" },
     },
     "environment-scratchpad": {
       note: "Shipped: Leo's chat, run in a harness's scratchpad under /private/tmp, whose commands cd'd into a worktree. Before, Environment listed the scratchpad with its path and the worktree, and offered Save. Now only the machine: no folder row and no Save (a scratch folder is never a project).",
@@ -762,6 +995,14 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => /already on base/.test(text(ctx)));
         await ctx.hover({ selector: ".acpmux-session-info-pr" });
+      },
+    },
+    "sources-hover": {
+      note: "The pointer on a Sources link's row: one faint tint over the row, the link inside it never tinting a second time. An MCP tool's row takes no click, so it never lights.",
+      props: full,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("a.acpmux-session-info-source__link") !== null);
+        await ctx.hover({ selector: "a.acpmux-session-info-source__link" });
       },
     },
     "subagents-open": {
@@ -830,6 +1071,7 @@ export default componentEntry<Props>({
     "cloud-empty": {
       note: "A Cloud chat before the agent reports usage or edits anything: Context and Outputs have no sections yet.",
       props: {
+        cloudRepositoryAvailable: true,
         summary: {
           ...local.summary!,
           cwd: "/workspace/atlas-web",

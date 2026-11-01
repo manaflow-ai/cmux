@@ -232,17 +232,22 @@ fn scrub(mut answer: Answer, credential: &str) -> Answer {
 }
 
 fn runtime_and_client() -> Result<(tokio::runtime::Runtime, reqwest::Client), String> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder()
+    Ok((runtime, http_client()?))
+}
+
+/// The one HTTP client of a call (tests use it too). reqwest is built without a default rustls crypto
+/// provider, so this installs ring first: a process that builds a client before any install panics.
+fn http_client() -> Result<reqwest::Client, String> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| e.to_string())?;
-    Ok((runtime, client))
+        .map_err(|e| e.to_string())
 }
 
 fn now_ms() -> u64 {

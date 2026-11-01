@@ -18,6 +18,7 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
+import { BoltIcon } from "./BoltIcon";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
@@ -121,7 +122,7 @@ function quickSections(
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry, lang);
   const all = groupChoices([...latest, ...older], model).filter(usable);
-  return relevantModelSections(all, entry?.top);
+  return relevantModelSections(all, entry?.top, model);
 }
 
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
@@ -1203,9 +1204,11 @@ export function ModelPicker(props: ModelPickerProps) {
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
+  const fastOn = fastMode !== undefined && fastModeIsOn(fastMode);
+  const fastModeText = t("picker.fastMode");
   const chipFace = (
     <>
-      <AgentMark agent={chipHarness} size={15} />
+      <AgentMark agent={chipHarness} size={16} />
       {sessionAuthChip && (
         <span className="acpmux-model-detail" aria-label={sessionAuthText}>
           {sessionAuthChip}
@@ -1236,6 +1239,14 @@ export function ModelPicker(props: ModelPickerProps) {
           data-label={chipFamily}
         />
       )}
+      {/* Fast mode on: a bolt right beside the model, for every harness, Claude included (Leo
+          2026-10-23: "even on, I think Claude mode, you just want the lightning bolt to be right
+          beside the model"). Only a mark: the toggle stays the menu's Fast mode row. */}
+      {fastOn && (
+        <span className="acpmux-model-bolt" data-fast-on="">
+          <BoltIcon size={12} />
+        </span>
+      )}
     </>
   );
   return (
@@ -1264,7 +1275,9 @@ export function ModelPicker(props: ModelPickerProps) {
               "data-menu": modelText,
               label: modelText,
               /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-              title: [chipLabel, sessionAuthText, usage, updateText].filter(Boolean).join(" · "),
+              title: [chipLabel, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
+                .filter(Boolean)
+                .join(" · "),
             }}
             menu={{
               ...quick,
@@ -1356,7 +1369,9 @@ export function ModelPicker(props: ModelPickerProps) {
             data-menu={modelText}
             aria-label={modelText}
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title={[chipLabel, sessionAuthText, usage, updateText].filter(Boolean).join(" · ")}
+            title={[chipLabel, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
+              .filter(Boolean)
+              .join(" · ")}
             aria-haspopup="dialog"
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}
@@ -1423,7 +1438,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   }}
                   onClick={() => showTab(STARRED, -1, true)}
                 >
-                  <StarGlyph filled={false} size={15} />
+                  <StarGlyph filled={false} size={16} />
                 </PickerOption>
                 {railHarnesses.map((entry, index) => [
                   <PickerOption
@@ -1514,7 +1529,7 @@ export function ModelPicker(props: ModelPickerProps) {
               </output>
             )}
             <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
-              <SearchIcon size={15} />
+              <SearchIcon size={16} />
               <PickerComboboxInput
                 ref={search}
                 type="search"
@@ -1667,7 +1682,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
                           onClick={() => toggleFavorite(model.id)}
                         >
-                          <StarGlyph filled={favorites.has(model.id)} size={13} />
+                          <StarGlyph filled={favorites.has(model.id)} size={14} />
                         </button>
                         {model.id === props.model && owners.get(model)?.ids.includes(harness ?? "") && (
                           <span className="grid size-6 place-items-center text-muted">

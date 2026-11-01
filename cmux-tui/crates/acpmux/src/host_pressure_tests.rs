@@ -182,6 +182,30 @@ fn linux_proc_files_parse() {
 }
 
 #[test]
+fn the_load_sample_proc_files_parse() {
+    let psi = "some avg10=12.50 avg60=3.10 avg300=0.80 total=123456\nfull avg10=1.00 avg60=0.20 avg300=0.05 total=2345\n";
+    assert_eq!(parse_psi_avg60(psi, "some"), Some(3.1));
+    assert_eq!(parse_psi_avg60(psi, "full"), Some(0.2));
+    // /proc/pressure/cpu has a `full` line of zeros on newer kernels and none on older ones.
+    let cpu = "some avg10=0.00 avg60=42.75 avg300=0.00 total=0\n";
+    assert_eq!(parse_psi_avg60(cpu, "some"), Some(42.75));
+    assert_eq!(parse_psi_avg60(cpu, "full"), None);
+    assert_eq!(parse_vmstat_oom_kill("pgfault 1\noom_kill 3\n"), Some(3));
+    assert_eq!(parse_vmstat_oom_kill("pgfault 1\n"), None);
+    let meminfo = "MemTotal: 8000 kB\nSwapTotal:       4000 kB\nSwapFree:        1000 kB\n";
+    assert_eq!(parse_meminfo_swap_used(meminfo), Some(0.75));
+    assert_eq!(parse_meminfo_swap_used("SwapTotal: 0 kB\nSwapFree: 0 kB\n"), None);
+    let before = "cpu  100 0 50 800 50 0 0 0 0 0\ncpu0 100 0 50 800 50 0 0 0 0 0\nintr 1\n";
+    let after = "cpu  250 0 100 900 50 0 0 0 0 0\ncpu0 250 0 100 900 50 0 0 0 0 0\nintr 2\n";
+    let (a, b) = (parse_proc_stat_cpu(before).unwrap(), parse_proc_stat_cpu(after).unwrap());
+    assert_eq!((a, b), ((1000, 850), (1300, 950)));
+    // 300 jiffies passed, 100 of them idle.
+    assert!((cpu_busy(a, b).unwrap() - 2.0 / 3.0).abs() < 1e-9);
+    assert_eq!(cpu_busy(a, a), None, "no time passed");
+    assert_eq!(parse_proc_stat_cpu("cpu0 1 2 3 4\n"), None);
+}
+
+#[test]
 fn the_verdict_carries_the_contract_keys() {
     let v =
         serde_json::to_value(evaluate("h", &incident(), Some(100.0), &Budget::default())).unwrap();

@@ -210,6 +210,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
 
+    @MainActor var linkGrids: TerminalLinkGrids? { // the size invariant's (R3a): last claim, last announced grid
+        let machine = driver.machine, grid = { (size: CellSize?) in size.map { TerminalGridSize(columns: $0.cols, rows: $0.rows) } }
+        return TerminalLinkGrids(sent: grid(machine.reportedSize), acked: grid(machine.announcedSize), awaitingAck: awaitsEcho)
+    }
+
     /// A visible live view holds geometry until another client's grid is
     /// announced, and a resize it reports claims it back
     /// (`TerminalAttachMachine`), so the daemon applies and announces it.

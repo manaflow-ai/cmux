@@ -63,7 +63,12 @@ ap.add_argument("--max-seconds", type=float, default=480, help="stop starting it
 ap.add_argument("--seed", type=int, default=None, help="the run's seed (default: from the clock, printed)")
 ap.add_argument("--iterations", type=int, default=0, help="at most this many (0: until --max-seconds)")
 ap.add_argument("--targets", default="app,daemon,acpmux")
-ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "fdsoft", "slowdisk", "exec"])
+ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "fdsoft", "slowdisk", "exec", "diskfull"])
+ap.add_argument("--visible", action="store_true", help="judge the visible state (debug.daemon, debug.surfaces) "
+                "from each kill to the settle: no blank pane, every window shows content or the connecting view")
+ap.add_argument("--disk-image-mb", type=int, default=512, help="diskfull: size of the image mounted at the daemon's state dir")
+ap.add_argument("--disk-margin-mb", type=int, default=2, help="diskfull: free space left on that image")
+ap.add_argument("--disk-recover-every", type=int, default=8, help="diskfull: every Nth iteration runs with the filler removed")
 ap.add_argument("--hog-swap-gb", type=float, default=15.0)
 ap.add_argument("--replay", help="a violations.json: replay its first violation's iteration seed and shrink it")
 # Passed by the slot runner for restore-journey.py; unused here.
@@ -79,10 +84,17 @@ MAX_WS, MAX_TABS = 5, 4
 
 
 def say(*parts):
+    """Prints and logs one line; a closed stdout (the ssh that started this run ended) never stops the caller."""
     line = " ".join(str(p) for p in parts)
-    print(line, flush=True)
-    LOG.write(time.strftime("%H:%M:%S ") + line + "\n")
-    LOG.flush()
+    try:
+        print(line, flush=True)
+    except (OSError, ValueError):
+        pass
+    try:
+        LOG.write(time.strftime("%H:%M:%S ") + line + "\n")
+        LOG.flush()
+    except (OSError, ValueError):
+        pass
 
 
 def wait(predicate, seconds, step=0.25):
@@ -297,6 +309,55 @@ def proc_env(pid):
     return {"pid": pid, "argv": argv[:600], "env": env, "other_cmux_keys": sorted(names)}
 
 
+def host_rows():
+    """This build's terminal hosts: launchd children with a bare `cmux-tui` argv that name their owner
+    (`--bootstrap-stdio ... --owner <bundle id>:`, host_exe.rs). Read-only: pid, ppid, start time, argv."""
+    owner = f"--owner {APP.bundle_id}:"
+    out = subprocess.run(["ps", "axo", "pid=,ppid=,lstart=,args="], capture_output=True, text=True).stdout
+    rows = []
+    for line in out.splitlines():
+        if "--bootstrap-stdio" not in line or owner not in line:
+            continue
+        parts = line.split(None, 7)  # pid ppid + lstart's five words + args
+        if len(parts) == 8 and parts[0].isdigit():
+            rows.append({"pid": int(parts[0]), "ppid": int(parts[1]), "lstart": " ".join(parts[2:7]), "argv": parts[7][:600]})
+    return rows
+
+
+def log_hosts(label):
+    """Terminal hosts of this build vs the terminals the daemon lists (session registry), to OUT/hosts.jsonl.
+    A note for the terminal-host leak owner, not an oracle verdict."""
+    hosts = host_rows()
+    listed_answer, _ = cli("terminal", "list")
+    terms = sorted({first(t, "id", "terminal_id") for t in listed(listed_answer, "terminals") if isinstance(t, dict)} - {None})
+    # A host's argv names its owner and session, not its terminal id, so hosts are compared by count only.
+    shown = sum(len(w["tabs"]) for w in (daemon_state() or {}).values())
+    now = time.time()
+    recent = sum(n for t, n in CLOSES if now - t <= REAP_GRACE)
+    excess = len(terms) - shown - recent
+    EXCESS_MAX[0] = max(EXCESS_MAX[0], len(terms) - shown)
+    EXCESS_MAX[1] = max(EXCESS_MAX[1], excess)
+    row = {"t": round(time.time() - T0, 2), "label": label, "hosts": len(hosts), "terminals_listed": len(terms),
+           "hosts_minus_listed": len(hosts) - len(terms), "fz_tabs_shown": shown,
+           "closed_last_30s": recent, "listed_minus_shown_minus_recent": excess, "sample_hosts": hosts[:3],
+           "terminal_ids": terms[:200]}
+    with open(os.path.join(opts.out, "hosts.jsonl"), "a") as f:
+        f.write(json.dumps(row) + "\n")
+    HOSTS_MAX[0] = max(HOSTS_MAX[0], len(hosts))
+    return row
+
+
+HOSTS_MAX = [0]
+CLOSES = []          # (time of an ok close answer, terminals that close took off the topology)
+EXCESS_MAX = [0, 0]  # max of listed - shown fz tabs; max of listed - shown - closed in the last 30 s
+REAP_GRACE = 30.0    # the daemon's --terminal-reap-grace-seconds in a slot app
+
+
+def note_close(answer, terminals):
+    if isinstance(answer, (dict, list)) and "error" not in answer and terminals:
+        CLOSES.append((time.time(), terminals))
+
+
 def log_daemon_env(label):
     rows = {"app": proc_env(APP.pid), "daemons": [proc_env(pid) for pid in APP.daemon_pids()]}
     with open(os.path.join(opts.out, "daemon-env.jsonl"), "a") as f:
@@ -319,7 +380,60 @@ def cli(*args, timeout=ACTION_BOUND):
             answer = {"error": (r.stdout + r.stderr).strip()[:400] or f"exit {r.returncode}"}
     except subprocess.TimeoutExpired:
         answer = {"error": f"no answer within {timeout} s", "stall": True}
+    if isinstance(answer, dict) and "error" in answer and ACTION_ERRORS[0]:
+        ERRORS.append({"cmd": " ".join(args[:2]), "error": str(answer.get("error"))[:300], "typed": typed_error(answer),
+                       "stall": bool(answer.get("stall"))})
     return answer, time.time() - started
+
+
+ERRORS = []  # error answers to the iteration's own actions and creates (not the harness's list reads)
+ACTION_ERRORS = [False]  # set while do_action()/fresh() create calls run
+
+
+def may_degrade(rec, errors):
+    """A not-run iteration is "degraded" only when the full disk refused it with answers and nothing else went
+    wrong: its one problem is the not-run reason, every error is a real answer (no stall), and there is one."""
+    only_reason = (len(rec.get("problems", [])) == 1
+                   and rec["problems"][0].startswith(("no fz workspace in the daemon topology at the start",
+                                                      "the daemon topology could not be read after")))
+    return rec.get("verdict") == "not run" and only_reason and bool(errors) and not any(e.get("stall") for e in errors)
+
+
+def not_run_outcome(rec, errors):
+    """The final verdict of a not-run iteration: "fail" when it saw a hang (a stalled answer) or any problem besides
+    the not-run reason (a silent loss, a duplicate, an action with no answer); "degraded" for a pure answered
+    refusal (may_degrade); otherwise "not run"."""
+    if rec.get("verdict") != "not run":
+        return rec.get("verdict")
+    if any(e.get("stall") for e in errors):
+        return "fail"
+    reasons = ("no fz workspace in the daemon topology at the start", "the daemon topology could not be read after",
+               "no app process of this build to kill", "no daemon process of this build to kill",
+               "no acpmux process of this build to kill", "no recovery check: no time left in the lease")
+    if any(not p.startswith(reasons) for p in rec.get("problems", [])):
+        return "fail"
+    return "degraded" if may_degrade(rec, errors) else "not run"
+
+
+def kill_counts(records):
+    kills = {}
+    for r in records:
+        if r.get("target") and r["verdict"] in ("pass", "fail", "degraded"):
+            kills[r["target"]] = kills.get(r["target"], 0) + 1
+    return kills
+
+
+def typed_error(answer):
+    """Is an error answer a typed one (a JSON error object with a code), not a bare string or a stall?"""
+    if answer.get("stall"):
+        return False
+    err = answer.get("error")
+    if isinstance(err, dict):
+        return bool(err.get("code"))
+    try:
+        return bool(json.loads(err).get("code"))
+    except (TypeError, ValueError, AttributeError):
+        return False
 
 
 def value(answer):
@@ -461,7 +575,8 @@ def pick_action(run, state):
         wid, w = run.rng.choice([(i, w) for i, w in wss if len(w["tabs"]) > 1])
         return kind, {"ws": wid, "tab": run.rng.choice(sorted(w["tabs"]))}
     if kind == "ws_close":
-        return kind, {"ws": run.rng.choice(wss)[0]}
+        wid, w = run.rng.choice(wss)
+        return kind, {"ws": wid, "tabs": len(w["tabs"])}
     wid, w = run.rng.choice(wss)
     if kind == "rename":
         return kind, {"ws": wid, "name": run.name()}
@@ -470,6 +585,14 @@ def pick_action(run, state):
 
 def do_action(kind, p):
     """Runs one action on the daemon: (answer, seconds)."""
+    ACTION_ERRORS[0] = True
+    try:
+        return _do_action(kind, p)
+    finally:
+        ACTION_ERRORS[0] = False
+
+
+def _do_action(kind, p):
     if kind == "ws_create":
         answer, took = cli("workspace", "create", "--name", p["name"])
         created(p["name"], answer)
@@ -482,8 +605,10 @@ def do_action(kind, p):
         mark(value(answer).get("terminal_id") if isinstance(value(answer), dict) else None)
     elif kind == "tab_close":
         answer, took = cli("tab", p["tab"], "close")
+        note_close(answer, 1)
     elif kind == "ws_close":
         answer, took = cli("workspace", p["ws"], "close")
+        note_close(answer, p.get("tabs", 1))
     elif kind == "rename":
         answer, took = cli("workspace", p["ws"], "rename", "--name", p["name"])
     else:
@@ -618,6 +743,102 @@ def safe_evidence(tag):
         return []
 
 
+# ---- visible state during a restore (the rule of restore-journey.py RecoverySampler) ---------------
+
+VISIBLE_GAP = 1.0      # s without an answer from debug.daemon or debug.surfaces after the kill
+VISIBLE_DEAD = 1.0     # s a shown terminal may be disconnected for good
+
+
+def visible_problems(state, surfaces):
+    """(hard, dead) of one sample: a window that shows neither content nor the connecting view, a blank pane;
+    a shown terminal that is not connected, restoring, or disconnected and reconnecting."""
+    hard, dead = [], []
+    for window in (state or {}).get("windows") or []:
+        if window.get("shows") not in ("content", "connecting"):
+            hard.append(f"window {window.get('id')} shows {window.get('shows')}")
+    if isinstance(surfaces, dict) and "error" not in surfaces:
+        if surfaces.get("blank_panes"):
+            hard.append(f"{surfaces.get('blank_panes')} blank pane(s)")
+        for window in surfaces.get("windows") or []:
+            for pane in window.get("panes") or []:
+                if pane.get("kind") != "terminal" or pane.get("presence") != "visible":
+                    continue
+                link = str(pane.get("link"))
+                if link in ("connected", "restoring") or (link.startswith("disconnected:") and link.endswith(":reconnecting")):
+                    continue
+                dead.append(f"pane {pane.get('pane')} {link}")
+    return hard, dead
+
+
+def judge_visible(samples, killed, end, need_answers=True):
+    """Problems of a kill-to-settle window of samples [(at, debug.daemon, debug.surfaces)]. need_answers: like
+    RecoverySampler, at least one answer of each call after the kill (an app that never answers shows nothing)."""
+    problems, dead_since = [], None
+    if need_answers:
+        if not any(st for at, st, _ in samples if at >= killed):
+            problems.append("debug.daemon never answered after the kill")
+        if not any(isinstance(su, dict) and "error" not in su for at, _, su in samples if at >= killed):
+            problems.append("debug.surfaces never answered after the kill")
+    for at, state, surfaces in samples:
+        hard, dead = visible_problems(state, surfaces)
+        problems += [f"{at:.2f} s: {h}" for h in hard]
+        if dead:
+            dead_since = at if dead_since is None else dead_since
+            if at - dead_since > VISIBLE_DEAD:
+                problems.append(f"{at:.2f} s: {', '.join(dead)} since {dead_since:.2f} s")
+                dead_since = at  # report each further second once
+        else:
+            dead_since = None
+    for name, answered in (("debug.daemon", lambda st, su: bool(st)),
+                           ("debug.surfaces", lambda st, su: isinstance(su, dict) and "error" not in su)):
+        last, worst = killed, 0.0
+        for at, state, surfaces in samples:
+            if at >= killed and answered(state, surfaces):
+                worst, last = max(worst, at - last), at
+        worst = max(worst, end - last)
+        if worst > VISIBLE_GAP:
+            problems.append(f"{name} did not answer for {worst:.2f} s")
+    return problems
+
+
+class VisibleSampler:
+    """Samples debug.daemon and debug.surfaces every 250 ms from the kill to the settle."""
+
+    def __init__(self):
+        self.samples, self.stop, self.t0 = [], threading.Event(), time.time()
+
+        def run():
+            while not self.stop.is_set():
+                at = time.time() - self.t0
+                st = rpc("debug.daemon", timeout=VISIBLE_GAP)
+                su = rpc("debug.surfaces", timeout=VISIBLE_GAP)
+                self.samples.append((at, st if isinstance(st, dict) and "error" not in st else None, su))
+                self.stop.wait(0.25)
+        self.thread = threading.Thread(target=run, daemon=True)
+        self.thread.start()
+
+    def finish(self, target):
+        self.stop.set()
+        self.thread.join(2 * VISIBLE_GAP + 2)
+        end = time.time() - self.t0
+        # The app's own kill: no app answers until the relaunch; judge from the first answer of the new app.
+        killed = 0.0
+        if target == "app":
+            first = next((at for at, st, _ in self.samples if st), None)
+            killed = first if first is not None else 0.0  # no answer at all: judged from the kill (never a pass)
+        seen = {}
+        for _, st, su in self.samples:
+            shows = ",".join(sorted({w.get("shows", "?") for w in (st or {}).get("windows") or []})) or "no answer"
+            links = set()
+            for window in (su or {}).get("windows") or [] if isinstance(su, dict) else []:
+                links |= {str(p.get("link")).split(":")[0] for p in window.get("panes") or []
+                          if p.get("kind") == "terminal" and p.get("presence") == "visible"}
+            key = f"{(st or {}).get('connection', 'no answer')}/{shows}/{'+'.join(sorted(links)) or '-'}"
+            seen[key] = seen.get(key, 0) + 1
+        self.seen = seen
+        return judge_visible(self.samples, killed, end), len(self.samples)
+
+
 def restore(target, killed_at, old_daemons):
     """Brings the build back after the kill and waits for it to settle; (state, timings, problem)."""
     timings = {}
@@ -707,14 +928,21 @@ def judge(state, expected, inflight):
 # ---- one iteration -----------------------------------------------------------------------------
 
 def fresh(run):
-    for wid in list((daemon_state() or {})):
-        cli("workspace", wid, "close")
+    fz_before = daemon_state() or {}
+    for wid in list(fz_before):
+        answer, _ = cli("workspace", wid, "close")
+        note_close(answer, len(fz_before.get(wid, {}).get("tabs", {})))
     wait(lambda: daemon_state() == {}, 20, 0.5)
     names = []
     for _ in range(run.rng.randint(1, 3)):
-        names.append(run.name())
-        answer, _ = cli("workspace", "create", "--name", names[-1])
-        created(names[-1], answer)
+        name = run.name()
+        ACTION_ERRORS[0] = True
+        try:
+            answer, _ = cli("workspace", "create", "--name", name)
+        finally:
+            ACTION_ERRORS[0] = False
+        if created(name, answer):
+            names.append(name)
         mark(value(answer).get("terminal_id") if isinstance(value(answer), dict) else None)
     state = daemon_state()
     listed_names = {w["name"] for w in (state or {}).values()}
@@ -804,9 +1032,19 @@ def iteration(seed, targets, keep=None, label="i"):
         rec["problems"].append(f"no {target} process of this build to kill")
         return rec
     say(f"  iter seed {seed}: {len(rec['actions'])} actions, SIGKILL {target} {pids} ({rec['point']})")
+    sampler = VisibleSampler() if opts.visible else None
     state, timings, problem = restore(target, killed_at, old_daemons)
+    if sampler:
+        seen, n = sampler.finish(target)
+        rec["visible_samples"] = n
+        rec["visible_states"] = getattr(sampler, "seen", {})
+        if seen and not (DISK.get("volume") and DISK.get("phase") == "full" and problem):
+            rec["problems"].append(f"no designed visible state during the restore: {'; '.join(seen[:4])}")
+        elif seen:
+            rec["visible_problems_full"] = seen[:4]
     rec["timings"] = timings
     log_daemon_env(f"after-restore-{target}")
+    rec["hosts_after_restore"] = log_hosts(f"after-restore-{target}")["hosts"]
     outside = APP.state_outside_slot()
     if outside:
         say(f"RESTORE-FUZZ SUMMARY seed=none chaos={opts.chaos} iterations=0 judged=0 not_run=0 violations=0 chaos_lost=0 "
@@ -815,6 +1053,28 @@ def iteration(seed, targets, keep=None, label="i"):
     if problem:
         rec["problems"].append(problem)
         rec["crash_reports"] = safe_evidence(f"{label}-{seed}")
+        if DISK.get("volume") and DISK.get("phase") == "full":
+            rec["full_disk_problem"] = rec["problems"].pop()
+            rec_rec = recover_after_space(target, old_daemons)
+            state = rec_rec.pop("state")
+            rec["recovery"] = rec_rec
+            if str(rec_rec.get("problem", "")).startswith("not checked"):
+                rec["problems"].append("no recovery check: no time left in the lease")
+                rec["verdict"] = "not run"
+                return rec
+            if not rec_rec["recovered"]:
+                rec["problems"].append(
+                    f"no recovery by itself after the space came back ({rec_rec['problem']}); Restart offered: "
+                    f"{rec_rec['offers_restart']}; after Restart: "
+                    f"{'recovered' if rec_rec.get('recovered_after_restart') else rec_rec.get('restart_problem')}")
+            else:
+                # Recovered by itself: nothing confirmed may be lost, and the full-disk stretch must have been visible.
+                rec["problems"] += judge(state, confirmed, inflight)
+                rec["problems"] += [f"not visible on the full disk: {v}" for v in rec.get("visible_problems_full", [])]
+                rec["problems"] += [f"not visible during recovery: {v}" for v in rec_rec["visible_problems"]]
+                if not rec["problems"]:
+                    rec["verdict"] = "degraded"
+                    return rec
     else:
         rec["problems"] += judge(state, confirmed, inflight)
         if rec["problems"]:
@@ -839,9 +1099,551 @@ def shrink(rec, targets, deadline):
     return {"keep": keep, "attempts": attempts}
 
 
+# ---- chaos: nearly full disk ----------------------------------------------------------------------
+
+def parse_procargs2(blob):
+    """KERN_PROCARGS2 bytes -> (argv, env), values exact (spaces kept): int argc, exec path, NUL padding, argv, env."""
+    import struct
+    argc = struct.unpack_from("i", blob, 0)[0]
+    rest = blob[4:]
+    end = rest.find(b"\0")
+    # The exec path, then NUL padding, then argv (psutil's rule). An empty argv[0] cannot be told from the padding;
+    # the harness reads only env values, and a cmux-tui daemon's argv[0] is its path, so that case does not apply.
+    pos = end
+    while pos < len(rest) and rest[pos] == 0:
+        pos += 1
+    words = rest[pos:].split(b"\0")
+    argv = [w.decode(errors="replace") for w in words[:argc]]
+    env = {}
+    for w in words[argc:]:
+        if not w:
+            break
+        key, sep, val = w.decode(errors="replace").partition("=")
+        if sep:
+            env[key] = val
+    return argv, env
+
+
+def proc_args_exact(pid):
+    """(argv, env) of a same-user process through sysctl KERN_PROCARGS2 (exact values), or None."""
+    try:
+        libc = ctypes.CDLL(None)
+        libc.sysctl.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_uint, ctypes.c_void_p,
+                                ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t]
+        mib = (ctypes.c_int * 3)(1, 49, int(pid))  # CTL_KERN, KERN_PROCARGS2
+        size = ctypes.c_size_t(0)
+        if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or not size.value:
+            return None
+        buf = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+            return None
+        return parse_procargs2(buf.raw[:size.value])
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def filler_bytes(free_bytes, margin_mb):
+    return max(0, free_bytes - margin_mb * (1 << 20))
+
+
+HOST_RESERVE = 30 << 30  # the host keeps at least this much free after the image is made
+
+
+def disk_plan(host_free, image_mb, state_bytes):
+    """None when the diskfull setup may run, else the reason it may not."""
+    if host_free - image_mb * (1 << 20) < HOST_RESERVE:
+        return f"the host would keep {host_free >> 30} GB minus the image, below its {HOST_RESERVE >> 30} GB reserve"
+    if state_bytes > image_mb * (1 << 20) // 4:
+        return f"the state dir holds {state_bytes >> 20} MB, more than a quarter of the {image_mb} MB image"
+    return None
+
+
+def check_state_dir(state_dir, home):
+    """None when the daemon's state dir is a real path under the slot HOME, else the reason."""
+    if not state_dir or not home:
+        return f"no state dir ({state_dir!r}) or no slot HOME ({home!r})"
+    if not os.path.abspath(state_dir).startswith(home.rstrip("/") + "/"):
+        return f"state dir {state_dir} is not under the slot HOME {home}"
+    return None
+
+
+class HarnessInvalid(Exception):
+    """The harness cannot keep its own safety rule (no verdict, never PASS)."""
+
+
+class DiskVolume:
+    """A bounded HFS+ image mounted at the daemon's state dir: filling it fills only the image, never the host."""
+
+    def __init__(self, image, mountpoint, size_mb):
+        self.image, self.mountpoint, self.size_mb, self.mounted = image, mountpoint, size_mb, False
+        self.filler = os.path.join(mountpoint, ".fz-filler")
+
+    def create_cmd(self):
+        return ["/usr/bin/hdiutil", "create", "-size", f"{self.size_mb}m", "-fs", "HFS+", "-volname", "fzdisk",
+                "-type", "UDIF", self.image]
+
+    def attach_cmd(self):
+        return ["/usr/bin/hdiutil", "attach", "-nobrowse", "-noautoopen", "-mountpoint", self.mountpoint, self.image]
+
+    def detach_cmd(self, force=False):
+        return ["/usr/bin/hdiutil", "detach", *(["-force"] if force else []), self.mountpoint]
+
+    def free(self):
+        st = os.statvfs(self.mountpoint)
+        return st.f_bavail * st.f_frsize
+
+    def fill(self, margin_mb):
+        """Writes the filler until the image has margin_mb free; the free bytes after. Only on the mounted image:
+        if the mount is gone, statvfs would be the host disk's, so it refuses (HarnessInvalid)."""
+        if not os.path.ismount(self.mountpoint) or self.free() > self.size_mb * (1 << 20):
+            raise HarnessInvalid(f"{self.mountpoint} is not the mounted {self.size_mb} MB image; refusing to fill")
+        want = filler_bytes(self.free(), margin_mb)
+        chunk = b"\0" * (8 << 20)
+        with open(self.filler, "ab") as f:
+            while want > 0:
+                n = min(want, len(chunk))
+                try:
+                    f.write(chunk[:n])
+                    f.flush()
+                except OSError:
+                    break
+                want -= n
+            os.fsync(f.fileno())
+        return self.free()
+
+    def trim(self, margin_mb):
+        """Shrinks the filler so the image has at least margin_mb free again (after a fill to margin 0)."""
+        need = margin_mb * (1 << 20) - self.free()
+        if need > 0 and os.path.exists(self.filler):
+            os.truncate(self.filler, max(0, os.path.getsize(self.filler) - need))
+        return self.free()
+
+    def unfill(self):
+        try:
+            os.remove(self.filler)
+        except FileNotFoundError:
+            pass
+        return self.free()
+
+    def detach(self):
+        for force in (False, True, True):
+            if not self.mounted:
+                return True
+            if subprocess.run(self.detach_cmd(force), capture_output=True, text=True, timeout=60).returncode == 0:
+                self.mounted = False
+                return True
+            time.sleep(2)
+        return False
+
+
+DISK = {}  # "volume": DiskVolume, "state_dir": path, "phase": "full" | "free"
+
+
+def daemon_state_dir():
+    """The exact CMUX_TUI_STATE_DIR of this build's daemon (KERN_PROCARGS2), or None."""
+    for pid in APP.daemon_pids():
+        got = proc_args_exact(pid)
+        if got and got[1].get("CMUX_TUI_STATE_DIR"):
+            return got[1]["CMUX_TUI_STATE_DIR"]
+    return None
+
+
+def bundle_pids(exclude=()):
+    """Every process run from this slot's bundle (the app, its daemon, acpmux, helpers), by its ps row: no rpc, so
+    an app that hangs on a full disk is found too."""
+    return [pid for pid, _, args in ps_table() if APP.mine(args) and pid != os.getpid() and pid not in exclude]
+
+
+def stop_build_processes(exclude=()):
+    """SIGKILL every process of this slot's bundle and poll (locally: never wait(), which exits once the parent is
+    gone) until they end; True when all ended within 20 s."""
+    pids = bundle_pids(exclude)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    end = time.time() + 20
+    while time.time() < end:
+        if not any(APP.alive(p) for p in pids):
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def tree_bytes(path):
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def stale_images_present():
+    """Is an fzdisk image mounted in the slot HOME, or a moved .fz-orig state dir left there (read only)?"""
+    if not APP.env.get("HOME"):
+        return False
+    home = APP.env["HOME"].rstrip("/") + "/"
+    out = subprocess.run(["/sbin/mount"], capture_output=True, text=True).stdout
+    if any(re.match(r"^/dev/disk\S+ on (.+) \(hfs", line) and line.split(" on ", 1)[1].startswith(home)
+           and "fz" in line for line in out.splitlines()):
+        return True
+    for root, dirs, _ in os.walk(home):
+        if any(d.endswith(".fz-orig") for d in dirs):
+            return True
+        if root.count(os.sep) - home.count(os.sep) > 8:
+            dirs[:] = []
+    return False
+
+
+def detach_stale_images():
+    """Detaches fzdisk images an earlier run of this harness left mounted under this slot's HOME (a run whose
+    driver ended before its teardown). Only volumes named fzdisk mounted inside the slot HOME."""
+    if not APP.env.get("HOME"):
+        say("  diskfull: no slot HOME; the stale-image repair does nothing (fail closed)")
+        return []
+    home = APP.env["HOME"].rstrip("/") + "/"
+    out = subprocess.run(["/sbin/mount"], capture_output=True, text=True).stdout
+    found = []
+    for line in out.splitlines():
+        m = re.match(r"^(/dev/disk\S+) on (.+) \(hfs", line)
+        if not m or not m.group(2).startswith(home):
+            continue
+        info = subprocess.run(["/usr/sbin/diskutil", "info", m.group(1)], capture_output=True, text=True).stdout
+        if re.search(r"Volume Name:\s+fzdisk\s*$", info, re.M):
+            found.append(m.group(2))
+    for mountpoint in found:
+        done = subprocess.run(["/usr/bin/hdiutil", "detach", "-force", mountpoint], capture_output=True, text=True)
+        say(f"  diskfull: stale fzdisk image at {mountpoint}: detach exit {done.returncode}")
+        if done.returncode == 0:
+            restore_moved_state(mountpoint, mountpoint + ".fz-orig")
+    # A moved state dir with no mount (an earlier teardown that stopped after the detach), and stale image files.
+    for root, dirs, _ in os.walk(home):
+        for name in list(dirs):
+            if name.endswith(".fz-orig"):
+                state = os.path.join(root, name[: -len(".fz-orig")])
+                if restore_moved_state(state, os.path.join(root, name)):
+                    found.append(state)
+                dirs.remove(name)
+        if root.count(os.sep) - home.count(os.sep) > 8:
+            dirs[:] = []
+    tmp = APP.env.get("TMPDIR") or ""
+    if tmp:
+        for name in os.listdir(tmp) if os.path.isdir(tmp) else []:
+            if name.startswith("fz-disk-") and name.endswith(".dmg"):
+                try:
+                    os.remove(os.path.join(tmp, name))
+                    say(f"  diskfull: removed stale image file {name}")
+                except OSError:
+                    pass
+    return found
+
+
+def setup_diskfull():
+    """Moves the daemon's state dir onto a bounded image at the same path, then fills it. None, or the reason it
+    could not (the run is then harness-invalid: NOVERDICT)."""
+    state = daemon_state_dir()
+    why = check_state_dir(state, APP.env.get("HOME", ""))
+    if why:
+        return why
+    st = os.statvfs(state)
+    why = disk_plan(st.f_bavail * st.f_frsize, opts.disk_image_mb, tree_bytes(state))
+    if why:
+        return why
+    # Never in OUT (the copy back would carry it); in the slot's own TMPDIR, removed at teardown.
+    image_dir = APP.env.get("TMPDIR") or os.path.dirname(opts.out.rstrip("/"))
+    vol = DiskVolume(os.path.join(image_dir, f"fz-disk-{os.getpid()}.dmg"), state, opts.disk_image_mb)
+    made = subprocess.run(vol.create_cmd(), capture_output=True, text=True, timeout=120)
+    if made.returncode:
+        return f"hdiutil create failed: {made.stderr.strip()[:200]}"
+    if not stop_build_processes():
+        return "the build's processes did not end"
+    orig = state + ".fz-orig"
+    DISK.update(volume=vol, state_dir=state, orig=orig)  # recorded BEFORE the rename: teardown can always undo it
+    os.rename(state, orig)
+    os.makedirs(state)
+    attached = subprocess.run(vol.attach_cmd(), capture_output=True, text=True, timeout=120)
+    if attached.returncode:
+        return f"hdiutil attach failed: {attached.stderr.strip()[:200]}"  # teardown puts the state dir back
+    vol.mounted = True
+    copied = subprocess.run(["/bin/cp", "-a", orig + "/.", state + "/"], capture_output=True, text=True, timeout=120)
+    if copied.returncode:
+        say(f"  diskfull: cp of the state dir reported: {copied.stderr.strip()[:300]}")
+    if not APP.relaunch():
+        return "the app did not answer after the state dir moved onto the image"
+    if not wait(lambda: daemon_state() is not None, 60, 0.5):
+        return "the daemon did not answer after the state dir moved onto the image"
+    DISK["phase"] = "full"
+    try:
+        left = vol.fill(opts.disk_margin_mb)
+    except HarnessInvalid as error:
+        return str(error)
+    say(f"  diskfull: {state} is a {opts.disk_image_mb} MB image; free after fill: {left >> 10} KB")
+    return None
+
+
+def disk_phase(i):
+    """Before iteration i: every Nth iteration runs with the filler removed (recovery), the others full."""
+    vol = DISK.get("volume")
+    if not vol:
+        return None
+    want = "free" if opts.disk_recover_every and i % opts.disk_recover_every == opts.disk_recover_every - 1 else "full"
+    if want != DISK.get("phase"):
+        free = vol.unfill() if want == "free" else vol.fill(opts.disk_margin_mb)
+        DISK["phase"] = want
+        say(f"  diskfull: phase {want}, {free >> 10} KB free")
+    return {"phase": want, "free_kb": vol.free() >> 10}
+
+
+def recover_after_space(target, old_daemons):
+    """diskfull: the restore failed on a full disk. Free the space (no other action) and see whether the build comes
+    back by itself within 60 s, with the visible state sampled. The person's way out must not need a restart."""
+    vol = DISK["volume"]
+    freed_at = time.time()
+    free = vol.unfill()
+    DISK["phase"] = "free"
+    say(f"  diskfull: restore failed on a full disk; space freed ({free >> 10} KB), waiting for the build to recover")
+    if target == "app":
+        # The relaunch that failed may still run (it never answered): stop the app's processes first (not the daemon
+        # or acpmux: the person's case is an app restart), so the recovery relaunch is the only app instance.
+        stop_build_processes(exclude=set(APP.daemon_pids()) | set(APP.acpmux_pids()))
+    if time.time() > T0 + opts.max_seconds - SETTLE_BOUND:
+        return {"recovered": False, "state": None, "problem": "not checked: no time left in the lease",
+                "visible_problems": [], "visible_states": {}, "samples": 0, "offers_restart": None}
+    sampler = VisibleSampler()
+    state, timings, problem = restore(target, freed_at, old_daemons)
+    seen, n = sampler.finish(target)
+    last = rpc("debug.daemon", timeout=3)
+    offered = isinstance(last, dict) and ((last.get("recovery") or {}).get("offers_restart") is True)
+    out = {"recovered": problem is None, "state": state, "debug_daemon_last": last if isinstance(last, dict) else None,
+           "offers_restart": offered, "after_free_s": timings.get("settled_s"), "problem": problem,
+           "visible_problems": seen[:4], "visible_states": getattr(sampler, "seen", {}), "samples": n}
+    if problem is not None and time.time() > T0 + opts.max_seconds - SETTLE_BOUND - 60:
+        out["restart"] = "not tried: no time left in the lease"
+    elif problem is not None:
+        # The person's way out: press Restart cmux-tui (the button's path, as restore-journey's daemon-stop does).
+        pressed = rpc("debug.daemon", {"action": "restart"}, timeout=10)
+        pressed_at = time.time()
+        if target == "app" and not isinstance(pressed, dict):
+            stop_build_processes()  # no app answered the press: one fresh instance only
+        state2, timings2, problem2 = restore(target, pressed_at, old_daemons)
+        out.update(restart_pressed=pressed if isinstance(pressed, dict) else str(pressed)[:200],
+                   recovered_after_restart=problem2 is None, after_restart_s=timings2.get("settled_s"),
+                   restart_problem=problem2)
+        if problem2 is None:
+            out["state"] = state2
+    say(f"  diskfull: recovery {'OK' if problem is None else 'FAILED'} "
+        f"{json.dumps({k: v for k, v in out.items() if k != 'state'})[:400]}")
+    return out
+
+
+def app_view():
+    """{"readable": both topologies were read, "app": workspace ids the app shows, "daemon": workspace ids the daemon
+    lists, "notices": toasts + dialogs shown, "texts": their text, "raw": the raw answers}. An unreadable view never
+    counts as "no ghost": the probe makes it "not run"."""
+    snap = rpc("snapshot.get")
+    topo = snap.get("topology") if isinstance(snap, dict) else None
+    app_ids = {w.get("id") for w in (topo or {}).get("workspaces", []) if isinstance(w, dict) and w.get("id")}
+    wsl, _ = cli("workspace", "list")
+    daemon_read = isinstance(value(wsl), list) or (isinstance(wsl, dict) and "error" not in wsl)
+    daemon_ids = {first(w, "id", "workspace_id") for w in listed(wsl, "workspaces")} - {None}
+    toast = rpc("debug.toast", {})
+    dialog = rpc("debug.dialog", {})
+    items = []
+    if isinstance(toast, dict):
+        items += list(toast.get("refusals") or [])
+        for window in toast.get("windows") or []:
+            items += list(window.get("toasts") or [])
+    if isinstance(dialog, dict):
+        items += list(dialog.get("dialogs") or [])
+    texts, count = [json.dumps(item)[:300] for item in items], len(items)
+    return {"readable": isinstance(topo, dict) and daemon_read, "app": app_ids, "daemon": daemon_ids,
+            "notices": count, "texts": texts,
+            "raw": {"toast": json.dumps(toast)[:600], "dialog": json.dumps(dialog)[:600]}}
+
+
+CREATE_REFUSAL_WORDS = re.compile(r"workspace|disk|space|create|storage", re.I)
+DISK_FULL = re.compile(r"disk is full|no space left|ENOSPC|SQLITE_FULL|disk full", re.I)
+
+
+def new_refusal_texts(before, after):
+    """Notice texts that are new after the create and are about it (a workspace create or the full disk); a toast
+    for another cause, or an old refusal still in the history, does not count."""
+    old = {}
+    for t in before.get("texts") or []:
+        old[t] = old.get(t, 0) + 1
+    fresh = []
+    for t in after.get("texts") or []:  # a multiset difference: the same refusal shown again is new
+        if old.get(t):
+            old[t] -= 1
+        elif CREATE_REFUSAL_WORDS.search(t):
+            fresh.append(t)
+    return fresh
+
+
+def judge_app_create(before, after, relaunched):
+    """Problems of the app-path create under a full disk: a workspace the app shows and the daemon does not (a ghost),
+    now or after a relaunch (a saved record); a refusal with no new toast or dialog about it for the person."""
+    problems = []
+    for label, view in (("after the create", after), ("after the relaunch", relaunched)):
+        ghost = (view["app"] - view["daemon"]) - (before["app"] - before["daemon"])
+        if ghost:
+            problems.append(f"{label}: ghost workspace(s) {sorted(ghost)} in the app, not in the daemon")
+    made = after["daemon"] - before["daemon"]
+    if not made and not new_refusal_texts(before, after):
+        problems.append("the create was refused, but no visible refusal (no new toast or dialog about it) for the person")
+    return problems
+
+
+def disk_full_refusal(answer):
+    """Is a CLI create answer the daemon's typed disk-full refusal (not a dead socket, a stall or bad output)?"""
+    return (isinstance(answer, dict) and "error" in answer and typed_error(answer)
+            and bool(DISK_FULL.search(json.dumps(answer.get("error")))))
+
+
+PROBE_SETTLE = 5.0  # seconds from the action to the after view (the refusal toast shows)
+PROBE_BOUND = 240  # seconds the probe may take at most: fills, CLI creates, the action, a relaunch and 3 view reads
+
+
+def probe_record(verdict, problems, **extra):
+    rec = {"probe": "app_create", "verdict": verdict, "problems": problems}
+    for key, view in extra.items():
+        rec[key] = {k: sorted(v) if isinstance(v, set) else v for k, v in view.items()} if isinstance(view, dict) else view
+    with open(os.path.join(opts.out, "app-create-probe.json"), "w") as f:
+        json.dump(rec, f, indent=1, default=str)
+    say(f"  app create probe: {verdict} {'; '.join(problems)[:300]}")
+    return rec
+
+
+def app_create_probe():
+    """The person's create (New Workspace, debug.toast perform "newTab" as origin user) on the full disk, judged by
+    judge_app_create. Runs once per diskfull run, before the iterations. A fail only when every view was read and the
+    daemon really refused a CLI create for the full disk just before; otherwise "not run". Leaves the image at
+    --disk-margin-mb free again."""
+    vol = DISK["volume"]
+    try:
+        return run_app_create_probe(vol)
+    finally:
+        vol.trim(opts.disk_margin_mb)
+
+
+def run_app_create_probe(vol):
+    if time.time() > T0 + opts.max_seconds - PROBE_BOUND:
+        return probe_record("not run", ["no time left in the lease for the probe"])
+    # First make sure the daemon refuses a create for the full disk now: fill again (margin 0 on the second try)
+    # until a CLI create answers a typed disk-full error. A create that still works is closed again.
+    refused = None
+    for margin in (opts.disk_margin_mb, 0, 0):
+        vol.fill(margin)
+        answer, _ = cli("workspace", "create", "--name", "fz-probe-check")
+        if disk_full_refusal(answer):
+            refused = answer
+            break
+        made = value(answer).get("workspace_id") if isinstance(value(answer), dict) else None
+        if made:
+            cli("workspace", made, "close")
+    if refused is None:
+        return probe_record("not run", ["the daemon gave no typed disk-full refusal of a CLI create on the full disk"])
+    before = app_view()
+    if not before["readable"]:
+        return probe_record("not run", ["the app or daemon topology could not be read before the create"], before=before)
+    # The person's New Workspace: action id "newTab", titled "New Workspace" (CmuxNextActions WorkspaceActionCatalog).
+    # As a person runs it (debug.toast perform: origin user), so it gets the refusal a person gets.
+    answer = rpc("debug.toast", {"perform": "newTab"}, timeout=20)
+    err = answer.get("error") if isinstance(answer, dict) else None
+    if err is not None and not isinstance(err, dict):
+        # rpc() gives a bare string for a socket timeout, a closed socket or bad output: the app hung or went away.
+        return probe_record("fail", [f"the app gave no answer to New Workspace on the full disk: {str(err)[:200]}"],
+                            before=before, action_answer=json.dumps(answer)[:400])
+    if isinstance(answer, dict) and answer.get("performed") is False:
+        return probe_record("not run", [f"the action did not run: {json.dumps(answer)[:200]}"])
+    if isinstance(err, dict) and err.get("code") == "not_found":
+        return probe_record("not run", [f"the action is unknown: {json.dumps(answer)[:200]}"])
+    time.sleep(PROBE_SETTLE)
+    after = app_view()
+    if not after["readable"]:
+        return probe_record("not run", ["the app or daemon topology could not be read after the create"],
+                            before=before, after=after)
+    made = after["daemon"] - before["daemon"]
+    if made:
+        for ws_id in made:
+            cli("workspace", ws_id, "close")
+        return probe_record("not run", ["the app's create was not refused (the CLI create just before was): "
+                                        "no refusal to judge"], action_answer=json.dumps(answer)[:400])
+    stop_build_processes(exclude=set(APP.daemon_pids()) | set(APP.acpmux_pids()))
+    relaunched_ok = APP.relaunch()
+    loaded = relaunched_ok and wait(lambda: app_state() and app_state()[1], 30, 0.5)
+    relaunched = app_view() if loaded else None
+    if not relaunched_ok:
+        return probe_record("fail", ["the app did not answer after the relaunch"], before=before, after=after)
+    if not relaunched or not relaunched["readable"]:
+        return probe_record("not run", ["the topology could not be read after the relaunch: the saved-record check "
+                                        "was not done"], before=before, after=after)
+    problems = judge_app_create(before, after, relaunched)
+    return probe_record("fail" if problems else "pass", problems, action_answer=json.dumps(answer)[:400],
+                        before=before, after=after, relaunched=relaunched,
+                        new_refusals=new_refusal_texts(before, after))
+
+
+def teardown_diskfull():
+    """Detaches the image, puts the original state dir back, removes the image file. Signals are ignored meanwhile
+    and each step runs even if one before it failed; nothing here uses wait() or needs stdout."""
+    vol = DISK.pop("volume", None)
+    if not vol:
+        return
+    old = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+    try:
+        try:
+            stop_build_processes()
+        except Exception as error:  # noqa: BLE001 - the restore below must still run
+            say(f"  diskfull: stopping the build failed: {error}")
+        mounted = os.path.ismount(vol.mountpoint)
+        if mounted:
+            try:
+                vol.mounted = True
+                mounted = not vol.detach()
+            except Exception as error:  # noqa: BLE001
+                say(f"  diskfull: detach failed: {error}")
+        if mounted:
+            say(f"  diskfull: WARNING the image is still mounted at {vol.mountpoint}; the next run detaches it")
+        else:
+            say(f"  diskfull: image detached from {vol.mountpoint}")
+            restore_moved_state(vol.mountpoint, DISK.get("orig"))
+        try:
+            os.remove(vol.image)
+        except OSError:
+            pass
+    finally:
+        for sig, handler in old.items():
+            signal.signal(sig, handler)
+
+
+def restore_moved_state(state, orig):
+    """Puts <state>.fz-orig back at <state> when <state> is not a mount (an empty dir, or a dir that holds only what
+    a daemon wrote into the bare mount point after a forced detach: kept beside as <state>.fz-stray)."""
+    if not orig or not os.path.isdir(orig) or os.path.ismount(state):
+        return False
+    try:
+        if os.path.isdir(state):
+            try:
+                os.rmdir(state)
+            except OSError:
+                os.rename(state, state + f".fz-stray-{int(time.time())}")
+        os.rename(orig, state)
+        say("  diskfull: original state dir restored")
+        return True
+    except OSError as error:
+        say(f"  diskfull: WARNING could not restore {orig}: {error}")
+        return False
+
+
 # ---- chaos -------------------------------------------------------------------------------------
 
 CHAOS_PROCS = []
+PROBE = []  # the diskfull app-path create probe record
 
 
 def start_chaos():
@@ -871,6 +1673,18 @@ def start_chaos():
         say("chaos exec (control): every app relaunch execs the executable as fd/slowdisk do, with no limit and no throttle")
     elif opts.chaos == "slowdisk":
         say("chaos slowdisk: every app relaunch runs under taskpolicy -d throttle (disk I/O throttled)")
+    elif opts.chaos == "diskfull":
+        why = setup_diskfull()
+        if not why:
+            try:
+                PROBE.append(app_create_probe())
+            except HarnessInvalid as error:
+                why = str(error)
+        if why:
+            teardown_diskfull()
+            say(f"RESTORE-FUZZ SUMMARY seed=none chaos=diskfull iterations=0 judged=0 not_run=0 violations=0 "
+                f"chaos_lost=0 harness_invalid=1 ({why})")
+            sys.exit(75)
 
 
 def stop_chaos():
@@ -884,42 +1698,87 @@ def stop_chaos():
 
 # ---- main --------------------------------------------------------------------------------------
 
+def _end_on_signal(signum, _frame):
+    """SIGTERM/SIGHUP (the slot script or its ssh ended): leave through main()'s finally, which detaches the image."""
+    raise SystemExit(f"restore-fuzz: signal {signum}")
+
+
 def main():
     global APP
+    signal.signal(signal.SIGTERM, _end_on_signal)
+    signal.signal(signal.SIGHUP, _end_on_signal)
     APP = App()
+    if stale_images_present():
+        # The build runs on a stale image: stop it first, then detach and put the state dir back, then start again.
+        stop_build_processes()
+        detach_stale_images()
+        if not APP.relaunch():
+            say("RESTORE-FUZZ SUMMARY seed=none chaos=none iterations=0 judged=0 not_run=0 violations=0 chaos_lost=0 "
+                "harness_invalid=1 (the app did not come back after a stale image was detached)")
+            sys.exit(75)
     targets = [t for t in opts.targets.split(",") if t in ("app", "daemon", "acpmux")]
     if "acpmux" in targets and not APP.acpmux_pids():
         say("no acpmux daemon of this build runs now; acpmux kills are judged only when one runs")
     seed = opts.seed if opts.seed is not None else int(time.time() * 1000) % (1 << 31)
     say(f"restore-fuzz seed {seed} chaos {opts.chaos} targets {targets}")
     log_daemon_env("start")
+    log_hosts("start")
     master = random.Random(seed)
     deadline = T0 + opts.max_seconds
     records, violations = [], []
     chaos_lost = [0]
-    start_chaos()
     try:
+        start_chaos()  # inside the try: a stop during the diskfull setup still detaches the image
         if opts.replay:
             with open(opts.replay) as f:
                 seeds = [json.load(f)[0]["record"]["seed"]]
         else:
             seeds = None
         i = 0
-        while time.time() < deadline - 60 and (not opts.iterations or i < opts.iterations):
+        # An iteration may need: actions, a settle (SETTLE_BOUND), and under diskfull a recovery wait and a Restart
+        # wait (2 more SETTLE_BOUNDs) plus the evidence re-read (30 s). Start one only if it can end inside the lease.
+        need = 60 + (SETTLE_BOUND + 60 + 40 if opts.chaos == "diskfull" else 0)
+        while time.time() < deadline - need and (not opts.iterations or i < opts.iterations):
             dead = [proc.pid for proc in CHAOS_PROCS if proc.poll() is not None]
             if dead:
                 chaos_lost[0] = 1
                 say(f"chaos process(es) {dead} ended early; stopping (the iterations after this would not be under chaos)")
                 break
             it_seed = seeds[0] if seeds else master.randrange(1 << 31)
+            try:
+                phase = disk_phase(i)
+            except HarnessInvalid as error:
+                say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged=0 not_run=0 "
+                    f"violations=0 chaos_lost=0 harness_invalid=1 ({error})")
+                sys.exit(75)
+            ERRORS.clear()
             rec = iteration(it_seed, targets, label=f"iter{i}")
+            if phase:
+                rec["disk"] = phase
+                # h1 class: after refused work, the app must still show exactly what the daemon has.
+                state_now = daemon_state()
+                shown = app_state()
+                if state_now is not None and shown and shown[0] != {w["name"]: sorted(w["tabs"]) for w in state_now.values()}:
+                    rec["app_daemon_differ"] = {"app": shown[0], "daemon": canon(state_now)}
+                rec["errors"] = list(ERRORS[:20])
+                rec["errors_untyped"] = sum(1 for e in ERRORS if not e["typed"])
+                # A full disk may refuse work: that is degraded, not "not run", when it refused with an answer.
+                if phase["phase"] == "full":
+                    rec["verdict"] = not_run_outcome(rec, ERRORS)
+                # Recovery: with the filler removed, the iteration must run (its creates must work again).
+                if phase["phase"] == "free" and rec["verdict"] == "not run":
+                    rec["problems"].append("no recovery: with free space again, the iteration could not run")
+                    rec["verdict"] = "fail"
+            if rec["verdict"] == "not run" and not phase:
+                rec["verdict"] = "fail" if not_run_outcome(rec, ERRORS) == "fail" else "not run"
             rec["iteration"] = i
             records.append(rec)
             with open(os.path.join(opts.out, "iterations.jsonl"), "a") as f:
                 f.write(json.dumps(rec, default=str) + "\n")
             say(f"  -> {rec['verdict']} {rec.get('timings', {})} {'; '.join(rec['problems'])[:400]}")
             if rec["verdict"] == "fail":
-                small = shrink(rec, targets, deadline - 30) if (seeds or len(violations) < 2) else None
+                small = (shrink(rec, targets, deadline - 30)
+                         if (seeds or len(violations) < 2) and opts.chaos != "diskfull" else None)
                 violations.append({"record": rec, "shrink": small})
                 with open(os.path.join(opts.out, "violations.json"), "w") as f:
                     json.dump(violations, f, indent=1, default=str)
@@ -935,11 +1794,19 @@ def main():
             chaos_lost[0] = 1
             say("a chaos process ended before the run did; the last iterations may have run without chaos")
         stop_chaos()
-    judged = [r for r in records if r["verdict"] in ("pass", "fail")]
-    kills = {}
-    for r in judged:
-        kills[r["target"]] = kills.get(r["target"], 0) + 1
+        teardown_diskfull()
+    # A degraded iteration is judged too: on a full disk it refused or stalled visibly, recovered by itself, lost nothing.
+    judged = [r for r in records if r["verdict"] in ("pass", "fail", "degraded")]
+    degraded = [r for r in records if r["verdict"] == "degraded"]
+    kills = kill_counts(records)
     settle = sorted(r["timings"]["settled_s"] for r in judged if r.get("timings", {}).get("settled_s") is not None)
+    for p in PROBE:
+        if p["verdict"] == "fail":
+            violations.append({"record": {"seed": seed, "iteration": "probe", "target": "app-create", "point": "full disk",
+                                          "problems": p["problems"]}, "shrink": None})
+    if any(p["verdict"] == "fail" for p in PROBE):
+        with open(os.path.join(opts.out, "violations.json"), "w") as f:
+            json.dump(violations, f, indent=1, default=str)
     for v in violations:
         r = v["record"]
         say(f"RESTORE-FUZZ VIOLATION seed={r['seed']} iter={r['iteration']} chaos={opts.chaos} target={r.get('target')} "
@@ -947,7 +1814,9 @@ def main():
     p = lambda q: settle[min(len(settle) - 1, int(q * len(settle)))] if settle else None
     say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged={len(judged)} "
         f"not_run={len(records) - len(judged)} kills={json.dumps(kills, sort_keys=True)} violations={len(violations)} "
-        f"chaos_lost={chaos_lost[0]} "
+        f"chaos_lost={chaos_lost[0]} degraded={len(degraded)} app_create_probe={PROBE[0]['verdict'] if PROBE else 'none'} app_daemon_differ={sum(1 for r in records if r.get('app_daemon_differ'))} errors_untyped={sum(r.get('errors_untyped', 0) for r in records)} "
+        f"hosts_max={HOSTS_MAX[0]} listed_minus_shown_max={EXCESS_MAX[0]} "
+        f"listed_minus_shown_minus_closed30s_max={EXCESS_MAX[1]} "
         f"settle_s p50={p(0.5)} p95={p(0.95)} max={settle[-1] if settle else None}")
     sys.exit(1 if violations else (0 if judged and not chaos_lost[0] else 75))
 

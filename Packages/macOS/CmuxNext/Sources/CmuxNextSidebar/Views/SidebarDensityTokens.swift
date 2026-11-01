@@ -49,6 +49,10 @@ enum SidebarDensityTokens {
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge.
     static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
+    static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
+    /// Compatibility name used by the existing session-tree layout. The tree's base indent is
+    /// independent of the sidebar's group nesting grid and remains the original space4.
+    static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
     /// so their fills line up at each density.
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }

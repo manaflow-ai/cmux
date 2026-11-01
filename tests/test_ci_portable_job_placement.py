@@ -68,16 +68,39 @@ class Decide(unittest.TestCase):
         self.assertEqual(result.linux_jobs, ("control", "signer-build"))
         self.assertEqual(result.mini_jobs, ())
 
-    def test_early_nightly_unread_capacity_keeps_portable_controls_on_fleet(self):
+    def test_early_nightly_unknown_capacity_uses_blacksmith_overflow(self):
         config = env(JOBS="control signer-build", LINUX_ONLY="signer-build",
-                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+                     NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
         for runners, snap in ((None, None), (idle(2), None),
                               (idle(2), snapshot(age_minutes=120))):
             with self.subTest(runners=runners, snapshot=snap):
                 placed = placement.decide(config, runners, snap, NOW)
-                self.assertEqual((placed.mini_runner, placed.mini_jobs), (SIDE, ("control",)))
+                self.assertEqual((placed.mini_runner, placed.mini_jobs), ("", ()))
                 self.assertEqual(placed.linux_jobs, ())
-                self.assertIn("capacity unknown", placed.why)
+                self.assertIn("Blacksmith", placed.why)
+
+    def test_offline_runner_without_snapshot_does_not_queue_all_owned_jobs(self):
+        config = env(JOBS="prepare-one prepare-two prepare-three prepare-four", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        placed = placement.decide(config, idle(4), None, NOW)
+        self.assertEqual(placed.mini_jobs, ())
+        self.assertEqual(placed.mini_runner, "")
+        self.assertIn("Blacksmith", placed.why)
+
+    def test_live_only_nightly_picker_waits_without_emitting_an_unverified_pool(self):
+        config = env(JOBS="pick-nightly-build-runner", NIGHTLY="1",
+                     NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        for runners, snap in ((None, None), (idle(2), None),
+                              (idle(2), snapshot(age_minutes=120)), ([], snapshot())):
+            with self.subTest(runners=runners, snapshot=snap):
+                placed = placement.decide(config, runners, snap, NOW)
+                self.assertEqual((placed.mini_runner, placed.mini_jobs), ("", ()))
+        with mock.patch.object(placement, "read", return_value=(None, None)), \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 180]), \
+             mock.patch.object(placement, "write") as write:
+            self.assertEqual(placement.main(config), 0)
+        self.assertEqual(write.call_args.args[0].mini_runner, "")
+        placed = placement.decide(config, idle(1), snapshot(), NOW)
+        self.assertEqual(placed.mini_jobs, ("pick-nightly-build-runner",))
 
     def test_unknown_nightly_capacity_does_not_bypass_runner_eligibility(self):
         for overrides in ({"SIDE_LABEL": ""}, {"SIDE_LABEL": "blacksmith-16vcpu-ubuntu-2404"},
@@ -161,6 +184,48 @@ class Decide(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(placement.fleet_linux(label), "")
         self.assertEqual(placement.fleet_linux("gcp-linux-32"), "gcp-linux-32")
+        self.assertEqual(placement.fleet_linux("glaeda-std-xcode-26.6"), "")
+
+    def test_live_linux_requires_fresh_idle_linux_capacity_beyond_queue(self):
+        config = env(JOBS="legacy-identity-target", LINUX_ONLY="legacy-identity-target",
+                     FLEET_LINUX="cmux-fleet-linux-x64", NIGHTLY="1",
+                     NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        live = {"name": "gcp", "status": "online", "busy": False, "os": "linux",
+                "labels": [{"name": "cmux-fleet-linux-x64"}]}
+        cases = [(None, snapshot()), ([], snapshot()), ([live], None),
+                 ([live], snapshot(age_minutes=120)), ([{**live, "busy": True}], snapshot()),
+                 ([{**live, "status": "offline"}], snapshot()),
+                 ([{**live, "os": "macOS"}], snapshot()), ([{**live, "os": ""}], snapshot()),
+                 ([live, {**live, "os": "macOS"}], snapshot()),
+                 ([live], snapshot({"cmux-fleet-linux-x64": {"queued": 1, "oldest_queued_minutes": 4}}))]
+        for runners, snap in cases:
+            with self.subTest(runners=runners, snapshot=snap):
+                result = placement.decide(config, runners, snap, NOW)
+                self.assertEqual((result.linux_runner, result.linux_jobs, result.mini_jobs), ("", (), ()))
+        result = placement.decide(config, [live], snapshot(), NOW)
+        self.assertEqual((result.linux_runner, result.linux_jobs), ("cmux-fleet-linux-x64", ("legacy-identity-target",)))
+        for label in ("macos-26", "glaeda-std-xcode-26.6", "ubuntu-24.04", "blacksmith-32vcpu-ubuntu-2404"):
+            result = placement.decide({**config, "FLEET_LINUX": label}, [live], snapshot(), NOW)
+            self.assertEqual((result.linux_runner, result.mini_jobs), ("", ()))
+
+    def test_linux_only_no_start_wait_is_bounded_and_can_admit_before_deadline(self):
+        config = env(JOBS="legacy-identity-target", LINUX_ONLY="legacy-identity-target",
+                     FLEET_LINUX="cmux-fleet-linux-x64", NIGHTLY="1",
+                     NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        live = {"status": "online", "busy": False, "os": "linux",
+                "labels": [{"name": "cmux-fleet-linux-x64"}]}
+        for second, expected in (([], ""), ([live], "cmux-fleet-linux-x64")):
+            with self.subTest(second=second), \
+                 mock.patch.object(placement, "read", side_effect=[([], snapshot()), (second, snapshot())]) as read, \
+                 mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
+                 mock.patch.object(placement.time, "monotonic", side_effect=[0, 150, 180]), \
+                 mock.patch.object(placement.time, "sleep") as sleep, \
+                 mock.patch.object(placement, "write") as write:
+                clock.now.return_value = NOW
+                self.assertEqual(placement.main(config), 0)
+                sleep.assert_called_once_with(30)
+                self.assertEqual(read.call_count, 2)
+                self.assertEqual(write.call_args.args[0].linux_runner, expected)
 
     def test_a_nightly_waiting_on_the_family_keeps_every_job_off_the_minis(self):
         # Nightly jobs come first on the fleet: one queued on any label of the family (here the root
@@ -264,7 +329,7 @@ class Wiring(unittest.TestCase):
                 self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
                 selected = f"needs.decide.outputs.early_{name.replace('cmux-', '').replace('-', '_')}_runner"
                 self.assertIn(selected, route)
-                self.assertLess(route.index(selected), route.index("'cmux-fleet-linux-x64'"))
+                self.assertLess(route.index(selected), route.index("'blacksmith-16vcpu-ubuntu-2404'"))
                 self.assertIn("needs.decide.outputs.track == 'nightly-next'", route)
                 self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))

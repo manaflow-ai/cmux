@@ -725,6 +725,7 @@ impl ChildAgent {
         let launch = crate::hub::LaunchServers::read(
             &Launch::of(&cmd, cwd),
             crate::config::derive_family(name, profile),
+            profile.kind,
         )
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));
