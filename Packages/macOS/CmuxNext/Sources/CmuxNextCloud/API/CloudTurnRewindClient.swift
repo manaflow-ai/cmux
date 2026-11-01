@@ -44,7 +44,9 @@ public struct CloudTurnRewindClient: Sendable {
         ])
         let enrollment = try JSONDecoder().decode(Enrollment.self, from: data)
         let connection = try enrollment.connection.checked(machine: machine)
-        guard connection.generation == generation, connection.connectionMachine == carrier else { throw Failure.invalidReply }
+        // Zero is the absence fence on first import; the new ledger starts at one.
+        let expectedGeneration = generation == 0 ? 1 : generation
+        guard connection.generation == expectedGeneration, connection.connectionMachine == carrier else { throw Failure.invalidReply }
         return enrollment
     }
 

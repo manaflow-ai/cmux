@@ -17,12 +17,16 @@ import Testing
             let payload = (Self.body(request).flatMap { try? JSONSerialization.jsonObject(with: $0) }) as? [String: Any] ?? [:]
             #expect(Set(payload.keys) == Set(["carrierMachine", "expectedMachine", "expectedGeneration", "clientKey"]))
             #expect(payload["carrierMachine"] as? String == "vm_bbbbbbbbbbbbbbbbbbbb")
-            #expect(payload["expectedMachine"] as? String == "vm_aaaaaaaaaaaaaaaaaaaa")
-            #expect(payload["expectedGeneration"] as? Int == 2)
+            let firstImport = url.host?.hasPrefix("first-") == true
+            #expect(payload["expectedMachine"] as? String == (firstImport ? "vm_bbbbbbbbbbbbbbbbbbbb" : "vm_aaaaaaaaaaaaaaaaaaaa"))
+            #expect(payload["expectedGeneration"] as? Int == (firstImport ? 0 : 2))
             #expect(payload["clientKey"] as? String == "native-workspace-import-v1")
             var answer: [String: Any] = ["machineId": "vm_aaaaaaaaaaaaaaaaaaaa", "generation": 2,
                 "reconnectRequired": true, "provider": "freestyle-cloud", "connectionMachine": "vm_bbbbbbbbbbbbbbbbbbbb"]
+            if firstImport { answer["machineId"] = "vm_bbbbbbbbbbbbbbbbbbbb" }
             switch url.host {
+            case "first-ready.test": answer["generation"] = 1
+            case "first-zero.test": answer["generation"] = 0
             case "wrong-machine.test": answer["machineId"] = "vm_cccccccccccccccccccc"
             case "wrong-generation.test": answer["generation"] = 3
             case "wrong-carrier.test": answer["connectionMachine"] = "vm_cccccccccccccccccccc"
@@ -74,6 +78,19 @@ import Testing
     @Test func enrollmentMustStateWhetherItRestartedTheGuest() async {
         await #expect(throws: DecodingError.self) {
             try await owner("missing-reconnect.test").importWorkspace(workspace: "ws_one", machine: Self.machine, carrier: Self.carrier, generation: 2)
+        }
+    }
+
+    @Test func firstEnrollmentAdoptsCanonicalGeneration() async throws {
+        let enrollment = try await owner("first-ready.test").importWorkspace(workspace: "ws_one", machine: Self.carrier, carrier: Self.carrier, generation: 0)
+        #expect(enrollment.connection.generation == 1)
+        #expect(enrollment.connection.connectionMachine == Self.carrier)
+    }
+
+    @Test(arguments: ["first-zero.test", "first-too-new.test"])
+    func firstEnrollmentRefusesUnexpectedGeneration(host: String) async {
+        await #expect(throws: CloudTurnRewindClient.Failure.self) {
+            try await owner(host).importWorkspace(workspace: "ws_one", machine: Self.carrier, carrier: Self.carrier, generation: 0)
         }
     }
 
