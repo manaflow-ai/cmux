@@ -846,7 +846,13 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": wire}),
+            super::prompt_sender::prompt_params(
+                &agent_sid,
+                json!(wire),
+                run.agent.as_deref(),
+                run.class.map(|c| c.as_str()),
+                run.provenance.as_ref(),
+            ),
             &turn_id,
             false,
             false,
