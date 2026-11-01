@@ -2151,3 +2151,31 @@ fn netdrop_fuzz_seeded_network_faults_never_lose_data_silently() {
     assert_eq!(noverdicts, 0, "a seed gave no verdict; see the NETDROP NOVERDICT lines");
     assert_eq!(violations, 0, "network faults broke the oracle; see the NETDROP VIOLATION lines");
 }
+
+/// FUZZ FINDING netdrop n2 (fuzz-findings/netdrop/n2): a 7 s freeze, longer
+/// than the daemon's resume lease (4 s), ends the session. The daemon refuses
+/// the reconnect with its typed `LinkRejection::SessionUnavailable`, but the
+/// client turns it into `ConnectionError::Protocol(String)`, and the RPC layer
+/// reports it as `code=transport` with the text "daemon no longer has the
+/// requested logical session": a caller cannot tell an expired session from a
+/// broken link. The client also does not stay terminal: it goes back to
+/// `Reconnecting` and dials the gone session again (8 carriers in 2 s on the
+/// fleet). The test fails while the session end is untyped or the state flaps.
+#[test]
+fn netdrop_red_n2_an_expired_session_ends_typed_and_stays_ended() {
+    let config = SeedConfig {
+        seed: EXPIRY_SEED,
+        steps: vec![Step { fault: Fault::Freeze { ms: 7_000 }, calm_ms: 500 }],
+        retained_output_bytes: 256 * 1024,
+    };
+    let report = run_all(vec![config]).remove(0);
+    print_report(&report);
+    assert!(report.noverdict.is_none(), "no verdict: {:?}", report.noverdict);
+    let terminal = report
+        .violations
+        .iter()
+        .filter(|violation| violation.what.starts_with("terminal-"))
+        .map(|violation| violation.what.as_str())
+        .collect::<Vec<_>>();
+    assert!(terminal.is_empty(), "the expired session did not end typed and stable: {terminal:#?}");
+}
