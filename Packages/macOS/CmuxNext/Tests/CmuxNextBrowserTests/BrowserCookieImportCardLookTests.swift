@@ -41,4 +41,19 @@ import Testing
         #expect(layer.shadowOpacity > 0)
         #expect(layer.shadowPath != nil)
     }
+
+    /// The second half of the same report: on macOS 26 the banner still drew a near-black 1 px
+    /// line at its top and bottom (fleet capture, 60/255 over a 241/255 page). It floats on the
+    /// overlay host, a clear window over the page's window, where Liquid Glass has nothing to
+    /// refract and its lens bends the clear pixels into that line. It is the blur of what is
+    /// behind its window instead.
+    @Test func theBannerBlursThePageBehindItsWindowNeverLiquidGlass() throws {
+        let glass = try #require(Self.card().glass)
+        #expect(glass.samplesBehindWindow)
+        #expect(glass.material != .liquidGlass)
+        if glass.material == .vibrancy {
+            let blur = try #require(glass.subviews.compactMap { $0 as? NSVisualEffectView }.first)
+            #expect(blur.blendingMode == .behindWindow)
+        }
+    }
 }
