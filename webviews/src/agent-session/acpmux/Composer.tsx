@@ -61,6 +61,7 @@ import {
   slashMatches,
   useSlashNames,
   withSkillDollars,
+  withoutSkillDollars,
   type SlashCommand,
   type SlashMatch,
   type SlashTrigger,
@@ -810,7 +811,9 @@ export function Composer({
         suppressedAttachmentCarry.current = undefined;
       },
       restore(restoredText, restoredAttachments) {
-        const restored = bindMarks(restoredText, restoredAttachments);
+        // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
+        // as `/$name`: it is typed `/name` here, and send writes the `$` again.
+        const restored = bindMarks(withoutSkillDollars(restoredText), restoredAttachments);
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.

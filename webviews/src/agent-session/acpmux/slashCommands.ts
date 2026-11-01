@@ -72,6 +72,31 @@ export function withSkillDollars(text: string, commands: readonly SlashCommand[]
   );
 }
 
+/// A `/$name` token (a Codex skill as sent) in a command position, or a code span or code block,
+/// which is kept as it is. A skill-like name is lowercase letters, digits and `-_.:`, so `$HOME`
+/// and `$5` never match.
+const SENT_SKILL =
+  /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)|(^|[\s\uFFFC])\/\$([a-z0-9][a-z0-9_.:-]*)(?=[\s\uFFFC]|$)/g;
+
+/// A sent prompt as the person reads it: each `/$name` a Codex skill went as reads `/name`, as it
+/// was typed (`withSkillDollars` wrote the `$`). For display, copy and putting the prompt back in a
+/// field only; the stored and sent text keep the `$`. One pass; code spans and blocks are kept.
+export function withoutSkillDollars(text: string): string {
+  if (!text.includes("/$")) return text;
+  return text.replace(SENT_SKILL, (whole, code: string | undefined, lead: string, name: string) =>
+    code !== undefined ? whole : `${lead}/${name}`,
+  );
+}
+
+/// The `$` skills a sent prompt names (`/$name`), as commands `withSkillDollars` writes back: a prompt
+/// put in an editor without its `$` (`withoutSkillDollars`) goes out with it again.
+export function skillDollarsOf(text: string): SlashCommand[] {
+  if (!text.includes("/$")) return [];
+  const names = new Set<string>();
+  for (const found of text.matchAll(SENT_SKILL)) if (found[1] === undefined && found[3]) names.add(found[3]);
+  return [...names].map((name) => ({ name: `$${name}`, description: "", source: "skill" }));
+}
+
 /// Whether `command` is the harness's own `/fast` (Claude Code lists it as "Toggle fast mode"). The
 /// `/` menu draws it as ChatGPT does (Leo 2026-10-22): the bolt, the plain name Fast, and what
 /// picking it does in the chat's current state (fastModeState).

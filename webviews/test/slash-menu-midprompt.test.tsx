@@ -257,3 +257,12 @@ test("a Codex skill lists, writes and colours without its `$`, and goes to Codex
   await press(field, "Enter");
   expect(sent).toEqual(["Use /$emil-design-foundations in src/emil-color"]);
 });
+
+test("a prompt that comes back to the composer reads a Codex skill as typed", async () => {
+  // `composer` puts its text in through `restore`, as a refused send or a taken-back steer does: the
+  // prompt as it went.
+  const { prompt, sent, field } = await composer(codexChat(), "use /$emil-color now");
+  expect(prompt.plainText()).toBe("use /emil-color now");
+  await press(field, "Enter");
+  expect(sent).toEqual(["use /$emil-color now"]);
+});

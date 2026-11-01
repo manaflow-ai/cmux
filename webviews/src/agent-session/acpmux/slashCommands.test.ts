@@ -4,12 +4,14 @@ import {
   commandSplice,
   matchCommands,
   shownName,
+  skillDollarsOf,
   slashMatches,
   slashNames,
   slashTokens,
   slashTrigger,
   SLASH_WORD_MAX,
   withSkillDollars,
+  withoutSkillDollars,
   type SlashCommand,
 } from "./slashCommands";
 
@@ -203,5 +205,39 @@ describe("Codex skills read without their `$`", () => {
     expect(withSkillDollars("/$emil-color", codex)).toBe("/$emil-color");
     // A name a command also has without `$` is that command's.
     expect(withSkillDollars("/emil-color", [...codex, { name: "emil-color", description: "" }])).toBe("/emil-color");
+  });
+});
+
+describe("a sent prompt reads its Codex skills as typed", () => {
+  test("`/$name` in a command position reads `/name`", () => {
+    expect(withoutSkillDollars("hello lets use /$emil-design-vocabulary to figure it out")).toBe(
+      "hello lets use /emil-design-vocabulary to figure it out",
+    );
+    expect(withoutSkillDollars("/$emil-color\n/$emil-color")).toBe("/emil-color\n/emil-color");
+    expect(withoutSkillDollars("see \uFFFCid\uFFFC/$emil-color")).toBe("see \uFFFCid\uFFFC/emil-color");
+  });
+
+  test("other dollars, paths, words and code stay", () => {
+    for (const text of [
+      "echo $HOME costs $5",
+      "cd /$HOME",
+      "src/$emil-color and x/$emil-color",
+      "/$emil-color/x",
+      "run `/$emil-color` here",
+      "```\n/$emil-color\n```",
+      "a\n~~~sh\nuse /$emil-color\n~~~",
+    ])
+      expect(withoutSkillDollars(text)).toBe(text);
+    expect(withoutSkillDollars("`code` then /$emil-color")).toBe("`code` then /emil-color");
+  });
+
+  test("an edit of the shown text goes back with its `$`", () => {
+    const sent = "use /$emil-color and /init";
+    const edited = `${withoutSkillDollars(sent)} please`;
+    expect(edited).toBe("use /emil-color and /init please");
+    expect(withSkillDollars(edited, skillDollarsOf(sent))).toBe("use /$emil-color and /init please");
+    expect(skillDollarsOf("`/$x` and /$emil-color")).toEqual([
+      { name: "$emil-color", description: "", source: "skill" },
+    ]);
   });
 });
