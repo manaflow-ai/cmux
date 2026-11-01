@@ -53,6 +53,7 @@ export class PasswordsStore {
   private generation = 0;
   private stops: Array<() => void> = [];
   private started = false;
+  private followingChanges = false;
 
   constructor(
     private readonly client: PageClient | null,
@@ -83,21 +84,21 @@ export class PasswordsStore {
     };
   };
 
-  /** Subscribes to the change stream and the page streams, then loads. Idempotent. */
+  /** Subscribes to the page streams and the change stream, then loads. Idempotent. */
   async start(): Promise<void> {
     if (!this.client || this.started) return;
     this.started = true;
     try {
-      this.stops.push(
-        await this.client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
-          if (event.profile === undefined || event.profile === this.snapshot.profile) void this.reload();
-        }),
-      );
+      // The link events first: a start whose change subscription fails while the host is gone
+      // still hears the link come back and finishes then (`resume`).
       this.stops.push(
         await subscribePageStreams(this.client, { onConnection: (connected) => this.onConnection(connected) }),
       );
+      await this.followChanges(this.client);
     } catch (error) {
       this.set({ loading: false, ...failure(error) });
+      // Without the link events nothing hears a reconnect: a later start() begins clean.
+      if (this.stops.length === 0) this.started = false;
       return;
     }
     if (!this.started) {
@@ -107,8 +108,20 @@ export class PasswordsStore {
     await this.reload();
   }
 
+  /** Follows the app's `cmux.passwords.changed`; once, however many starts ask. */
+  private async followChanges(client: PageClient): Promise<void> {
+    if (this.followingChanges) return;
+    const stop = await client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
+      if (event.profile === undefined || event.profile === this.snapshot.profile) void this.reload();
+    });
+    if (!this.started) return stop();
+    this.followingChanges = true;
+    this.stops.push(stop);
+  }
+
   stop(): void {
     this.started = false;
+    this.followingChanges = false;
     for (const stop of this.stops) stop();
     this.stops = [];
   }
@@ -118,8 +131,20 @@ export class PasswordsStore {
       this.set({ connection: "disconnected", loading: false });
     } else if (this.snapshot.connection === "disconnected") {
       this.set({ connection: "connecting" });
-      void this.reload();
+      void this.resume();
     }
+  }
+
+  /** The link came back: follow the changes if the start could not, then read the lists. */
+  private async resume(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.followChanges(this.client);
+    } catch (error) {
+      this.set({ loading: false, ...failure(error) });
+      return;
+    }
+    await this.reload();
   }
 
   /** Reads the capabilities and profiles, then every list the build can serve. */
