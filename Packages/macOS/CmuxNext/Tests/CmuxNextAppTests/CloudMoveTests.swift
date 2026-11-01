@@ -50,6 +50,19 @@ struct CloudMoveTests {
         }
     }
 
+    /// A CLI run whose daemon command reports an event sequence (here a rename of the chat tab) answers once a
+    /// snapshot shows that sequence, never at its deadline. A move whose window-record save (a focus move) joined
+    /// its run waited out the whole minute on aws-m4pro-8, where that save opened inside the run.
+    @Test func aCLIRunThatSendsADaemonCommandAnswersOnceTheSnapshotShowsIt() async throws {
+        try await Self.withMove("moves") { move in
+            let started = ContinuousClock.now
+            let error = await move.cli("renameTab", args: ["name": .string("Renamed Chat")])
+            let took = ContinuousClock.now - started
+            #expect(error == nil, "cmux renameTab: \(error.map { "\($0.code) \($0.message)" } ?? "")")
+            #expect(took < .seconds(10), "the run answered after \(took), not once its rename showed")
+        }
+    }
+
     /// How a move stops: the stand-in `cmux link agent move` answer (or the machine tab's failure).
     enum Stop: String, CaseIterable, Sendable {
         case unresolved, inProgress, badAnswer, timeout, tabFailed, teamMachine
@@ -418,6 +431,12 @@ struct CloudMoveTests {
         func run() async -> ControlError? {
             await send(["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
                         "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)])])
+        }
+
+        /// `cmux <action>` on the chat tab, as the CLI sends it; its error when it stopped.
+        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
+            await send(["action": .string(action), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+                        "target": .string("tab:" + tabID), "args": .object(args)])
         }
 
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
