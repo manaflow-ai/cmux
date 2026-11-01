@@ -327,15 +327,10 @@ pub async fn pinned_linux_payload(
             // build, and the download is still checked against that pin.
             let Some(cache) = cache else { return Ok(None) };
             let published = match published_manifest(PUBLISHED_BASE_URL, identity).await {
-                Some(manifest) => published_pin(
-                    PUBLISHED_BASE_URL,
-                    identity,
-                    "linux",
-                    arch,
-                    &manifest,
-                    &cache,
-                )?
-                .map(|pin| (pin, identity.to_owned())),
+                Some(manifest) => {
+                    published_pin(PUBLISHED_BASE_URL, identity, "linux", arch, &manifest, &cache)?
+                        .map(|pin| (pin, identity.to_owned()))
+                }
                 None => match bundled_tree_key(&executable) {
                     Some(key) => {
                         published_tree_pin(PUBLISHED_BASE_URL, &key, "linux", arch, &cache).await?
