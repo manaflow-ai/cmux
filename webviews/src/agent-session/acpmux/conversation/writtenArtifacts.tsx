@@ -10,7 +10,7 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 export function writtenArtifacts(rows: readonly AcpmuxRow[]): Artifact[] {
   return rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool ? toolArtifacts(item.tool) : [])));
 }
-/** The same Open action for a lone write, a folded edits group and the Inspector's Outputs. */
+/** The same Open action for a lone write, a folded edits group and Session Info's Outputs. */
 export function WrittenArtifactButtons({ tools }: { tools: readonly Tool[] }) {
   const open = useContext(ArtifactContext);
   const t = useT();

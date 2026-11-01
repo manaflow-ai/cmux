@@ -35,6 +35,17 @@ enum QuitStrings {
         String(localized: "quit.button.endEverything", defaultValue: "End Everything", table: "Quit", bundle: .module)
     }
 
+    static var endEverythingTitle: String {
+        String(localized: "quit.endEverything.title", defaultValue: "Quit and close every workspace?", table: "Quit",
+               bundle: .module)
+    }
+
+    static var endEverythingLine: String {
+        String(localized: "quit.endEverything.line",
+               defaultValue: "Every terminal and agent ends. The workspaces stay in Recently Closed.",
+               table: "Quit", bundle: .module)
+    }
+
     static var failedTitle: String {
         String(localized: "quit.failed.title", defaultValue: "Some sessions did not end", table: "Quit", bundle: .module)
     }

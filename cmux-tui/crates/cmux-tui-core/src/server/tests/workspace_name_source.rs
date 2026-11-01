@@ -76,6 +76,27 @@ fn workspace_name_source_named_creation_is_user_owned() {
     assert!(refused.is_err(), "an automatic name replaced a chosen one");
 }
 
+/// Cmd-N creates its workspace under the default name it already shows (#26680): that name is
+/// the automatic namer's, so the chat's generated title can replace it.
+#[test]
+fn workspace_name_source_requested_default_name_stays_automatic() {
+    let mux = test_mux();
+    let key = mux.create_empty_workspace(Some("workspace-151".into()), None, None).unwrap().key;
+    let created = listed(&mux, &key);
+    assert_eq!(created["name"], "workspace-151", "{created}");
+    assert_eq!(created["name_source"], "auto", "{created}");
+    let (_, generation) = mux.registry_identity();
+    run_json_command(
+        &mux,
+        json!({
+            "cmd":"rename-workspace", "key":key, "name":"Fix Login", "source":"auto",
+            "expected_generation":generation, "expected_name_revision":created["name_revision"],
+        }),
+    )
+    .unwrap();
+    assert_eq!(listed(&mux, &key)["name"], "Fix Login");
+}
+
 fn open_registry_mux(root: &Path, session: &str) -> Arc<Mux> {
     Mux::from_workspace_registry(
         session.into(),

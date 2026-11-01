@@ -111,7 +111,7 @@ extension ActionDescriptor {
     nonisolated public static let paletteFamilies: [PaletteFamily] = [
         PaletteFamily("workspace.move", title: familyTitle("palette.family.workspace.move", "Workspace: Move…"),
                       symbol: "arrow.up.arrow.down", members: [
-                          "moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom",
+                          "moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom", "workspace.moveAbove", "workspace.moveBelow",
                           "moveWorkspaceToGroup", "workspace.moveToNewGroup", "removeWorkspaceFromGroup", "moveWorkspaceToWindow",
                           "moveWorkspaceToNewWindow", "workspace.moveToSpace",
                       ]),
