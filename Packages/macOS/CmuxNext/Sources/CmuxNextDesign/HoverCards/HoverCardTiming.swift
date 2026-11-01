@@ -10,13 +10,16 @@ public import Foundation
 /// moves to the next tab at once. History: 1300 ms (2026-10-14), then 250 ms when Lawrence found
 /// it slow (2026-10-18, msg 1754), then back to Chrome's (2026-10-28, msg 15729: "we need to wait
 /// a lot longer before opening the hover cards (see how long chrome takes and match them
-/// properly)").
+/// properly)"), then 400 ms (Leo 2026-11-01: "i need these hover previews to appear a hell of a
+/// lot faster than they do now"): Chrome's floor for a narrow tab plus a beat, so a pointer
+/// passing over the sidebar still opens nothing, and the warm rules below keep later cards
+/// instant.
 public nonisolated struct HoverCardTiming {
     public nonisolated init() {}
     /// The cold delay: how long the pointer rests on a row or a tab before the first card opens.
     /// Rows and tabs wait the same (no width scaling). `sidebar.hoverCards.delay` overrides it
     /// (`DesignSettings.hoverCardDelay`).
-    public static let showDelay: Duration = .milliseconds(1300)
+    public static let showDelay: Duration = .milliseconds(400)
     /// Warm mode: after a card goes, a hover this soon shows the next one at once (Chrome's
     /// `kShowWithoutDelayTimeBuffer`); a gap between rows this short keeps the card. While a card shows, the next target's card replaces it at once and the card
     /// slides over (`HoverCardPanel`).
