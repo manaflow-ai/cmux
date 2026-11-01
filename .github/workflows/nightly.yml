@@ -2559,8 +2559,13 @@ jobs:
           # this tree's client (install-cmux-tui-client.sh).
           # Reuse the managed fleet CAS; unavailable nodes keep the local cache.
           fleet_cache_settings=()
+          local_cache_settings=()
           while IFS= read -r setting; do
             fleet_cache_settings+=("$setting")
+            case "$setting" in
+              COMPILATION_CACHE_CAS_PATH=*|COMPILATION_CACHE_ENABLE_PLUGIN=*|COMPILATION_CACHE_REMOTE_SERVICE_PATH=*) ;;
+              *) local_cache_settings+=("$setting") ;;
+            esac
           done < <(CMUX_CI_DISABLE_COMPILATION_CACHE="${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}" bash scripts/ci/fleet-compilation-cache.sh)
           # Keep retry classification identical to the other Release compile
           # paths: only compiler diagnostics that identify the CAS/cache as
@@ -2572,6 +2577,8 @@ jobs:
             local settings=()
             if [[ "$disable_fleet_cache" != 1 ]]; then
               settings=("${fleet_cache_settings[@]}")
+            else
+              settings=("${local_cache_settings[@]}")
             fi
             python3 scripts/ci/run-with-helper-prebuild.py \
               --derived-data build-universal --configuration Release --archs "$archs" \
