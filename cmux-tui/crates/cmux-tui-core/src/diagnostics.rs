@@ -669,7 +669,9 @@ impl ConnectionStats {
     /// the slot back.
     /// At `limit` it first takes back the slots of clients that hung up
     /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
-    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64) -> bool {
+    /// `client`: the terminal the connection comes from (its process session).
+    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64, client: Option<u32>) -> bool {
+        let _ = client;
         let claim = |count: u64| (count < limit).then_some(count + 1);
         let mut claimed =
             self.terminal_active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim).is_ok();
@@ -686,7 +688,8 @@ impl ConnectionStats {
         claimed
     }
 
-    pub fn release_terminal(&self) {
+    pub fn release_terminal(&self, client: Option<u32>) {
+        let _ = client;
         self.terminal_active.fetch_sub(1, Ordering::AcqRel);
     }
 
