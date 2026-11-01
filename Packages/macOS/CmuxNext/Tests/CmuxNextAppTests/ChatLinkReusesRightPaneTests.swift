@@ -72,6 +72,15 @@ struct ChatLinkReusesRightPaneTests {
         #expect(ChatColumnPlacement.pagePick(from: "below", columns: columns) == nil, "a page below the chat is replaced in place")
     }
 
+    /// #29848: Split Down grows an unpinned chat dock below the pane it splits; Home's pinned dock, a zoomed screen
+    /// and a plain dock keep their routes.
+    @Test func splitDownGrowsOnlyAnUnpinnedChatDock() {
+        #expect(Self.chatDock.splitsDown(zoomed: false))
+        #expect(!Self.chatDock.splitsDown(zoomed: true), "a zoomed screen shows the chat alone")
+        #expect(!DockColumn(edge: .left, role: .agentChat, isPinned: true).splitsDown(zoomed: false), "Home opens beside its dock")
+        #expect(!DockColumn(edge: .left).splitsDown(zoomed: false))
+    }
+
     /// The native New Tab page (`tabs.nativeNewTabPage`) sends its picks the same way: a terminal or browser goes
     /// beside the chat, a chat stays in the dock (review of #28544 at a6f8b21a: its picks opened in the main pane).
     @Test func theNativePagesToolPicksGoBesideTheChat() {

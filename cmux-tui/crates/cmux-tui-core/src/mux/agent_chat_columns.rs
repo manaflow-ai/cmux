@@ -1,8 +1,10 @@
 //! Agent chat dock (a docked column with role `agent_chat`).
 //!
-//! The chat dock holds one pane for every client: a split or an edge drop
-//! into it is refused. A column that already holds more panes (a record
-//! written before this guard) keeps them, but may not grow.
+//! The chat dock keeps its chat on top for every client: Split Down (a
+//! `pane.split` toward `down` of a pane in the dock) adds a pane below, as
+//! classic cmux's Cmd-Shift-D does (#29848); any other split, new row,
+//! auto-layout append or edge drop into it is refused, so the chat stays the
+//! dock's first pane.
 
 use super::*;
 use crate::model::DockRole;
@@ -34,6 +36,8 @@ pub(crate) fn agent_chat_columns(state: &State) -> Vec<((WorkspaceId, SplitId), 
 
 /// Refuses a layout change that left an agent chat column with more panes
 /// than it had (or more than one, for a column that was not a chat dock).
+/// Split Down attaches its pane outside the staged plan
+/// ([`ensure_pane_column_not_agent_chat`]), so it never reaches this check.
 pub(crate) fn ensure_agent_chat_columns_unsplit(
     operation: &str,
     before: &[((WorkspaceId, SplitId), usize)],
@@ -47,14 +51,20 @@ pub(crate) fn ensure_agent_chat_columns_unsplit(
 }
 
 /// Refuses a new pane in `target`'s column (a split, a row or an auto-layout
-/// append) when that column is an agent chat dock. Pane creation spawns its
-/// terminal outside the staged plan, so it checks here before the spawn and
-/// again when it attaches. A new viewport column beside the dock is allowed.
+/// append) when that column is an agent chat dock, unless it is a split
+/// below `target` (`splits_down`: `pane.split` toward `down`, #29848). Pane
+/// creation spawns its terminal outside the staged plan, so it checks here
+/// before the spawn and again when it attaches. A new viewport column beside
+/// the dock is allowed.
 pub(crate) fn ensure_pane_column_not_agent_chat(
     operation: &str,
     state: &State,
     target: PaneId,
+    splits_down: bool,
 ) -> anyhow::Result<()> {
+    if splits_down {
+        return Ok(());
+    }
     let chat = state
         .workspaces
         .iter()
