@@ -327,9 +327,8 @@ fn a_late_automatic_workspace_open_cannot_undo_hide() {
 fn hide_while_the_spawn_still_opens_its_workspace_closes_it() {
     let recorder = Arc::new(Recorder::default());
     let (mut h, sp) = setup(&recorder, Some("true"));
-    let worker = std::thread::spawn(move || {
-        sp.spawn(vec!["Title: Delayed helper\nsay hello".into()], None)
-    });
+    let worker =
+        std::thread::spawn(move || sp.spawn(vec!["Title: Delayed helper\nsay hello".into()], None));
     // The automatic open completed but the brain has not taken it yet.
     let until = Instant::now() + Duration::from_secs(10);
     let delayed = loop {

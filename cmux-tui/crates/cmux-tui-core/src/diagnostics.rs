@@ -171,7 +171,7 @@ const DETAIL_SITES: usize = 20;
 /// Power-of-two histogram of one site: 256 bytes, updated under the
 /// `sites` table lock that the release already takes, so a site costs no
 /// allocation after its first acquisition.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct OctaveHistogram {
     counts: [u64; SITE_OCTAVES],
     total_us: u64,
@@ -211,7 +211,7 @@ impl OctaveHistogram {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct SiteStats {
     acquisitions: u64,
     hold_total_us: u64,
@@ -319,10 +319,16 @@ impl LockStats {
     /// section: the [`DETAIL_SITES`] sites with the most total hold time,
     /// and the [`DETAIL_SITES`] with the longest 99th percentile hold.
     pub fn detail(&self) -> LockDetailSnapshot {
-        let all: Vec<LockSiteDetail> = self
+        // Copy the raw records out, then format the labels after the unlock:
+        // every release of this lock takes the `sites` mutex.
+        let raw: Vec<(LockSite, SiteStats)> = self
             .sites
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(site, stats)| (*site, *stats))
+            .collect();
+        let all: Vec<LockSiteDetail> = raw
             .iter()
             .map(|(site, stats)| LockSiteDetail {
                 site: site_label(site),

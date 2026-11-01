@@ -11,10 +11,11 @@
 //!
 //! Apart from the sends, the machine each recent Mac workspace that sent to
 //! Cloud picked, under its account too: a workspace keeps its machine however
-//! many sends ran since, and many workspaces may pick one machine. The newest
-//! [`WORKSPACE_LIMIT`] workspaces are remembered; that bounds this file, not
-//! how many machines or workspaces a person has (an older workspace's next
-//! send reuses a machine again).
+//! many sends ran since. The file can hold many workspaces on one machine;
+//! that a machine serves one workspace for now is the pick's policy
+//! ([`super::pick`]), not this file's shape. The newest [`WORKSPACE_LIMIT`]
+//! workspaces are remembered; that bounds this file, not how many machines or
+//! workspaces a person has (an older workspace's next send gets a new machine).
 //!
 //! Kept in `<state>/cloud-start-chat/destinations.json` (0600, its folder
 //! 0700), read and written under an exclusive lock on a sibling `.lock` file
@@ -83,7 +84,8 @@ pub(crate) struct AppEntry {
     pub(crate) place: Option<String>,
 }
 
-/// The machine a Mac workspace picked, in the account it sent in. Other workspaces may pick it too.
+/// The machine a Mac workspace picked, in the account it sent in. The file allows other
+/// workspaces on it too; the pick gives each workspace its own for now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Binding {
     workspace: String,
@@ -133,6 +135,16 @@ impl Ledger {
             .iter()
             .find(|binding| binding.workspace == workspace && binding.account == account)
             .map(|binding| binding.machine_id.clone())
+    }
+
+    /// Whether a Mac workspace other than `workspace` picked `machine` in `account`.
+    pub(crate) fn held_by_another(&self, machine: &str, workspace: &str, account: &str) -> bool {
+        let account = account.to_lowercase();
+        self.workspaces.iter().any(|binding| {
+            binding.machine_id == machine
+                && binding.account == account
+                && binding.workspace != workspace
+        })
     }
 
     /// The machines some workspace in `account` picked.
