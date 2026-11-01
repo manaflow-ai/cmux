@@ -47,7 +47,13 @@ test("a download whose link cannot be had says so, and asking again clears it", 
       return "http://localhost/#file";
     },
   } as unknown as import("../src/pages/home-channels/attachmentService").AttachmentService;
-  const part = { type: "attachment" as const, hash: "h1", name: "report.pdf", mimeType: "application/pdf", byteCount: 2048 };
+  const part = {
+    type: "attachment" as const,
+    hash: "h1",
+    name: "report.pdf",
+    mimeType: "application/pdf",
+    byteCount: 2048,
+  };
   root = createRoot(host);
   act(() =>
     root!.render(
