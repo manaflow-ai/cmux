@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextFloating
+import CmuxNextSettings
 import UniformTypeIdentifiers
 
-/// The Chief pet's nine characters side by side in the Chief Settings popover (Leo 2026-10-21:
+/// The Chief pet's characters side by side in the Chief Settings popover (Leo 2026-10-21:
 /// "the nine avatars, we need to be able to just swap them out, just how ChatGPT does"): each
 /// character's picture, its name as the tooltip and VoiceOver label, the current one checked.
-/// One click picks a character; `onPick` keeps it as the popover's Chief's. After the nine comes the
+/// One click picks a character; `onPick` keeps it as the popover's Chief's. After them comes the
 /// person's own upload (``uploadCell``, a "+" until there is one; Leo 2026-10-26: "upload their own"),
 /// and a picture or GIF dropped anywhere on the grid is uploaded (`onDrop`).
 @MainActor
@@ -19,7 +20,7 @@ final class ChiefPetMascotGrid: NSStackView {
     /// A picture file dropped on the grid.
     var onDrop: ((URL) -> Void)?
     private(set) var cells: [ChiefPetMascotCell] = []
-    /// The tenth cell: the upload's picture, or "+" (shown only in the tile style while there is none).
+    /// The last cell: the upload's picture, or "+" (shown only in the tile style while there is none).
     let uploadCell = ChiefPetMascotCell(id: ChiefPetMascotGrid.uploadID, title: ChiefAvatarUploads.chooseTitle)
 
     init(items: [(id: String, title: String)]) {
@@ -53,9 +54,10 @@ final class ChiefPetMascotGrid: NSStackView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// Checks the character `id` (an unknown id: the first, as the Settings page shows it).
+    /// Checks the character `id` (an unknown id: the default, orb, by id and not by its place in the
+    /// grid, as the Settings page shows it), so reordering the characters never moves the check.
     func select(_ id: String, enabled: Bool) {
-        let shown = cells.contains { $0.id == id } ? id : cells.first?.id
+        let shown = cells.contains { $0.id == id } ? id : HomeChiefPetSetting.defaultMascot
         for cell in cells {
             cell.isSelected = cell.id == shown
             cell.isEnabled = enabled

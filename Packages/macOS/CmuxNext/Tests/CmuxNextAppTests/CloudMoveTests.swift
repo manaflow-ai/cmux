@@ -33,7 +33,9 @@ struct CloudMoveTests {
             let synced = move.workRoot.appendingPathComponent(moved.folderName).path
             #expect(moved.calls.first == ["link", "sync", "push", "--socket", move.vmSocket, move.project.path, synced])
             #expect(moved.calls.dropFirst().first == ["link", "agent", "move", "--from-socket", moved.macSocket, "--surface", String(moved.surface),
-                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--vm-kind", "none"],
+                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--interrupt",
+                                                     "--sync", "push", "--sync-socket", move.vmSocket, "--sync-local", move.project.path,
+                                                     "--sync-remote", synced, "--vm-kind", "none"],
                     "no link said this caller owns the machine: the pump says so, and the machine refuses")
             #expect(moved.calls.count == 2)
             // The machine shows the chat: bound to the moved session through that machine's store.

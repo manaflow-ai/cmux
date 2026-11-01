@@ -18,6 +18,7 @@
     }
   },
   "guarded_vars": {
+    "PLATFORM_MACHINES=on": "leo 2026-10-31 (relayed): the platform Worker's workspace machines answer in production too; creates still need a paid plan or grant (no stub plan in production)",
     "INFERENCE_ENABLED=1": "lawrence 2026-10-12 via the chief (cx-f5tk4): paid teams on",
     "INFERENCE_FREE_ENABLED=0": "lawrence 2026-10-12 via the chief (cx-f5tk4): free tier off until cx-ds09i",
     "INFERENCE_DAILY_CAP_USD=20": "lawrence 2026-10-12 via the chief (cx-f5tk4): 20 USD per provider line per UTC day",

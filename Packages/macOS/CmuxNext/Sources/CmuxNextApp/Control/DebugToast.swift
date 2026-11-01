@@ -65,9 +65,7 @@ enum DebugToast {
         if let toastID = params["press"]?.stringValue {
             result["pressed"] = .bool(window.map { CmuxToastCenter.shared.runAction(id: toastID, in: $0) } ?? false)
         }
-        if let toastID = params["close"]?.stringValue {
-            result["closed"] = .bool(window.map { CmuxToastCenter.shared.close(id: toastID, in: $0) } ?? false)
-        }
+        if let id = params["close"]?.stringValue { result["closed"] = .bool(window.map { CmuxToastCenter.shared.close(id: id, in: $0) } ?? false) }
         var windows: [JSONValue] = []
         for controller in services.windows.controllers {
             let toasts = controller.window.map { CmuxToastCenter.shared.toasts(in: $0) } ?? []
@@ -76,6 +74,7 @@ enum DebugToast {
         result["windows"] = .array(windows)
         // Every refusal HUD message so far, newest last.
         result["refusals"] = .array(services.refusalHUD.history.map(JSONValue.string))
+        result["pane_not_ready"] = .array(services.daemon.paneNotReadyCauses.map(JSONValue.string)) // which request named a stand-in
         // Sidebar and pin undo steps registered so far (a change's step comes with its daemon reply, after the change shows).
         result["undo_steps"] = .number(Double(PinUndoStep.registered))
         return .object(result)

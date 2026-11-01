@@ -3,7 +3,7 @@
 // matrix manifest (scripts/gallery-matrix) and the native gallery (CmuxNextGallery
 // GalleryEnvironment) read the same names: entry, variant, locale, theme, colorScheme, fontFamily,
 // fontSize, density, scale, width, height, reducedMotion, highContrast, dynamicSize, windowKey,
-// frame, window, zoom, layout, source.
+// frame, window, zoom, layout, source. The web gallery alone also reads accent and background.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./theme/ghostty";
@@ -53,6 +53,15 @@ export type Density = (typeof DENSITIES)[number];
 
 export const SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
 
+/**
+ * The window's background (`appearance.background`, "Set Background…"): `none` is an opaque window,
+ * the app's default; the others are synthetic pictures behind the window's glass, as the app draws
+ * a picture the user picked (frame/background.ts): a light photo-like gradient, a dark one, and a
+ * busy high-contrast one, the worst case for text.
+ */
+export const BACKGROUNDS = ["none", "light", "dark", "busy"] as const;
+export type GalleryBackground = (typeof BACKGROUNDS)[number];
+
 export type GalleryEnv = {
   locale: string;
   /** The Ghostty theme the window shows (a shipped theme's file name). */
@@ -60,6 +69,9 @@ export type GalleryEnv = {
   /** `appearance.accent`: where the chrome's accent comes from; absent is neutral. Web only for
    * now (outside the shared vectors: the native gallery has no accent control yet). */
   accent?: AppAccent;
+  /** The picture behind the window (BACKGROUNDS); absent is `none`, an opaque window. Web only for
+   * now (outside the shared vectors: the native gallery has no background control yet). */
+  background?: GalleryBackground;
   /** The window appearance; `auto` is the theme's own (dark when its background is darker). */
   colorScheme: "auto" | "dark" | "light";
   /** Empty: the page's own font. */
@@ -114,7 +126,7 @@ export const DEFAULT_ENV: GalleryEnv = {
 
 export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
 
-const KEYS = [...Object.keys(DEFAULT_ENV), "accent"] as (keyof GalleryEnv)[];
+const KEYS = [...Object.keys(DEFAULT_ENV), "accent", "background"] as (keyof GalleryEnv)[];
 
 /**
  * The theme when the query names none: the app's default pair (Apple System Colors), on the side
@@ -130,6 +142,9 @@ export function withColorScheme(env: GalleryEnv, colorScheme: GalleryEnv["colorS
     colorScheme !== "auto" && env.theme === defaultTheme(env.colorScheme) ? defaultTheme(colorScheme) : env.theme;
   return { ...env, colorScheme, theme };
 }
+
+/** Whether the window shows a picture behind its glass (the page is then see-through). */
+export const overPicture = (env: GalleryEnv): boolean => env.background !== undefined && env.background !== "none";
 
 export function widthPx(width: GalleryEnv["width"], presets: Partial<Record<WidthName, number>> = WIDTHS): number {
   return typeof width === "number" ? width : (presets[width] ?? WIDTHS[width]);
@@ -150,6 +165,9 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   const accent = params.get("accent");
   if (accent !== "neutral" && (APP_ACCENTS as readonly string[]).includes(accent ?? ""))
     env.accent = accent as AppAccent;
+  const background = params.get("background");
+  if (background !== "none" && (BACKGROUNDS as readonly string[]).includes(background ?? ""))
+    env.background = background as GalleryBackground;
   const scheme = params.get("colorScheme");
   if (scheme === "dark" || scheme === "light") env.colorScheme = scheme;
   env.theme = params.get("theme") || defaultTheme(env.colorScheme);
@@ -183,7 +201,13 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
     params.delete(key);
     const value = env[key];
     const fallback = key === "theme" ? defaultTheme(env.colorScheme) : DEFAULT_ENV[key];
-    if (value === fallback || value === undefined || (key === "accent" && value === "neutral")) continue;
+    if (
+      value === fallback ||
+      value === undefined ||
+      (key === "accent" && value === "neutral") ||
+      (key === "background" && value === "none")
+    )
+      continue;
     params.set(key, typeof value === "boolean" ? "1" : String(value));
   }
   return params;
