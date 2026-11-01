@@ -59,12 +59,16 @@ struct SpareSessionAdoptionTests {
         #expect(!spare.model.clientReady, "a new handshake kept the old connection's ready")
     }
 
-    /// HQ#5914 finding 1: every sidebar open refused the spare as "touched by dictation": the
-    /// composer's mount reports whether its harness takes audio, which is no touch of the person's.
-    @Test func theComposersAudioReportLeavesTheSpareUntouched() async throws {
+    /// HQ#5914 finding 1: every sidebar open refused the spare as "touched by dictation", then by
+    /// "tabState": the composer's mount reports whether its harness takes audio and the header
+    /// reads its state, neither a touch of the person's.
+    @Test func theBootReportsLeaveTheSpareUntouched() async throws {
         let tabs = Self.run(records: [:])
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
         _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "dictation.audio", "params": ["enabled": true]]))
+        #expect(!spare.model.userTouched, "touched by \(spare.model.touchedBy ?? "?")")
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "pane.tabState"]))
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "pane.tabState", "params": ["refresh": true]]))
         #expect(!spare.model.userTouched, "touched by \(spare.model.touchedBy ?? "?")")
         _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "dictation.toggle"]))
         #expect(spare.model.userTouched, "starting dictation is the person's touch")

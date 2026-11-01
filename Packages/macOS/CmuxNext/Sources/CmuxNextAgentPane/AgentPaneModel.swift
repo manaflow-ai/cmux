@@ -357,12 +357,16 @@ public final class AgentPaneModel {
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
              .sandboxState, .subagentShown: break
-        // The composer reports whether its harness takes audio on every mount (dictation.ts): boot traffic too.
-        case .dictation(.recordAudio): break
+        // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
+        // header and project notice read their state on mount: boot traffic too (HQ#5914).
+        case .dictation(.recordAudio), .tabState, .projectInstructions: break
         case .reply(let reply) where reply.isPassive: break
         case .cloudEnvironment(let request) where request.action != "update": break
         default:
-            if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
+            let name = String(String(describing: request).prefix { $0 != "(" })
+            if touchedBy?.split(separator: ",").contains(Substring(name)) != true, (touchedBy?.count ?? 0) < 200 {
+                touchedBy = touchedBy.map { $0 + "," + name } ?? name
+            }
             userTouched = true
         }
         switch request {
