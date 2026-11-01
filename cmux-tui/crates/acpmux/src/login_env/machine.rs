@@ -21,8 +21,14 @@ pub(super) fn names() -> BTreeSet<String> {
 }
 
 pub(super) fn read() -> BTreeMap<String, String> {
-    let home =
-        std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    let Some(home) = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(dirs::home_dir)
+        .filter(|path| path.is_absolute())
+    else {
+        return BTreeMap::new();
+    };
     let values = read_in(&home);
     OBSERVED.write().unwrap_or_else(|e| e.into_inner()).extend(values.keys().cloned());
     values

@@ -819,7 +819,7 @@ async fn literal_machine_env_reaches_local_children_without_a_profile_hook() {
     let (profile, _) = ask_as(&d, "profile", "machine-profile-precedence").await;
     assert_eq!(found(&profile)["machineMatches"], true);
     let (reference, _) = ask_as(&d, "reference", "machine-not-a-reference").await;
-    assert!(reference.is_err(), "a machine declaration resolved through the generic env reference");
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
     replace(other);
     let (rotated, _) = ask_as(&d, "claude", "machine-rotated").await;
     assert_eq!(found(&rotated)["loginOnly"], json!(["DEMO_KEY"]));
@@ -847,14 +847,49 @@ async fn revoked_machine_env_does_not_fall_back_to_inherited_values() {
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     let d = start(
         &dir,
-        json!({"claude": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": "synthetic-current-value"}))}),
+        json!({
+            "claude": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": "synthetic-current-value"})),
+            "reference": claude(json!({"DEMO_KEY": "${env:DEMO_KEY}"})),
+        }),
         &[("DEMO_KEY", "synthetic-inherited-old-value")],
-    ).await;
+    )
+    .await;
     let (current, _) = ask_as(&d, "claude", "machine-current-inherited").await;
     assert_eq!(found(&current)["machineMatches"], true);
+    let (reference, _) = ask_as(&d, "reference", "machine-reference-inherited").await;
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
     std::fs::remove_file(file).unwrap();
     let (revoked, _) = ask_as(&d, "claude", "machine-revoked-inherited").await;
     assert_eq!(found(&revoked)["loginOnly"], json!([]));
+    let (reference, _) = ask_as(&d, "reference", "machine-reference-revoked-inherited").await;
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
+}
+
+#[tokio::test]
+async fn current_machine_credentials_survive_nested_claude_cleanup() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-nested", "");
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    std::fs::write(&file, "export ANTHROPIC_AUTH_TOKEN='synthetic-current-token'\nexport ANTHROPIC_BASE_URL='https://current.invalid'\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let d = start(
+        &dir,
+        json!({"claude": claude(json!({}))}),
+        &[
+            ("CLAUDECODE", "1"),
+            ("ANTHROPIC_AUTH_TOKEN", "synthetic-parent-token"),
+            ("ANTHROPIC_BASE_URL", "https://parent.invalid"),
+        ],
+    )
+    .await;
+    let (current, _) = ask_as(&d, "claude", "machine-nested-current").await;
+    assert_eq!(found(&current)["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]));
+    assert_eq!(found(&current)["base"], "https://current.invalid");
+    std::fs::remove_file(file).unwrap();
+    let (revoked, _) = ask_as(&d, "claude", "machine-nested-revoked").await;
+    assert!(revoked.is_err(), "a revoked credential survived nested cleanup");
 }
 
 /// A version-manager prefix passes, but never a secret under it: the agent

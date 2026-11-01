@@ -734,6 +734,25 @@ pub fn allowed_var(key: &str) -> Option<String> {
         .then_some(v)
 }
 
+/// Profile and route references must not recover a machine value from the
+/// daemon's inherited environment after the local-only overlay refuses it.
+pub(crate) fn reference_var(key: &str) -> Option<String> {
+    let _ = machine::read();
+    if machine::names().contains(key) {
+        return None;
+    }
+    allowed_var(key).or_else(|| std::env::var(key).ok())
+}
+
+/// A nested Claude scrub runs after login env is applied. Restore only the
+/// current local machine declarations it removed; never restore an inherited
+/// value or expose this overlay to remote-origin launches.
+pub(crate) fn restore_machine_tokio(cmd: &mut tokio::process::Command) {
+    cmd.envs(
+        machine::read().into_iter().filter(|(key, _)| crate::config::is_nested_claude_key(key)),
+    );
+}
+
 fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
