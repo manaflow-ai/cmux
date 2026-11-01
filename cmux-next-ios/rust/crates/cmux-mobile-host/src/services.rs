@@ -1,6 +1,7 @@
 //! Link services (PROTOCOL.md "Services"). Default deny: a service not
 //! listed here is closed with `unknown_service`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -77,6 +78,8 @@ pub async fn serve(
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
+        "cloud-directory" => cloud_directory(&sender, &args).await,
+        "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
@@ -126,7 +129,8 @@ pub const LINK_PROTOCOL: u32 = 2;
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
 /// reaches a port on this Mac's loopback).
-pub const CAPABILITIES: [&str; 3] = ["removal-v1", "file-preview-v1", "localhost-forward-v1"];
+pub const CAPABILITIES: [&str; 5] =
+    ["removal-v1", "file-preview-v1", "localhost-forward-v1", "cloud-directory-v1", "cloud-acpmux-v1"];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
@@ -161,6 +165,116 @@ async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), R
         "capabilities": capabilities(config),
     });
     let _ = sender.send(Bytes::from(reply.to_string())).await;
+    Ok(())
+}
+
+fn cloud_id(value: Option<&Value>, name: &str) -> Result<String, Refusal> {
+    let Some(value) = value.and_then(Value::as_str) else {
+        return Err(Refusal::new("bad_request", format!("{name} is required")));
+    };
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 160
+        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    {
+        return Err(Refusal::new("bad_request", format!("invalid {name}")));
+    }
+    Ok(value.to_owned())
+}
+
+/// Return only authenticated Cloud machines. Carrier paths and owner markers
+/// are never exposed to the phone.
+async fn cloud_directory(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> {
+    if args.as_object().is_some_and(|object| !object.is_empty()) {
+        return Err(Refusal::new("bad_request", "cloud-directory takes no arguments"));
+    }
+    let links =
+        control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
+    let mut counts = HashMap::<(String, String), usize>::new();
+    for link in links.iter().filter(|link| link.owner) {
+        *counts.entry((link.machine_id.clone(), link.team_id.clone())).or_default() += 1;
+    }
+    let machines = links
+        .into_iter()
+        .filter(|link| link.owner && counts.get(&(link.machine_id.clone(), link.team_id.clone())) == Some(&1))
+        .map(|link| serde_json::json!({"machine_id": link.machine_id, "team_id": link.team_id, "name": link.name}))
+        .collect::<Vec<_>>();
+    sender
+        .send(Bytes::from(serde_json::json!({"machines": machines}).to_string()))
+        .await
+        .map_err(|_| Refusal::new("closed", "phone channel closed"))
+}
+
+/// Open an authenticated Cloud carrier. The phone supplies ids only; the app
+/// resolves the current owner link and socket, then the carrier's scoped ACP
+/// adapter applies Web/phone mode and approval policy.
+async fn cloud_acpmux(
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+    args: &Value,
+) -> Result<(), Refusal> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| Refusal::new("bad_request", "cloud-acpmux arguments must be an object"))?;
+    let machine_id = cloud_id(object.get("machine_id"), "machine_id")?;
+    let team_id = cloud_id(object.get("team_id"), "team_id")?;
+    let links =
+        control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
+    let mut matches = links
+        .into_iter()
+        .filter(|link| link.machine_id == machine_id && link.team_id == team_id)
+        .collect::<Vec<_>>();
+    if matches.len() != 1 || !matches[0].owner {
+        return Err(Refusal::new(
+            "forbidden",
+            "Cloud machine is not an unambiguous authenticated owner link",
+        ));
+    }
+    let link = matches.pop().expect("one link checked above");
+    let path =
+        link.socket.ok_or_else(|| Refusal::new("unavailable", "Cloud machine link has no carrier socket"))?;
+    if !path.is_absolute() {
+        return Err(Refusal::new("unavailable", "Cloud machine link has an invalid carrier socket"));
+    }
+    let socket = UnixStream::connect(&path)
+        .await
+        .map_err(|error| Refusal::new("unavailable", format!("Cloud carrier unavailable: {error}")))?;
+    let (read, mut write) = socket.into_split();
+    let dial = serde_json::json!({"op":"link.dial", "host": machine_id, "service":"daemon"});
+    write
+        .write_all(dial.to_string().as_bytes())
+        .await
+        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+    write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+    let mut read = BufReader::new(read);
+    let mut reply = Vec::new();
+    read.read_until(b'\n', &mut reply)
+        .await
+        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+    let reply: Value = serde_json::from_slice(reply.strip_suffix(b"\n").unwrap_or(&reply))
+        .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid dial reply"))?;
+    if reply.get("ok").and_then(Value::as_bool) != Some(true) {
+        let reason = reply.get("error_code").and_then(Value::as_str).unwrap_or("not_authorized");
+        return Err(Refusal::new("forbidden", format!("Cloud carrier refused dial: {reason}")));
+    }
+    write
+        .write_all(b"{\"service\":\"daemon\"}\n")
+        .await
+        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+    let mut from_carrier = [0u8; 64 * 1024];
+    loop {
+        tokio::select! {
+            event = receiver.recv() => match event {
+                Some(ChannelEvent::Data(bytes)) => { if write.write_all(&bytes).await.is_err() { break; } }
+                Some(ChannelEvent::Closed(_)) | None => break,
+            },
+            result = read.read(&mut from_carrier) => {
+                let size = result.map_err(|_| Refusal::new("unavailable", "Cloud carrier read failed"))?;
+                if size == 0 { break; }
+                if sender.send(Bytes::copy_from_slice(&from_carrier[..size])).await.is_err() { break; }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1566,14 +1680,31 @@ mod tests {
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
         };
-        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1", "localhost-forward-v1"]);
+        assert_eq!(
+            capabilities(&config),
+            [
+                "removal-v1",
+                "file-preview-v1",
+                "localhost-forward-v1",
+                "cloud-directory-v1",
+                "cloud-acpmux-v1"
+            ]
+        );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
         assert_eq!(
             capabilities(&config),
-            ["removal-v1", "file-preview-v1", "localhost-forward-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
+            [
+                "removal-v1",
+                "file-preview-v1",
+                "localhost-forward-v1",
+                "cloud-directory-v1",
+                "cloud-acpmux-v1",
+                BROWSER_STREAM,
+                BROWSER_VIDEO_TRACK
+            ]
         );
     }
 
