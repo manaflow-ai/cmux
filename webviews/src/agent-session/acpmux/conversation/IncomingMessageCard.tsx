@@ -239,7 +239,9 @@ export function IncomingMessageLine({
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(needle && foldFind(notice?.body ?? (whole ? message.text : unsigned(message.text, message.name))).includes(needle));
+  const inText = Boolean(
+    needle && foldFind(notice?.body ?? (whole ? message.text : unsigned(message.text, message.name))).includes(needle),
+  );
   const inRaw = Boolean(needle && !inText && foldFind(message.raw).includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
@@ -255,10 +257,7 @@ export function IncomingMessageLine({
   const chief = useChiefFace(message.chief);
   const name = (message.chief && chief?.name) || message.name;
   // A person is never a chat: their name never finds one (a guest names themselves).
-  const sender = useSenderChat(
-    person || message.chief ? "" : message.name,
-    person ? undefined : message.sessionId,
-  );
+  const sender = useSenderChat(person || message.chief ? "" : message.name, person ? undefined : message.sessionId);
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).

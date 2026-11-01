@@ -1882,7 +1882,9 @@ const ReadOnlyQueuedMessageRow = memo(
     // A person's message (a guest's prompt) is drawn whole here too: its text is never read as a
     // lane notice, so nothing it says is hidden from the read-only transcript either.
     const person = row.queuedMessage?.person;
-    const whole = Boolean(person || row.queuedMessage?.held || row.queuedMessage?.declined || row.incoming.message.fromPerson);
+    const whole = Boolean(
+      person || row.queuedMessage?.held || row.queuedMessage?.declined || row.incoming.message.fromPerson,
+    );
     return (
       <div className="cv-incoming">
         <IncomingMessageLine
