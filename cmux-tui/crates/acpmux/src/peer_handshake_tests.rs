@@ -59,12 +59,8 @@ async fn a_watch_list_is_asked_for_without_tools_from_the_start() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("big", "ws://127.0.0.1:9", None, None, tx);
     let (ours, theirs) = tokio::io::duplex(1 << 16);
-    let client =
-        WebSocketStream::from_raw_socket(ours, Role::Client, Some(crate::server::ws_config()))
-            .await;
-    let server =
-        WebSocketStream::from_raw_socket(theirs, Role::Server, Some(crate::server::ws_config()))
-            .await;
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
     let (asked_tx, mut asked) = mpsc::unbounded_channel();
     let fake = fake_peer(
         server,
@@ -401,14 +397,10 @@ async fn a_watch_list_too_large_from_an_old_peer_is_read_in_pages_of_rows() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx);
     let (ours, theirs) = tokio::io::duplex(1 << 16);
-    let client =
-        WebSocketStream::from_raw_socket(ours, Role::Client, Some(crate::server::ws_config()))
-            .await;
-    let server =
-        WebSocketStream::from_raw_socket(theirs, Role::Server, Some(crate::server::ws_config()))
-            .await;
-    // 500 rows of 70 KB: 35 MB whole, over the limit; a page of 512 is too, one of 256 is not.
-    let (rows, bytes) = (500, 70_000);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    // 500 rows of 40 KB: 20 MB whole, over the limit; a page of 512 is too, one of 256 is not.
+    let (rows, bytes) = (500, 40_000);
     assert!(rows * bytes > crate::rpc::MAX_MESSAGE_BYTES);
     let fake = old_peer(server, rows, bytes);
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
@@ -529,10 +521,10 @@ fn paced_old_peer(
 /// Builds c230bb58a's list guard runs back to back (`BURST`) before its pace holds.
 const OLD_BURST: u32 = 4;
 
-/// One fleet Mac's list on 2026-10-30, as an old-style peer: about 3,700 rows, 33 MB without
+/// One fleet Mac's list on 2026-10-30, as an old-style peer: about 3,700 rows, 16.6 MB without
 /// tools; the pace window at its cap.
 const OLD_ROWS: usize = 3700;
-const OLD_ROW_BYTES: usize = 9000;
+const OLD_ROW_BYTES: usize = 4400;
 const OLD_WINDOW: Duration = Duration::from_secs(15);
 
 /// Serves `peer` against a [`paced_old_peer`] until it connects: the time it took (on the
@@ -543,12 +535,8 @@ async fn link_to_paced_old_peer(
     asked: Arc<Asked>,
 ) -> Result<(Duration, Vec<Value>), String> {
     let (ours, theirs) = tokio::io::duplex(1 << 20);
-    let client =
-        WebSocketStream::from_raw_socket(ours, Role::Client, Some(crate::server::ws_config()))
-            .await;
-    let server =
-        WebSocketStream::from_raw_socket(theirs, Role::Server, Some(crate::server::ws_config()))
-            .await;
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
     let fake = paced_old_peer(server, OLD_ROWS, OLD_ROW_BYTES, OLD_WINDOW, asked);
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
     let started = tokio::time::Instant::now();

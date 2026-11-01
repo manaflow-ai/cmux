@@ -217,6 +217,7 @@ struct CloudCLITargetTests {
             machinePlatform: MachineCatalogPlatform(os: "linux", arch: "arm64"), machineCapabilities: ["mcap-one"],
             machineName: "vm-host-name", generation: "gen-7", workspaceRevision: 31, lifecycleReady: false)
         identity.launchSnapshotPath = "/private/tmp/cn-launch-snapshot.json"
+        identity.buildID = "3412812eae76aaaabbbb-dirty.12345678"
         identity.cliPath = "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui"
         return identity
     }
@@ -224,6 +225,7 @@ struct CloudCLITargetTests {
     /// Each `identify` field under its wire name, as `JSONSerialization` reads the copied details.
     static var fullIdentityWire: [String: Any] { [
         "app": "cmux-tui", "version": "0.9.1", "build_commit": "3412812eae76aaaabbbb", "ghostty_commit": "9c1d2e3f4a5b",
+        "build_id": "3412812eae76aaaabbbb-dirty.12345678",
         "protocol": 12, "capabilities": ["cap-alpha", "cap-beta"], "session": "vm-session-name", "pid": 4242,
         "registry_id": "6f1c0b8e-reg-0001", "machine_id": "res-machine-1", "session_resource_id": "res-session-1",
         "machine_platform": ["os": "linux", "arch": "arm64"], "machine_capabilities": ["mcap-one"],

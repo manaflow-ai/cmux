@@ -119,6 +119,15 @@ extension SidebarListViewComponents {
         return true
     }
 
+    /// An open empty group's insertion position is its header's drop target, too. Keep this
+    /// visual state tied to the live drag; at rest the header has no empty-state decoration.
+    func highlightsDropGroup(_ id: GroupID) -> Bool {
+        if drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id) { return true }
+        guard case let .position(position)? = drag?.target, position.group == id,
+              groups[id]?.members.isEmpty == true else { return false }
+        return true
+    }
+
     /// Sets each realized row's selection, multi-selection and drop-target fill from the model and the live drag, as
     /// `configure` would, without configuring the rows (no content, no layout: a click stays cheap, u2455). A row whose
     /// fill a gesture left behind clears here.
@@ -131,7 +140,7 @@ extension SidebarListViewComponents {
                 row.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
                     || displayed.row(for: key).map(standsForDropGroup) == true
             case let (.group(id), header as GroupHeaderRowView):
-                header.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
+                header.isDropTarget = highlightsDropGroup(id)
             default:
                 break
             }

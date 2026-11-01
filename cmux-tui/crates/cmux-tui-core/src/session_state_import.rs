@@ -87,6 +87,28 @@ pub fn import_default_root_session(
 }
 
 /// The default-root registry whose stored `session_name` is `session`.
+/// Records in `target_root` that `session`'s default-root registry is never
+/// to be imported there: it belongs to another live daemon (a Chief brain
+/// owns the session on the default root), so a link that moved its session
+/// aside starts empty instead of copying that daemon's workspaces.
+pub fn decline_default_root_import(
+    default_root: &Path,
+    target_root: &Path,
+    session: &str,
+) -> anyhow::Result<()> {
+    let Some(source) = find_session_registry(default_root, session)? else { return Ok(()) };
+    let component = source
+        .parent()
+        .and_then(Path::file_name)
+        .context("default-root registry has no session directory")?
+        .to_owned();
+    fs::create_dir_all(target_root).with_context(|| format!("create {}", target_root.display()))?;
+    crate::platform::restrict_directory(target_root)?;
+    let marker = target_root.join(format!("{MARKER_PREFIX}{}", component.to_string_lossy()));
+    fs::write(&marker, b"declined\n").with_context(|| format!("write {}", marker.display()))?;
+    Ok(())
+}
+
 fn find_session_registry(root: &Path, session: &str) -> anyhow::Result<Option<PathBuf>> {
     let Ok(entries) = fs::read_dir(root) else { return Ok(None) };
     for entry in entries.flatten() {

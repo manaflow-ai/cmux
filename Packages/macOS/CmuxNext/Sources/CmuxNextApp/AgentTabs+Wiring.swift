@@ -146,7 +146,7 @@ extension AgentTabStore {
             return await services.home.agentPageFace(of: chief, avatars: avatars)
         }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
+        tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
@@ -522,7 +522,11 @@ extension AgentTabStore {
             return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
         }
     }
-    static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
-        isSignedIn // on either link: CloudService.machineAPI serves a legacy and a Worker machine
+    /// Signed in (on either link: CloudService.machineAPI serves a legacy and a Worker machine), and
+    /// this build passes the Mac's login at all (DEV and dogfood; production's card signs in on the
+    /// machine instead).
+    static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
+                                                   passesLogin: Bool = CloudStartChat.passesHarnessLoginHere) -> Bool {
+        isSignedIn && passesLogin
     }
 }

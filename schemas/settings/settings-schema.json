@@ -54280,7 +54280,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1300,
+      "default" : 400,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
