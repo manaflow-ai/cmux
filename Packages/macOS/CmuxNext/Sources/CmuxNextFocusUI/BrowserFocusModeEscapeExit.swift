@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Browser focus mode's exit gesture, ported from classic cmux
 /// (`BrowserPanel.handleBrowserFocusModeKeyEvent`): two plain Escapes in a row.
@@ -10,12 +10,12 @@ import Foundation
 /// Escape re-arms instead. Any other key disarms. A held Escape's repeats and
 /// a key-down seen twice (same timestamp) are consumed so they never count as
 /// the second press.
-struct BrowserFocusModeEscapeExit: Equatable {
+public struct BrowserFocusModeEscapeExit: Equatable {
     /// Classic cmux's window between the two presses.
-    static let sequenceInterval: TimeInterval = 1.6
+    public static let sequenceInterval: TimeInterval = 1.6
 
     /// What the key dispatcher does with the key.
-    enum Outcome: Equatable {
+    public enum Outcome: Equatable {
         /// Not part of the gesture: route the key as usual.
         case pass
         /// The first Escape: the page gets it, the exit is armed.
@@ -27,9 +27,11 @@ struct BrowserFocusModeEscapeExit: Equatable {
     }
 
     /// The tab whose exit is armed, nil when none is.
-    private(set) var armedTab: String?
+    public private(set) var armedTab: String?
     private var armedAt: TimeInterval?
     private var lastEscapeTimestamp: TimeInterval?
+
+    public init() {}
 
     /// Feeds one key-down.
     ///
@@ -38,7 +40,7 @@ struct BrowserFocusModeEscapeExit: Equatable {
     ///   - isRepeat: The key-down is an auto-repeat.
     ///   - timestamp: The event's timestamp (seconds since boot).
     ///   - focusModeTab: The tab in browser focus mode that has the keyboard, nil when none.
-    mutating func handle(isPlainEscape: Bool, isRepeat: Bool, timestamp: TimeInterval, focusModeTab: String?) -> Outcome {
+    public mutating func handle(isPlainEscape: Bool, isRepeat: Bool, timestamp: TimeInterval, focusModeTab: String?) -> Outcome {
         guard let tab = focusModeTab, isPlainEscape else {
             reset()
             return .pass
@@ -56,7 +58,7 @@ struct BrowserFocusModeEscapeExit: Equatable {
     }
 
     /// Disarms (focus mode ended, focus moved, a non-Escape key).
-    mutating func reset() {
+    public mutating func reset() {
         armedTab = nil
         armedAt = nil
         lastEscapeTimestamp = nil
