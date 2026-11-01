@@ -53,7 +53,11 @@ export function PromptText({
   // Whether the prompt is taller than the collapsed lines: guessed from its text until laid out,
   // then measured against its line height (open or closed), again when its width changes. A
   // measure is of one text: a bubble drawn again with another prompt guesses again.
-  const guess = looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3;
+  // A huge typed part beside pastes is long too, so it never draws whole before it is measured.
+  const guess =
+    looksLongPrompt(pasted?.length ? "" : text) ||
+    parts.length > 3 ||
+    parts.some((part) => part.kind === "text" && isHugePrompt(part.text));
   const [measured, setMeasured] = useState<{ parts: typeof parts; long: boolean }>();
   const long = measured?.parts === parts ? measured.long : guess;
   const body = useRef<HTMLDivElement>(null);

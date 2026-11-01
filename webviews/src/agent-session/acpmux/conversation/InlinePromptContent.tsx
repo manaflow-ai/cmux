@@ -92,14 +92,14 @@ export function readsAsText(part: PromptContentPart): boolean {
 
 /** The text block a part went to the agent as (typed text, a pasted block, a text file's body), or
  * none for an attachment. */
-/** A typed text block's text: what a collapsed huge prompt's head counts (pastes are chips). */
-const typedText = (part: PromptContentPart) => (part.kind === "text" ? part.text : undefined);
-
 function blockText(part: PromptContentPart): string | undefined {
   if (part.kind === "text") return part.text;
   if (part.kind === "pasted" || (part.kind === "file" && !part.uri)) return part.text;
   return undefined;
 }
+
+/** A typed text block's text: what a collapsed huge prompt's head counts (pastes are chips). */
+const typedText = (part: PromptContentPart) => (part.kind === "text" ? part.text : undefined);
 
 /** The parts the strip setting moves to the band above the bubble: attachments, not what reads as
  * the prompt's text (typed text, pasted blocks and a text file's body stay in the bubble, as a

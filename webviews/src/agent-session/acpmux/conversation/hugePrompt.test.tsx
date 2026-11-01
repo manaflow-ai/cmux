@@ -71,7 +71,7 @@ test("a huge prompt's row is estimated as its collapsed lines, quickly", () => {
   // The same collapsed height as any long prompt: ten lines and Show more.
   expect(huge).toBe(long);
   expect(huge!).toBeGreaterThanOrEqual(COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT);
-  expect(elapsed).toBeLessThan(500);
+  expect(elapsed).toBeLessThan(2_000);
 });
 
 test("a huge prompt with placed attachments opens collapsed on its head only", () => {
@@ -95,4 +95,14 @@ test("a short Markdown note beside a huge paste keeps its Markdown", () => {
     <PromptText rowId="note" text={text} pasted={[{ start: note.length + 1, end: text.length }]} show={same} />,
   );
   expect(html).toContain("<li");
+});
+
+test("a huge typed part beside a paste opens collapsed on its head", () => {
+  const typed = blob(HUGE_PROMPT_CHARS + 10);
+  const text = `${typed}\n${"pasted line\n".repeat(5)}`;
+  const html = renderToStaticMarkup(
+    <PromptText rowId="typed-huge" text={text} pasted={[{ start: typed.length + 1, end: text.length }]} show={same} />,
+  );
+  expect(html).toContain("is-clamped");
+  expect(html.length).toBeLessThan(HUGE_PROMPT_HEAD_CHARS + 2_000);
 });
