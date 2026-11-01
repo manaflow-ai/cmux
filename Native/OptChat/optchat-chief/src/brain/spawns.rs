@@ -141,7 +141,11 @@ impl Brain {
     /// mid-turn (running, a tool, a prompt, a pending tell) is live, so its
     /// VM never pauses; the pool tool also refuses while a turn or a
     /// background process runs on the VM, and that pause is tried again.
+    /// Only with `cloud.autoPause` on (default off: no auto pause).
     pub(super) fn cloud_tick(&mut self) {
+        if !self.chief.cloud_auto_pause {
+            return;
+        }
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
@@ -567,7 +571,11 @@ impl Brain {
     /// The host stops: each cloud VM with no live subagent pauses now, on
     /// this thread (the process exits next); one with a subagent mid-turn
     /// keeps running, and its report waits in acpmux for the next host.
+    /// Only with `cloud.autoPause` on (default off: no auto pause).
     pub(super) fn cloud_shutdown(&mut self) {
+        if !self.chief.cloud_auto_pause {
+            return;
+        }
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
@@ -1415,7 +1423,7 @@ impl Brain {
 
     /// The engine of a subagent that starts on `harness`: the next turn's
     /// model and effort when it is that turn's harness.
-    fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
+    pub(super) fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
         let next = self.next_engine().0;
         let same = next.harness == harness;
         let family = self.family_of(harness);

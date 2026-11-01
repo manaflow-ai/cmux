@@ -41,6 +41,7 @@ mod transport;
 mod upstream;
 mod upstream_listing;
 mod v2_tools;
+mod video_tools;
 mod watch;
 
 use std::collections::BTreeSet;
@@ -722,6 +723,7 @@ impl<B: Backend> Server<B> {
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
         tools.push(open_tool::descriptor());
+        tools.extend(video_tools::descriptors());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
@@ -934,6 +936,9 @@ impl<B: Backend> Server<B> {
         if name == terminal_talk_tools::SEND {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
+        }
+        if let Some(result) = self.call_video(name, &arguments) {
+            return Ok(result);
         }
         if name == open_tool::NAME {
             if !self.actions_loaded {

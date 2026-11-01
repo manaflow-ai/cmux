@@ -7,13 +7,14 @@ import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentD
 import { isHighlighted } from "../shikiLanguages";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
-import { CodeBrackets, WrapLines } from "./icons";
+import { WrapLines } from "./icons";
+import { CodeHeader, codeHeaderClass, useCodeHeaderLook } from "./CodeHeader";
 import { useT } from "../i18n";
 import { MAX_TOKENIZED_LINE } from "./highlightLimits";
 import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
 import { PlainCode } from "./StreamingCode";
 import { OpenPreview } from "./OpenPreview";
-import { languageLabel, type CodeBlockProps } from "./CodeBlock";
+import type { CodeBlockProps } from "./CodeBlock";
 import { currentChatMetrics } from "../chatDisplay";
 import { highlightWorkerFailed, subscribeHighlightWorker } from "./highlightWorkerState";
 
@@ -53,6 +54,7 @@ const paneThemeType = () => (document.documentElement.dataset.theme === "light" 
  */
 export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlockProps) {
   const t = useT();
+  const look = useCodeHeaderLook(lang, label);
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
   const pool = paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text");
@@ -104,27 +106,23 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
   }, [code, lang, pool, wrap, name, workerAvailable]);
   if (!workerAvailable) return <PlainCode code={code} lang={lang} actions={actions} />;
   return (
-    <div className="cv-codeblock" ref={menuPartRef({ code })}>
-      <div className="cv-codeblock__header">
-        <CodeBrackets size={17} strokeWidth={1.2} />
-        <span>{label ?? languageLabel(lang, t)}</span>
-        <span className="cv-codeblock__actions">
-          <OpenPreview code={code} lang={lang} />
-          <button
-            type="button"
-            className="cv-codeblock__action"
-            aria-pressed={wrap}
-            data-fold-toggle=""
-            aria-label={t("changes.wrapLines")}
-            title={t("changes.wrapLines")}
-            onClick={() => setWrap((value) => !value)}
-          >
-            <WrapLines />
-          </button>
-          <CopyButton text={code} label={t("code.copy")} />
-          {actions}
-        </span>
-      </div>
+    <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>
+      <CodeHeader look={look} lang={lang} label={label}>
+        <OpenPreview code={code} lang={lang} />
+        <button
+          type="button"
+          className="cv-codeblock__action"
+          aria-pressed={wrap}
+          data-fold-toggle=""
+          aria-label={t("changes.wrapLines")}
+          title={t("changes.wrapLines")}
+          onClick={() => setWrap((value) => !value)}
+        >
+          <WrapLines />
+        </button>
+        <CopyButton text={code} label={t("code.copy")} />
+        {actions}
+      </CodeHeader>
       {/* Pierre paints the lines once the highlight worker answers; until then the body keeps the
           plain card's height, so the text under the card does not move up and back (cx-wdenv). */}
       <DiffsHost
