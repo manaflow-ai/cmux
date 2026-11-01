@@ -9,6 +9,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../src/agent-session/acpmux/omnibar";
 import { inStrip, screenRows, type ScreenRow } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
@@ -81,6 +83,11 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "MutationObserver",
+  "getSelection",
+  "KeyboardEvent",
+  "InputEvent",
+  "FocusEvent",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
@@ -102,11 +109,14 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    KeyboardEvent: window.KeyboardEvent,
+    InputEvent: window.InputEvent,
+    FocusEvent: window.FocusEvent,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -146,13 +156,16 @@ async function render(calls: unknown[][]) {
 }
 
 async function type(text: string) {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const handle = field.acpmuxMarkdownField!;
   await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    handle.focus();
+    handle.type(text);
   });
-  return field;
+  expect(handle.value()).toBe(text);
+  return field.querySelector<HTMLElement>("[contenteditable]")!;
 }
 
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
@@ -180,14 +193,17 @@ test("a create action opens what its button opens, from the strip or a named row
 
   calls.length = 0;
   await render(calls);
-  await type("ff");
   // Up from the top row goes back to the text; from there Up takes the last row, the strip's New
   // chat, which Return takes.
-  const field2 = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const field2 = await type("ff");
   for (let press = 0; press < 2; press += 1)
-    await act(async () => field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    await act(async () =>
+      field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true })),
+    );
   const selected = rows().find((row) => row.getAttribute("aria-selected") === "true")!;
   expect(label(selected)).toBe("New chat");
-  await act(async () => field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await act(async () =>
+    field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  );
   expect(calls).toEqual([["ask", "claude", "ff", undefined, "claude-opus-5-5"]]);
 });

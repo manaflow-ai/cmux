@@ -274,6 +274,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "chats search",
+        &[
+            ("Find chats that talked about the resize lag", "acpmux chats search resize lag"),
+            (
+                "Search only Codex chats in one folder",
+                "acpmux chats search flaky test --harness codex --folder ~/wt/cmux -n 5",
+            ),
+        ],
+    ),
+    (
         "chats open",
         &[
             ("Open a chat again", "acpmux chats open claude-code:5f0c2a9e"),
