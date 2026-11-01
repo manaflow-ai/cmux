@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { Schema } from "effect";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
@@ -10,7 +11,7 @@ const world = async () => {
   const key = await h.addKey("team_alpha", ALL_SCOPES);
   const made = await h.request("/v1/meshes", bearer(key), { method: "POST", body: {} });
   expect(made.status).toBe(201);
-  const mesh = await made.json() as { id: string };
+  const mesh = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }))(await made.json());
   const vm = h.addVm("team_alpha");
   const path = `/v1/meshes/${mesh.id}/vms/${vm.vmId}`;
   expect((await h.request(path, bearer(key), { method: "PUT" })).status).toBe(200);
@@ -40,9 +41,9 @@ it("keeps an unchanged member's attachment identity", async () => {
 });
 
 it.each([
-  [{ vpc: "vpc-other", ipv4: "10.128.0.9" }],
-  [],
-])("clears the address when the provider no longer places the VM on this mesh %#", async (networks) => {
+  { networks: [{ vpc: "vpc-other", ipv4: "10.128.0.9" }] },
+  { networks: [] },
+])("clears the address when the provider no longer places the VM on this mesh %#", async ({ networks }) => {
   const f = await world(); f.upstream.vpcs = networks;
   const read = await h.request(f.path, bearer(f.key));
   expect(read.status).toBe(200);
