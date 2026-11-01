@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextPages
+import CmuxNextTestSupport
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -17,7 +18,7 @@ import WebKit
 /// background. Runs ``LinkOpener`` (every clicked link's path), the chat header's beside opens and
 /// the app's Close Tab against a same-tree cmux-tui daemon; the page the link is clicked in is the
 /// window's first terminal.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct ClickedLinkFocusTests {
     static let link = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
 

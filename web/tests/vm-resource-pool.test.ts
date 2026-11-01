@@ -124,8 +124,8 @@ describe("Cloud VM plan ceilings", () => {
     expect(lockedMemoryOptionsMbForPlan("max", {})).toEqual({ memoryOptionsMb: [], upgradePlanId: null });
   });
 
-  test("Go and Free ceilings are unchanged", () => {
-    expect(maxMemoryMbForPlan("go", {})).toBe(4 * GB);
+  test("Plus shares Pro ceilings while Free retains its ceiling", () => {
+    expect(maxMemoryMbForPlan("go", {})).toBe(16 * GB);
     expect(maxMemoryMbForPlan("free", {})).toBe(8 * GB);
   });
 

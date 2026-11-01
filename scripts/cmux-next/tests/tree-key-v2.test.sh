@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # CMUX-TUI-TREE-KEY-V2: the cmux-tui tree key v2 leaves out the classic
 # `ghostty` gitlink (no cmux-tui binary builds from it); v1 keeps it. Trees
-# published before v2 exist only under their v1 key, so `pin-cmux-tui.sh
-# fetch` takes the v2 publication, else the v1 publication of the same commit.
+# published before docs-only filtering exist under their v2-legacy key, so
+# `pin-cmux-tui.sh fetch` takes the v2 publication, else that compatibility
+# publication of the same commit.
 # No network: a stub curl serves the CDN from a local directory.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -34,8 +35,44 @@ if key --version v1 >/dev/null 2>&1; then fail "v1 computed without the classic 
 gitlink ghostty "$base_commit"
 git_q -C "$src" commit -m classic
 v1=$(key --version v1); v2=$(key --version v2)
+legacy=$(key --version v2-legacy)
 [[ "$(key)" == "$v2" ]] || fail "the default key is not v2"
 [[ "$v1" != "$v2" ]] || fail "v1 and v2 are equal although v1 hashes the classic gitlink"
+[[ "$legacy" == "$v2" ]] || fail "v2-legacy did not omit the classic gitlink"
+
+# Docs-only commits do not start the artifact publisher, so their consumers
+# must reuse the already-published runtime tree instead of fetching a key that
+# can never be published. The v2 key excludes docs for this case, while
+# v1 retains its historical full-tree behavior.
+mkdir -p "$src/cmux-tui/docs"
+echo prose > "$src/cmux-tui/docs/README.md"
+git_q -C "$src" add cmux-tui/docs/README.md
+git_q -C "$src" commit -m docs
+[[ "$(key --version v2)" == "$v2" ]] || fail "a docs-only commit changed the published v2 tree key"
+[[ "$(key --version v1)" != "$v1" ]] || fail "v1 unexpectedly ignored a docs-only commit"
+[[ "$(key --version v2-legacy)" != "$legacy" ]] || fail "v2-legacy unexpectedly ignored a docs-only commit"
+[[ "$(key --version v2-legacy)" != "$(key --version v1)" ]] || fail "v2-legacy included the classic gitlink"
+# The same key survives a docs-only merge and a depth-one checkout.
+docs_parent=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -b docs-side
+echo side > "$src/cmux-tui/docs/side.md"
+git_q -C "$src" add cmux-tui/docs/side.md
+git_q -C "$src" commit -m side
+git_q -C "$src" checkout -b docs-main "$docs_parent"
+echo main > "$src/cmux-tui/docs/main.md"
+git_q -C "$src" add cmux-tui/docs/main.md
+git_q -C "$src" commit -m main
+git_q -C "$src" merge --no-ff docs-side -m merge-docs
+[[ "$(key --version v2)" == "$v2" ]] || fail "docs-only merge changed v2"
+git_q clone --depth=1 "file://$src" "$TMP/shallow"
+[[ "$(cd "$TMP/shallow" && python3 scripts/ci/cmux_tui_tree_key.py)" == "$v2" ]] || fail "depth-one key changed"
+# A mixed code/docs change must still invalidate the runtime key.
+echo code >> "$src/cmux-tui/a"
+echo mixed >> "$src/cmux-tui/docs/README.md"
+git_q -C "$src" add cmux-tui
+git_q -C "$src" commit -m mixed
+[[ "$(key --version v2)" != "$v2" ]] || fail "mixed code/docs reused old key"
+v2=$(key --version v2)
 status=0; key --version v3 >/dev/null 2>&1 || status=$?
 [[ "$status" == 2 ]] || fail "an unknown key version did not exit 2 (exit $status)"
 
@@ -51,7 +88,7 @@ v1=$(key --version v1); v2=$(key --version v2)
 [[ "$(cd "$src" && bash scripts/cmux-next/pin-cmux-tui.sh key --version v1)" == "$v1" ]] || fail "pin key --version v1 differs"
 [[ "$(cd "$src" && bash scripts/cmux-next/pin-cmux-tui.sh key)" == "$v2" ]] || fail "pin key is not v2"
 
-# The CDN: tree <v1> only (published before v2).
+# The CDN: tree <v2-legacy> only (published before docs-only filtering).
 cdn="$TMP/cdn"
 publish() { # <key> <bytes>
   mkdir -p "$cdn/tree/$1"
@@ -62,7 +99,8 @@ publish() { # <key> <bytes>
 }
 mkdir -p "$cdn/$base_commit"
 printf '{"binaries": {}}\n' > "$cdn/$base_commit/manifest.json"
-publish "$v1" "daemon published under v1"
+legacy=$(key --version v2-legacy)
+publish "$legacy" "daemon published under v2-legacy"
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/curl" <<STUB
 #!/usr/bin/env bash
@@ -89,25 +127,34 @@ fetch() {
     CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 CMUX_TUI_TREE_TARGET=aarch64-apple-darwin \
     bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1)
 }
-out=$(fetch) || fail "fetch through the v1 publication failed:" "$out"
-grep -q "using its v1 publication $v1" <<<"$out" || fail "fetch did not report the v1 publication:" "$out"
+out=$(fetch) || fail "fetch through the compatibility publication failed:" "$out"
+grep -q "using its compatibility publication $legacy" <<<"$out" || fail "fetch did not report the v2-legacy publication:" "$out"
 dir="$src/cmux-tui/target/hosted/tree/$v2"
-[[ "$(cat "$dir/cmux-tui")" == "daemon published under v1" ]] || fail "fetch did not store the v1 daemon under the v2 tree dir"
-python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["key"] == sys.argv[2]' "$dir/source.json" "$v1" \
-  || fail "the stored source.json does not name the v1 key it came from"
+[[ "$(cat "$dir/cmux-tui")" == "daemon published under v2-legacy" ]] || fail "fetch did not store the compatibility daemon under the v2 tree dir"
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["key"] == sys.argv[2]' "$dir/source.json" "$legacy" \
+  || fail "the stored source.json does not name the compatibility key it came from"
 # B2 evidence: the log names the key actually fetched, and the cache dir (named
-# by the v2 key) records it, so a cached v1 fallback cannot pass for v2.
-grep -qxF "fetched cmux-tui tree $v1 (v1 fallback)" <<<"$out" || fail "fetch did not name the v1 fallback key it fetched:" "$out"
-[[ "$(cat "$dir/fetched-key" 2>/dev/null)" == "$v1 v1" ]] || fail "the cache dir does not record the v1 key it was fetched from"
+# by the v2 key) records it, so a cached compatibility fallback cannot pass for v2.
+grep -qxF "fetched cmux-tui tree $legacy (compatibility fallback)" <<<"$out" || fail "fetch did not name the compatibility fallback key it fetched:" "$out"
+[[ "$(cat "$dir/fetched-key" 2>/dev/null)" == "$legacy compatibility" ]] || fail "the cache dir does not record the compatibility key it was fetched from"
 out=$(fetch) || fail "the cached fetch failed:" "$out"
-grep -qxF "cmux-tui tree $v2 already present, fetched from $v1 (v1 fallback)" <<<"$out" \
-  || fail "a cache hit hid that the binary came from the v1 fallback:" "$out"
+grep -qxF "cmux-tui tree $v2 already present, fetched from $legacy (compatibility fallback)" <<<"$out" \
+  || fail "a cache hit hid that the binary came from the compatibility fallback:" "$out"
+
+# An immutable publication predating v2 must remain readable as well.
+rm -rf "$dir" "$cdn/tree/$legacy"
+publish "$v1" "daemon published under v1"
+out=$(fetch) || fail "fetch through the v1 publication failed:" "$out"
+[[ "$(cat "$dir/cmux-tui")" == "daemon published under v1" ]] || fail "lost v1 fallback"
+[[ "$(cat "$dir/fetched-key")" == "$v1 compatibility" ]] || fail "v1 source was hidden"
+rm -rf "$cdn/tree/$v1"
+publish "$legacy" "daemon published under v2-legacy"
 
 # With a v2 publication, fetch takes it and never the v1 one.
 rm -rf "$dir"
 publish "$v2" "daemon published under v2"
 out=$(fetch) || fail "fetch of the v2 publication failed:" "$out"
-if grep -q "v1 publication" <<<"$out"; then fail "fetch used v1 although v2 is published:" "$out"; fi
+if grep -q "v2-legacy publication" <<<"$out"; then fail "fetch used compatibility publication although v2 is published:" "$out"; fi
 [[ "$(cat "$dir/cmux-tui")" == "daemon published under v2" ]] || fail "fetch did not store the v2 daemon"
 grep -qxF "fetched cmux-tui tree $v2 (v2)" <<<"$out" || fail "fetch did not name the v2 key it fetched:" "$out"
 out=$(fetch) || fail "the cached v2 fetch failed:" "$out"
@@ -137,10 +184,10 @@ commit=$(resolve) || fail "resolve-commit failed:" "$(cat "$TMP/resolve.err")"
 [[ "$commit" == "$base_commit" ]] || fail "resolve-commit printed '$commit', not only the commit"
 grep -qxF "resolved cmux-tui tree $v2 (v2)" "$TMP/resolve.err" || fail "resolve-commit did not name the v2 key:" "$(cat "$TMP/resolve.err")"
 rm -rf "$cdn/tree/$v2"
-sha=$(awk '{print $1}' "$cdn/tree/$v1/cmux-tui-aarch64-apple-darwin.sha256")
+sha=$(awk '{print $1}' "$cdn/tree/$legacy/cmux-tui-aarch64-apple-darwin.sha256")
 printf '{"binaries": {"cmux-tui-aarch64-apple-darwin": "%s"}}\n' "$sha" > "$cdn/$base_commit/manifest.json"
 commit=$(resolve) || fail "resolve-commit through v1 failed:" "$(cat "$TMP/resolve.err")"
-grep -qxF "resolved cmux-tui tree $v1 (v1 fallback)" "$TMP/resolve.err" || fail "resolve-commit did not name the v1 fallback:" "$(cat "$TMP/resolve.err")"
+grep -qxF "resolved cmux-tui tree $legacy (compatibility fallback)" "$TMP/resolve.err" || fail "resolve-commit did not name the compatibility fallback:" "$(cat "$TMP/resolve.err")"
 
 # MACOS-CROSS-COMPILE-ON-LINUX: the Mac and the Linux builder give
 # byte-different macOS binaries, so the builder switch and the Linux recipe

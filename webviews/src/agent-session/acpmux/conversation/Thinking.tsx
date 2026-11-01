@@ -102,6 +102,7 @@ export function Thinking({
               ? t("tools.writingCommand")
               : t("tools.runningUnnamed")
           : doing);
+  const elapsed = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -115,12 +116,25 @@ export function Thinking({
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
         </output>
+      ) : status ? (
+        <output className="cv-thinking">{label}</output>
       ) : (
-        <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>
-          {status ? label : <ShimmerText text={label} />}
-        </output>
+        <span className="cv-shimmer__row">
+          <output className="cv-thinking is-shimmer">
+            <ShimmerText
+              text={label}
+              baseText={label}
+              lit={
+                <>
+                  <span className="cv-shimmer__lit-label" data-text={label} />
+                  {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
+                </>
+              }
+            />
+          </output>
+          {elapsed && <span className="cv-worked__time">{elapsed}</span>}
+        </span>
       )}
-      {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
       {showTokens && (
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">

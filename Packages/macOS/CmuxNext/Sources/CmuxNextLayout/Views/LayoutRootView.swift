@@ -175,10 +175,6 @@ public final class LayoutRootView: NSView {
             self.setLayoutInMotion(false)
         }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
-        context.stripClipsDidChange = { [weak self] in
-            guard let self else { return }
-            planeHost?.paneShapesDidChange(overlayPlane)
-        }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
@@ -249,6 +245,14 @@ public final class LayoutRootView: NSView {
     /// columns placed before and after the strip (one logical line).
     public var navigationFrames: [PaneID: CGRect] {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
+        return view.navigationFrames
+    }
+
+    /// ``navigationFrames`` of the screen that holds `pane`, active or not: a hidden screen view keeps
+    /// its geometry at the root's size, so what opens beside a pane on a screen the person switched
+    /// away from reads that screen's layout (RightColumn).
+    public func navigationFrames(ofScreenContaining pane: PaneID) -> [PaneID: CGRect] {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return [:] }
         return view.navigationFrames
     }
 
@@ -459,7 +463,10 @@ public final class LayoutRootView: NSView {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
-        if needsFrames || snapshot.gestureActive { driver.start() }
+        if needsFrames { driver.start() }
+        // A divider drag moves panes in this sync with no frame tick after it: what follows the panes once per placed
+        // frame (shortcut hint chips) hears it here, as it would from the tick.
+        else if snapshot.gestureActive { onFramePlaced?() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }

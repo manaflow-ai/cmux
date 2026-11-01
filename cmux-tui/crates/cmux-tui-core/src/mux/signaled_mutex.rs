@@ -4,7 +4,6 @@
 
 use std::ops::{Deref, DerefMut};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
-#[cfg(test)]
 use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
 
@@ -42,11 +41,13 @@ impl<T> SignaledMutex<T> {
         waited_from: Instant,
         blocker: Option<crate::diagnostics::LockSite>,
     ) -> SignaledMutexGuard<'a, T> {
-        self.stats.acquired(site, waited_from.elapsed(), blocker);
+        let waited = waited_from.elapsed();
+        self.stats.acquired(site, waited, blocker);
         SignaledMutexGuard {
             value: Some(value),
             owner: self,
             site,
+            waited,
             acquired_at: Instant::now(),
             _rank: HeldRank::record(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME),
         }
@@ -160,6 +161,7 @@ pub(crate) struct SignaledMutexGuard<'a, T> {
     value: Option<MutexGuard<'a, T>>,
     owner: &'a SignaledMutex<T>,
     site: crate::diagnostics::LockSite,
+    waited: std::time::Duration,
     acquired_at: Instant,
     /// Lock rank `WorkspaceRegistry` (crate::lock_rank), released after the
     /// lock.
@@ -187,7 +189,7 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
         // Clear holder attribution before the inner mutex is released, so a
         // waiter that acquires next can never have its holder record erased
         // by this older unlock.
-        self.owner.stats.released(self.site, self.acquired_at.elapsed());
+        self.owner.stats.released(self.site, self.acquired_at.elapsed(), self.waited);
         drop(self.value.take());
         let mut epoch = self.owner.release_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -206,17 +208,34 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
 /// The mux state mutex. It counts holds per thread (`note_state_lock`) so
 /// the registry connection lock can assert it is never first taken while
 /// this thread holds state (lock order: registry -> connection -> state).
-pub(crate) struct StateMutex(Mutex<State>);
+/// Its acquisitions feed hold and wait telemetry by `#[track_caller]` site
+/// (`server-stats` `locks.state`), as the registry's do.
+pub(crate) struct StateMutex {
+    value: Mutex<State>,
+    stats: crate::diagnostics::LockStats,
+}
 
 /// A held mux state lock.
 pub(crate) struct StateGuard<'a> {
+    /// Dropped after `Drop::drop` records the release (fields drop after
+    /// the body), so the release is recorded while the lock is held.
     guard: MutexGuard<'a, State>,
+    stats: &'a crate::diagnostics::LockStats,
+    site: crate::diagnostics::LockSite,
+    waited: std::time::Duration,
+    acquired_at: Instant,
     /// Lock rank `MuxState` (crate::lock_rank), released after the lock.
     _rank: HeldRank,
 }
 
-impl StateGuard<'_> {
-    fn new(guard: MutexGuard<'_, State>) -> StateGuard<'_> {
+impl<'a> StateGuard<'a> {
+    fn new(
+        guard: MutexGuard<'a, State>,
+        stats: &'a crate::diagnostics::LockStats,
+        site: crate::diagnostics::LockSite,
+        waited_from: Instant,
+        blocker: Option<crate::diagnostics::LockSite>,
+    ) -> StateGuard<'a> {
         // A request thread may hold state while it waits for a writer
         // receipt: the writer must never take state (counted in release).
         let on_writer = crate::workspace_registry::registry_connection::in_journal_writer_commit();
@@ -225,7 +244,16 @@ impl StateGuard<'_> {
         }
         debug_assert!(!on_writer, "the journal writer took the mux state lock");
         crate::workspace_registry::registry_connection::note_state_lock(true);
-        StateGuard { guard, _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME) }
+        let waited = waited_from.elapsed();
+        stats.acquired(site, waited, blocker);
+        StateGuard {
+            guard,
+            stats,
+            site,
+            waited,
+            acquired_at: Instant::now(),
+            _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME),
+        }
     }
 }
 
@@ -233,6 +261,9 @@ const STATE_LOCK_NAME: &str = "mux.state";
 
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
+        // Record the release while the lock is still held, so the next
+        // holder's record is never erased by this older unlock.
+        self.stats.released(self.site, self.acquired_at.elapsed(), self.waited);
         crate::workspace_registry::registry_connection::note_state_lock(false);
     }
 }
@@ -253,26 +284,44 @@ impl DerefMut for StateGuard<'_> {
 
 impl StateMutex {
     pub(crate) fn new(state: State) -> Self {
-        Self(Mutex::new(state))
+        Self { value: Mutex::new(state), stats: crate::diagnostics::LockStats::new() }
+    }
+
+    /// Hold and wait telemetry by site (`server-stats` `locks.state`).
+    pub(crate) fn stats(&self) -> &crate::diagnostics::LockStats {
+        &self.stats
     }
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
         HeldRank::check(LockRank::MuxState, STATE_LOCK_NAME);
-        match self.0.lock() {
-            Ok(guard) => Ok(StateGuard::new(guard)),
-            Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner()))),
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        let blocker = self.stats.wait_started();
+        match self.value.lock() {
+            Ok(guard) => Ok(StateGuard::new(guard, &self.stats, site, waited_from, blocker)),
+            Err(poison) => Err(PoisonError::new(StateGuard::new(
+                poison.into_inner(),
+                &self.stats,
+                site,
+                waited_from,
+                blocker,
+            ))),
         }
     }
 
-    #[cfg(test)]
+    /// The state lock if it is free now (the accept loop, which never waits
+    /// for it). A try cannot deadlock, so it skips the rank check `lock` makes.
+    #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
-        match self.0.try_lock() {
-            Ok(guard) => Ok(StateGuard::new(guard)),
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        match self.value.try_lock() {
+            Ok(guard) => Ok(StateGuard::new(guard, &self.stats, site, waited_from, None)),
             Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(poison)) => {
-                Err(TryLockError::Poisoned(PoisonError::new(StateGuard::new(poison.into_inner()))))
-            }
+            Err(TryLockError::Poisoned(poison)) => Err(TryLockError::Poisoned(PoisonError::new(
+                StateGuard::new(poison.into_inner(), &self.stats, site, waited_from, None),
+            ))),
         }
     }
 }
@@ -317,6 +366,7 @@ impl Mux {
     /// It first settles the receipts of earlier indeterminate registry
     /// commits that arrived since (cx-g1fa.3): their state updates and
     /// revisions land before this flow reads state.
+    #[track_caller]
     pub(crate) fn lock_state_pinned(
         &self,
         registry: &WorkspaceRegistry,

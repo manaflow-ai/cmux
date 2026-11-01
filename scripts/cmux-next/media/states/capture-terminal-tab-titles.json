@@ -1,0 +1,13 @@
+{
+  "title": "Two terminal tabs follow their shell folders",
+  "launch_args": [],
+  "steps": [
+    {"title": "Create and focus one workspace with its first terminal", "cmux": ["action", "run", "newTab", "--name", "Terminal titles", "--focus", "--cwd", "/tmp"], "wait": 2},
+    {"title": "Create the demo folder from the first terminal", "cmux": ["workspace", "current", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text", "mkdir -p /tmp/cmux-demo-board"], "wait": 0.25, "shot": false},
+    {"title": "Press Return to create the demo folder", "cmux": ["workspace", "current", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "keys", "enter"], "wait": 1, "shot": false},
+    {"title": "Open the second terminal tab in that workspace", "cmux": ["action", "run", "newSurface", "--focus", "--cwd", "/tmp"], "wait": 2},
+    {"title": "Type the cd command in the focused terminal", "cmux": ["workspace", "current", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text", "cd /tmp/cmux-demo-board"], "wait": 0.25, "shot": false},
+    {"title": "Press a real Return key to run cd", "cmux": ["workspace", "current", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "keys", "enter"], "wait": 2},
+    {"title": "Show both terminal titles in the sidebar and tab strip", "rpc": {"method": "debug.sidebar_rows", "params": {}}, "wait": 1}
+  ]
+}
