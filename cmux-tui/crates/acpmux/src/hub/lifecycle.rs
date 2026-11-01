@@ -697,12 +697,17 @@ impl Hub {
         // disk before the agent starts: a daemon that dies while it starts leaves a host the next
         // one judges by this argv (review 44 of #23322). Not left to the folder check's save, which
         // a slow git read skips.
+        // So is the digest of the profile it starts from (`profile_respawn.rs`): an agent host
+        // the next daemon adopts is judged by it, and this start settles a respawn that waited.
         let argv_changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = m.spawn_argv.as_ref() != Some(&profile.argv);
+            let changed = m.spawn_argv.as_ref() != Some(&profile.argv)
+                || m.launch_digest.as_ref() != Some(&profile.launch_digest);
             m.spawn_argv = Some(profile.argv.clone());
+            m.launch_digest = Some(profile.launch_digest.clone());
             changed
         };
+        self.settle_profile_respawn(session);
         if argv_changed {
             self.save_meta(session);
         }
@@ -1318,14 +1323,13 @@ impl Hub {
                 tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;
             }
-            match child
-                .request(
-                    method::SESSION_SET_CONFIG_OPTION,
-                    json!({"sessionId": sid, "configId": id, "value": value}),
-                )
-                .await
-            {
+            let params = json!({"sessionId": sid, "configId": id, "value": value});
+            let asked = super::full_access_bound::asked_option(&params);
+            match child.request(method::SESSION_SET_CONFIG_OPTION, params).await {
                 Ok(res) => {
+                    // A bare answer took the value asked, as a client's does: under an MDM off
+                    // pushed while it was asked, `cap_full_access` then counts it (#26340).
+                    super::full_access_bound::record_option_answer(session, &res, asked);
                     if let Some(o) = res.get("configOptions") {
                         self.write_mode_state(session, [ModeWrite::ConfigOptions(o.clone())]);
                     }

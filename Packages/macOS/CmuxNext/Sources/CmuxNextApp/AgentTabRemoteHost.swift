@@ -25,6 +25,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var cloudMachineID: String?
     var cloudAccount: [String?]?
     var cloudCredentialRecoveryAvailable = false
+    /// The App opens this Cloud chat's hand-off turns (``CloudHandoffTurnOpener``).
+    var cloudHandoffs = false
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
     var servesTrust = false
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
@@ -35,11 +37,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var ownerLink: AgentSessionAttachClient.OwnerLink?
     /// Brings the machine's daemon to this app's build now and answers whether an update turn ran
     /// (``DaemonUpdatePolicy/updateNow(_:)``); nil where the app cannot. A start that the machine's
-    /// older daemon refused (``olderDaemonRefusals``) runs it, then tries once more: a fresh Cloud
-    /// machine boots its image's cmux-tui, which may predate what this app's start needs (a team VM
-    /// that takes its creator's chat, cmux#29107), and the app's automatic update runs in the
-    /// background, so a first chat right after the machine came up would otherwise reach the old
-    /// daemon (Leo: "whenever i start a chat it should be able to send me to cloud automatically").
+    /// older daemon refused (``AgentRemoteStartRefusal/olderDaemonCodes``, which says which) runs it, then tries once
+    /// more: a fresh Cloud machine boots its image's cmux-tui, and the automatic update runs in the background, so a
+    /// first chat right after it came up would otherwise reach the old daemon (Leo: "whenever i start a chat it should be able to send me to cloud automatically").
     var updateMachine: (@Sendable () async -> Bool)?
     /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
@@ -112,6 +112,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         handshake.cloudMachineID = cloudMachineID
         handshake.cloudAccount = cloudAccount
         handshake.cloudCredentialRecoveryAvailable = cloudCredentialRecoveryAvailable
+        if cloudHandoffs { handshake.cloudHandoffs = true }
         return handshake
     }
 
@@ -129,13 +130,6 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                                          updateMachine: updateMachine, proceed: proceed, start: start)
     }
 
-    /// The refusals of a start that an older daemon on the machine gives where its current build
-    /// would start the chat: a team VM's (`team_vm_blocked`, before cmux#29107) and an owner check
-    /// that daemon cannot take (`host_unverified`, a daemon without the caller's `vm_kind` word).
-    /// ``updateMachine`` runs only while the link's owner answer says the machine is the caller's,
-    /// so a teammate's machine is never retried (the app refuses that start before it is sent).
-    static let olderDaemonRefusals: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified"]
-
     /// The chat's Allow needs this app's key on that machine's agent daemon (cx-oa6ah): an idle
     /// daemon gets it before the start; a busy one waits for the person's restart click on the
     /// Allow notice. That machine's cmux-tui decides whether a restart loses nothing (cx-0w0jj):
@@ -151,7 +145,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             try await proceed()
             do {
                 return try await unchecked(cwd, harness, model, key)
-            } catch let refusal as AgentRemoteStartRefusal where olderDaemonRefusals.contains(refusal.code) {
+            } catch let refusal as AgentRemoteStartRefusal where AgentRemoteStartRefusal.olderDaemonCodes.contains(refusal.code) {
                 // The machine's daemon may be older than this app's: update it now, then once more.
                 guard let updateMachine, await updateMachine() else { throw refusal }
                 try await proceed()

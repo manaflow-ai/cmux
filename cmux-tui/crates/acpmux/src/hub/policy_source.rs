@@ -173,6 +173,9 @@ impl Hub {
         self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
         let saved = self.save_meta_answered(session);
         self.follow_policy(session).await;
+        if policy == PermissionPolicy::ApproveAll {
+            self.approve_pending_tools(session).await;
+        }
         saved
     }
 

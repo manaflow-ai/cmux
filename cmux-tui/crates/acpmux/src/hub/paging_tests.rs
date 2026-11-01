@@ -391,7 +391,7 @@ fn cold_opens(turns: usize, runs: usize, print: bool) -> (u64, Vec<u64>) {
 fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     let event = |seq: u64, text: &str| json!({"seq": seq, "kind": "agent_message_chunk", "msg": {"text": text}});
     let mut reply = json!({
-        "session": {"sessionId": "s", "status": "idle", "configOptions": "c".repeat(9 << 20), "models": "m".repeat(5 << 20), "pending": [{"rawInput": "p".repeat(1 << 20)}]},
+        "session": {"sessionId": "s", "status": "idle", "configOptions": "c".repeat(MAX_REPLY_BYTES), "models": "m".repeat(5 << 20), "pending": [{"rawInput": "p".repeat(1 << 20)}]},
         "events": [event(1, "a"), event(2, &"x".repeat(3 << 20))],
         "turnOpener": event(0, "go"),
     });
@@ -415,7 +415,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Nor can a value the agent set in the summary (a session_info_update title) keep a chat
     // from opening: past the detail, any field but the chat's identity goes to its empty value.
     let mut titled = json!({
-        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(15 << 20), "tags": ["a"], "models": "m".repeat(1 << 20)},
+        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(MAX_REPLY_BYTES), "tags": ["a"], "models": "m".repeat(1 << 20)},
         "events": [event(1, "a")],
         "turnOpener": null,
     });
@@ -432,7 +432,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Not even the agent's own session id: the receipt that carries it goes last, after every
     // other field (the title here), and the chat's sessionId stays.
     let mut receipt = json!({
-        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(15 << 20)}},
+        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(MAX_REPLY_BYTES)}},
         "events": [],
         "turnOpener": null,
     });
@@ -450,7 +450,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Nor a record's envelope: an agent names its own sessionUpdate, which becomes the kind.
     let mut kind = json!({
         "session": {"sessionId": "s", "status": "idle"},
-        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(15 << 20), "msg": {"a": 1}}],
+        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(MAX_REPLY_BYTES), "msg": {"a": 1}}],
         "turnOpener": null,
     });
     fit_reply(&mut kind);
@@ -480,4 +480,95 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     let mut same = small.clone();
     fit_reply(&mut same);
     assert_eq!(same, small);
+}
+
+#[test]
+fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
+    let hub = hub(Box::new(crate::store::MemoryStore::default()));
+    hub.store.save(&meta("c")).unwrap();
+    let mut log = codex_chat(30, 4, 64, false);
+    // A long pasted prompt, a steer and its id travel cut to the index's shape.
+    let long = "x".repeat(10_000);
+    let next = log.last().unwrap().seq + 1;
+    log.push(EventRecord {
+        seq: next,
+        at: next,
+        dir: "mux".into(),
+        kind: "user_message".into(),
+        msg: json!({"text": long, "promptId": "p-long", "images": [{"data": "AAAA"}], "pasted": [[0, 10]]}),
+        host_seq: None,
+    });
+    log.push(EventRecord {
+        seq: next + 1,
+        at: next + 1,
+        dir: "mux".into(),
+        kind: "user_message".into(),
+        msg: json!({"text": "steer", "steer": true, "promptId": "p-steer"}),
+        host_seq: None,
+    });
+    for rec in &log {
+        hub.store.append("c", rec).unwrap();
+    }
+    let all = hub.prompt_index("c", None).unwrap();
+    assert_eq!(all.len(), 32);
+    assert!(all.windows(2).all(|pair| pair[0].seq < pair[1].seq), "oldest first");
+    assert_eq!(all[0].msg, json!({"text": "prompt 0"}));
+    let cut = &all[30].msg;
+    assert_eq!(cut["promptId"], "p-long");
+    assert_eq!(cut["text"].as_str().unwrap().chars().count(), PROMPT_INDEX_TEXT_CHARS);
+    assert!(cut.get("images").is_none() && cut.get("pasted").is_none());
+    assert_eq!(all[31].msg["steer"], true);
+    // `before` bounds it, as the pane asks for what precedes its open page.
+    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    assert_eq!(older.len(), 10);
+    assert_eq!(older.last().unwrap().seq, all[9].seq);
+}
+
+/// How long the rail waits for a long chat's every prompt: paging the transcript back (the pane's
+/// `loadOlder`, 400 records a page) against one prompt index read.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn prompt_index_perf() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-prompt-index-perf-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+    writer.save(&meta("c")).unwrap();
+    // 1,000 turns, each a command with 40 updates re-sending its output so far.
+    for rec in codex_chat(1000, 40, 200, false) {
+        writer.append("c", &rec).unwrap();
+    }
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    let mut paged = Vec::new();
+    let mut indexed = Vec::new();
+    let mut pages_read = 0;
+    for _ in 0..3 {
+        let started = std::time::Instant::now();
+        let mut page = hub
+            .events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true))
+            .unwrap();
+        let mut pages = 1;
+        let mut shown = prompts(&page);
+        while page.has_more {
+            let before = page.events.first().map(|r| r.seq);
+            page = hub
+                .events_page("c", 0, before, OPEN_LIMIT, Some(256 * 1024), true, &transcript(true))
+                .unwrap();
+            pages += 1;
+            shown += prompts(&page);
+        }
+        assert_eq!(shown, 1000);
+        paged.push(started.elapsed().as_secs_f64() * 1000.0);
+        pages_read = pages;
+        let started = std::time::Instant::now();
+        assert_eq!(hub.prompt_index("c", None).unwrap().len(), 1000);
+        indexed.push(started.elapsed().as_secs_f64() * 1000.0);
+    }
+    let best = |runs: &[f64]| runs.iter().copied().fold(f64::INFINITY, f64::min);
+    println!(
+        "every prompt of 1000 turns: paging back {pages_read} pages {:.1} ms; prompt index 1 read {:.1} ms",
+        best(&paged),
+        best(&indexed)
+    );
+    std::fs::remove_dir_all(&root).ok();
 }
