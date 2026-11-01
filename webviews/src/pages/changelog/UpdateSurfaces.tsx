@@ -16,14 +16,14 @@
 //    titles). Share cmux is the palette's (app.shareCmux).
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): a quiet "What's
-//    new in nightly 3845050" (the full build in its tooltip, Leo 2026-10-19), the top three changes
+//    new in nightly 3845050" (a click on the version copies the full build, no tooltip: 2026-10-31), the top three changes
 //    numbered, each a title, one line and its picture when it has one, and "See all changes", once.
 //    The popover scrolls on to every other change of the update (`rest`, 2026-10-20), with the
 //    shared card scroller and a fade at each edge that has more past it (scrollers.ts).
 //    Under the title, the version it replaces ("Updating from nightly 3801702", Lawrence 2026-10-19:
 //    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
@@ -114,14 +114,56 @@ async function copyVersion(text: string): Promise<void> {
   if (!ok) throw new Error("Clipboard copy failed");
 }
 
-/** How long the build line says "Copied" after a click on the commit. */
+/** How long a copied version says "Copied". */
 const COPIED_MS = 1500;
 
-/** "Build a9d1434 · Newest": plain selectable text, no tooltip (2026-10-31, Lawrence on the hover
- * that covered this line with "1.0.0-nightly.4124615690001": "seems excessive"). A click (or Return
- * or Space) on the commit copies the full version for a bug report and the line's last part says
- * "Copied" for a moment, in place: nothing pops over the card. A drag still selects the words; a
- * click that ends a selection copies nothing. */
+/** A short version that copies the full one: selectable text, no tooltip (2026-10-31, Lawrence on
+ * the hover that covered the Updated card's build line with "1.0.0-nightly.4124615690001": "seems
+ * excessive"). It is a native <button>: a click, Return or Space copies `version` for a bug report
+ * and `copied` is true for a moment, for the caller to say "Copied" in place: nothing pops over the
+ * surface. Its CSS keeps it plain inline text, and a drag across the line still selects it with the
+ * words around it (u4466); a pointer click that ends a selection copies nothing. */
+function CopyVersion({
+  version,
+  className,
+  strings,
+  onCopied,
+  children,
+}: {
+  version: string;
+  className?: string;
+  strings: Strings;
+  onCopied: (copied: boolean) => void;
+  children: string;
+}) {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const copy = (event: MouseEvent) => {
+    // A pointer click that ends a selection drag selects; Return or Space (detail 0) always copies.
+    if (event.detail !== 0 && globalThis.getSelection?.()?.isCollapsed === false) return;
+    void copyVersion(version).then(
+      () => {
+        onCopied(true);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => onCopied(false), COPIED_MS);
+      },
+      () => undefined,
+    );
+  };
+  return (
+    <button
+      type="button"
+      className={className ? `wn-copy-version ${className}` : "wn-copy-version"}
+      aria-label={strings.format("updates.card.copyVersion", version)}
+      onClick={copy}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** "Build a9d1434 · Newest": the commit copies the full version (CopyVersion) and the line's last
+ * part says "Copied" for a moment. */
 function BuildLine({
   data,
   builds,
@@ -132,44 +174,17 @@ function BuildLine({
   strings: Strings;
 }) {
   const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
   const parts = cardBuildParts(data, builds, strings);
   if (!parts) return null;
-  const copy = () => {
-    if (globalThis.getSelection?.()?.isCollapsed === false) return;
-    void copyVersion(data.version).then(
-      () => {
-        setCopied(true);
-        clearTimeout(timer.current);
-        timer.current = setTimeout(() => setCopied(false), COPIED_MS);
-      },
-      () => undefined,
-    );
-  };
   const [before, after] = strings.format("updates.card.build", "\u0000").split("\u0000");
   const where = copied ? strings.t("updates.card.copied") : parts.where;
   return (
     <div className="wn-card-build">
       <span className="wn-card-part">
         {before}
-        {/* A span, not a button: WebKit selects no text inside a button, and the commit is text to
-            select and quote (u4466). */}
-        <span
-          className="wn-card-build-id"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="button"
-          tabIndex={0}
-          aria-label={strings.format("updates.card.copyVersion", data.version)}
-          onClick={copy}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            copy();
-          }}
-        >
+        <CopyVersion version={data.version} className="wn-card-build-id" strings={strings} onCopied={setCopied}>
           {parts.id}
-        </span>
+        </CopyVersion>
         {after}
         {where && " ·"}
       </span>
@@ -181,6 +196,23 @@ function BuildLine({
           </span>
         </>
       )}
+    </div>
+  );
+}
+
+/** "What's new in nightly 3845050": the version copies the full build (CopyVersion), then the
+ * heading says "· Copied" after it for a moment (2026-10-31: it had the full build in a tooltip). */
+function PopoverTitle({ id, version, strings }: { id: string; version: string; strings: Strings }) {
+  const [copied, setCopied] = useState(false);
+  const [before, after] = strings.format("updates.popover.title", "\u0000").split("\u0000");
+  return (
+    <div className="wn-pop-title" id={id}>
+      {before}
+      <CopyVersion version={version} strings={strings} onCopied={setCopied}>
+        {cardVersion(version)}
+      </CopyVersion>
+      {after}
+      <span aria-live="polite">{copied && ` · ${strings.t("updates.card.copied")}`}</span>
     </div>
   );
 }
@@ -299,10 +331,7 @@ export function UpdateReadyHighlights({
   useEffect(() => (scroller.current ? installScrollEdges(scroller.current) : undefined), [data]);
   return (
     <section className="wn-pop" aria-labelledby={titleId} ref={scroller} {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}>
-      {/* tooltip-allow: the heading shows the short version; the tooltip names the full build (Leo 2026-10-19). */}
-      <div className="wn-pop-title" id={titleId} title={data.version}>
-        {strings.format("updates.popover.title", cardVersion(data.version))}
-      </div>
+      <PopoverTitle id={titleId} version={data.version} strings={strings} />
       {data.fromVersion && data.fromVersion !== data.version && (
         <div className="wn-pop-from">{strings.format("updates.popover.from", cardVersion(data.fromVersion))}</div>
       )}

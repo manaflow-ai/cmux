@@ -66,8 +66,7 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
     },
     {
       id: "agent-pane.subagent-tray",
-      // One line, so no header and nothing folded: the frame runs no play to open a headed tray.
-      variant: "one-running",
+      variant: undefined,
       selectors: [
         [
           ".acpmux-agent-line",

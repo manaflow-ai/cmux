@@ -131,6 +131,7 @@ export function ComposerContext({
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
+  cloudSignedIn: cloudSignedInSeam,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -205,6 +206,8 @@ export function ComposerContext({
   closeOnTrustAsk?: boolean;
   /// Gallery seam; the persisted composer setting is used when omitted.
   showMachineLoadWarnings?: boolean;
+  /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
+  cloudSignedIn?: boolean;
 }) {
   const t = useT();
   const composerSettings = useComposerSettings();
@@ -229,7 +232,8 @@ export function ComposerContext({
     />
   );
   const accountMachines = useCloudMachines();
-  const cloudSignedIn = useCloudSignedIn();
+  const accountSignedIn = useCloudSignedIn();
+  const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
   const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
@@ -264,14 +268,16 @@ export function ComposerContext({
     t,
   ]);
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
-  // the app's Cloud machines are read again.
-  const onRefreshMachines =
-    newChat && !cloudMachines
-      ? () => {
-          onRefreshPeers?.();
-          void refreshCloudMachines();
-        }
-      : onRefreshPeers;
+  // the app's Cloud machines are read again. A menu with connect rows reads the Cloud account too,
+  // so Sign in for Cloud goes away once the app says the person is signed in (an older chat's
+  // menu otherwise never asks, and keeps offering sign-in to someone already signed in).
+  const readsCloudAccount = !cloudMachines && (newChat || onConnect !== undefined);
+  const onRefreshMachines = readsCloudAccount
+    ? () => {
+        onRefreshPeers?.();
+        void refreshCloudMachines();
+      }
+    : onRefreshPeers;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const loadWarnings = showMachineLoadWarnings ?? composerSettings.showMachineLoadWarnings;

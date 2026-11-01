@@ -520,6 +520,18 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...baseProps, sessions: [], peers: [], cloudMachines: [], localName: "Studio Mac" },
       play: openComputer,
     },
+    "computer-first-setup-signed-in": {
+      note: "The same fresh home once the app says Cloud is signed in (`cloudMachine.list` signedIn true): no Sign in for Cloud row; Add a computer and New Cloud Machine stay.",
+      props: {
+        ...baseProps,
+        sessions: [],
+        peers: [],
+        cloudMachines: [],
+        localName: "Studio Mac",
+        cloudSignedIn: true,
+      },
+      play: openComputer,
+    },
     "computer-first-setup-chat": {
       note: "The same first-computer setup footer in an existing local chat, without enabling Labs or allowing the chat to change its machine.",
       props: {
