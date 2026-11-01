@@ -464,7 +464,7 @@ html[data-cmux-page="changelog"] {
     justify-content: start;
     align-items: start;
   }
-  .cll .cl-group li.cl-has-media .cl-row-media { margin: 2px 0 0; max-width: none; }
+  .cll .cl-group li.cl-has-media .cl-row-media { margin: 2px 0 0; }
 }
 .cll-body .cl-builds { margin-top: 14px; }
 /* The release title (its curated headline) and, when it already names the lead change, that

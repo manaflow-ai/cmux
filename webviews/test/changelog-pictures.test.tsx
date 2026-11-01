@@ -120,7 +120,8 @@ test("a change's picture opens enlarged on a click, and Close closes it", async 
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const open = root.querySelector<HTMLButtonElement>(".cl-media-open")!;
   expect(open.getAttribute("aria-label")).toContain("Groups with colored labels");
-  expect(open.querySelector("img")?.getAttribute("loading")).toBe("lazy");
+  // An inlined picture is already in memory: it loads at once, so nothing under it moves (#29876).
+  expect(open.querySelector("img")?.getAttribute("loading")).toBe("eager");
   await act(async () => open.click());
   const doc = dom.window.document;
   for (let turn = 0; turn < 50 && !doc.querySelector(".cl-lightbox img"); turn++)

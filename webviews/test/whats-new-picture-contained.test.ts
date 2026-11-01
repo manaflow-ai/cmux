@@ -75,8 +75,11 @@ await requireBrowserLane("whats-new-picture-contained.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
-    // Pictures load lazily: bring each into view, then wait for every one to decode.
-    for (const figure of await page.locator("figure.cl-media").all()) await figure.scrollIntoViewIfNeeded();
+    // An inlined (data:) picture loads at once; ask any other to load too, without waiting on a
+    // figure that has no size until its file arrives, then wait for every one to decode.
+    await page.evaluate(() => {
+      for (const img of document.querySelectorAll<HTMLImageElement>("figure.cl-media img")) img.loading = "eager";
+    });
     await page.waitForFunction(
       () =>
         [...document.querySelectorAll<HTMLImageElement>("figure.cl-media img")].every(
