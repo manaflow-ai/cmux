@@ -1,6 +1,6 @@
 public import AppKit
-import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextDesign
 public import CmuxNextRemoteView
 public import CmuxVNC
 import CmuxVNCDemoServer
