@@ -1491,7 +1491,13 @@ def app_create_probe():
         return rec
     before = app_view()
     # The person's New Workspace: action id "newTab", titled "New Workspace" (CmuxNextActions WorkspaceActionCatalog).
-    answer = rpc("action.run", {"action": "newTab"}, timeout=20)
+    # As a person runs it (debug.toast perform: origin user), so it gets the refusal a person gets.
+    answer = rpc("debug.toast", {"perform": "newTab"}, timeout=20)
+    time.sleep(2)
+    if isinstance(answer, dict) and answer.get("performed") is False:
+        rec = {"probe": "app_create", "verdict": "not run", "problems": [f"the action did not run: {json.dumps(answer)[:200]}"]}
+        say(f"  app create probe: not run (performed false) {json.dumps(answer)[:200]}")
+        return rec
     if isinstance(answer, dict) and (answer.get("error") or {}).get("code") == "not_found":
         rec = {"probe": "app_create", "verdict": "not run", "problems": [f"the action is unknown: {json.dumps(answer)[:200]}"]}
         say(f"  app create probe: not run (unknown action) {json.dumps(answer)[:200]}")
