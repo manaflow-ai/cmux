@@ -50,10 +50,12 @@ pub(super) fn move_workspace(
         .map_err(resource_operation_error)?;
     // The sidebar shows the sidebar document's order, not the session's
     // (#29875): move the workspace there too, to the same `index` of
-    // `workspace.list`.
-    if let Some(workspace) = commit.result["workspace"].as_str() {
-        mux.state_workspace_sidebar_move(&mutation, workspace, index)
-            .map_err(resource_operation_error)?;
+    // `workspace.list`. The session move has committed: a sidebar failure is
+    // logged, never the request's error (a retry would replay into it).
+    if let Some(workspace) = commit.result["workspace"].as_str()
+        && let Err(error) = mux.state_workspace_sidebar_move(&mutation, workspace, index)
+    {
+        eprintln!("cmux-tui: workspace.move {workspace}: sidebar order unchanged: {error:#}");
     }
     snapshot_mutation_result(mux, commit, "workspace.move", "workspace")
 }
