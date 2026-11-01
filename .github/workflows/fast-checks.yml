@@ -47,7 +47,7 @@ jobs:
     # another size; the fleet label is first and Blacksmith labels are bounded overflow.
     # The fleet label is an ephemeral GCP JIT runner. A stalled fleet run is moved by the broker to
     # the measured Blacksmith overflow labels above; no job is bound to one Blacksmith size by default.
-    runs-on: ${{ contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 195
     defaults:
       run:
