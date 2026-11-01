@@ -14,6 +14,7 @@ struct CreationInputEarlyReplayTests {
         var replayed: [String] = []
         var onReplay: ((NSEvent) -> Void)?
         init(focus: CreationInputFocus) { self.focus = focus }
+        func creationShell(of window: NSWindow) -> NSWindow? { focus.shell }
         func creationFocus(in window: NSWindow) -> CreationInputFocus { focus }
         func isCloseKey(_ event: NSEvent, in shell: NSWindow) -> Bool { false }
         func replayHeldKey(_ event: NSEvent, in window: NSWindow) {

@@ -9,6 +9,7 @@ typealias HeldKeyReplay = @MainActor (NSEvent, NSWindow, KeyRouter) -> Void
 /// The App side of the creation holds (`CreationInputCoordinator`, CmuxNextFocusUI): a window's focus and views, its
 /// close keys, where held keys run again, and the keys the daemon gave back.
 extension KeyRouter: CreationInputHost {
+    func creationShell(of window: NSWindow) -> NSWindow? { focus(for: window).0?.window }
     func creationFocus(in window: NSWindow) -> CreationInputFocus {
         let (controller, kind) = focus(for: window)
         guard let controller, let shell = controller.window else { return CreationInputFocus(shell: nil, inContent: false) }
@@ -35,7 +36,6 @@ extension KeyRouter: CreationInputHost {
     }
 
     func replayHeldKey(_ event: NSEvent, in window: NSWindow) { heldKeyReplay(event, window, self) }
-
     var lastKeyAction: String? { lastInterception?.action.rawValue }
 
     /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they

@@ -32,6 +32,9 @@ public struct CreationInputFocus {
 /// The App side of the creation holds: the focus of a window, its close keys, and where held keys run again.
 @MainActor
 public protocol CreationInputHost: AnyObject {
+    /// The cmux window `window` belongs to (a Chromium page window's shell), nil when none: a lookup only, run for
+    /// every key-down before anything else, so a window with no hold pays nothing more.
+    func creationShell(of window: NSWindow) -> NSWindow?
     /// The focus of the cmux window `window` belongs to, read when a hold decides a key or its end.
     func creationFocus(in window: NSWindow) -> CreationInputFocus
     /// Whether `event`'s binding in `shell`'s focus is a close action (Close Tab, Cmd-W).
@@ -158,10 +161,11 @@ public final class CreationInputCoordinator {
     /// Takes `event` while a creation in its window is pending.
     public func capture(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard !replaying, let host, let window else { return false }
-        let focus = host.creationFocus(in: window)
-        // A Chromium page window is a child of the shell, whose number keys the buffer.
-        let shell = focus.shell ?? window
+        // A Chromium page window is a child of the shell, whose number keys the buffer. Every key-down of the process
+        // comes here (KeyRouter.interceptKeyDown, perf-hot): with no hold, only this lookup runs, as before the move.
+        let shell = host.creationShell(of: window) ?? window
         guard let buffer = buffers[shell.windowNumber] else { return false }
+        let focus = host.creationFocus(in: window)
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = focus.shell != nil && host.isCloseKey(event, in: shell)
         // A close of a pending creation of this hold (the focus it asked for is on its way, or already
