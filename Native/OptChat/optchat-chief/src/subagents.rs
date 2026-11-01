@@ -657,15 +657,16 @@ impl Spawner {
     }
 
     /// Whether a spawn may name its subagents' `what` (`harness` or
-    /// `model`): refused when OPTCHAT_SUBAGENT_HARNESS pins the harness or
-    /// routing is off (`routing_on`, read now; off by default).
+    /// `model`): refused when routing is off (`routing_on`, read now; off by
+    /// default), and a harness also when OPTCHAT_SUBAGENT_HARNESS pins it (a
+    /// model on the pinned harness is fine, #31163).
     fn check_route(
         &self,
         choice: &crate::engine::EngineChoice,
         what: &str,
         value: &str,
     ) -> Result<(), String> {
-        if self.pinned {
+        if self.pinned && what == "harness" {
             return Err(format!(
                 "spawn: this Chief's subagent harness is pinned (OPTCHAT_SUBAGENT_HARNESS), so it cannot route to {what} {value}; leave out {what}"
             ));
@@ -1247,6 +1248,8 @@ impl Spawner {
                 effort: saved
                     .effort
                     .or_else(|| queued.engine.as_ref().and_then(|e| e.effort.clone())),
+                // The model its spawn chose (#31164), else the engine's.
+                model: saved.model.or(run.model.clone()),
                 ..run
             },
         })
@@ -1456,8 +1459,8 @@ impl Orchestrator for Spawner {
         let cloud = plan.peer.as_deref().map(|p| self.placement(p));
         let mut run = self.engine_settings(plan.engine.as_ref());
         // `spawn(model)`: over the engine's (a cloud peer keeps its own).
-        if let Some(m) = model {
-            run.model = Some(m);
+        if let Some(m) = &model {
+            run.model = Some(m.clone());
         }
         // The person's grant: a harness outside it starts nothing.
         let grant = self.grant.as_ref().map(|g| g.grant());
@@ -1560,6 +1563,7 @@ impl Orchestrator for Spawner {
                         effort: launch.effort.clone(),
                         floor: floor.clone(),
                         harness: harness.clone(),
+                        model: model.clone(),
                     },
                 });
                 self.waiting
@@ -1952,7 +1956,14 @@ pub fn recover_launch(
                         .and_then(Value::as_str)
                         .map(str::to_owned),
                     floor: None,
-                    harness: None,
+                    harness: input
+                        .get("harness")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    model: input
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
                 });
             }
             _ => {}
