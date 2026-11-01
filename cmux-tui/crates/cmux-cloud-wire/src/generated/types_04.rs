@@ -5,6 +5,158 @@
 use super::*;
 
 wire_enum! {
+    TriggerStatus {
+        Active = "active",
+        NotYetSupported = "not_yet_supported",
+    }
+}
+
+/// One trigger of an automation; assigned by the owner.
+pub type TriggerId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TriggerInput {
+    Cron(TriggerInputCron),
+    Manual(TriggerInputManual),
+    Webhook(TriggerInputWebhook),
+    Event(TriggerInputEvent),
+    Message(TriggerInputMessage),
+    Continue(TriggerInputContinue),
+    Presence(TriggerInputPresence),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputCron {
+    pub r#type: LitCron,
+    pub expr: String,
+    pub tz: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputManual {
+    pub r#type: LitManual,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputWebhook {
+    pub r#type: LitWebhook,
+}
+
+wire_enum! {
+    TriggerInputEventSource {
+        Integration = "integration",
+        Machine = "machine",
+        Store = "store",
+        Task = "task",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputEvent {
+    pub r#type: LitEvent,
+    pub source: TriggerInputEventSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+    pub event: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputMessage {
+    pub r#type: LitMessage,
+    pub conversation: String,
+    pub rule: String,
+}
+
+wire_enum! {
+    TriggerInputContinueUntilItem {
+        GoalMet = "goal_met",
+        Budget = "budget",
+        Stop = "stop",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputContinue {
+    pub r#type: LitContinue,
+    pub until: Vec<TriggerInputContinueUntilItem>,
+    pub cooldown_seconds: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_runs: Option<i64>,
+}
+
+wire_enum! {
+    TriggerInputPresenceWhen {
+        UserActive = "user_active",
+        UserReturnsAfter = "user_returns_after",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputPresence {
+    pub r#type: LitPresence,
+    pub when: TriggerInputPresenceWhen,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_minutes: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earliest: Option<CronSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageMeterLine {
+    pub meter: Meter,
+    pub unit: String,
+    pub quantity: WireNumber,
+    pub usd: WireNumber,
+}
+
+wire_enum! {
+    UsageStopReason {
+        CapReached = "cap.reached",
+        CapNotConfigured = "cap.not_configured",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageSummary {
+    pub owner: Option<TeamId>,
+    pub month: String,
+    pub meters: Vec<UsageMeterLine>,
+    pub total_usd: WireNumber,
+    pub cap_usd: Option<WireNumber>,
+    pub ceiling_usd: Option<WireNumber>,
+    pub team_cap_usd: Option<WireNumber>,
+    pub stopped: Option<UsageStopReason>,
+}
+
+/// A cmux user (Stack user id kept as an external id).
+pub type UserId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserProfile {
+    pub id: UserId,
+    pub stack_user_id: String,
+    pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_verified: Option<bool>,
+    pub display_name: String,
+    pub personal_team: TeamId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTeam {
+    pub id: TeamId,
+    pub display_name: String,
+    pub kind: UserTeamKind,
+    pub role: TeamRole,
+    pub sso_required: bool,
+}
+
+wire_enum! {
     UserTeamKind {
         Personal = "personal",
         Stack = "stack",

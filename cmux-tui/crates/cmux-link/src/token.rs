@@ -2,18 +2,17 @@
 //! VM's endpoint checks `link_token` on `hello` and closes a link without a
 //! valid one).
 //!
-//! The token format is not decided yet (a signed team-scoped token with a
-//! single-use id, or an opaque token checked back at CloudDO). Both plug in
-//! behind [`TokenVerifier`]. Until one ships, [`DenyAllTokens`] refuses every
+//! The control-plane verifier plugs in behind [`TokenVerifier`]. Until it
+//! is composed into the production host, [`DenyAllTokens`] refuses every
 //! token, so no Cloud host serves a link stream.
 //!
 //! The daemon's remote entry decides what a stamp's `check` means from
 //! [`StampChecks`], fixed once at daemon start from the daemon's own config
 //! ([`VERIFIER_ENV`]), never from a stamp or a stream. Without a real
 //! verifier every `check` is malformed. A real verifier is refused at start
-//! until the entry binds the check to the supervised link child (G1, Linux)
-//! and records the token's issue time instead of the read time (G2, every
-//! OS); see [`CheckBinding`].
+//! until the entry binds the check to the supervised link child (G1, Linux).
+//! The entry records the signed issue time instead of the read time (G2,
+//! every OS); see [`CheckBinding`].
 
 use crate::dial::Service;
 use crate::stamp::LinkPeer;
@@ -46,20 +45,62 @@ pub enum TokenRefused {
     ServiceNotAllowed,
     /// No token format is configured on this host.
     NoVerifier,
+    /// The keyset owner may request its bounded unknown-kid refresh.
+    UnknownKey,
+    /// Replay storage is full of unexpired tokens; never evict a live id.
+    ReplayCapacity,
 }
 
 /// Checks one token for one stream. A verifier must refuse a token used
 /// twice (single use).
 pub trait TokenVerifier: Send + Sync + 'static {
-    /// The peer the token names, for the stamp, or why it was refused.
-    fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<LinkPeer, TokenRefused>;
+    /// Bound a connection before its hello arrives. This proves only that the
+    /// authenticated transport peer is current; it grants no service and does
+    /// not spend a token. Missing authority refuses before reading caller data.
+    fn begin_handshake(
+        &self,
+        _host: &str,
+        _epoch: u64,
+        _peer_key: &[u8; 32],
+    ) -> Result<crate::stream_lease::StreamLease, TokenRefused> {
+        Err(TokenRefused::NoVerifier)
+    }
+
+    /// The peer and signed issue time, or why the token was refused.
+    /// Never substitute the verification or stream-delivery time for `iat`.
+    fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused>;
+}
+
+/// The caller's machine role signed by CloudDO for this individual dial.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VmKind {
+    Owner,
+    Team,
+}
+
+/// Identity and issue time from an accepted token's authenticated claims.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedToken {
+    pub peer: LinkPeer,
+    /// Absent on old tokens; absence never grants an owner answer.
+    pub vm_kind: Option<VmKind>,
+    /// Unix milliseconds, converted from the verified JWT `iat` with checked arithmetic.
+    pub issued_at_ms: u64,
+    /// Live authority of this authenticated stream, acquired atomically with
+    /// token verification. Missing authority never opens a receiving stream.
+    pub lease: Option<crate::stream_lease::StreamLease>,
 }
 
 /// The default: no token is valid.
 pub struct DenyAllTokens;
 
 impl TokenVerifier for DenyAllTokens {
-    fn verify(&self, _token: &str, _expected: &Expected<'_>) -> Result<LinkPeer, TokenRefused> {
+    fn verify(
+        &self,
+        _token: &str,
+        _expected: &Expected<'_>,
+    ) -> Result<VerifiedToken, TokenRefused> {
         Err(TokenRefused::NoVerifier)
     }
 }
@@ -182,9 +223,9 @@ pub struct CheckBinding {
 }
 
 impl CheckBinding {
-    /// This build: neither binding exists yet (F1 and F2 are open), so every
-    /// real verifier is refused at daemon start.
-    pub const BUILT: Self = Self { link_child: false, token_iat: false };
+    /// The entry retains the signed issue time (G2). Linux still refuses a
+    /// real verifier until it binds checked stamps to a supervised link (G1).
+    pub const BUILT: Self = Self { link_child: false, token_iat: true };
 }
 
 /// Why the daemon refuses to start with a real token verifier.
@@ -225,6 +266,18 @@ impl StampChecks {
     pub fn at_daemon_start(config: VerifierConfig) -> Result<Self, VerifierRefused> {
         let linux = cfg!(any(target_os = "linux", target_os = "android"));
         Self::decide(config, linux, CheckBinding::BUILT)
+    }
+
+    /// The policy for an entry that verifies every connection against this
+    /// owned child. The caller must retain and use that same process handle
+    /// in its entry verifier; an unsupervised entry uses `at_daemon_start`.
+    #[cfg(unix)]
+    pub fn at_supervised_daemon_start(
+        config: VerifierConfig,
+        _child: &crate::caller::SupervisedChild,
+    ) -> Result<Self, VerifierRefused> {
+        let linux = cfg!(any(target_os = "linux", target_os = "android"));
+        Self::decide(config, linux, CheckBinding { link_child: true, ..CheckBinding::BUILT })
     }
 
     fn decide(
@@ -296,7 +349,7 @@ mod tests {
     /// RED (security, G1): on Linux a real verifier is refused at start
     /// while the entry does not bind `check` to the supervised link child.
     #[test]
-    fn g1_linux_refuses_a_real_verifier_without_the_link_child_binding() {
+    fn token_issue_time_g1_linux_still_requires_the_link_child_binding() {
         let iat_only = CheckBinding { link_child: false, token_iat: true };
         assert_eq!(
             StampChecks::decide(VerifierConfig::ControlPlane, true, iat_only),
@@ -319,7 +372,7 @@ mod tests {
     /// issue time. With both bindings the guards pass (they are the only
     /// gate).
     #[test]
-    fn g2_every_os_refuses_a_real_verifier_without_the_token_iat() {
+    fn token_issue_time_g2_requires_issued_time_and_the_built_entry_retains_it() {
         for linux in [false, true] {
             let child_only = CheckBinding { link_child: true, token_iat: false };
             assert_eq!(
@@ -330,17 +383,23 @@ mod tests {
             let checks = StampChecks::decide(VerifierConfig::ControlPlane, linux, both).unwrap();
             assert!(checks.records());
         }
-        assert_eq!(
-            StampChecks::decide(VerifierConfig::ControlPlane, false, CheckBinding::BUILT),
-            Err(VerifierRefused::CheckTimeNotTokenIat)
+        assert!(
+            StampChecks::decide(VerifierConfig::ControlPlane, false, CheckBinding::BUILT)
+                .unwrap()
+                .records()
         );
-        assert!(StampChecks::at_daemon_start(VerifierConfig::ControlPlane).is_err());
+        let checks = StampChecks::at_daemon_start(VerifierConfig::ControlPlane);
+        if cfg!(any(target_os = "linux", target_os = "android")) {
+            assert_eq!(checks, Err(VerifierRefused::LinkChildNotBound));
+        } else {
+            assert!(checks.unwrap().records());
+        }
     }
 
     /// RED (G3): the start log line names the mode and the reason, and
     /// never the raw value.
     #[test]
-    fn g3_the_start_log_line_names_the_mode_and_reason_but_never_the_value() {
+    fn token_issue_time_g3_start_log_names_mode_and_reason_but_never_the_value() {
         use std::ffi::OsStr;
         let line = |value: Option<&str>| {
             let choice = VerifierChoice::from_daemon_config(value.map(OsStr::new));
@@ -362,9 +421,16 @@ mod tests {
         );
         assert!(!unknown.contains("hunter2"));
         let control = line(Some("control_plane"));
-        let refused = "cmux link: token verifier mode control_plane: refused at start: ";
-        assert!(control.starts_with(refused), "{control}");
-        assert!(control.contains("(G1)") || control.contains("(G2)"), "{control}");
+        if cfg!(any(target_os = "linux", target_os = "android")) {
+            let refused = "cmux link: token verifier mode control_plane: refused at start: ";
+            assert!(control.starts_with(refused), "{control}");
+            assert!(control.contains("(G1)"), "{control}");
+        } else {
+            assert_eq!(
+                control,
+                "cmux link: token verifier mode control_plane: named by CMUX_LINK_TOKEN_VERIFIER"
+            );
+        }
         assert!(!line(None).contains('\n'));
     }
 }

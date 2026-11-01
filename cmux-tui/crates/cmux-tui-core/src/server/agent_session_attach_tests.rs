@@ -146,6 +146,8 @@ impl Drop for FakeAcpmux {
 /// own, and sessions after the watch answer's own.
 #[derive(Clone, Default)]
 pub(super) struct Fixture {
+    /// Enable the first-chat catalog/new-session fixture, with this trust decision.
+    pub(super) start_folder_trusted: Option<bool>,
     pub(super) page: Vec<Value>,
     pub(super) watch: Vec<Value>,
     /// The records an `_acpmux/events` (history) page answers.
@@ -186,6 +188,20 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
+                "families": {"claude": ["default"]}, "refusedFamilies": [],
+                "session": {"family": "claude", "mode": "default"},
+            })),
+            "_acpmux/harnesses" if fixture.start_folder_trusted.is_some() => Some(json!({
+                "defaultHarness": "claude", "families": {"claude": {}}, "harnesses": {},
+            })),
+            "acp.trust.get" | "acp.trust.set" if fixture.start_folder_trusted.is_some() => {
+                Some(json!({"cwd": params["cwd"], "decided": true,
+                    "level": if fixture.start_folder_trusted == Some(true) { "trusted" } else { "untrusted" }}))
+            }
+            "session/new" if fixture.start_folder_trusted.is_some() => Some(json!({
+                "sessionId": SESSION, "_meta": {"acpmux": {"harness": "claude"}},
+            })),
             "_acpmux/attach" => {
                 if let Some(gate) = &fixture.attach_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);

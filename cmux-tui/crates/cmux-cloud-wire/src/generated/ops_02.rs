@@ -432,6 +432,8 @@ wire_enum! {
 pub struct CloudMachineLinkTokenParams {
     pub host: HostId,
     pub services: Vec<CloudMachineLinkTokenParamsServicesItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_proof: Option<ServerNetworkProof>,
 }
 
 wire_enum! {

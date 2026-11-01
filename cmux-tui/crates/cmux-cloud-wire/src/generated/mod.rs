@@ -4,7 +4,7 @@
 //! The catalog types, literals and ops (`types_*`, `literals_*`, `ops_*`) and the op index.
 
 #[allow(unused_imports)]
-use crate::{BoolLit, WireNumber};
+use crate::{BoolLit, IntLit, WireNumber};
 #[allow(unused_imports)]
 use serde_json::Value;
 #[allow(unused_imports)]

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers"
 import { expect, it } from "vitest"
 import type { Env } from "../src/env.ts"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
-import { personalTenantStack, PersonalTenantIdentityError } from "../src/team-vm-api-personal-stack.ts"
+import { personalTenantStack, PersonalTenantIdentityError, PERSONAL_TENANT_METADATA_KEY } from "../src/team-vm-api-personal-stack.ts"
 import type { PersonalTenantMarker } from "../src/team-vm-api-personal-store.ts"
 
 const project = "test-project", stackUser = "5d88e1e9-e265-4da8-893c-c0d05a252bc3", tenant = "ca4bc6ed-acdd-47e4-9753-4d1bb37b72c4"
@@ -10,6 +10,10 @@ const user = userIdFor(project, stackUser)
 const marker: PersonalTenantMarker = { version: 1, project, team: personalTeamIdFor(user), user, stack_user: stackUser, nonce: "b4104da5-b473-4a14-9455-e2c6b671ec3e" }
 const e = { ...(env as Env), STACK_PROJECT_ID: project, STACK_SECRET_SERVER_KEY: "test-server-secret" }
 const team = { id: tenant, server_metadata: { cmuxVmPersonalTenant: marker } }
+
+it("exports the server metadata key used to identify personal VM tenants", () => {
+  expect(PERSONAL_TENANT_METADATA_KEY).toBe("cmuxVmPersonalTenant")
+})
 
 it("creates the team with server metadata and no creator, then adds the owner as a plain member", async () => {
   const calls: Request[] = []

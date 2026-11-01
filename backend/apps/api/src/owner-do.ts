@@ -220,6 +220,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return true
   }
 
+  /** RPC from UserDO when an install's grant/key authority incarnation changes. */
+  async recheckInstallAuthority(entity: string, _user: string, install: string): Promise<void> {
+    if (this.isBound(entity)) this.closeSockets((p) => p.install === install, "install authority changed")
+  }
+
   /** Closes every socket whose principal matches (revocation). */
   protected closeSockets(match: (p: Principal) => boolean, reason: string) {
     for (const ws of this.ctx.getWebSockets()) {

@@ -29,6 +29,17 @@ impl Mux {
         Ok(())
     }
 
+    /// Record the issue time supplied by an authenticated link token verifier.
+    /// An invalid time, revoked install or poisoned state records nothing.
+    pub fn record_remote_check_at(
+        &self,
+        install: &str,
+        issued_at_ms: u64,
+    ) -> Result<bool, RelayStateError> {
+        Ok(lock_checked(&self.remote_relay().revocation, RelayLock::Revocation)?
+            .record_good_check_at(install, issued_at_ms))
+    }
+
     /// Revoke `install` in one step: mark it revoked, delete its pairing
     /// record and close every stream it has open. On a poisoned relay lock
     /// it closes every remote stream and still deletes the pairing record

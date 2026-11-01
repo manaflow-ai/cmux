@@ -1,3 +1,6 @@
+import type { CloudVmNetwork } from "@cmux/protocol"
+import type { CloudNetworkTarget } from "../cloud-vm-api-network.ts"
+
 /** A provider call's failure: only the step, the status and a provider code, never a body or a key. */
 export class DriverError extends Error {
   constructor(
@@ -120,6 +123,10 @@ export const vmTagMetadata = (tag: VmTag) => ({ cmux_next_team: tag.team, cmux_n
 /** One raw provider: `find` by name (null = none), `create` under a name, `delete` by provider id (404 = success). */
 export interface CloudProvider {
   readonly capabilities: CloudProviderCapabilities
+  /** Native VM API network lifecycle; direct providers leave these optional hooks absent. */
+  prepareNetwork?(active?: () => boolean): Promise<CloudNetworkTarget | undefined>
+  attachNetwork?(id: string, tag: VmTag, target: CloudNetworkTarget): Promise<typeof CloudVmNetwork.Type>
+  readNetwork?(id: string, tag: VmTag, target: typeof CloudVmNetwork.Type): Promise<typeof CloudVmNetwork.Type>
   /** `state`: the VM's provider state when the same answer carries it (one read instead of two). */
   find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown>; readonly state?: string | null } | null>
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */

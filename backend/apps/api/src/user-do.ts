@@ -9,7 +9,7 @@ import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./aut
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { isCompanyEmail } from "./domains/cloud-plan.ts"
 import { admit } from "./domains/common.ts"
-import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, inboxRefusalFor, installActive, liveInstallGrant, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
@@ -22,6 +22,8 @@ import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
+import { INSTALL_AUTHORITY_CHANGED, installAuthorityVersion } from "./domains/user-authority.ts"
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -145,6 +147,22 @@ export class UserDO extends OwnerDO<UserState> {
     this.closeRetryAt = failed ? now + CLOSE_RETRY_MS : null
   }
 
+  /** Stamp accepted install sockets at the shared Worker/self-hosted admission seam. */
+  override acceptSubscriber(server: WebSocket, entity: string, principal: Principal): void {
+    if (principal.kind !== "install") return super.acceptSubscriber(server, entity, principal)
+    const state = this.bind(entity).currentState, grant = liveInstallGrant(state, principal, Date.now())
+    if (!grant || !principal.install) {
+      // The self-hosted caller may have awaited between mayAccept and this
+      // synchronous seam. Close the accepted socket without a welcome frame.
+      this.ctx.acceptWebSocket(server)
+      server.close(4401, "install authority changed")
+      return
+    }
+    const expires_at = Math.min(principal.expires_at ?? Infinity, grant.expires_at ?? Infinity)
+    super.acceptSubscriber(server, entity, { ...principal, install_authority: installAuthorityVersion(state, principal.install),
+      ...(Number.isFinite(expires_at) ? { expires_at } : {}) })
+  }
+
   /**
    * RPC from an owner that accepted a socket of one of this user's installs (socket-gate.ts).
    * False when the install (with this grant) is not active: the owner closes the socket at once,
@@ -178,6 +196,28 @@ export class UserDO extends OwnerDO<UserState> {
       }
     }
     if (failure !== undefined) throw failure
+  }
+
+  /** Consume our authority notices durably and schedule socket fanout; payloads never carry authority. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    const notices = items.filter((item) => item.op === INSTALL_AUTHORITY_CHANGED)
+    for (const item of notices) {
+      const install = (item.params as { install?: unknown } | null)?.install
+      if (source !== `user:${entity}` || typeof install !== "string" || !install || install.length > 200) continue
+      this.bind(entity)
+      // Reuse the durable registry's existing close-and-retry queue. Repeated
+      // notices coalesce naturally, and no authority value crosses the RPC.
+      markInstallClosing(this.ctx.storage.sql, install, Date.now())
+      this.scheduleAlarm()
+    }
+    const rest = items.filter((item) => item.op !== INSTALL_AUTHORITY_CHANGED)
+    return { done: [...notices.map((item) => item.id), ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])] }
+  }
+
+  async recheckInstallAuthority(entity: string, _user: string, install: string): Promise<void> {
+    if (!this.isBound(entity)) return
+    markInstallClosing(this.ctx.storage.sql, install, Date.now())
+    await this.flushCloses(Date.now())
   }
 
   /** Home push decides from each delivered `inbox.bump` in the same storage batch (home-push-drain.ts decideHomePush). */
@@ -483,12 +523,12 @@ export class UserDO extends OwnerDO<UserState> {
     return inst.public_jwk as JsonWebKey
   }
   /** Public identity only, pinned to the calling client's exact current grant. */
-  async deviceKey(entity: string, install: string, grant: string): Promise<JsonWebKey | null> {
+  async deviceKey(entity: string, install: string, grant: string, opClass: "read" | "mutate-own" = "mutate-own"): Promise<JsonWebKey | null> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return null
     const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
     if (!state.user || !inst || !["mac", "ios", "cli"].includes(inst.kind) || inst.revoked_at !== null || inst.grant !== grant
-      || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own")) return null
+      || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes(opClass)) return null
     return inst.public_jwk as JsonWebKey
   }
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
@@ -502,6 +542,31 @@ export class UserDO extends OwnerDO<UserState> {
     const op_classes = agent === undefined ? g.op_classes : await placedChiefClasses(state, inst, install, agent, g.op_classes, (team, host) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).serverPlacementActive(team, host, install), () => engine.currentState)
     if (!op_classes) return { ok: false } // unknown or archived chief, or a placed server TeamDO no longer confirms (G8, revoke race)
     return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
+  }
+
+  /** Internal identity projection pinned to the caller's live grant and authority incarnation. */
+  async networkIdentity(entity: string, install: string, grant: string, team: string): Promise<{ key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> } | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install]
+    const held = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant, team }, Date.now())
+    if (!state.user || !inst || !held || !["daemon", "mac", "ios", "cli"].includes(inst.kind)
+      || (inst.kind === "daemon" && inst.bound_team !== team) || !held.op_classes.includes("read") || !held.op_classes.includes("mutate-own")) return null
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
+  }
+
+  async networkIdentities(entity: string, entries: ReadonlyArray<{ install: string; grant: string }>, team: string) {
+    if (!Array.isArray(entries) || entries.length > 128 || entries.some((v) => !v || typeof v.install !== "string" || typeof v.grant !== "string" || v.install.length > 128 || v.grant.length > 128)) return []
+    return Promise.all(entries.map((v) => this.networkIdentity(entity, v.install, v.grant, team)))
+  }
+
+  async vmNetworkIdentity(entity: string, install: string, grant: string, team: string, machine: string) {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install]
+    const held = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant, team }, Date.now())
+    if (state.user?.id !== entity || !inst || inst.kind !== "vm" || inst.bound_team !== team || inst.bound_machine !== machine || !held || !held.op_classes.includes("vm-self")) return null
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
   }
 
   async challenge(entity: string, install: string, team?: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {

@@ -82,12 +82,24 @@ const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// Team waits for Send in its dialog): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
-/// The CLI names of the actions that wait for a person (`waits_for_person`).
+/// The CLI names and ids of the actions the app marks `waitsForPerson` (the
+/// control socket gives them `personDeadline`). One missing here makes the CLI
+/// give up at 45 s on a run the app still finishes: `cloud start-session`
+/// waits for a new Cloud machine to come up, and answered
+/// `mutation.outcome_unknown` with no chat opened.
 const PERSON_ACTIONS: &[&str] = &[
     "browser import-cookies",
     "browser.importCookies",
     "home invite-to-team",
     "home.inviteToTeam",
+    "cloud start-session",
+    "cloudStartSession",
+    "apps install",
+    "app.install",
+    "apps remove",
+    "app.remove",
+    "workspace import-classic",
+    "workspace.importClassic",
 ];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.

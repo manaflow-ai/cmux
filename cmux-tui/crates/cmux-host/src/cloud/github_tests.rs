@@ -46,7 +46,7 @@ impl Http for Fake {
                 let n = st.tokens_minted;
                 Ok((
                     200,
-                    json!({ "access_token": format!("bearer-{n}"), "token_type": "Bearer", "expires_at": T0 + 600_000 }),
+                    json!({ "access_token": format!("bearer-{n}"), "token_type": "Bearer", "expires_at": T0 + 600_000, "install": INSTALL, "user": "user_u0000000000000000001", "grant": "grant_v000000000000000004", "team": "team_t0000000000000000001" }),
                 ))
             }
             TOKEN_PATH => Ok(st.answers.pop_front().unwrap_or((500, json!({})))),

@@ -6,6 +6,7 @@ import Foundation
 actor MacTeamAuthOwner: InstallAuthTransport {
     enum Failure: Error { case invalidRequest }
     private var keys: [String: P256.Signing.PublicKey] = [:]
+    private let user: String
     private var contexts: [String: (install: String, team: String?, prefix: String)] = [:]
     private var denied: Set<String> = []
     private var hold = false
@@ -14,8 +15,10 @@ actor MacTeamAuthOwner: InstallAuthTransport {
     private(set) var requestedTeams: [String] = []
     private(set) var registrations = 0
     private(set) var grants: [[String]] = []
+    init(user: String = "user_1") { self.user = user }
 
     func deny(_ team: String) { denied.insert(team) }
+    func publicKey(_ install: String) -> Data? { keys[install]?.x963Representation }
     func holdNextTeamToken() { hold = true }
     func waitUntilHeld() async { var iterator = held.stream.makeAsyncIterator(); _ = await iterator.next() }
     func release() { pending?.resume(); pending = nil }
@@ -27,7 +30,7 @@ actor MacTeamAuthOwner: InstallAuthTransport {
         }
         if path == "/v1/ops" {
             guard bearer == "test-session" else { throw Failure.invalidRequest }
-            if body["op"] as? String == "user.ensure" { return try reply(["ok": true, "value": ["id": "user_1", "stack_user_id": "stack_1"]]) }
+            if body["op"] as? String == "user.ensure" { return try reply(["ok": true, "value": ["id": user, "stack_user_id": "stack_1"]]) }
             guard body["op"] as? String == "install.register", let params = body["params"] as? [String: Any],
                   let jwk = params["public_jwk"] as? [String: String], let x = jwk["x"].flatMap(Data.init(base64URLEncoded:)),
                   let y = jwk["y"].flatMap(Data.init(base64URLEncoded:)) else { throw Failure.invalidRequest }
@@ -56,9 +59,9 @@ actor MacTeamAuthOwner: InstallAuthTransport {
             await withCheckedContinuation { pending = $0; held.continuation.yield(()) }
         }
         let team = context.team ?? "team_" + String(repeating: "c", count: 20)
-        let claims: [String: Any] = ["iss": "https://cmux-api/staging", "sub": "user_1", "inst": context.install, "team": team, "grant": "grant_1", "aud": "api"]
+        let claims: [String: Any] = ["iss": "https://cmux-api/staging", "sub": user, "inst": context.install, "team": team, "grant": "grant_1", "aud": "api"]
         let payload = try JSONSerialization.data(withJSONObject: claims, options: [.sortedKeys]).base64URLEncoded
-        return try reply(["access_token": "eyJhbGciOiJFUzI1NiJ9.\(payload).c2ln", "user": "user_1", "install": context.install,
+        return try reply(["access_token": "eyJhbGciOiJFUzI1NiJ9.\(payload).c2ln", "user": user, "install": context.install,
                           "team": team, "grant": "grant_1", "expires_at": Date().addingTimeInterval(600).timeIntervalSince1970 * 1000])
     }
 }

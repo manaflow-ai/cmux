@@ -4,6 +4,158 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict.
+    TeamPolicyUpdateOp {
+        name: "team.policy.update",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamPolicyUpdateParams,
+        result: TeamPolicy,
+        error: TeamPolicyUpdateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyUpdateParams {
+    pub changes: Vec<PolicyChange>,
+    pub expected_version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes team.policy.update declares.
+    TeamPolicyUpdateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).
+    TeamVmAccountsOp {
+        name: "team_vm.accounts",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamVmAccountsParams,
+        result: TeamVmAccountsResult,
+        error: TeamVmAccountsError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountsParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountsResult {
+    pub team: TeamId,
+    pub users: Vec<TeamVmAccountUser>,
+}
+
+wire_errors! {
+    /// The error codes team_vm.accounts declares.
+    TeamVmAccountsError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        OwnerUnreachable = "owner.unreachable",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+    }
+}
+
+wire_op! {
+    /// Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires).
+    TeamVmEnsureAwakeOp {
+        name: "team_vm.ensure_awake",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamVmDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamVmEnsureAwakeParams,
+        result: TeamVmEnsureAwakeResult,
+        error: TeamVmEnsureAwakeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmEnsureAwakeParams {
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmEnsureAwakeResult {
+    pub lease: TeamVmLeaseId,
+    pub expires_at: i64,
+    pub status: TeamVmStatus,
+    pub vm: Option<String>,
+    pub epoch: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ensure_awake declares.
+    TeamVmEnsureAwakeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmProviderFailed = "team_vm.provider_failed",
+        TeamVmProviderRefused = "team_vm.provider_refused",
+        TeamVmSlugConflict = "team_vm.slug_conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
+    TeamVmJournalAppendOp {
+        name: "team_vm.journal.append",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamVmDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: TeamVmJournalAppendParams,
+        result: TeamVmJournalAppendResult,
+        error: TeamVmJournalAppendError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendParams {
+    pub stream: TeamJournalStream,
+    pub epoch: i64,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub bytes: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendResult {
+    pub stream: TeamJournalStream,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub epoch: i64,
+    pub high_water: i64,
+    pub replayed: bool,
+}
+
 wire_errors! {
     /// The error codes team_vm.journal.append declares.
     TeamVmJournalAppendError {
@@ -751,148 +903,4 @@ pub struct TunnelDetachParams {
 pub struct TunnelDetachResult {
     pub tunnel_id: String,
     pub network_id: String,
-}
-
-wire_errors! {
-    /// The error codes tunnel.detach declares.
-    TunnelDetachError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Rotate an owned tunnel's WireGuard public key without changing its address.
-    TunnelRotateKeyOp {
-        name: "tunnel.rotate-key",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: TunnelRotateKeyParams,
-        result: TunnelRotateKeyResult,
-        error: TunnelRotateKeyError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelRotateKeyParams {
-    pub device_fingerprint: String,
-    pub client_public_key: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelRotateKeyResult {
-    pub tunnel_id: String,
-    pub client_public_key: String,
-}
-
-wire_errors! {
-    /// The error codes tunnel.rotate-key declares.
-    TunnelRotateKeyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.
-    UsageCapSetOp {
-        name: "usage.cap.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UsageMeterDO",
-        risk: "money",
-        principals: [Session],
-        params: UsageCapSetParams,
-        result: UsageCapSetResult,
-        error: UsageCapSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageCapSetParams {
-    pub cap_usd: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageCapSetResult {
-    pub owner: Option<TeamId>,
-    pub team_cap_usd: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes usage.cap.set declares.
-    UsageCapSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        TeamRolesRequired = "team.roles_required",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs.
-    UsageSummaryOp {
-        name: "usage.summary",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UsageMeterDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: UsageSummaryParams,
-        result: UsageSummary,
-        error: UsageSummaryError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageSummaryParams {}
-
-wire_errors! {
-    /// The error codes usage.summary declares.
-    UsageSummaryError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Create or refresh the caller's user record from the Stack session.
-    UserEnsureOp {
-        name: "user.ensure",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: UserEnsureParams,
-        result: UserProfile,
-        error: UserEnsureError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserEnsureParams {}
-
-wire_errors! {
-    /// The error codes user.ensure declares.
-    UserEnsureError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

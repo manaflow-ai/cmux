@@ -56,4 +56,4 @@ pub use mirror::{
     SnapshotBackoff, SnapshotRetry, StreamMirror,
 };
 pub use op::{Op, OpVisitor, WireClass, WireError, WireIdempotency, WirePrincipal};
-pub use value::{BoolLit, WireNumber};
+pub use value::{BoolLit, IntLit, WireNumber};

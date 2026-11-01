@@ -33,6 +33,18 @@ public struct DaemonEndpoint: Hashable, Sendable {
 /// guard daemon.supports(DaemonCapability.tabDrag.rawValue) else { return }
 /// ```
 public enum DaemonCapability: String, CaseIterable, Sendable {
+    /// The minimum handshake surface served by the Native guest owner. Keep
+    /// this separate from ``required``: Native does not implement the GUI's
+    /// viewport/layout/attachment controls.
+    public static let nativeRemoteRequired: [String] = [
+        workspaceRegistry.rawValue,
+        "layout-delta-v1",
+        sessionIdentity.rawValue,
+        conversationTabs.rawValue,
+        agentSessionTabs.rawValue,
+        agentSessionStart.rawValue,
+        agentSessionAttach.rawValue,
+    ]
     /// The GUI refuses a daemon without these (`DaemonCompatibility.missingRequired`).
     case workspaceRegistry = "workspace-registry-v1"
     case viewportSplits = "viewport-splits-v1"

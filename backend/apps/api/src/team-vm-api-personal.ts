@@ -1,6 +1,6 @@
 import { personalTeamIdFor, userIdFor } from "./domains/user.ts"
 import type { VmApiTenant } from "./team-vm-api-tenant.ts"
-import { PERSONAL_TENANT_CREATE_WINDOW_MS, PersonalTenantStore, samePersonalMarker, validTenantId, type PersonalTenantIntent, type PersonalTenantMarker } from "./team-vm-api-personal-store.ts"
+import { PersonalTenantStore, samePersonalMarker, validTenantId, type PersonalTenantIntent, type PersonalTenantMarker } from "./team-vm-api-personal-store.ts"
 import { PersonalTenantIdentityError, type PersonalTenantReceipt, type PersonalTenantStack } from "./team-vm-api-personal-stack.ts"
 
 export type EnsurePersonalTenantReply = { readonly status: "ready"; readonly target: VmApiTenant } | { readonly status: "pending" | "unavailable" }
@@ -37,7 +37,7 @@ export const ensurePersonalTenant = async (deps: PersonalTenantDeps): Promise<En
     const marker: PersonalTenantMarker = { version: 1, project, team, user: owner, stack_user: stackUser, nonce: crypto.randomUUID() }
     intent = store.reserve(marker, now)
   }
-  let current = intent
+  const current = intent
   const finish = async (receipt: PersonalTenantReceipt): Promise<EnsurePersonalTenantReply> => {
     if (!validTenantId(receipt.id) || !samePersonalMarker(receipt.marker, current.marker)) return { status: "unavailable" }
     const members = await stack.members(receipt.id)
@@ -54,12 +54,8 @@ export const ensurePersonalTenant = async (deps: PersonalTenantDeps): Promise<En
       return reply
     }
     if (current.phase === "creating") {
-      // Not found after the whole create window: an explicit create starts over under a fresh nonce.
-      if (!deps.allowCreate || now < current.createdAt + PERSONAL_TENANT_CREATE_WINDOW_MS) {
-        store.retry(current, now)
-        return { status: "pending" }
-      }
-      current = store.renew(current, { ...current.marker, nonce: crypto.randomUUID() }, now)
+      store.retry(current, now)
+      return { status: "pending" }
     }
     if (current.nextAt !== null && current.nextAt > now) return { status: "pending" }
     if (!deps.allowCreate) { store.parkPrepared(); return { status: "pending" } }

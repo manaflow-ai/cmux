@@ -7528,6 +7528,13 @@ function AcpmuxPane() {
       runModePicked.current = true;
       sandbox.setMode(mode);
     },
+    /// Auto picked on the New Tab page: no pick, so the mode is the folder's default again.
+    onDefault: () => {
+      runModePicked.current = false;
+      const mode: RunMode = folderRunDefault === "cloud" ? "cloud" : "persistent";
+      cloudByDefault.current = mode === "cloud";
+      if (sandbox.mode !== mode) sandbox.setMode(mode);
+    },
   };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
@@ -12711,6 +12718,8 @@ function AcpmuxPane() {
                   environments
                   onLeaveDraft={leaveNewTabDraft}
                   takeDraft={takeNewTabDraft}
+                  // Auto may send to Cloud only while Cloud is offered, whatever Run as shows.
+                  {...(sandboxOffered ? { cloudOffered: true } : {})}
                   {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                     ? {
                         runMode: sandboxModeRows,
