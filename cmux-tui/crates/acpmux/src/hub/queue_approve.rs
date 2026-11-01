@@ -75,6 +75,18 @@ pub(in crate::hub) fn released(q: &QueuedPrompt) -> Result<(), RpcError> {
     Ok(())
 }
 
+/// A move that carries prompts the owner approved that still wait for their place, refused
+/// because nothing vouches that the daemon taking the bundle understands `queue_approved`: an
+/// older one would run them under their sender's rules alone (`transfer_out.rs`, `transfer_in.rs`,
+/// the move client's `cli/run/transfer.rs`).
+pub(crate) fn approved_prompts_error(ids: Value, why: &str) -> RpcError {
+    let msg = format!(
+        "an approved prompt still waits for its turn and {why}: let it run (or remove it), then \
+         move the chat"
+    );
+    refused(-32000, "transfer.approved_prompts", &msg, json!({"promptIds": ids}))
+}
+
 fn refused(code: i64, reason: &str, message: &str, mut data: Value) -> RpcError {
     data.set("reason", json!(reason));
     RpcError::new(code, format!("{reason}: {message}")).with_data(data)
@@ -158,14 +170,11 @@ impl Hub {
     /// moving check before the freeze can finish after export and is absent from the bundle.
     /// An older target must never receive a snapshot with a prompt still awaiting approval.
     /// One the owner approved that still waits for its place keeps `awaitingOwner` on its
-    /// `queued` record, and only a target that understands `queue_approved` runs it under the
-    /// approved rules: it moves only when `target_approves` (the target is a peer that listed
-    /// [`crate::author::QUEUE_APPROVAL_FEATURE`], `transfer_out.rs`; review of #28859).
-    pub(in crate::hub) fn held_prompts(
-        &self,
-        bundle: &Path,
-        target_approves: bool,
-    ) -> Result<(), RpcError> {
+    /// `queued` record, and only a receiver that understands `queue_approved` runs it under the
+    /// approved rules: those are returned, for the move to name in its manifest
+    /// (`approvedWaiting`, `transfer_out.rs`), so that only a receiver whose own `initialize`
+    /// listed [`crate::author::QUEUE_APPROVAL_FEATURE`] takes the bundle (review of #28859).
+    pub(in crate::hub) fn held_prompts(&self, bundle: &Path) -> Result<Vec<String>, RpcError> {
         use std::io::BufRead;
         let check = || -> anyhow::Result<(Vec<String>, Vec<String>)> {
             // Every segment, in name order, as import restores them (`copy_bundle_events`).
@@ -247,13 +256,7 @@ impl Hub {
                 "a prompt waits for the chat's owner: approve or decline it, then move the chat";
             return Err(refused(-32000, "transfer.held_prompts", msg, json!({"promptIds": held})));
         }
-        if !approved_waiting.is_empty() && !target_approves {
-            let msg = "an approved prompt still waits for its turn, and the target does not list \
-                       queue approval: let it run (or remove it), then move the chat";
-            let data = json!({"promptIds": approved_waiting});
-            return Err(refused(-32000, "transfer.approved_prompts", msg, data));
-        }
-        Ok(())
+        Ok(approved_waiting)
     }
 
     /// `queue.not_found` for an answer to a prompt that does not wait for the owner, with how its

@@ -439,8 +439,9 @@ async fn a_chat_is_not_moved_while_a_prompt_waits_for_the_owner() {
 /// An approved prompt still waiting for its place (a turn runs) keeps `awaitingOwner` on its
 /// `queued` record: an older daemon ignores `queue_approved` and would run it under its sender's
 /// rules alone, not the stricter of theirs and the owner's. The move is refused
-/// `transfer.approved_prompts` unless the target is a peer that lists the queue-approval feature
-/// (review of #28859); an unnamed or unknown target is never taken to list it.
+/// `transfer.approved_prompts` unless its client says it checks the receiving daemon's own
+/// `initialize` for queue approval (`gatesQueueApproval`, review of #28859); a host name is
+/// never taken to vouch for it.
 #[tokio::test]
 async fn a_chat_with_an_approved_waiting_prompt_moves_only_to_a_target_that_approves() {
     let hub = hub();
@@ -450,7 +451,7 @@ async fn a_chat_with_an_approved_waiting_prompt_moves_only_to_a_target_that_appr
     c.queue(held(&session, "g-1", "guest words")).await;
     c.call("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(0))).await;
     assert!(!ran(&mut c, &session, "g-1").await, "it ran while the turn was running");
-    // Named, but not a peer this daemon knows lists it: refused all the same. (The refusal
+    // Named, but no client check of the receiver: refused all the same. (The refusal
     // gives the chat back, and the interrupted turn's end lets the approved prompt run.)
     let begin = json!({"sessionId": session, "interrupt": true,
                        "to": {"socket": "/tmp/acpmux-nowhere.sock", "host": "no-such-peer"}});

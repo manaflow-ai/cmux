@@ -206,24 +206,18 @@ fn a_held_prompt_in_a_later_log_segment_refuses_the_move() {
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
-    let refused =
-        hub.held_prompts(&dir, true).expect_err("a held prompt in segment 2 was let through");
+    let refused = hub.held_prompts(&dir).expect_err("a held prompt in segment 2 was let through");
     assert_eq!(refused.data.unwrap()["promptIds"], json!(["g-1"]));
-    // Approved at its revision in a third segment, it no longer holds the move.
+    // Approved at its revision in a third segment, it no longer holds the move; still waiting
+    // for its place, it is named, so that only a receiver that lists queue approval takes it
+    // (review of #28859).
     let approved = json!({"promptId": "g-1", "turnId": "t-1", "revision": 0, "approvedAt": 2});
     std::fs::write(events.join("000003.ndjson"), line(3, "queue_approved", approved)).unwrap();
-    // Still waiting for its place, it moves only to a target that lists queue approval: an
-    // older one ignores `queue_approved` (review of #28859).
-    hub.held_prompts(&dir, true)
-        .expect("an approved prompt holds nothing from an approving target");
-    let refused =
-        hub.held_prompts(&dir, false).expect_err("an approved prompt went to an older target");
-    assert_eq!(refused.data.as_ref().unwrap()["reason"], "transfer.approved_prompts");
-    assert_eq!(refused.data.unwrap()["promptIds"], json!(["g-1"]));
-    // Once it ran, nothing waits: it moves anywhere.
+    assert_eq!(hub.held_prompts(&dir).expect("an approved prompt holds nothing"), ["g-1"]);
+    // Once it ran, nothing waits.
     let ran = json!({"promptId": "g-1", "turnId": "t-1"});
     std::fs::write(events.join("000004.ndjson"), line(4, "turn_started", ran)).unwrap();
-    hub.held_prompts(&dir, false).expect("a prompt that ran holds nothing");
+    assert!(hub.held_prompts(&dir).expect("a prompt that ran holds nothing").is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -474,5 +468,32 @@ async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approve
     let refused = result.expect_err("a peer record vouched for the receiver it does not front");
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "transfer.approved_prompts");
     assert_eq!(refused.data.unwrap()["promptIds"], json!(["g-1"]));
+
+    // A client that checks its receiver's own `initialize` gets the bundle, which names the
+    // prompt (`cli/run/transfer.rs` `receiver_takes` hands it on only to a daemon that lists
+    // queue approval)...
+    let mut gated = begin.clone();
+    gated["gatesQueueApproval"] = json!(true);
+    let manifest = hub.transfer_request("_acpmux/transfer_begin", &gated).await.unwrap();
+    assert_eq!(manifest["approvedWaiting"], json!(["g-1"]), "{manifest}");
+    let older = json!({"_meta": {"acpmux": {"features": ["queueEdit", "sessionTransfer"]}}});
+    let current =
+        json!({"_meta": {"acpmux": {"features": [crate::author::QUEUE_APPROVAL_FEATURE]}}});
+    let e = crate::cli::run::transfer::receiver_takes(&manifest, &older).unwrap_err();
+    let e = e.downcast_ref::<crate::client::DaemonError>().expect("a daemon-shaped refusal");
+    assert_eq!(e.0.data.as_ref().unwrap()["reason"], "transfer.approved_prompts");
+    crate::cli::run::transfer::receiver_takes(&manifest, &current).expect("a current receiver");
+    // ...and a receiver that does not understand queue approval refuses it itself.
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let receiver = Hub::new(cfg, store);
+    receiver.queue_approval_off.store(true, std::sync::atomic::Ordering::SeqCst);
+    let receive = json!({"manifest": manifest});
+    let refused =
+        receiver.transfer_request("_acpmux/transfer_receive", &receive).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "transfer.approved_prompts");
+    let abort = json!({"sessionId": session.id, "transferId": manifest["transferId"]});
+    hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
     hub.shutdown_all().await;
 }

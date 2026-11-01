@@ -21,6 +21,7 @@ mod queue_waiting;
 #[path = "queue_approve.rs"]
 mod queue_approve;
 pub use queue_approve::Approver;
+pub(crate) use queue_approve::approved_prompts_error;
 pub(super) use queue_approve::{approved_error, declined_error, released};
 
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
