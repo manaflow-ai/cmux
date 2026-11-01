@@ -24,13 +24,15 @@ struct SidebarDocRefreshOrderTests {
 
     private final class Remote: SidebarDocRemote {
         let reloadStarted = AsyncStream<Void>.makeStream()
-        private var gets = 0
+        private(set) var gets = 0
+        var recovered = SidebarDocRefreshOrderTests.document
         private var held: CheckedContinuation<Data, Never>?
         var isAvailable: Bool { true }
 
         func get() async throws -> Data {
             gets += 1
             if gets == 1 { return SidebarDocRefreshOrderTests.document }
+            if gets > 2 { return recovered }
             return await withCheckedContinuation {
                 held = $0
                 reloadStarted.continuation.yield(())
@@ -79,5 +81,37 @@ struct SidebarDocRefreshOrderTests {
         #expect(store.records.revision == 2, "the reload replaced newer confirmed document records")
         #expect(Self.order(store, live: ["a", "b", "c"]) == ["a", "b", "c"],
                 "the reload lost the stream's ordering or newly imported workspace")
+    }
+
+    @Test func anOverflowedRefreshFetchesTheDiscardedTail() async throws {
+        let remote = Remote()
+        remote.recovered = Data(#"""
+        {"revision":"3","sections":[{"id":"sec_m_s-local","kind":{"type":"machine","session_id":"s-local"}}],
+         "items":[{"id":"w_a","section":"sec_m_s-local","order":"0","body":{"type":"workspace","ref":{"session_id":"s-local","workspace_id":"a"}}},
+                  {"id":"w_b","section":"sec_m_s-local","order":"a","body":{"type":"workspace","ref":{"session_id":"s-local","workspace_id":"b"}}},
+                  {"id":"w_c","section":"sec_m_s-local","order":"-","body":{"type":"workspace","ref":{"session_id":"s-local","workspace_id":"c"}}}]}
+        """#.utf8)
+        let tail = Data(#"""
+        {"changes":[{"kind":"state_upsert","resource":"sidebar_doc","id":"doc","value":{"revision":"3","previous_revision":"2"}},
+                    {"kind":"state_upsert","resource":"sidebar_item","id":"w_c",
+                     "value":{"id":"w_c","section":"sec_m_s-local","order":"-","body":{"type":"workspace","ref":{"session_id":"s-local","workspace_id":"c"}}}}]}
+        """#.utf8)
+        let store = SidebarDocStore(remote: remote)
+        store.refresh()
+        await store.settled()
+        var requested = remote.reloadStarted.stream.makeAsyncIterator()
+        store.refresh()
+        _ = await requested.next()
+        defer { remote.release() }
+        // Duplicate deliveries consume the bounded replay buffer. The last revision
+        // is applied live but cannot be replayed over the held, older get reply.
+        for _ in 0..<512 { store.receive(batch: Self.newer) }
+        store.receive(batch: tail)
+        remote.release()
+        await store.settled()
+
+        #expect(remote.gets == 3, "overflow must recover with a new get, without replay scheduling another")
+        #expect(store.records.revision == 3)
+        #expect(Self.order(store, live: ["a", "b", "c"]) == ["c", "a", "b"])
     }
 }
