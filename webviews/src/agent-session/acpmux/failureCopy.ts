@@ -1,3 +1,4 @@
+import { agentKey } from "../shared/agentKey";
 import type { Translate } from "./i18n";
 
 /// Why a turn failed, as the user can act on it (ROUTES R0, cx-w10a). Errors from harnesses are user-facing
@@ -27,6 +28,9 @@ export type FailureRoute = {
   harness?: string;
   hostKind?: "local" | "cloud";
   host?: string;
+  /// A Cloud team machine whose start passed no personal Claude login (the host's handshake
+  /// `cloudTeamMachine`: CloudHarnessLoginDecision skipped it as `guest-not-owner`, guest `team`).
+  teamMachine?: boolean;
 };
 
 /// CodeRouter's refusal on a team Cloud machine whose team has no account for the agent: a 403
@@ -117,6 +121,19 @@ const PROVIDER_HOSTS = /(?:^|\.)(?:anthropic\.com|openai\.com|chatgpt\.com|claud
 export function isAuthenticationFailure(message: string | undefined): boolean {
   const kind = failureKind(message);
   return kind === "subscription-login" || kind === "auth";
+}
+
+/// A Claude sign-in failure on a team Cloud machine (`route.teamMachine`): cmux passes no personal
+/// login to a machine teammates share, so neither the person's own sign-in nor a login transfer gets
+/// it signed in (the transfer refuses: "Personal credentials can only be transferred to a Cloud
+/// machine you own"). Its card says so and offers Switch model and Use an API key instead.
+export function isTeamMachineSignIn(kind: FailureKind, route?: FailureRoute): boolean {
+  return (
+    route?.hostKind === "cloud" &&
+    route.teamMachine === true &&
+    (kind === "auth" || kind === "subscription-login") &&
+    agentKey(route.harness?.split("/").pop() ?? "claude") === "claude"
+  );
 }
 
 export function isCloudRejectedCredential(message: string | undefined, route?: FailureRoute): boolean {
@@ -215,6 +232,7 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const harness = route?.name || route?.harness || t("turn.failure.theAgent");
   const via = failureVia(message, route);
   const status = message ? STATUS.exec(message)?.[1] : undefined;
+  if (isTeamMachineSignIn(kind, route)) return t("turn.failure.cloudTeamMachineNoLogin", { harness });
   if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
     if (MISSING_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthMissing", { harness });
     if (EXPIRED_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthExpired", { harness });

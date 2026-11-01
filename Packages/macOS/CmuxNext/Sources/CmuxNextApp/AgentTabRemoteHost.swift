@@ -25,7 +25,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// Present only for a Cloud VM resolved by the native machine registry.
     var cloudMachineID: String?
     var cloudAccount: [String?]?
-    var cloudCredentialRecoveryAvailable = false
+    var cloudCredentialRecoveryAvailable = false, cloudTeamMachine = false // the start passed no personal login (team machine)
     /// The App opens this Cloud chat's hand-off turns (``CloudHandoffTurnOpener``).
     var cloudHandoffs = false
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
@@ -121,9 +121,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if session != nil { handshake.sessionMustExist = true }
         // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
         handshake.machineName = machine
-        handshake.cloudMachineID = cloudMachineID
-        handshake.cloudAccount = cloudAccount
-        handshake.cloudCredentialRecoveryAvailable = cloudCredentialRecoveryAvailable
+        (handshake.cloudMachineID, handshake.cloudAccount) = (cloudMachineID, cloudAccount)
+        (handshake.cloudCredentialRecoveryAvailable, handshake.cloudTeamMachine) = (cloudCredentialRecoveryAvailable, cloudTeamMachine ? true : nil)
         handshake.cloudRepositoryAvailable = true
         if cloudHandoffs { handshake.cloudHandoffs = true }
         return handshake
