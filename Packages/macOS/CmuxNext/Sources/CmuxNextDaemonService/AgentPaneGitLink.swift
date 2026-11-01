@@ -167,6 +167,8 @@ extension AgentPaneGitDiffOptions {
         var params: [String: JSONValue] = [:]
         if !paths.isEmpty { params["paths"] = .array(paths.map(JSONValue.string)) }
         if let contextLines { params["context_lines"] = .number(Double(contextLines)) }
+        if let patchOffset { params["patch_offset"] = .string(String(patchOffset)) }
+        if let patchRevision { params["patch_revision"] = .string(patchRevision) }
         return params
     }
 }
