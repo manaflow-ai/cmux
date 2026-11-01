@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Darwin
 import Testing
@@ -247,8 +248,14 @@ struct PinnedPageTests {
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
     /// `heldKeyReplay`: where a creation hold's keys run again (the app's own unless a test passes another).
+    /// Runs under a permit of `TestPermits.shared`, so at most that many live-app fixtures share the main actor.
     static func withApp(heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp?.sendEvent(event) },
                         _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+        try await TestPermits.shared.withPermit { try await withAppHoldingPermit(heldKeyReplay: heldKeyReplay, body) }
+    }
+
+    private static func withAppHoldingPermit(heldKeyReplay: @escaping HeldKeyReplay,
+                                             _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pinned-\(UUID().uuidString.prefix(8))")
         var reaped = false

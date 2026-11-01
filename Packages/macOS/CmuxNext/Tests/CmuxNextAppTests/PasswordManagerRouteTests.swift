@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -41,8 +42,16 @@ struct PasswordManagerRouteTests {
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
     /// `home` is the daemon's HOME (where it reads its Ghostty config).
+    /// Runs under a permit of `TestPermits.shared`, so at most that many live-app fixtures share the main actor.
     static func withApp(home: String = NSHomeDirectory(), agentPaneEnvironment: [String: String]? = nil,
                         _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+        try await TestPermits.shared.withPermit {
+            try await withAppHoldingPermit(home: home, agentPaneEnvironment: agentPaneEnvironment, body)
+        }
+    }
+
+    private static func withAppHoldingPermit(home: String, agentPaneEnvironment: [String: String]?,
+                                             _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pwroute-\(UUID().uuidString.prefix(8))")
         var reaped = false

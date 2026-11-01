@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -101,8 +102,12 @@ struct RestoreWindowFieldsDebugTests {
     }
 
     /// The app's services on a fresh same-tree daemon with its window on screen, and a control
-    /// router with the app's window and surface debug methods.
+    /// router with the app's window and surface debug methods. Runs under a permit of `TestPermits.shared`.
     private static func withApp(_ body: (AppServices, Router) async throws -> Void) async throws {
+        try await TestPermits.shared.withPermit { try await withAppHoldingPermit(body) }
+    }
+
+    private static func withAppHoldingPermit(_ body: (AppServices, Router) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-rjfields-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }

@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -125,8 +126,13 @@ struct SplitPaneGridFitTests {
         try #require(condition(), "timed out: \(report())", sourceLocation: sourceLocation)
     }
 
-    /// The app's services on a fresh same-tree daemon with its window laid out on screen.
+    /// The app's services on a fresh same-tree daemon with its window laid out on screen. Runs
+    /// under a permit of `TestPermits.shared`.
     private static func withApp(_ body: (AppServices) async throws -> Void) async throws {
+        try await TestPermits.shared.withPermit { try await withAppHoldingPermit(body) }
+    }
+
+    private static func withAppHoldingPermit(_ body: (AppServices) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-splitgrid-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
