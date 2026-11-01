@@ -88,17 +88,11 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("cmux-fleet-linux-x64", fast_runner)
         self.assertIn("inputs.runner", fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
-        # Resolve and post are the light Linux jobs allowed to use hosted
-        # Ubuntu when a fleet rerun is unavailable. Code-running jobs map that
-        # rerun input back to their measured Blacksmith sizes.
-        for key in ("resolve", "post"):
-            self.assertIn("ubuntu-24.04", doc["jobs"][key]["runs-on"])
-        self.assertIn("inputs.runner == 'ubuntu-24.04' && 'blacksmith-16vcpu-ubuntu-2404'", fast_runner)
-        self.assertIn("inputs.runner == 'ubuntu-24.04' && 'blacksmith-32vcpu-ubuntu-2404'",
-                      doc["jobs"]["panic-ratchet"]["runs-on"])
         for key, each in doc["jobs"].items():
             with self.subTest(runner=key):
                 self.assertIn("cmux-fleet-linux-x64", str(each["runs-on"]))
+                self.assertTrue(str(each["runs-on"]).endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
+                                "a stalled literal fleet label must not bypass the reconciled live pool")
                 self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
