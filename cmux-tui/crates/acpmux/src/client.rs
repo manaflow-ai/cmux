@@ -36,6 +36,16 @@ pub struct Client {
 
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
+        Self::connect_with_caller(path, true).await
+    }
+
+    /// Connect a single-purpose trigger client without inheriting ambient
+    /// ACPMUX caller credentials from the invoking shell/session.
+    pub async fn connect_without_caller(path: &Path) -> Result<Arc<Self>> {
+        Self::connect_with_caller(path, false).await
+    }
+
+    async fn connect_with_caller(path: &Path, include_caller: bool) -> Result<Arc<Self>> {
         let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
@@ -113,11 +123,13 @@ impl Client {
         // or whatever listens on a path the agent pointed the CLI at).
         let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
-        if let (Some(id), Some(token), true) = (
-            caller("ACPMUX_SESSION_ID"),
-            caller(crate::hub::person::CALLER_TOKEN_ENV),
-            issuer.is_some_and(|socket| Path::new(&socket) == path),
-        ) {
+        if include_caller
+            && let (Some(id), Some(token), true) = (
+                caller("ACPMUX_SESSION_ID"),
+                caller(crate::hub::person::CALLER_TOKEN_ENV),
+                issuer.is_some_and(|socket| Path::new(&socket) == path),
+            )
+        {
             let mut meta = serde_json::Map::new();
             meta.insert(
                 crate::hub::person::CALLER_FIELD.to_owned(),
@@ -416,8 +428,8 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         (None, _, false) => "the daemon was shut down".to_owned(),
     };
     let build = match daemon_build {
-        Some(b) if b != crate::hub::BUILD => {
-            format!(" It ran build {b}; this command is build {}.", crate::hub::BUILD)
+        Some(b) if b != crate::hub::build() => {
+            format!(" It ran build {b}; this command is build {}.", crate::hub::build())
         }
         _ => String::new(),
     };

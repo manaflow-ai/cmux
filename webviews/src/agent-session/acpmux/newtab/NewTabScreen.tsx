@@ -708,7 +708,7 @@ export function NewTabScreen(props: Props) {
     // Shell mode's command takes no attachment: a drop (whose intake never asks pasteTarget) waits in
     // the strip for the next prompt, as the chat composer's shell field keeps it, and goes into the
     // text once shell mode ends (inlineAttachments.tsx `placing`).
-    placing: () => attachmentView === "inline" && !shell,
+    placing: () => attachmentView !== "strip" && !shell,
   });
   pastedChips.opens.current = inline.expand;
   inlinePlace.current = (chips) => inline.place(chips, "paste");
@@ -822,12 +822,12 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking, attachmentView } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // Every template with chips draws the chat composer's box. Claude's look splits the mode, model and
-  // effort into the quiet row under it; Codex's keeps them in the box's own row (Leo 2026-10-30: "the
-  // bypass/context/model picker stuff should literally be inside the composer box"; "no just codex").
+  // Every template with chips draws the chat composer's box, split as Claude's in both looks: the
+  // mode, model and effort in the quiet row under it (composerLook.ts; Leo 2026-11-01: "we already
+  // have a good version"). Codex's look keeps only its tray over the box.
   const look = useComposerLook();
   const chatBox = props.chips !== undefined;
-  const split = chatBox && look !== "codex";
+  const split = chatBox;
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1555,7 +1555,8 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      {/* Codex's look keeps the chips in this row (no quiet row), so its labels step down here. */}
+      {/* Without the split (a page with no chips) this row holds + and the actions and is the one
+          the fit measures. */}
       <div
         ref={chatBox && !split ? foot : undefined}
         className="nt-pickers"
@@ -1795,7 +1796,7 @@ export function NewTabScreen(props: Props) {
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
                 shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
-              {!shell && attachmentView === "inline" && inline.chips}
+              {!shell && attachmentView !== "strip" && inline.chips}
             </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
               the mic and Send end the field's row and the empty box is one line tall, as the chat

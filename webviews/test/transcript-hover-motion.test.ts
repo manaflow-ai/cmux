@@ -66,3 +66,19 @@ test("the background command hint has no delayed entrance animation", () => {
     expect(rule.style.getPropertyValue("animation-delay")).toBe("");
   }
 });
+
+// Leo, 2026-10-24: "if the command is too long, hide it under the run in background? ... hide it
+// when hovering in that area". Hidden, the hint takes no room on the live line, so a long command
+// runs to its end; on hover it takes its room back and the command's tail goes under it.
+test("the hidden background command hint takes no room on the live line", () => {
+  const hidden = rules.find(
+    ({ rule, media }) => !media.length && rule.selectorText === ":is(.cv-worked, .cv-activity) .cv-command__bg",
+  );
+  expect(hidden?.rule.style.position).toBe("absolute");
+  expect(hidden?.rule.style.opacity).toBe("0");
+  const hovered = rules.find(
+    ({ rule, media }) => !media.length && rule.selectorText === ":is(.cv-worked, .cv-activity):hover .cv-command__bg",
+  );
+  expect(hovered?.rule.style.position).toBe("static");
+  expect(hovered?.rule.style.opacity).toBe("1");
+});
