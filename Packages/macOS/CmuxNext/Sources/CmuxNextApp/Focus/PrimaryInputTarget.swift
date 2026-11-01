@@ -65,13 +65,14 @@ extension PrimaryInputTarget {
     }
 
     /// The surface got the keyboard (`FocusEffectApplier`): its primary
-    /// input takes it unless the responder keeps it. Returns false when the
-    /// surface shows no primary input in `window` now (the caller then
-    /// focuses its own target).
+    /// input takes it unless the responder keeps it, or a pending creation
+    /// owns the window's keyboard (`NSWindow.pendingCreationOwnsKeyboard`).
+    /// Returns false when the surface shows no primary input in `window` now
+    /// (the caller then focuses its own target).
     @discardableResult
     func landKeyboard(in window: NSWindow) -> Bool {
         guard let input = primaryInputView, input.window === window, !input.isHiddenOrHasHiddenAncestor else { return false }
-        if window.firstResponder !== input, primaryInputShouldTakeKeyboard(from: window.firstResponder) {
+        if window.firstResponder !== input, !window.pendingCreationOwnsKeyboard, primaryInputShouldTakeKeyboard(from: window.firstResponder) {
             window.makeFirstResponder(input)
         }
         return true
@@ -92,6 +93,17 @@ extension TabContent {
     /// primary input in `window` now: the caller focuses `focusTarget`.
     @MainActor func landKeyboardInPrimaryInput(in window: NSWindow) -> Bool {
         primaryInput?.landKeyboard(in: window) ?? false
+    }
+}
+
+extension NSWindow {
+    /// Whether a creation asked for in this cmux window with focus (a new terminal, pane or tab; a new workspace's
+    /// terminal) holds its keys and the person has not moved on since (no user intent after it): the keyboard is that
+    /// creation's, so no primary input takes it by itself (Chrome's rule: a tab that is not the one asked for never
+    /// takes focus by itself). Keys typed meanwhile wait for the creation (`CreationInputCoordinator`).
+    @MainActor var pendingCreationOwnsKeyboard: Bool {
+        guard let controller = windowController as? WindowController else { return false }
+        return controller.services.keyRouter.creationInputCoordinator.claimsKeyboard(in: self, generation: controller.focus.state.generation)
     }
 }
 

@@ -66,6 +66,9 @@ final class FocusCoordinator {
     var observer: ((Observation) -> Void)?
     /// Called once the queue drained and every effect ran (notifications).
     var settledObserver: ((FocusState) -> Void)?
+    /// Told of each focus or selection change the person made (``FocusEvent/isPersonsOwn``): the window's keyboard
+    /// claim ends there (`CreationInputCoordinator`).
+    var personIntent: (() -> Void)?
 
     func send(_ event: FocusEvent) {
         // An action run that may not change this client's view (a CLI,
@@ -77,6 +80,7 @@ final class FocusCoordinator {
             observer?(.refusedByRun(event))
             return
         }
+        if let personIntent, event.isPersonsOwn, event.changesView { personIntent() }
         // A changed topology goes first: the event (and its effects) see the current panes and tabs.
         if case .topology = event {} else { reducePendingTopologies() }
         queue.append(event)

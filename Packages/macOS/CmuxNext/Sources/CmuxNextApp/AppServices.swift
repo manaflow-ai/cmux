@@ -758,6 +758,7 @@ final class AppServices {
             self?.linkHints.cancel()
             self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
+            self?.keyRouter.creationInputCoordinator.personActed(in: event.window, event: event) // a click: the person's next intent
         }
         (NSApp as? CmuxApplication)?.keyDownObserver = { [weak self] _ in self?.notifications.endViewHolds() }
         (NSApp as? CmuxApplication)?.leftButtonObserver = { [weak self] event in

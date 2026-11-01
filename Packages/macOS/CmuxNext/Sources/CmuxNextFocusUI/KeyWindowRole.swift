@@ -1,14 +1,13 @@
-import AppKit
-import CmuxNextDesign
-import CmuxNextFocusUI
+public import AppKit
+public import CmuxNextDesign
 import os
 
 /// The window the key window acts for, its close semantics, and whether
 /// the key window is a sheet or panel over it.
-struct KeyWindowRole {
-    let root: NSWindow
-    let close: WindowCloseSemantics
-    let overRoot: Bool
+public struct KeyWindowRole {
+    public let root: NSWindow
+    public let close: WindowCloseSemantics
+    public let overRoot: Bool
 
     /// Nil when there is no key window of ours (a parentless Chromium page
     /// window) and for the palette opened with no window to sit on (it
@@ -24,7 +23,7 @@ struct KeyWindowRole {
     /// it. Debug builds log a fault once per such window (the owner must
     /// call `install(kind:content:scope:activeLook:)`).
     @MainActor
-    static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool) -> KeyWindowRole? {
+    public static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool) -> KeyWindowRole? {
         let root = key.windowKindRoot
         // A Chromium page window inside the root (an undocked inspector's
         // page, a popup's page) acts for it.

@@ -115,6 +115,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.focus = focus
         focus.applier = focusApplier
         focus.window = window
+        focus.personIntent = { [weak services, weak window] in
+            services?.keyRouter.creationInputCoordinator.personActed(in: window, event: services?.registry.dispatchingInputEvent())
+        }
         focus.send(.appActive(services.appActiveSource()))
         startShortcutHints()
         observeWorkspace()
@@ -129,6 +132,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        if let window { services.keyRouter.creationInputCoordinator.claims.end(in: window) }
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
