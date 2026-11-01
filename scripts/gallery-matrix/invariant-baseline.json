@@ -18,9 +18,24 @@
     "agent-pane.agent-message-row#both-directions-opened": [
       "center-line:row user-73"
     ],
-    "agent-pane.agent-message-row#folded-run": [],
-    "agent-pane.agent-message-row#folded-run-mixed": [],
-    "agent-pane.agent-message-row#folded-run-opened": [],
+    "agent-pane.agent-message-row#folded-run": [
+      "center-line:row user-76",
+      "center-line:row user-77",
+      "center-line:row user-78",
+      "center-line:row user-79"
+    ],
+    "agent-pane.agent-message-row#folded-run-mixed": [
+      "center-line:row user-80",
+      "center-line:row user-81",
+      "center-line:row user-82",
+      "center-line:row user-83"
+    ],
+    "agent-pane.agent-message-row#folded-run-opened": [
+      "center-line:row user-84",
+      "center-line:row user-85",
+      "center-line:row user-86",
+      "center-line:row user-87"
+    ],
     "agent-pane.agent-message-row#icon-column": [
       "center-line:row user-69"
     ],
@@ -745,9 +760,15 @@
       "menu-fit:div[aria-label=\"More actions\"]"
     ],
     "agent-pane.composer#queued-cancel-edit": [],
-    "agent-pane.composer#queued-from-agent": [],
-    "agent-pane.composer#queued-from-agent-lane-report": [],
-    "agent-pane.composer#queued-from-agent-open": [],
+    "agent-pane.composer#queued-from-agent": [
+      "center-line:row pending-messages"
+    ],
+    "agent-pane.composer#queued-from-agent-lane-report": [
+      "center-line:row pending-messages"
+    ],
+    "agent-pane.composer#queued-from-agent-open": [
+      "center-line:row pending-messages"
+    ],
     "agent-pane.composer#queued-images": [],
     "agent-pane.composer#queued-images-edit": [],
     "agent-pane.composer#queued-keyboard": [],
@@ -1110,8 +1131,12 @@
     "agent-pane.host-error#retrying": [],
     "agent-pane.host-error#too-large": [],
     "agent-pane.host-error#waiting": [],
-    "agent-pane.hover-fade#received": [],
-    "agent-pane.hover-fade#received-fading-in": [],
+    "agent-pane.hover-fade#received": [
+      "center-line:row pending-messages"
+    ],
+    "agent-pane.hover-fade#received-fading-in": [
+      "center-line:row pending-messages"
+    ],
     "agent-pane.hover-fade#tool-output": [],
     "agent-pane.hover-fade#tool-output-fading-in": [],
     "agent-pane.image-viewer#across-turns": [],
@@ -1121,6 +1146,10 @@
     "agent-pane.image-viewer#reply-images": [],
     "agent-pane.image-viewer#zoomed": [],
     "agent-pane.inbox-notice#before-six": [],
+    "agent-pane.inbox-notice#icon-column": [],
+    "agent-pane.inbox-notice#icon-column-look-chevron": [],
+    "agent-pane.inbox-notice#icon-column-look-count": [],
+    "agent-pane.inbox-notice#icon-column-open": [],
     "agent-pane.inbox-notice#look-card-six": [
       "icon-column:row assistant-50",
       "icon-column:row turnSummary-51"
@@ -1152,22 +1181,27 @@
     ],
     "agent-pane.incoming-message-disclosure#a-shipped": [
       "center-line:row user-4",
+      "center-line:row user-5",
       "center-line:row user-6"
     ],
     "agent-pane.incoming-message-disclosure#a-shipped-open": [
       "center-line:row user-4",
+      "center-line:row user-5",
       "center-line:row user-6"
     ],
     "agent-pane.incoming-message-disclosure#b-received-wording": [
       "center-line:row user-4",
+      "center-line:row user-5",
       "center-line:row user-6"
     ],
     "agent-pane.incoming-message-disclosure#c-line-count": [
       "center-line:row user-4",
+      "center-line:row user-5",
       "center-line:row user-6"
     ],
     "agent-pane.incoming-message-disclosure#d-sender-only": [
       "center-line:row user-4",
+      "center-line:row user-5",
       "center-line:row user-6"
     ],
     "agent-pane.incoming-message#avatar": [],
@@ -1237,6 +1271,8 @@
     ],
     "agent-pane.incoming-message#sender-hover": [],
     "agent-pane.incoming-message#subsession": [
+      "center-line:row user-22",
+      "center-line:row user-25",
       "center-line:row user-26"
     ],
     "agent-pane.inline-chips#after-accent": [],
@@ -1708,6 +1744,9 @@
     "agent-pane.new-tab-page#prefixes": [],
     "agent-pane.new-tab-page#show-all": [],
     "agent-pane.new-tab-page#switch-kinds": [],
+    "agent-pane.new-tab-start-cancel#not-now-keeps-draft": [],
+    "agent-pane.new-tab-start-cancel#stale-folder-reply-ready": [],
+    "agent-pane.new-tab-start-cancel#start-refused-shows-notice": [],
     "agent-pane.new-tab#attachment-menu": [],
     "agent-pane.new-tab#attachment-menu-pills": [],
     "agent-pane.new-tab#calm-default": [],
@@ -2030,9 +2069,12 @@
     "agent-pane.queued-agent-messages#eleven-minimal": [],
     "agent-pane.queued-agent-messages#held-by-stop": [],
     "agent-pane.queued-agent-messages#menu": [
+      "center-line:row pending-messages",
       "menu-fit:div[aria-label=\"More actions\"]"
     ],
-    "agent-pane.queued-agent-messages#steer-waiting": [],
+    "agent-pane.queued-agent-messages#steer-waiting": [
+      "center-line:row pending-messages"
+    ],
     "agent-pane.queued-agent-messages#subsession-outbox": [],
     "agent-pane.queued-user-footer#accepted": [],
     "agent-pane.queued-user-footer#balanced": [],
@@ -2869,6 +2911,11 @@
     "agent-pane.user-bubble#prompt-time-tooltip": [],
     "agent-pane.user-bubble#running-edit-branches": [],
     "agent-pane.user-bubble#short": [],
+    "agent-pane.video-frames#grid": [],
+    "agent-pane.video-frames#poster": [],
+    "agent-pane.video-frames#strip": [],
+    "agent-pane.video-frames#strip-many": [],
+    "agent-pane.video-frames#strip-unnamed": [],
     "agent-pane.waiting-on-you#permission-mid-turn": [],
     "agent-pane.waiting-on-you#trust-held-prompt": [],
     "agent-pane.watch-banner#claude": [],
@@ -3016,7 +3063,26 @@
       "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"✓Claude subscription\""
     ],
     "new-tab.quick-model-menu#roomy-more-models": [],
+    "new-tab.quick-model-menu#routes-account": [
+      "menu-fit:\"✓Claude Codeclaude-sr2Claude Code (work)\"",
+      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"API key\"",
+      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"CLI login\"",
+      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"Claude Code (work)\"",
+      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"Cmux\"",
+      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"claude-sr2\"",
+      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"✓Claude Code\"",
+      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"✓Claude subscription\""
+    ],
+    "new-tab.quick-model-menu#routes-one-tab": [],
     "new-tab.quick-model-menu#short-more-models": [],
+    "new-tab.quick-model-menu#width-fit": [],
+    "new-tab.quick-model-menu#width-snug": [],
+    "new-tab.quick-model-menu#width-stable": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
+    "new-tab.quick-model-menu#width-wide": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
     "pages.agent-activity#empty": [],
     "pages.agent-activity#grid": [],
     "pages.agent-activity#grid-viewer": [],
@@ -3468,6 +3534,7 @@
     "pages.settings#chief-group-2": [],
     "pages.settings#chief-group-3": [],
     "pages.settings#chief-group-4": [],
+    "pages.settings#chief-group-5": [],
     "pages.settings#chief-look-bubbles": [],
     "pages.settings#chief-pet-mochi": [],
     "pages.settings#chief-pet-off": [],
@@ -3756,6 +3823,12 @@
     "ui.liquid-glass#svg-displace-text": [
       "menu-fit:\"CopyQuote in replyFork from hereDelete\""
     ],
+    "ui.live-background#aurora": [],
+    "ui.live-background#aurora-light": [],
+    "ui.live-background#drift": [],
+    "ui.live-background#drift-light": [],
+    "ui.live-background#drift-reduced-motion": [],
+    "ui.live-background#grain": [],
     "ui.menu#checkbox": [],
     "ui.menu#closed": [],
     "ui.menu#keyboard": [],
