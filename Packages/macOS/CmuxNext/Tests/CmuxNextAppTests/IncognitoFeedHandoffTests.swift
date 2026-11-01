@@ -12,8 +12,10 @@ import Testing
 @MainActor @Suite(.serialized)
 struct IncognitoFeedHandoffTests {
     /// The handoff policy of a notification service over one normal workspace (`ws_normal`, terminal
-    /// `term_normal`) and one incognito window's workspace (`ws_secret`, terminal `term_secret`).
-    func policy() throws -> FeedHandoffPolicy {
+    /// `term_normal`) and one incognito window's workspace (`ws_secret`, terminal `term_secret`). `closed`: the
+    /// incognito workspace then closes (gone from the tree and the window), as when its window closes while one of
+    /// its items is still handing off.
+    func policy(closed: Bool = false) throws -> FeedHandoffPolicy {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.windows.ordersWindowsIn = false
@@ -29,6 +31,13 @@ struct IncognitoFeedHandoffTests {
         ]))
         let service = NotificationCenterService()
         service.services = services
+        let open = service.feedHandoffPolicy()
+        guard closed else { return open }
+        services.windows.pendingClaims[secret.rawValue] = nil
+        services.daemon.store.apply(snapshot: DaemonTree(workspaces: [
+            WorkspaceSnapshot(id: 1, key: .generate(), resourceID: "ws_normal", name: "normal", screens: [normalScreen]),
+        ]))
+        #expect(!services.windows.isIncognito(workspace: secret.rawValue), "the test's incognito workspace never closed")
         return service.feedHandoffPolicy()
     }
 
@@ -47,6 +56,15 @@ struct IncognitoFeedHandoffTests {
                 "an incognito terminal's notification with no workspace context was handed off")
         let frozen = policy.frozenContent(for: Self.item(workspace: "ws_secret", terminal: "term_secret"))
         #expect(frozen.title.isEmpty && frozen.body.isEmpty, "an incognito item already handing off kept its text: \(frozen)")
+    }
+
+    @Test func anIncognitoItemStaysLocalAfterItsWindowCloses() throws {
+        let policy = try policy(closed: true)
+        #expect(policy.content(for: Self.item(workspace: "ws_secret", terminal: nil)) == nil,
+                "a closed incognito window's item was handed to the Feed and the iPhone push")
+        let frozen = policy.frozenContent(for: Self.item(workspace: "ws_secret", terminal: nil))
+        #expect(frozen.title.isEmpty && frozen.body.isEmpty)
+        #expect(policy.content(for: Self.item(workspace: nil, terminal: "term_secret")) == nil)
     }
 
     @Test func aNormalWorkspacesItemStillHandsOff() throws {

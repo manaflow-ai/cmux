@@ -93,6 +93,8 @@ final class NotificationCenterService {
     /// Agent permission prompts to the person's feed, while
     /// `feed.agentPermissionPrompts` is on (cx-aocz).
     @ObservationIgnored var permissionBridge: AcpmuxPermissionFeedBridge?
+    /// Ids of incognito windows' workspaces seen this launch (`rememberIfIncognito`): their feed items stay local.
+    @ObservationIgnored var incognitoFeedIDs: Set<String> = []
     /// Agent chat approval banners (cx-kz6m0.2) and this Mac's `install:<id>` they need.
     @ObservationIgnored let approvals = AgentApprovalBanners()
     @ObservationIgnored var localAgentHost: @MainActor () -> String? = { nil }
@@ -518,6 +520,7 @@ final class NotificationCenterService {
             if let located { acknowledge(located.tab) }
             return
         }
+        if let workspace = located?.workspace ?? workspace { rememberIfIncognito(workspace) }
         var arrival = NotificationPolicy.Arrival(source: source)
         arrival.bannerAllowed = notification.desktop
         arrival.appActive = services?.appActiveSource() ?? false
@@ -619,9 +622,7 @@ final class NotificationCenterService {
             if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
             return
         }
-        // An incognito tab's terminal is also withheld, so its item stays local even once its window closed (#31210).
-        let incognito = services?.windows.isIncognito(workspace: located.workspace.id) == true
-        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts && !incognito)
+        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
         soundGate.admit(&decision, cooldownSeconds: preferences.sounds.cooldownSeconds)
         if decision.desktop {

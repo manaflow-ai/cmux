@@ -116,21 +116,25 @@ extension NotificationCenterService {
     }
 
     /// The handoff rules under the current settings. Muted workspaces are
-    /// matched by durable key and by public id (`ws_…`, an item's context);
-    /// incognito windows' workspaces (`WindowManager.isIncognito`) also by
-    /// their terminals' public ids, so none of their items leaves the Mac.
+    /// matched by durable key and by public id (`ws_…`, an item's context).
+    /// Incognito windows' workspaces (`WindowManager.isIncognito`) are matched
+    /// by every id they had this launch (`incognitoFeedIDs`), so none of their
+    /// items leaves the Mac, even one still handing off after its window closed.
     func feedHandoffPolicy() -> FeedHandoffPolicy {
-        var muted = preferences.mutedWorkspaces, incognito = Set<String>()
+        var muted = preferences.mutedWorkspaces
         for workspace in services?.daemon.store.workspaces ?? [] {
             if muted.contains(workspace.id), let resource = workspace.resourceID { muted.insert(resource.rawValue) }
-            guard services?.windows.isIncognito(workspace: workspace.id) == true else { continue }
-            incognito.insert(workspace.id)
-            if let resource = workspace.resourceID { incognito.insert(resource.rawValue) }
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                if let terminal = tab.terminalResourceID { incognito.insert(terminal.rawValue) }
-            }
+            rememberIfIncognito(workspace)
         }
-        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, incognito: incognito)
+        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, incognito: incognitoFeedIDs)
+    }
+
+    /// Keeps `workspace`'s durable key, public id and terminals' public ids in
+    /// `incognitoFeedIDs` when it is an incognito window's (#31210).
+    func rememberIfIncognito(_ workspace: WorkspaceModel) {
+        guard services?.windows.isIncognito(workspace: workspace.id) == true else { return }
+        let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { $0.terminalResourceID?.rawValue }
+        incognitoFeedIDs.formUnion([workspace.id] + [workspace.resourceID?.rawValue].compactMap { $0 } + terminals)
     }
 
     static func seconds(_ duration: Duration) -> Double {
