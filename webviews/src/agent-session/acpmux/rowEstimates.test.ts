@@ -12,7 +12,15 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { codeCardHeight, hasReplyActions, keepsReplyRoom, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
+import {
+  codeCardHeight,
+  hasReplyActions,
+  keepsReplyRoom,
+  layoutConversation,
+  placeRows,
+  statusEdge,
+  type AcpmuxRow,
+} from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -507,13 +515,15 @@ test("a code card estimate reads a fence's first word, as the renderer does (cmu
   const tree = "root\n├─ a\n└─ b";
   expect(codeCardHeight(tree, 'text title="tree"', codeWidth)).toBe(codeCardHeight(tree, "text", codeWidth));
   expect(codeCardHeight("a\nb\nc", 'text title="tree"', codeWidth)).toBe(codeCardHeight("a\nb\nc", "", codeWidth));
-  expect(codeCardHeight("x = 1", "python  {.numberLines}", codeWidth)).toBe(codeCardHeight("x = 1", "python", codeWidth));
+  const python = codeCardHeight("x = 1", "python", codeWidth);
+  expect(codeCardHeight("x = 1", "python  {.numberLines}", codeWidth)).toBe(python);
 });
 
 test("a code card scrolls against its text's width, not the card's (cmux#30690)", () => {
   // The body's 13px and 1px margins and the plain card's 8px and 12px padding leave width - 34
   // for text: a line 20px short of the card's edge still scrolls.
-  const scrollbar = (code: string) => codeCardHeight(code, "python", codeWidth) - codeCardHeight("x", "python", codeWidth);
+  const scrollbar = (code: string) =>
+    codeCardHeight(code, "python", codeWidth) - codeCardHeight("x", "python", codeWidth);
   expect(scrollbar("x".repeat(codeChars(codeWidth - 20)))).toBe(15);
   expect(scrollbar("x".repeat(codeChars(codeWidth - 34)))).toBe(0);
 });
