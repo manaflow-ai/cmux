@@ -337,6 +337,11 @@ class MainNightlyBootstrapGuard(unittest.TestCase):
 
     def check(self, *, selector=SELECTOR, job="decide", workflow="nightly.yml",
               trigger="on: [push, schedule, workflow_dispatch]", extra="", shared=""):
+        return self.run_guard(
+            f"{trigger}\n{shared}jobs:\n  {job}:\n    runs-on: {selector}\n"
+            f"{extra}    steps:\n      - run: echo metadata\n", workflow)
+
+    def run_guard(self, text, workflow="nightly.yml"):
         import subprocess
         import tempfile
 
@@ -348,15 +353,24 @@ class MainNightlyBootstrapGuard(unittest.TestCase):
             workflows = Path(directory) / ".github/workflows"
             workflows.mkdir(parents=True)
             (workflows / "test-e2e.yml").write_text("on: workflow_dispatch\n")
-            (workflows / workflow).write_text(
-                f"{trigger}\n{shared}jobs:\n  {job}:\n    runs-on: {selector}\n"
-                f"{extra}    steps:\n      - run: echo metadata\n")
+            (workflows / workflow).write_text(text)
             return subprocess.run(["bash", "-c", script, "guard", directory],
                                   capture_output=True, text=True)
 
     def test_approved_main_bootstrap_passes_the_real_guard(self):
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_real_main_workflow_accepts_only_its_bootstrap_line(self):
+        text = (ROOT / ".github/workflows/nightly.yml").read_text()
+        text, count = re.subn(r"(\n  decide:\n[\s\S]*?\n    runs-on: )[^\n]+",
+                              lambda match: match[1] + self.SELECTOR, text, count=1)
+        self.assertEqual(count, 1)
+        result = self.run_guard(text)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text += "\n  other:\n    runs-on: " + self.SELECTOR + "\n"
+        result = self.run_guard(text)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_other_routes_and_jobs_stay_forbidden(self):
         cases = {
@@ -368,6 +382,8 @@ class MainNightlyBootstrapGuard(unittest.TestCase):
             "untrusted trigger": {"trigger": "on: [push, pull_request_target]"},
             "job secret": {"extra": "    env:\n      TOKEN: ${{ secrets.API_KEY }}\n"},
             "shared secret": {"shared": "env:\n  TOKEN: ${{ secrets.API_KEY }}\n"},
+            "bracket secret": {"extra": "    env:\n      TOKEN: ${{ secrets['API_KEY'] }}\n"},
+            "whole secret context": {"extra": "    env:\n      TOKEN: ${{ toJSON(SECRETS) }}\n"},
             "environment": {"extra": "    environment: release\n"},
             "extra fleet fallback": {"selector": self.SELECTOR.replace(" }}", " || 'glaeda-side-std-xcode-26.6' }}")},
         }
@@ -376,6 +392,13 @@ class MainNightlyBootstrapGuard(unittest.TestCase):
                 result = self.check(**kwargs)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("FAIL: workflow references a self-hosted", result.stdout)
+
+    def test_alias_cannot_exempt_another_jobs_runner(self):
+        text = ("on: push\njobs:\n  other:\n    runs-on: &route " + self.SELECTOR
+                + "\n  decide:\n    runs-on: *route\n")
+        result = self.run_guard(text)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("FAIL: workflow references a self-hosted", result.stdout)
 
 
 class OwnedPoolLabels(unittest.TestCase):
