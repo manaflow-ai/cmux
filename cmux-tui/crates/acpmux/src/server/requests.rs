@@ -1862,16 +1862,16 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|id| !id.is_empty())
                 .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
+            let expected_workspace = std::env::var("CMUX_PLATFORM_WORKSPACE_ID")
+                .map_err(|_| RpcError::invalid_params("Cloud workspace is not configured"))?;
+            let expected_machine = std::env::var("CMUX_PLATFORM_MACHINE_ID")
+                .map_err(|_| RpcError::invalid_params("Cloud machine is not configured"))?;
             if let Some(workspace) = params.get("workspace").and_then(Value::as_str)
-                && let Ok(expected) = std::env::var("CMUX_PLATFORM_WORKSPACE_ID")
-                && expected != workspace
-            {
+                && expected_workspace != workspace {
                 return Err(RpcError::invalid_params("workspace does not match session"));
             }
             if let Some(machine) = params.get("machine").and_then(Value::as_str)
-                && let Ok(expected) = std::env::var("CMUX_PLATFORM_MACHINE_ID")
-                && expected != machine
-            {
+                && expected_machine != machine {
                 return Err(RpcError::invalid_params("machine does not match daemon"));
             }
             if params.get("generation").is_some_and(|v| v.as_u64().is_none()) {
@@ -1879,6 +1879,11 @@ async fn dispatch_request(
             }
             let generation = params.get("generation").and_then(Value::as_u64);
             let attempt_id = params.get("attempt_id").and_then(Value::as_str).unwrap_or(prompt_id);
+            if let Some(deadline) = params.get("deadline_ms").and_then(Value::as_u64) {
+                let now = crate::store::now_ms();
+                if deadline <= now { return Err(RpcError::invalid_params("prepare deadline has expired")); }
+                if deadline.saturating_sub(now) > 600_000 { return Err(RpcError::invalid_params("prepare deadline is too far in the future")); }
+            }
             let workspace = params.get("workspace").and_then(Value::as_str)
                 .ok_or_else(|| RpcError::invalid_params("workspace is required"))?;
             let machine = params.get("machine").and_then(Value::as_str)
