@@ -14952,19 +14952,19 @@
               "zero" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "لا تتوفر تحديثات"
+                  "value" : "لا تتوفر تحديثات (%@)"
                 }
               },
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "يتوفر تحديث واحد"
+                  "value" : "يتوفر تحديث واحد (%@)"
                 }
               },
               "two" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "يتوفر تحديثان"
+                  "value" : "يتوفر تحديثان (%@)"
                 }
               },
               "few" : {
