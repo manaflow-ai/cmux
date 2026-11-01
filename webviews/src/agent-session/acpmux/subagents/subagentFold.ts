@@ -76,8 +76,8 @@ export type Subagent = {
   agentId?: string;
   /// Where the harness says it works, from the call that started it: Claude's Agent call asked for
   /// a worktree of its own (`isolation: "worktree"`), the folder that call named (`cwd`), and the
-  /// worktree and branch its result reports (`worktreePath:`, `worktreeBranch:`). The Inspector's
-  /// Environment for the subagent reads them (inspector/subagentScope.ts).
+  /// worktree and branch its result reports (`worktreePath:`, `worktreeBranch:`). Session Info's
+  /// Environment for the subagent reads them (session-info/subagentScope.ts).
   isolated?: boolean;
   cwd?: string;
   worktree?: { path: string; branch?: string };
@@ -1170,7 +1170,7 @@ export type SubagentsLeft = { state: "completed" | "cancelled" | "disconnected";
 /// Whom acpmux's record `kind` leaves running with no one to end them: a stopped turn's
 /// foreground subagents (`cancelled`; the harness keeps background ones running), a completed
 /// turn's foreground ones whose end the harness never sent (`completed`: the turn waited on them;
-/// they read running for good, Leo's Inspector counted 5 running with about 3 live), a turn the
+/// they read running for good, Leo's Session Info counted 5 running with about 3 live), a turn the
 /// daemon lost (`outcome_unknown`), or, when the agent process behind the chat went away or
 /// started again (an exit or stop, a reopen or resume, a new or ended host), every one, as
 /// acpmux's own process table reads those records (hub/processes.rs).

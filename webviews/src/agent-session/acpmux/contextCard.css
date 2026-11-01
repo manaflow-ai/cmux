@@ -1,7 +1,7 @@
 /* The context ring's hover card (ContextCard.tsx; Leo 2026-10-21). It is a glass hover card
    (.ui-card.ui-glass, pages/shared/desktop.css), as a session's hover card is: its fill, frost, rim
    and Reduce Transparency fallback are the liquid glass's (ui/glass/glass.css). This sheet sets only
-   its size and type. The bar's colors are the Inspector Context meter's (inspector/inspector.css):
+   its size and type. The bar's colors are Session Info Context meter's (session-info/sessionInfo.css):
    the theme accent over a faint text-color track. */
 .acpmux-context-card.ui-card {
   width: 260px;

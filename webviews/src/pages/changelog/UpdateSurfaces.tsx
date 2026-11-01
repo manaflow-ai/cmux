@@ -23,7 +23,7 @@
 //    Under the title, the version it replaces ("Updating from nightly 3801702", Lawrence 2026-10-19:
 //    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
@@ -117,12 +117,12 @@ async function copyVersion(text: string): Promise<void> {
 /** How long a copied version says "Copied". */
 const COPIED_MS = 1500;
 
-/** A short version that copies the full one: plain selectable text, no tooltip (2026-10-31, Lawrence
- * on the hover that covered the Updated card's build line with "1.0.0-nightly.4124615690001":
- * "seems excessive"). A click (or Return or Space) copies `version` for a bug report and `copied`
- * is true for a moment, for the caller to say "Copied" in place: nothing pops over the surface. A
- * drag still selects the words; a click that ends a selection copies nothing. A span, not a button:
- * WebKit selects no text inside a button, and the version is text to select and quote (u4466). */
+/** A short version that copies the full one: selectable text, no tooltip (2026-10-31, Lawrence on
+ * the hover that covered the Updated card's build line with "1.0.0-nightly.4124615690001": "seems
+ * excessive"). It is a native <button>: a click, Return or Space copies `version` for a bug report
+ * and `copied` is true for a moment, for the caller to say "Copied" in place: nothing pops over the
+ * surface. Its CSS keeps it plain inline text, and a drag across the line still selects it with the
+ * words around it (u4466); a pointer click that ends a selection copies nothing. */
 function CopyVersion({
   version,
   className,
@@ -138,8 +138,9 @@ function CopyVersion({
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
-  const copy = () => {
-    if (globalThis.getSelection?.()?.isCollapsed === false) return;
+  const copy = (event: MouseEvent) => {
+    // A pointer click that ends a selection drag selects; Return or Space (detail 0) always copies.
+    if (event.detail !== 0 && globalThis.getSelection?.()?.isCollapsed === false) return;
     void copyVersion(version).then(
       () => {
         onCopied(true);
@@ -150,21 +151,14 @@ function CopyVersion({
     );
   };
   return (
-    <span
+    <button
+      type="button"
       className={className ? `wn-copy-version ${className}` : "wn-copy-version"}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="button"
-      tabIndex={0}
       aria-label={strings.format("updates.card.copyVersion", version)}
       onClick={copy}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        copy();
-      }}
     >
       {children}
-    </span>
+    </button>
   );
 }
 
