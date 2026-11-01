@@ -57,8 +57,15 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
     },
   } as const;
 
-  const measure = (page: Page, row: (typeof ROWS)[keyof typeof ROWS]) =>
-    page.evaluate((row) => {
+  // Every running transition (a colour fading in after load or a hover) ends before a state is read.
+  const settled = (page: Page) =>
+    page.evaluate(() =>
+      Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+    );
+
+  const measure = async (page: Page, row: (typeof ROWS)[keyof typeof ROWS]) => {
+    await settled(page);
+    return page.evaluate((row) => {
       const chip = document.querySelector<HTMLElement>(row.chip)!;
       const line = document.querySelector<HTMLElement>(row.line)!;
       const icon = document.querySelector<Element>(row.icon)!;
@@ -78,6 +85,7 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
         insetStart: l.left - c.left,
         insetEnd: c.right - (cue ? cue.getBoundingClientRect().right : l.right),
         cue: cue ? Number(getComputedStyle(cue).opacity) : -1,
+        labelCut: label.scrollWidth > label.clientWidth + 0.5,
         chipColor: chipStyle.color,
         chipBackground: chipStyle.backgroundColor,
         lineColor: lineStyle.color,
@@ -85,6 +93,7 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
         preview: getComputedStyle(line.querySelector(".cv-received__preview, .cv-agentmsg__preview") ?? line).color,
       };
     }, row);
+  };
 
   for (const theme of ["dark", "light"] as const)
     for (const [kind, row] of Object.entries(ROWS)) {
@@ -110,6 +119,8 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
           expect(rest.insetStart).toBeGreaterThanOrEqual(6);
           expect(rest.insetEnd).toBeGreaterThanOrEqual(4);
           expect(rest.chipWidth).toBeLessThan(rest.lineWidth * 0.6);
+          // The whole name shows when the line has room for it: never cut beside an empty gap.
+          expect(rest.labelCut).toBe(false);
           // A link: its own colour, apart from the line's words, and the open cue.
           expect(rest.chipColor).not.toBe(rest.lineColor);
           expect(rest.cue).toBeGreaterThan(0);

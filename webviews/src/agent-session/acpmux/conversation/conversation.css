@@ -2896,6 +2896,12 @@ pre.cv-math-source {
   white-space: nowrap;
   color: var(--cv-activity-text);
 }
+/* The sender span already caps the name at 45% of the line: its tag takes the span's room (less
+   the mark), never a percentage of a percentage that cuts the name short beside an empty gap. */
+.cv-received__sender > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
 /* A sender with a chat to open is the session link chip (AgentTag.css `button.cv-agent-tag.is-open`):
    its look is that rule's alone. */
 .cv-received__preview {
