@@ -242,6 +242,12 @@ impl<'a> Machine<'a> {
     /// Refuses a machine too old for `fs-v1` (`machine_outdated`).
     fn read(socket: &'a Path) -> Result<Self, SeedError> {
         let identity = machine_gate::identify(socket);
+        if identity.is_none() {
+            return Err(SeedError::new(
+                "sync_failed",
+                format!("the machine at {} did not answer", socket.display()),
+            ));
+        }
         let lacks = |capability: &str| {
             identity
                 .as_ref()
@@ -312,9 +318,9 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     if !machine.seeds {
         return Err(Machine::outdated().into());
     }
-    let bundle = LocalBundle::new();
+    let bundle = LocalBundle::new()?;
     let previous = PreviousSeed { head, index, work };
-    let planned = plan::plan_since(&local, &bundle.0, &previous).map_err(|fallback| {
+    let planned = plan::plan_since(&local, &bundle.file, &previous).map_err(|fallback| {
         let code = match fallback.code {
             FallbackCode::NoPrevious => "seed.no_previous".to_string(),
             code => format!("seed.{}", code.as_str()),
@@ -347,8 +353,8 @@ fn seed_full(machine: &Machine<'_>, local: &Path, remote: &str) -> Result<Pushed
     if !machine.seeds {
         return Err(Attempt::Fallback(Machine::outdated()));
     }
-    let bundle = LocalBundle::new();
-    let mut planned = plan::plan(local, &bundle.0).map_err(from_plan)?;
+    let bundle = LocalBundle::new().map_err(Attempt::Failed)?;
+    let mut planned = plan::plan(local, &bundle.file).map_err(from_plan)?;
     let existed = sync_cli::remote_kind(machine.socket, remote)
         .map_err(|error| Attempt::Failed(SeedError::of(&error)))?
         .is_some();
@@ -359,7 +365,7 @@ fn seed_full(machine: &Machine<'_>, local: &Path, remote: &str) -> Result<Pushed
         && error.code == "seed.base_missing"
         && let Some(tip) = planned.bases.last().filter(|tip| **tip != planned.params.base).cloned()
     {
-        planned = plan::plan_with_base(local, &bundle.0, &tip).map_err(from_plan)?;
+        planned = plan::plan_with_base(local, &bundle.file, &tip).map_err(from_plan)?;
         result = run_seed(machine.socket, remote, &planned, &bundle);
     }
     match result {
@@ -459,11 +465,15 @@ fn run_seed(
         .rsplit_once('/')
         .filter(|(parent, name)| !parent.is_empty() && !name.is_empty())
         .ok_or_else(|| SeedError::new("seed.bad_request", "the machine folder has no parent"))?;
-    let target = format!("{parent}/.cmux-seed-{name}-{}.bundle", unique());
+    let file = format!(".cmux-seed-{name}-{}.bundle", unique());
+    let target = format!("{parent}/{file}");
+    // A big upload goes through this part file first (sync_cli remote.rs);
+    // a failed one leaves it.
+    let part = format!("{parent}/.{file}.cmux-sync-part");
     let total = planned.bundle_bytes;
     let mut report = throttled();
     report(json!({"phase": "upload", "bytes_done": 0, "bytes_total": total}), true);
-    let uploaded = sync_cli::upload(socket, &bundle.0, &target, &mut |done| {
+    let uploaded = sync_cli::upload(socket, &bundle.file, &target, &mut |done| {
         report(json!({"phase": "upload", "bytes_done": done, "bytes_total": total}), done >= total);
     });
     let result = uploaded.map_err(|error| SeedError::of(&error)).and_then(|()| {
@@ -475,6 +485,7 @@ fn run_seed(
     });
     // The machine copied it when the job started; gone already after a seed.
     let _ = sync_cli::delete_remote(socket, &target);
+    let _ = sync_cli::delete_remote(socket, &part);
     result
 }
 
@@ -541,8 +552,9 @@ fn clone(
     if !Machine::read(socket)?.seeds {
         return Err(Machine::outdated());
     }
+    // LFS files come down too; a machine without git-lfs notes it and goes on.
     let mut start = json!({"folder": remote, "url": format!("https://github.com/{repo}.git"),
-                           "repo": repo});
+                           "repo": repo, "lfs": true});
     if let Some(git_ref) = git_ref {
         start.set("ref", json!(git_ref));
     }
@@ -571,24 +583,48 @@ fn unique() -> String {
     format!("{}-{nanos}", std::process::id())
 }
 
-/// This Mac's bundle file, removed when dropped.
-struct LocalBundle(PathBuf);
+/// This Mac's bundle file, in a folder of its own only this user can open
+/// (git writes the bundle with the umask's mode, often world-readable, and
+/// it holds the project's unpushed work); the folder goes when dropped.
+struct LocalBundle {
+    folder: PathBuf,
+    file: PathBuf,
+}
 
 impl LocalBundle {
-    fn new() -> Self {
-        Self(std::env::temp_dir().join(format!("cmux-seed-push-{}.bundle", unique())))
+    fn new() -> Result<Self, SeedError> {
+        use std::os::unix::fs::DirBuilderExt;
+        let folder = std::env::temp_dir().join(format!("cmux-seed-push-{}", unique()));
+        // Fails on a folder already there, so nobody else's folder is used.
+        std::fs::DirBuilder::new().mode(0o700).create(&folder).map_err(|error| {
+            SeedError::new("sync_failed", format!("cannot make a folder for the bundle: {error}"))
+        })?;
+        let file = folder.join("seed.bundle");
+        Ok(Self { folder, file })
     }
 }
 
 impl Drop for LocalBundle {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_dir_all(&self.folder);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, parse};
+    use super::{Command, LocalBundle, parse};
+
+    #[test]
+    fn the_bundle_lives_in_a_folder_only_this_user_opens_and_goes_with_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let bundle = LocalBundle::new().unwrap();
+        let folder = bundle.folder.clone();
+        assert_eq!(std::fs::metadata(&folder).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(bundle.file.parent(), Some(folder.as_path()));
+        std::fs::write(&bundle.file, b"x").unwrap();
+        drop(bundle);
+        assert!(!folder.exists());
+    }
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|arg| (*arg).to_string()).collect()
