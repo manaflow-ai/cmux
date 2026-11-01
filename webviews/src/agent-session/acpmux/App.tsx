@@ -8,6 +8,7 @@ import React, {
   memo,
   Suspense,
   useCallback,
+  useContext,
   useDeferredValue,
   useEffect,
   useLayoutEffect,
@@ -65,6 +66,7 @@ import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
   QueuedMessageCard,
   SteerWaitingActions,
+  WaitingMessageMenu,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
@@ -162,7 +164,7 @@ import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
-import { pageAction } from "./automation";
+import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
@@ -268,7 +270,7 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
-import { settleTrayExit } from "./subagents/trayMotion";
+import { settleTrayExit, TRAY_GHOST } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
@@ -328,7 +330,7 @@ import {
 } from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
+import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
@@ -359,6 +361,8 @@ import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
+import { BackgroundTurnLine } from "./conversation/BackgroundTurnLine";
+import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -400,6 +404,7 @@ import {
   clearFindHighlights,
   FIND_ACTIVE_HIGHLIGHT,
   FindReveal,
+  foldFind,
   findRowIndex,
   findMemberRowId,
   isFindRow,
@@ -431,6 +436,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
+import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
   forkRefusal,
@@ -482,6 +488,7 @@ import {
   type ChatMenuItem,
 } from "./header/ChatHeaderTools";
 import { ThreadTitle } from "./header/ThreadTitle";
+import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
@@ -1184,6 +1191,33 @@ const MessageRow = memo(
     // Its images show with it, and its action row (age, Retry) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
+    if (row.kind === "user" && row.inboxThread)
+      return (
+        <div className="cv-incoming">
+          <InboxNoticeCard
+            rowId={row.id}
+            messageAt={row.at}
+            notice={{
+              threads: [
+                {
+                  threadId: row.inboxThread.threadId,
+                  label: row.inboxThread.label ?? "",
+                  from: [row.inboxThread.sender],
+                  count: row.inboxThread.count,
+                  preview: row.inboxThread.preview,
+                  blocker: false,
+                  promptIds: [...row.inboxThread.promptIds],
+                  ...(row.inboxThread.fromSession ? { fromSession: row.inboxThread.fromSession } : {}),
+                },
+              ],
+            }}
+            onOpen={openSenderChat}
+            readThread={readInboxThread}
+            githubRepository={githubRepository}
+            actions={row.inboxQueue ? <InboxQueueActions queue={row.inboxQueue} version={row.version} /> : undefined}
+          />
+        </div>
+      );
     // acpmux's inbox notice: its threads as received lines, never its text for the agent
     // (conversation/InboxNoticeCard.tsx).
     if (row.kind === "user" && row.incoming?.kind === "inbox")
@@ -1358,6 +1392,19 @@ const WorkedRow = memo(
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
     a.controls === b.controls &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+
+/// A turn the agent ran on its own, folded to one line (conversation/backgroundTurns.ts); opening it
+/// lists its rows below.
+const BackgroundTurnRow = memo(
+  function BackgroundTurnRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <BackgroundTurnLine row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
     a.onToggleActivity === b.onToggleActivity,
 );
 
@@ -1654,6 +1701,33 @@ const QueuedMessageRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
+/// A queued inbox wrapper has one queue target for the whole notice. Keep its Send now/Dismiss
+/// controls beside the first flattened preview row without turning every delivery into a queue row.
+const InboxQueueActions = memo(function InboxQueueActions({
+  queue,
+  version,
+}: {
+  queue: NonNullable<AcpmuxRow["inboxQueue"]>;
+  version: number;
+}) {
+  const act = useContext(TurnActionsContext).queuedMessages?.();
+  const [sentAt, setSentAt] = useState<number>();
+  const fail = () => undefined;
+  return (
+    <span className="cv-received-actions">
+      <MessageFooterRow>
+        <WaitingMessageMenu
+          sendNow={
+            act && !queue.next && sentAt !== version
+              ? () => void act.steer(queue.promptId).then((ok) => ok && setSentAt(version), fail)
+              : undefined
+          }
+          dismiss={act ? () => void act.remove(queue.promptId).catch(fail) : undefined}
+        />
+      </MessageFooterRow>
+    </span>
+  );
+});
 /// The messages that wait for the agent, as one group (conversation/PendingMessagesCard.tsx): each
 /// message draws in it as its own row draws alone.
 const PendingMessagesRow = memo(
@@ -1661,6 +1735,10 @@ const PendingMessagesRow = memo(
     const renderMessage = (message: AcpmuxRow) =>
       message.kind === LANE_NOTICE_BATCH ? (
         <LaneNoticeBatch row={message} renderMessage={renderMessage} />
+      ) : message.inboxThread ? (
+        <MessageRow {...props} row={message} />
+      ) : message.inboxQueue ? (
+        <QueuedMessageRow {...props} row={{ ...message, queuedMessage: message.inboxQueue }} />
       ) : message.kind === QUEUED_MESSAGE ? (
         <QueuedMessageRow {...props} row={message} />
       ) : (
@@ -1734,6 +1812,7 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [BACKGROUND_TURN]: BackgroundTurnRow,
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
@@ -2724,6 +2803,18 @@ export function VirtualTranscript({
   const [dockCard, setDockCard] = useState(0);
   const dockCardRef = useRef(0);
   dockCardRef.current = dockCard;
+  /// The running tray's height, in that stack: what its header, View all and a command's live tail
+  /// open and fold. What the reader opens or folds there the room under the last row takes only once
+  /// the rows move anyway (`trayHold`).
+  const [dockTray, setDockTray] = useState(0);
+  const dockTrayRef = useRef(0);
+  dockTrayRef.current = dockTray;
+  /// The reader opened or folded something in the tray, and the room has not taken it yet.
+  const trayToggled = useRef(false);
+  /// The tray's height the room under the last row was last given (`trayHold` below), and the rows'
+  /// own height as of the last pass, which tells a pass whose rows grew.
+  const foldBase = useRef(0);
+  const rowsSeen = useRef(0);
   /// A queued prompt left the bottom stack this frame: a sent one is about to come in as the latest
   /// row; a withdrawn one (deleted from the queue) never does.
   const queueLeft = useRef(false);
@@ -2778,6 +2869,7 @@ export function VirtualTranscript({
       setDockSpace(0);
       setDockHeight(0);
       setDockCard(0);
+      setDockTray(0);
       return;
     }
     // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
@@ -2793,11 +2885,37 @@ export function VirtualTranscript({
     // The composer card's height, while the stack reaches over the view.
     const card = (space: number) =>
       space > 0 ? (dock.querySelector(".acpmux-composer-box")?.getBoundingClientRect().height ?? 0) : 0;
+    // The tray, at its drawn height while what it opens plays (useFold animates it); not the copy
+    // of one that left (trayMotion.tsx), which fades over the stack and takes no room.
+    const tray = (space: number) =>
+      space > 0
+        ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
+        : 0;
+    // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
+    // One that changes no height (or a tray that goes) holds nothing: the flag goes after two frames
+    // unless the tray's height changed meanwhile.
+    const toggled = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const toggle = target?.closest("[aria-expanded]");
+      if (!toggle || toggle.closest(".acpmux-running-tray")?.parentElement !== dock) return;
+      trayToggled.current = true;
+      const at = tray(1);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (Math.abs(tray(1) - at) < 0.5 && Math.abs(dockTrayRef.current - foldBase.current) < 0.5)
+            trayToggled.current = false;
+        }),
+      );
+    };
+    dock.addEventListener("click", toggled, { capture: true });
     const observer = new ResizeObserver(() => {
       noteQueue();
       const next = over();
       const nextHeight = height();
       const nextCard = card(next);
+      const nextTray = tray(next);
+      // A tray that went holds nothing: the room is the stack's again.
+      if (nextTray <= 0) trayToggled.current = false;
       if (
         Math.abs(next - dockSpaceRef.current) >= 0.5 ||
         Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
@@ -2807,6 +2925,7 @@ export function VirtualTranscript({
           setDockSpace(next);
           setDockHeight(nextHeight);
           setDockCard(nextCard);
+          setDockTray(nextTray);
         });
     });
     observer.observe(dock);
@@ -2816,7 +2935,11 @@ export function VirtualTranscript({
     setDockSpace(space);
     setDockHeight(fullHeight);
     setDockCard(card(space));
-    return () => observer.disconnect();
+    setDockTray(tray(space));
+    return () => {
+      observer.disconnect();
+      dock.removeEventListener("click", toggled, { capture: true });
+    };
   }, [dock, noteQueue]);
   // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
   // size as it was (a prompt the fold hides, or one an opened list's cap cuts off, run by another
@@ -3238,7 +3361,10 @@ export function VirtualTranscript({
   /// Gives the room under the last row the stack's height again, at once, before Jump to latest
   /// follows again (`room` below).
   const takeRoom = useCallback(() => {
-    if (Math.abs(heldRoom.current - dockSpaceRef.current) <= 0.5) return;
+    const held = Math.abs(foldBase.current - dockTrayRef.current) > 0.5;
+    foldBase.current = dockTrayRef.current;
+    trayToggled.current = false;
+    if (!held && Math.abs(heldRoom.current - dockSpaceRef.current) <= 0.5) return;
     heldRoom.current = dockSpaceRef.current;
     flushSync(roomTaken);
   }, []);
@@ -3511,7 +3637,23 @@ export function VirtualTranscript({
   // The last footer's turn gap and the thread's top inset make the normal turn gap over the
   // floating stack. The old permanent TRANSCRIPT_RUNWAY (removed after #23094) kept an extra blank
   // band here; the pinned-bottom layout below already follows streaming growth before paint.
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + dockSpace;
+  // What the reader opens or folds in the running tray moves no row (Leo, 2026-11-01: "there's a
+  // layout shift when i expand it"): what it opens lies over the transcript's foot, as a menu over
+  // the composer would, and the room under the last row keeps what it was (`trayHold`, the tray's
+  // change since the room last took it). The room takes it once the rows move anyway: the next pass
+  // whose rows grow (a reply streaming on, a send) gives it all (what opened) or as far as they grew
+  // (what folded, whose room the rows fill), and Jump to latest or the reader's wheel past the end
+  // gives it at once (`takeRoom`, `giveTrayRoom`). A line that joins or leaves the tray, and the
+  // tray coming or going, make room as before; scrolled up the room is held anyway.
+  const rowsGrew = measured.layout.totalHeight - rowsSeen.current;
+  const trayBase =
+    sessionSwitched || !following || dockSpace <= 0 || !trayToggled.current
+      ? dockTray
+      : rowsGrew > 0.5
+        ? dockTray - Math.min(0, dockTray - foldBase.current + rowsGrew)
+        : foldBase.current;
+  const trayHold = Math.min(dockSpace, dockTray - trayBase);
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + dockSpace - trayHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -3535,7 +3677,7 @@ export function VirtualTranscript({
           ),
         )
       : grown;
-  const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
+  const room = sessionSwitched || following ? dockSpace - lifted - trayHold : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
@@ -4086,6 +4228,31 @@ export function VirtualTranscript({
     canLoadOlder,
     followResume,
   ]);
+  // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
+  useLayoutEffect(() => {
+    foldBase.current = trayBase;
+    rowsSeen.current = measured.layout.totalHeight;
+    if (Math.abs(trayHold) <= 0.5 && (rowsGrew > 0.5 || !following || sessionSwitched)) trayToggled.current = false;
+  });
+  // The reader's wheel down at the end, over a tray list opened on it: the room under the last row
+  // takes the list now, below the view, and the wheel scrolls into it (the view follows again once
+  // it is at the end), so the rows under the list are a scroll away, not a fold.
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const giveTrayRoom = (event: WheelEvent) => {
+      if (event.deltaY <= 0 || !followingRef.current || dockTrayRef.current - foldBase.current <= 0.5) return;
+      foldBase.current = dockTrayRef.current;
+      trayToggled.current = false;
+      heldRoom.current = dockSpaceRef.current;
+      flushSync(() => {
+        followRef.current(false);
+        roomTaken();
+      });
+    };
+    node.addEventListener("wheel", giveTrayRoom, { passive: true });
+    return () => node.removeEventListener("wheel", giveTrayRoom);
+  }, []);
   // A toggled "Worked for" plays when its rows are placed again (watchTurnFold, started at the
   // toggle), not on every render. A render only checks, in O(1), whether the fold is over or another
   // chat shows, so nothing of it is left drawn over the new rows.
@@ -4195,7 +4362,7 @@ export function VirtualTranscript({
         ? {
             rowId: drawnId,
             card: drawnCard,
-            needle: findQuery.toLocaleLowerCase(),
+            needle: foldFind(findQuery),
             repaint: () => setRevealed((count) => count + 1),
             ...(matchRowId !== undefined ? { matchRowId } : {}),
           }
@@ -4758,7 +4925,10 @@ export function VirtualTranscript({
         keepBottomFoldRoom();
         return false;
       }
-      if (!stickyFoldRoom.current) dropFoldRoom();
+      // Reopening at the physical bottom consumes any room retained by a prior collapse. The
+      // expanded body itself supplies the height; keeping the old blank room would add a second,
+      // jarring gap while the stack moves up.
+      if (!stickyFoldRoom.current || toggle.getAttribute("aria-expanded") === "false") dropFoldRoom();
       const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");
@@ -5416,7 +5586,10 @@ function AcpmuxPane() {
       }),
   );
   useSyncExternalStore(sandbox.subscribe, sandbox.snapshot);
-  const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
+  /// Claude workflows (the transcript card, Session Info's workflows, the side tab) are on by
+  /// default, not behind Labs: Leo asked for them (2026-10-24, "leo dynamic workflows ... idk how we
+  /// wanna display but here"). A host `workflowLabs` push of false still turns them off.
+  const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(true);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
@@ -6475,7 +6648,10 @@ function AcpmuxPane() {
         },
         last?.turns,
       );
-      const subagents = subagentRowsFrom(turns.rows, folds, last?.subagents);
+      // Expand inbox summaries only after turn shaping. Source rows remain the semantic anchors
+      // for turn boundaries, retries and queue actions; this is a display-only projection.
+      const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
+      const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
@@ -8863,6 +9039,25 @@ function AcpmuxPane() {
   );
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
+  /// The composer for automation (automation.ts composeSend, runMode): its own Return and run row.
+  const automationCompose = useRef<AutomationCompose>(undefined);
+  automationCompose.current = {
+    async send(text) {
+      const handle = composerHandle.current;
+      if (!handle) return undefined;
+      handle.restore(text, []);
+      // A field whose editor is still starting takes the text as state: let it render first.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return composerHandle.current?.send();
+    },
+    runMode: () => sandbox.mode,
+    setRunMode(mode) {
+      if (!sandboxOffered && !sandboxPickedNotOffered && !cloudPickedNotOffered) return false;
+      sandboxModeRows.onMode(mode);
+      return true;
+    },
+    cloudStart: () => cloudStart ?? null,
+  };
   useEffect(() => {
     window.React = React;
     window.cmuxAcpmuxRegistry = {
@@ -9033,10 +9228,7 @@ function AcpmuxPane() {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
-        // The host's existing Advanced > Labs event is the only producer today. Keep workflow
-        // visibility as its own state so the summary never changes environment rendering rules;
-        // a future workflowLabs event can target applyWorkflowLabs directly.
-        setWorkflowLabsEnabled(on === true);
+        // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyWorkflowLabs(on) {
         setWorkflowLabsEnabled(on === true);
@@ -9139,6 +9331,12 @@ function AcpmuxPane() {
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
         pickFolder: (cwd) => automationPick.current?.(cwd),
+        compose: {
+          send: (text) => automationCompose.current?.send(text) ?? Promise.resolve(undefined),
+          runMode: () => automationCompose.current?.runMode(),
+          setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,
+          cloudStart: () => automationCompose.current?.cloudStart() ?? null,
+        },
       },
     });
     let cancelled = false;
@@ -11012,8 +11210,32 @@ function AcpmuxPane() {
           ]
         : []),
     ];
+    // Move to machine and Delete were the title's menu rows until the title became plain text
+    // (header/ThreadTitle.tsx); they live here so no action is lost. Cloud targets come from the
+    // host's live MachineRegistry list and dispatch through the existing CloudMove action.
+    const sessionId = snapshot.sessionId;
+    const client = directClient.current;
+    // A menu kept open across a chat switch never moves or deletes the chat now shown.
+    const sameChat = () =>
+      client !== undefined && client === directClient.current && client.selectedSession === sessionId;
+    const guarded = (row: ChatMenuItem | undefined): Exclude<ChatMenuItem, "separator">[] =>
+      row ? guardedChatMenu([row], sameChat).filter((item) => item !== "separator") : [];
+    const moveMachine = moveMachineRow(
+      {
+        move: moves.includes(CONNECT_ACTIONS.move),
+        bringBack: moves.includes(CONNECT_ACTIONS.bringBack),
+        targets: moveTargets,
+      },
+      {
+        moveTo: (id) => moveChatToMachine(id, sessionId),
+        bringBack: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
+      },
+      t,
+    );
+    const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
+    const moveRow = guarded(moveMachine);
     // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], tools);
+    if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], moveRow, tools, remove);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
     return menuGroups(
       [
@@ -11068,12 +11290,13 @@ function AcpmuxPane() {
             ]
           : []),
       ],
-      machine,
+      [...moveRow, ...machine],
       tools,
       [
         ...avatar,
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
+        ...remove,
         {
           key: "close",
           label: t("chatMenu.close"),
@@ -11084,104 +11307,8 @@ function AcpmuxPane() {
       ],
     );
   };
-  // The title is a compact identity control. Keep its actions on the same existing paths as the
-  // header menu. Cloud targets come from the host's live MachineRegistry list and dispatch through
-  // the existing CloudMove action; there is no client-side machine inventory.
-  const titleMenu = (): ChatMenuItem[] => {
-    const client = directClient.current;
-    const sessionId = snapshot.sessionId;
-    const rows = chatMenu();
-    const row = (key: string) =>
-      rows.find((item): item is Exclude<ChatMenuItem, "separator"> => item !== "separator" && item.key === key);
-    const rename = row("rename");
-    const fork = row("fork");
-    const archive = row("archive");
-    const archiveItem = archive
-      ? { ...archive, accelerator: "A" }
-      : {
-          key: "archive",
-          label: t("chatMenu.archive"),
-          icon: "inbox",
-          disabled: true,
-          accelerator: "A",
-        };
-    const moveChildren = [
-      ...(moves.includes(CONNECT_ACTIONS.move) && moveTargets.length > 0
-        ? moveTargets.map((target) => ({
-            key: `machine:${target.id}`,
-            label: target.label,
-            onSelect: () => moveChatToMachine(target.id, sessionId),
-          }))
-        : []),
-      ...(moves.includes(CONNECT_ACTIONS.bringBack)
-        ? [
-            {
-              key: "bringBack",
-              label: t("composer.bringBackLocal"),
-              onSelect: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
-            },
-          ]
-        : []),
-    ];
-    // Two groups with one line between them, before the destructive pair, as Claude and ChatGPT
-    // draw it (design/menus.md); no line between every row.
-    return guardedChatMenu(
-      menuGroups(
-        [
-          ...(rename ? [{ ...rename, accelerator: "R" }] : []),
-          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) takes no letter.
-          fork
-            ? fork.onSelect
-              ? { ...fork, accelerator: "F" }
-              : fork
-            : {
-                key: "fork",
-                label: t("chatMenu.fork"),
-                icon: "agent.fork",
-                disabled: true,
-                accelerator: "F",
-              },
-          {
-            key: "moveMachine",
-            label: moves.includes(CONNECT_ACTIONS.move)
-              ? t("chatMenu.moveToMachine")
-              : moveChildren.length === 1
-                ? moveChildren[0]!.label
-                : t("composer.environment"),
-            icon: "machine.remote",
-            disabled: moveChildren.length === 0,
-            children: moveChildren,
-          },
-          {
-            key: "openIn",
-            label: t("preview.openIn"),
-            icon: "app.open.external",
-            children: [
-              { key: "browser", label: t("header.browser"), onSelect: newBrowser },
-              { key: "terminal", label: t("header.terminal"), onSelect: newTerminal },
-              {
-                key: "window",
-                label: t("chatMenu.newWindow"),
-                shortcutAction: HEADER_ACTIONS.newWindow,
-                onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
-              },
-            ],
-          },
-        ],
-        [
-          archiveItem,
-          {
-            key: "delete",
-            label: t("permission.verb.delete"),
-            icon: "action.delete",
-            onSelect: requestDelete,
-            accelerator: "D",
-          },
-        ],
-      ),
-      () => client !== undefined && client === directClient.current && client.selectedSession === sessionId,
-    );
-  };
+  // A double-click on the plain title renames, as ⌘R does; Quick Chat's panel is not a tab to rename.
+  const renameFromTitle = quick ? undefined : () => runHeaderAction(HEADER_ACTIONS.rename);
   // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
   // chat view's error card with Retry shows, as before.
   const showNewTab =
@@ -12988,12 +13115,7 @@ function AcpmuxPane() {
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <ThreadTitle
-                        key={snapshot.sessionId}
-                        title={chatName}
-                        menu={titleMenu}
-                        onMenuOpen={readTabState}
-                      />
+                      <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
@@ -13004,12 +13126,7 @@ function AcpmuxPane() {
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {!showNewTab && snapshot.sessionId && (
-                          <ThreadTitle
-                            key={snapshot.sessionId}
-                            title={chatName}
-                            menu={titleMenu}
-                            onMenuOpen={readTabState}
-                          />
+                          <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
                         )}
                       </ChatHeaderInlineStatus>
                     )}

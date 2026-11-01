@@ -18,6 +18,7 @@ import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import type { SubagentRetryNotice } from "./subagents/retryState";
 import {
   isRunGroup,
@@ -77,6 +78,19 @@ export type AcpmuxCompaction = {
 
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
+
+/// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
+/// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
+/// (`scheduled`), or a hook (`system`). `running` until its ended record; then `quiet` is acpmux's
+/// word on whether its reply has nothing new to tell (one short line, no question, no link), and
+/// `reason` how it ended (`prompt`: a prompt started a real turn while it ran).
+export type AcpmuxBackgroundTurn = {
+  id: string;
+  trigger: string;
+  running: boolean;
+  quiet?: boolean;
+  reason?: string;
+};
 
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
 /// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
@@ -246,6 +260,10 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
+  background?: AcpmuxBackgroundTurn;
+  /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
+  inBackground?: string;
   /// A policy note's policy and why the chat's harness cannot keep it.
   policyUnenforced?: AcpmuxPolicyUnenforced;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
@@ -269,6 +287,9 @@ export type AcpmuxRow = {
   /// `lead`: the first queued message, which explains a Stop hold for the run.
   /// `heldByStop`: the person's Stop holds it (QueuedPrompt `heldByStop`).
   queuedMessage?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
+  /// A flattened inbox delivery that came from a queued message. Keep the source queue target
+  /// separate from `queuedMessage` so one wrapper prompt does not become every delivery's identity.
+  inboxQueue?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
@@ -411,7 +432,20 @@ export type AcpmuxRow = {
   joined?: string[];
   /// The messages other sessions sent that the agent has not read yet, drawn as one group
   /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
-  pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[] };
+  pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
+  /// A received row expanded from an inbox notice; used to keep its waiting run flat.
+  inboxDelivery?: true;
+  inboxDeliveryBatch?: true;
+  /// Metadata retained for a preview-only inbox delivery so opening it can hydrate its thread.
+  inboxThread?: {
+    threadId: string;
+    label?: string;
+    sender: string;
+    preview: string;
+    count: number;
+    promptIds: readonly string[];
+    fromSession?: string;
+  };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
     rows: readonly AcpmuxRow[];
@@ -1383,7 +1417,8 @@ function fallbackRowHeight(
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
     row.kind === "plan" ||
-    row.kind === "typing"
+    row.kind === "typing" ||
+    row.kind === BACKGROUND_TURN
   )
     return finish(37);
   return finish(8 + messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * metrics().lineHeight);
@@ -1621,7 +1656,7 @@ function measuredRowHeight(
         member.incoming?.kind === "message"
           ? (member.incoming.message.sessionId ?? member.incoming.message.name)
           : member.id;
-      if (member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
+      if (!row.pendingMessages.flat && member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
         senders.add(from);
         height += 22;
       }

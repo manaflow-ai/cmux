@@ -244,6 +244,43 @@ fn a_terminal_with_no_place_and_no_column_makes_one_beside_the_chat() {
     assert_eq!(rename["idempotency_key"], "k1-name");
 }
 
+/// The column right of the chat is one browser pane: a terminal splits below it,
+/// in that column, never a third column (Leo 2026-10-31: "you only need the
+/// rightmost botom auto split when there's a terminal that gets opened when
+/// there's already a browser"). A pane that already holds a terminal takes it.
+#[test]
+fn a_terminal_beside_a_lone_browser_splits_below_it_and_reuses_a_terminal_pane() {
+    let fake = Fake {
+        beside: json!({"pane": RIGHT_PANE, "placement": "existing_column",
+                       "panes": [{"id": RIGHT_PANE, "kinds": ["browser"]}]}),
+        resource_result: Some(json!({"tab_id": "tab_new", "pane_id": "pane_new"})),
+        ..placed()
+    };
+    let mut server = Server::new(fake, None);
+    let result =
+        call(&mut server, "tab_create_terminal", json!({"shell": "make dev", "name": "dev"}));
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = sent_resources(&server);
+    let split = &sent[0]["request"];
+    assert_eq!(split["operation"], "pane.split");
+    assert_eq!(split["params"]["pane"], RIGHT_PANE);
+    assert_eq!(split["params"]["direction"], "down");
+    assert!(split["params"].get("viewport_width").is_none(), "{split}");
+
+    let fake = Fake {
+        beside: json!({"pane": RIGHT_PANE, "placement": "existing_column", "panes": [
+            {"id": RIGHT_PANE, "kinds": ["browser"]}, {"id": "pane_term", "kinds": ["terminal"]}]}),
+        ..placed()
+    };
+    let mut server = Server::new(fake, None);
+    let result = call(&mut server, "tab_create_terminal", json!({"name": "w"}));
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = sent_resources(&server);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["request"]["operation"], "tab.create_terminal");
+    assert_eq!(sent[0]["request"]["params"]["pane"], "pane_term");
+}
+
 /// A link with no workspace opened in Home. An agent's link goes to the
 /// app's `browser.open_split`, whose beside_caller rule places it right of
 /// the chat, and never to the daemon's Home default.
