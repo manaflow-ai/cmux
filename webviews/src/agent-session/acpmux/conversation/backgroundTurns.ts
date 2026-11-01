@@ -46,11 +46,13 @@ export const foldsBackground = (row: AcpmuxRow): boolean =>
  * still belongs behind the original background line. A later owner update wins for an ID.
  */
 export function foldedBackgroundIds(rows: readonly AcpmuxRow[], expanded: Folds): Set<string> {
-  const folding = new Map<string, boolean>();
-  for (const row of rows)
-    if (row.kind === BACKGROUND_TURN && row.background)
-      folding.set(row.background.id, foldsBackground(row) && !expanded.has(row.id));
-  return new Set([...folding].filter(([, closed]) => closed).map(([id]) => id));
+  const closed = new Set<string>();
+  for (const row of rows) {
+    if (row.kind !== BACKGROUND_TURN || !row.background) continue;
+    if (foldsBackground(row) && !expanded.has(row.id)) closed.add(row.background.id);
+    else closed.delete(row.background.id);
+  }
+  return closed;
 }
 
 export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
