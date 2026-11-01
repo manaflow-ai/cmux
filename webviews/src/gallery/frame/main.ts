@@ -23,6 +23,7 @@ import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
+import { collectInvariants, type Violation } from "../invariants";
 
 installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
@@ -194,8 +195,11 @@ function markReady(): void {
 declare global {
   interface Window {
     cmuxGalleryLoadReport?: LoadReport;
+    /** The design specs' geometry rules this stage breaks (invariants.ts); the runner reads it after its screenshot. */
+    cmuxGalleryInvariants?: () => Violation[];
   }
 }
+window.cmuxGalleryInvariants = () => collectInvariants(document);
 
 /**
  * Opening the stage, measured like a play step: the browser's layout-shift entries since navigation

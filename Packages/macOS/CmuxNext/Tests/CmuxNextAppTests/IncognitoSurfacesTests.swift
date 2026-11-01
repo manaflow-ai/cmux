@@ -85,7 +85,7 @@ struct IncognitoSurfacesTests {
     }
 
     /// A Run or hand-off from an incognito chat is never saved for the next launch (its task or summary
-    /// included), so no later launch can post it.
+    /// included), so no later launch can post it. Only its bare id is kept while it may be open (#31040).
     @Test func incognitoRunsAreNeverSaved() async throws {
         let suite = "incognito-surfaces-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -98,7 +98,28 @@ struct IncognitoSurfacesTests {
         follower.watch(SandboxRunRecord(id: "run_normal", task: "make test", key: "k2", user: "u", team: nil, started: Date()))
         let saved = String(decoding: defaults.data(forKey: SandboxRunFollower.defaultsKey) ?? Data(), as: UTF8.self)
         #expect(saved.contains("run_normal"))
-        #expect(!saved.contains("run_secret") && !saved.contains("prod key"), "an incognito Run was saved for the next launch")
+        #expect(!saved.contains("prod key"), "an incognito Run was saved for the next launch")
+        let relaunched = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
+        #expect(relaunched.following.map(\.id) == ["run_normal"], "an incognito Run's record was saved for the next launch")
+    }
+
+    /// Issue #31208: an incognito Run is never resumed after a relaunch (its record isn't saved, and no list
+    /// brings it back), so its id is dropped at the next sign-in instead of staying saved forever.
+    @Test func anIncognitoRunsIDIsDroppedAtTheNextLaunchsSignIn() async throws {
+        let suite = "incognito-surfaces-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        func saved() -> String { String(decoding: defaults.data(forKey: SandboxRunFollower.defaultsKey) ?? Data(), as: UTF8.self) }
+        let first = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
+        first.account("u")
+        var secret = SandboxRunRecord(id: "run_secret", task: "rotate the prod key", key: "k1", user: "u", team: nil, started: Date())
+        secret.incognito = true
+        first.watch(secret)
+        #expect(saved().contains("run_secret"))
+        first.stop()
+        let relaunched = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
+        relaunched.account("u")
+        #expect(!saved().contains("run_secret"), "an incognito Run's id outlived the launch that could follow it")
     }
 
     /// The tabs the quit leaves out are taken before its window step closes the incognito workspaces (after

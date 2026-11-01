@@ -897,6 +897,9 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
     for item in found.get("shifted") or []:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
+    for item in found.get("geometry") or []:
+        for violation in item.get("violations") or []:
+            result.failed.add(f"{item.get('state', '')}: breaks {violation.get('key', '')}")
     return result
 
 

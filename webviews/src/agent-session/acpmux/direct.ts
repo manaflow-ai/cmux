@@ -34,6 +34,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
+import { QUEUED_MESSAGE } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -51,7 +52,7 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { isFramesNote, withoutFrames } from "./composer/videoPrompt";
+import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -5713,6 +5714,10 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
+      } else if (event.kind === "queue_declined") {
+        // The owner declined a guest's prompt: one quiet line where it was declined, never gone silently.
+        this.declinedRow(event);
+        this.reduceLiveState(event);
       } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
@@ -6508,12 +6513,13 @@ export class AcpmuxDirectClient {
     }
     const blocks = promptBlocks(input, carried, options);
     const inline = inlinePrompt(input, carried);
+    const isFrame = frameTextOf(imageNames(blocks));
     const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
             // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFramesNote(block.text)) return shown;
+            if (block.type !== "text" || isFrame(block.text)) return shown;
             if (shown.text) shown.text += "\n";
             const start = shown.text.length;
             shown.text += block.text;
@@ -7186,6 +7192,23 @@ export class AcpmuxDirectClient {
   private queueApproval = false;
   /// Whether this acpmux reads a queued prompt whole (`_acpmux/queue_get`, feature `queueGet`).
   private queueGet = false;
+  /// A declined guest prompt's row (`queue_declined`), from its queue entry while the pane still has it.
+  private declinedRow(event: EventRecord): void {
+    const promptId = String(event.msg?.promptId ?? "");
+    const entry = this.queue.find((each) => each.id === promptId);
+    const text = entry?.prompt ?? (typeof event.msg?.text === "string" ? event.msg.text : "");
+    if (!promptId || !entry?.author) return;
+    this.rows.set(`declined-${promptId}`, {
+      id: `declined-${promptId}`,
+      version: 1,
+      at: event.at,
+      kind: QUEUED_MESSAGE,
+      text,
+      incoming: { kind: "message", message: { name: entry.author.name, text, raw: text, fromPerson: true } },
+      queuedMessage: { promptId, person: entry.author, declined: true },
+      untyped: true,
+    });
+  }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     const sessionId = this.actingSessionId;

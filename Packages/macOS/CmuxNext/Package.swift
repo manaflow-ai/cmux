@@ -184,18 +184,23 @@ let uiLayerPreviewProducts: [Product] = [
     .library(name: "CmuxNextUiLayerPreview", targets: ["CmuxNextUiLayerPreview"]),
 ]
 
+// Debug-only: the preview leaf and its tests share this one condition.
+let uiLayerPreviewDefine: [SwiftSetting] = [
+    .define("CMUX_UI_LAYER_PREVIEW", .when(configuration: .debug)),
+]
+
 let uiLayerPreviewTargets: [Target] = [
     .target(
         name: "CmuxNextUiLayerPreview",
         dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
-        swiftSettings: uiSwiftSettings + [
-            .define("CMUX_UI_LAYER_PREVIEW", .when(configuration: .debug)),
-        ]
+        swiftSettings: uiSwiftSettings + uiLayerPreviewDefine
     ),
+    // The library compiles to nothing outside Debug, so its tests carry the
+    // same define and compile to nothing there too.
     .testTarget(
         name: "CmuxNextUiLayerPreviewTests",
         dependencies: ["CmuxNextUiLayerPreview"],
-        swiftSettings: uiSwiftSettings
+        swiftSettings: uiSwiftSettings + uiLayerPreviewDefine
     ),
 ]
 
@@ -368,7 +373,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // on the sidebar document; the App only answers `SidebarArchiveHost`.
         .target(
             name: "CmuxNextSidebarActions",
-            dependencies: ["CmuxNextActions", "CmuxNextDesignTokens", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextSettings", "CmuxNextSidebar"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
@@ -607,10 +612,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Hosted Chief (Lawrence 2026-10-19): the Hosted Chief is the default Chief in Home;
         // the one-time copy of this Mac's Chief into it, its brain check, the cloud Chief
-        // models and the Chief switch. No AppServices; the App's HomeService wires it.
+        // models, the Chief switch and the plan of which paired servers to reach (ServerReachPlan,
+        // moved out of CmuxNextApp). No AppServices; the App's HomeService and ServerReachService wire it.
         .target(
             name: "CmuxNextHostedChief",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHomeEngine"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHomeEngine", "CmuxNextRemote"],
             resources: [
                 .process("Resources"),
             ],
