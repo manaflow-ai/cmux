@@ -10,7 +10,13 @@
 //!
 //! The commits are also recorded in the folder as `refs/cmux-back/*`: they
 //! stay out of gc, and a later delta seed may build on them (`since` is the
-//! export's WORK once the Mac merged it back).
+//! export's WORK once the Mac merged it back). The Mac merges an export only
+//! when nothing conflicts, so until it does its base is still `since`: when
+//! `since` was the back record this export replaces, that record moves to
+//! `refs/cmux-base/*` ([`BASE_RECORD`]), so a retry from it after a conflict
+//! still has its commits and its stash to compare with (and a delta seed
+//! still builds on it). Only the Mac's base and the newest export are kept;
+//! the seed's own `refs/cmux-seed/*` stays as the seed left it.
 //!
 //! When WORK is `since_work` (HEAD, the index and the working tree are as
 //! the seed left them) the answer is `unchanged` and no bundle is written.
@@ -27,6 +33,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::git::{Credential, Failure, Git};
+
+/// The back record a Mac may still be on (module docs).
+pub(super) const BASE_RECORD: &str = "refs/cmux-base";
+/// The records an export's or a delta seed's `since` may be, newest first.
+pub(super) const RECORDS: [&str; 3] = ["refs/cmux-back", BASE_RECORD, "refs/cmux-seed"];
 use super::job::{Failed, Job};
 use super::params::check_sha;
 use super::snapshot::{self, Snapshot};
@@ -184,7 +195,7 @@ impl Export {
     /// `since_head`; None when neither is (then a stash counts as a
     /// change).
     fn record_of_since(&self) -> Option<&'static str> {
-        ["refs/cmux-back", "refs/cmux-seed"].into_iter().find(|record| {
+        RECORDS.into_iter().find(|record| {
             let read = |name: &str| {
                 self.read(&[
                     "rev-parse",
@@ -224,7 +235,8 @@ impl Export {
         Ok(None)
     }
 
-    /// `refs/cmux-back/*` name exactly this export's commits.
+    /// `refs/cmux-back/*` name exactly this export's commits; the Mac's base
+    /// (`since`) stays recorded (module docs).
     fn record(
         &self,
         head: &str,
@@ -232,10 +244,37 @@ impl Export {
         work: &str,
         stash: Option<&str>,
     ) -> Result<(), Failure> {
-        for (name, sha) in
-            [("head", Some(head)), ("index", Some(index)), ("work", Some(work)), ("stash", stash)]
-        {
-            let reference = format!("refs/cmux-back/{name}");
+        let read = |record: &str, name: &str| {
+            self.read(&["rev-parse", "--verify", "--quiet", &format!("{record}/{name}")])
+        };
+        match self.record_of_since() {
+            // The Mac is on the back record this one replaces: it moves.
+            Some("refs/cmux-back") if read("refs/cmux-back", "work").as_deref() != Some(work) => {
+                let names = ["head", "index", "work", "stash"];
+                let kept = names.map(|name| read("refs/cmux-back", name));
+                self.set(BASE_RECORD, names.into_iter().zip(kept.iter().map(Option::as_deref)))?;
+            }
+            // Already kept, or the back record stays the Mac's base.
+            Some("refs/cmux-back" | BASE_RECORD) => {}
+            // The Mac is on the seed (or nothing recorded): no other base.
+            _ => {
+                self.set(BASE_RECORD, ["head", "index", "work", "stash"].map(|name| (name, None)))?
+            }
+        }
+        self.set(
+            "refs/cmux-back",
+            [("head", Some(head)), ("index", Some(index)), ("work", Some(work)), ("stash", stash)],
+        )
+    }
+
+    /// Points `record/<name>` at each sha, deleting the ones with none.
+    fn set<'a>(
+        &self,
+        record: &str,
+        refs: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+    ) -> Result<(), Failure> {
+        for (name, sha) in refs {
+            let reference = format!("{record}/{name}");
             match sha {
                 Some(sha) => {
                     self.git(&["update-ref", &reference, sha])?;
