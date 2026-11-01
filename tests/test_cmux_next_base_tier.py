@@ -242,6 +242,15 @@ class Kick(unittest.TestCase):
         kick(api, clock)
         self.assertEqual(clock.slept[0], tier.WINDOW_S)
 
+    def test_a_skewed_clock_still_dispatches_after_the_capped_wait(self):
+        # The run seen before the sleep is not a new run: a clock still behind its
+        # created_at after the capped wait must dispatch, not return (that starved
+        # the base tier on every kick).
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 - 3600)
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(clock.slept[0], tier.WINDOW_S)
+        self.assertEqual(len(api.dispatched), 1)
+
     def test_a_tip_that_already_has_a_base_tier_run_is_left_alone(self):
         api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
         self.assertIsNone(kick(api, clock))
@@ -415,7 +424,12 @@ class Workflows(unittest.TestCase):
         expression = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["runs-on"]
         self.assertIn("'ubuntu-24.04'", expression)
         self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", expression)
-        self.assertNotIn("vars.LINUX_RUNNER", expression)
+        # A non-Blacksmith LINUX_RUNNER (a fleet pool, a hand failover) still wins;
+        # a Blacksmith one (the 32-vCPU compile size) never picks this job's size.
+        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||", expression)
+        self.assertNotIn("|| vars.LINUX_RUNNER ||", expression)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
+                      "'blacksmith-2vcpu-ubuntu-2404'", expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]
