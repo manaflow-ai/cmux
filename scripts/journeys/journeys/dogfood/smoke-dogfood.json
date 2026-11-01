@@ -188,6 +188,7 @@
     {"do": "smoke_no_key_gaps"}
   ],
   "finally": [
+    {"do": "rpc", "method": "debug.focus", "title": "the focus and key-hold state at the end (records only): new_tab_key_log shows \"hold key #N\" when the New Tab hold took a key (Cmd-N then Ctrl-` held, STATUS 3967/3968)"},
     {"do": "app_log", "seconds": 90, "grep": "newTab|tabs|closeTab|provisional|pending_tab|cancelCreation", "title": "the app log of the round's last 90 s (records only; also when a check failed)"},
     {"do": "smoke_close_all"}
   ]
