@@ -38,8 +38,6 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func setModel(_ modelId: String) async throws -> Data
     func setMode(_ modeId: String) async throws -> Data
     func setConfig(id configId: String, value: String) async throws -> Data
-    /// Sends one cmux-tui Cloud repository action on this chat's authenticated attachment.
-    func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
@@ -52,9 +50,6 @@ extension AgentSessionRemoteClient {
     public func setModel(_ modelId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setConfig(id configId: String, value: String) async throws -> Data { throw Self.settingsUnsupported }
-    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
-        throw AgentSessionRemoteError(code: "cloud_repo.unsupported", message: "the daemon does not serve Cloud repository actions")
-    }
     nonisolated static var settingsUnsupported: AgentSessionRemoteError {
         AgentSessionRemoteError(code: "agent_session.settings_unsupported",
                                 message: "update cmux on that machine to change this chat's model, mode or options from here")

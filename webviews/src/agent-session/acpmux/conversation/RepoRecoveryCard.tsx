@@ -74,7 +74,7 @@ export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): Repo
   };
 }
 
-export function RepoRecoveryCard({ recovery, session }: { recovery: RepoRecovery; session?: string }) {
+export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
   const [state, setState] = useState<"idle" | "waiting" | "retrying" | "done" | "failed">("idle");
   const [choice, setChoice] = useState<string>();
   const mounted = useRef(true);
@@ -84,9 +84,9 @@ export function RepoRecoveryCard({ recovery, session }: { recovery: RepoRecovery
   const connect = () => {
     if (!recovery.installUrl) return;
     window.open(recovery.installUrl, "_blank", "noopener,noreferrer");
-    if (typeof session !== "string" || !recovery.retry) return;
+    if (!recovery.retry) return;
     setState("waiting");
-    void postNative<{ connected?: boolean }>(recovery.retry.wait_action ?? "cloud.repo.wait_github", { session, timeout_ms: 60_000 })
+    void postNative<{ connected?: boolean }>(recovery.retry.wait_action ?? "cloud.repo.wait_github", { timeout_ms: 60_000 })
       .then((reply) => {
         if (!mounted.current) return;
         if (!reply?.connected) {
@@ -94,15 +94,15 @@ export function RepoRecoveryCard({ recovery, session }: { recovery: RepoRecovery
           return;
         }
         setState("retrying");
-        return postNative(recovery.retry!.action, { ...recovery.retry!.args, session }).then((value) => typedFailure(value));
+        return postNative(recovery.retry!.action, recovery.retry!.args).then((value) => typedFailure(value));
       })
       .then(() => mounted.current && setState("done"), () => mounted.current && setState("failed"));
   };
   const select = (repo: string) => {
     setChoice(repo);
-    if (!recovery.retry || typeof session !== "string") return;
+    if (!recovery.retry) return;
     setState("retrying");
-    void postNative(recovery.retry.action, { ...recovery.retry.args, session, repo }).then((value) => typedFailure(value))
+    void postNative(recovery.retry.action, { ...recovery.retry.args, repo }).then((value) => typedFailure(value))
       .then(() => setState("done"), () => setState("failed"));
   };
 

@@ -43,6 +43,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// (`agent-session-start-owner-cloud-v1`). Read at each `initialize`; the page then lets a
     /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
     public typealias OwnerCloud = @Sendable () async -> Bool
+    /// A one-shot Cloud repository request on the tab's owning daemon connection.
+    public typealias CloudRepository = @Sendable (String, [String: any Sendable], Duration?) async throws -> Data
 
     /// `agent-session-start-owner-cloud-v1`: on a Cloud VM, `vm_kind: "owner"` starts any agent (the
     /// person's own disposable VM is the boundary). Only a Cloud VM's daemon serves it, so it is no
@@ -75,6 +77,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private let start: Start?
     private let trust: Trust?
     private let ownerCloud: OwnerCloud?
+    private let cloudRepositoryRequest: CloudRepository?
     private let host: String?
     /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
     /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
@@ -83,23 +86,25 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
-                trust: Trust? = nil, ownerCloud: OwnerCloud? = nil) {
+                trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil) {
         start = nil
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
         self.ownerCloud = ownerCloud
+        self.cloudRepositoryRequest = cloudRepository
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
-                ownerCloud: OwnerCloud? = nil) {
+                ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil) {
         self.start = start
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
         self.ownerCloud = ownerCloud
+        self.cloudRepositoryRequest = cloudRepository
         state = Mutex(State())
     }
 
@@ -267,10 +272,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
-        guard let client = state.withLock({ $0.client }) else {
-            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        guard let cloudRepositoryRequest else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no Cloud repository route")
         }
-        return try await client.cloudRepository(method: method, params: params, timeout: timeout)
+        return try await cloudRepositoryRequest(method, params, timeout)
     }
 
     /// What a setting frame asks for; nil when a value is missing or not text.

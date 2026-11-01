@@ -46,11 +46,11 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
         case "cloud.repo.sync":
             return object["repos"]?.arrayValue != nil
         case "cloud.repo.list", "cloud.repo.attached":
-            return session(object["session"]) != nil && (object.keys.allSatisfy { ["session", "query"].contains($0) })
+            return (object["session"] == nil || session(object["session"]) != nil) && (object.keys.allSatisfy { ["session", "query"].contains($0) })
         case "cloud.repo.add":
-            return session(object["session"]) != nil && repo(object["repo"]) != nil && object.keys.allSatisfy { ["session", "repo", "ref"].contains($0) }
+            return (object["session"] == nil || session(object["session"]) != nil) && repo(object["repo"]) != nil && object.keys.allSatisfy { ["session", "repo", "ref"].contains($0) }
         case "cloud.repo.wait_github":
-            guard session(object["session"]) != nil else { return false }
+            guard object["session"] == nil || session(object["session"]) != nil else { return false }
             if let timeout = object["timeout_ms"]?.intValue { return (0...60_000).contains(timeout) }
             return object["timeout_ms"] == nil
         default: return false
@@ -75,13 +75,16 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
             return AgentPaneReply.failure(code: "unavailable", message: "Cloud repository actions require a Cloud chat.")
         }
         if method != "cloud.repo.local", method != "cloud.repo.sync" {
-            let requestedSession = params.objectValue?["session"]?.stringValue
-            guard let sessionID, requestedSession == sessionID else {
+            guard sessionID != nil else {
                 return AgentPaneReply.failure(code: "cloud_repo.session_mismatch", message: "Cloud repository action does not belong to this chat.")
             }
         }
         do {
-            let sendable = params.sendableObject as! [String: any Sendable]
+            var sendable = params.sendableObject as! [String: any Sendable]
+            if method != "cloud.repo.local", method != "cloud.repo.sync", let sessionID {
+                // The page never chooses the session. Bind this frame to the pane's own chat.
+                sendable["session"] = sessionID
+            }
             let deadline: Duration? = method == "cloud.repo.wait_github" ? .seconds(65) : .seconds(120)
             guard let request else {
                 return AgentPaneReply.failure(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")

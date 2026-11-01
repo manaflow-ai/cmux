@@ -405,7 +405,7 @@ public actor AgentSessionAttachClient {
     }
 
     private static let cloudRepositoryMethods: Set<String> = [
-        "cloud.repo.local", "cloud.repo.sync", "cloud.repo.list", "cloud.repo.add", "cloud.repo.attached", "cloud.repo.wait_github",
+        "cloud.repo.sync", "cloud.repo.list", "cloud.repo.add", "cloud.repo.attached", "cloud.repo.wait_github",
     ]
 
     /// Ends the attachment and the connection; no push after it.

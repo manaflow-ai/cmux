@@ -58,9 +58,6 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         try await mapped { try await client.setConfig(id: configId, value: value) }
     }
 
-    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
-        try await mapped { try await client.cloudRepository(method: method, params: params, timeout: timeout) }
-    }
 
     public func close() async { await client.close() }
 

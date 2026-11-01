@@ -19,7 +19,7 @@ import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
 import { cleanText, mcpCall } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { useRowDisclosure, useTranscriptSessionId } from "./transcriptDisclosure";
+import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
@@ -89,7 +89,6 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
   const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
-  const sessionId = useTranscriptSessionId();
   const failed = rowFailed(tool) && !recovery;
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
@@ -193,7 +192,7 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
         </div>
       )}
       <WrittenArtifactButtons tools={[tool]} />
-      {recovery && <RepoRecoveryCard recovery={recovery} session={sessionId} />}
+      {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (

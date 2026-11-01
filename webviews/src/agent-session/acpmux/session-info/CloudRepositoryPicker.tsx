@@ -27,7 +27,7 @@ type LocalReply = {
   connect?: { install_url?: string };
 };
 
-async function syncRepoCatalog(session: string): Promise<string | undefined> {
+async function syncRepoCatalog(_session: string): Promise<string | undefined> {
   try {
     const local = await postNative<LocalReply>("cloud.repo.local", {});
     const installUrl = local?.connect?.install_url;
@@ -102,7 +102,7 @@ export function CloudRepositoryPicker({
       setError(undefined);
       void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
         .then((syncedInstallUrl) =>
-          request<ListReply>("cloud.repo.list", { session, ...(query.trim() ? { query: query.trim() } : {}) }).then((reply) => ({
+          request<ListReply>("cloud.repo.list", query.trim() ? { query: query.trim() } : {}).then((reply) => ({
             reply,
             syncedInstallUrl,
           })),
@@ -127,7 +127,7 @@ export function CloudRepositoryPicker({
     setAttaching(repo.fullName);
     setError(undefined);
     void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
-      .then(() => request<AddReply>("cloud.repo.add", { session, repo: repo.fullName }))
+      .then(() => request<AddReply>("cloud.repo.add", { repo: repo.fullName }))
       .then((reply) => {
         if (reply?.state === "done" && !((reply as { code?: unknown }).code) && reply.repo) {
           onAttached({ repo: reply.repo, folder: reply.folder, head: reply.head });
@@ -206,8 +206,8 @@ export function CloudRepositoryPicker({
   );
 }
 
-export function loadAttachedCloudRepos(session: string): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
-  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", { session }).then((reply) => ({
+export function loadAttachedCloudRepos(_session: string): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
+  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", {}).then((reply) => ({
     repos: Array.isArray(reply?.repos)
       ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
       : [],

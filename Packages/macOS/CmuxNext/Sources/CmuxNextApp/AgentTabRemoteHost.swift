@@ -82,7 +82,18 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil)
+                let cloudRepository: RemoteAcpmuxWire.CloudRepository = { method, params, timeout in
+                    let requestClient = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+                    let result: Result<Data, any Error>
+                    do {
+                        result = .success(try await requestClient.cloudRepository(method: method, params: params, timeout: timeout))
+                    } catch {
+                        result = .failure(error)
+                    }
+                    await requestClient.close()
+                    return try result.get()
+                }
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
