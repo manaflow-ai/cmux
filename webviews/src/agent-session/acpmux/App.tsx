@@ -2398,6 +2398,7 @@ function TranscriptContext({
 export function VirtualTranscript({
   rows,
   earlier,
+  promptCount,
   loadThrough,
   sessionId,
   onToggleActivity,
@@ -2435,6 +2436,9 @@ export function VirtualTranscript({
   /// The chat's prompts older than `rows` (the snapshot's `earlierPrompts`): the thread rail lays
   /// them out from the first frame, so it never grows or shifts as history pages in.
   earlier?: readonly AcpmuxRow[];
+  /// The chat's prompt count while it does not hold every prompt yet (the snapshot's `promptCount`):
+  /// the rail starts at the height that many prompts take, with the held ones at their final rows.
+  promptCount?: number;
   /// Pages history in until the prompt at `seq` is held (a click on an earlier prompt's tick).
   loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
@@ -4925,8 +4929,11 @@ export function VirtualTranscript({
   // height (the composer at rest). A composer that grows a line, a tray or bar that opens over the
   // view, or the lift a followed view takes leaves the rail where it is; a new view height, another
   // chat or another stack starts over.
+  // Another stack's first measure comes in the layout effect after this render (`dockSpace` still
+  // holds the old one's here), so it starts from none and takes that measure.
   const rest = restingDock.current;
-  if (rest.height !== height || rest.sessionId !== sessionId || rest.dock !== dock)
+  if (rest.dock !== dock) restingDock.current = { height, sessionId, dock, space: 0 };
+  else if (rest.height !== height || rest.sessionId !== sessionId)
     restingDock.current = { height, sessionId, dock, space: dockSpace };
   else if (dockSpace > 0 && (restingDock.current.space <= 0 || dockSpace < restingDock.current.space))
     restingDock.current.space = dockSpace;
@@ -4966,6 +4973,7 @@ export function VirtualTranscript({
           <ThreadMinimap
             rows={rows}
             earlier={earlier}
+            promptCount={promptCount}
             loadThrough={loadThrough}
             sessionId={sessionId}
             layout={layout}
@@ -11557,6 +11565,7 @@ function AcpmuxPane() {
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
                                                   earlier={!childRows ? snapshot.earlierPrompts : undefined}
+                                                  promptCount={!childRows ? snapshot.promptCount : undefined}
                                                   loadThrough={
                                                     !childRows
                                                       ? (seq) =>

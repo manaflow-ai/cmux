@@ -108,7 +108,9 @@ const rail = () => {
   const list = nav.querySelector<HTMLElement>(".acpmux-minimap__list")!;
   const ticks = nav.querySelectorAll(".acpmux-minimap__entry, .acpmux-minimap__gap");
   const rows = [...ticks].reduce(
-    (sum, node) => sum + (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat((node as HTMLElement).style.height) / 10 : 1),
+    (sum, node) =>
+      sum +
+      (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat((node as HTMLElement).style.height) / 10 : 1),
     0,
   );
   const top = Number.parseFloat(nav.style.top);
@@ -157,7 +159,12 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
   try {
     await act(async () =>
       root.render(
-        <VirtualTranscript rows={turnView(held, new Set())} sessionId="rail-grow" onToggleActivity={() => {}} expanded={new Set()} />,
+        <VirtualTranscript
+          rows={turnView(held, new Set())}
+          sessionId="rail-grow"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
       ),
     );
     // Twelve prompts: the rail's 320 px floor.
