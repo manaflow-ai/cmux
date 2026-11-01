@@ -26,7 +26,11 @@ session.snapshot, identify). It reports the app requests' latency, the
 requests over the app's 2 s timeout, and both daemon locks by site
 (`server-stats` `locks`, or `registry_lock.top_sites` on a daemon without
 it). Arguments: --agents (80), --agent-sleep (0.25 s between an agent's
-hooks), --load-seconds (60).
+hooks), --load-seconds (60), --agent-cli (1; 0 runs the hooks only, the
+shipped agent hooks' real load: no shipped hook calls the CLI per turn).
+Scenario "agents-hooks" is "agents" with --agent-cli 0, for the fleet
+script, which passes only --scenarios (perf-10x-daemon.sh
+--arg=scenarios=agents-hooks).
 
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
@@ -343,15 +347,15 @@ class Bench:
             f">/dev/null 2>&1; sleep {self.args.agent_sleep}"
             for event in events
         )
-        script = f"while :; do {loop}; {bin_q} workspace list >/dev/null 2>&1; done"
+        cli = f"; {bin_q} workspace list >/dev/null 2>&1" if self.args.agent_cli else ""
+        script = f"while :; do {loop}{cli}; done"
         return ["/bin/sh", "-c", script]
 
     def server_stats(self, c):
         r = c.call("server-stats", include=["locks", "write_path"])
         return r.get("data") or {} if r.get("ok") else {}
 
-    def agents(self):
-        name = "agents"
+    def agents(self, name="agents"):
         log("scenario", name, self.args.agents, "agents")
         c = Conn(self.sock_path, timeout=300)
         for i in range(20):
@@ -519,6 +523,8 @@ def main():
     ap.add_argument("--agents", type=int, default=80)
     ap.add_argument("--agent-sleep", type=lambda v: str(float(v)), default="0.25")
     ap.add_argument("--load-seconds", type=float, default=60.0)
+    ap.add_argument("--agent-cli", type=int, choices=(0, 1), default=1,
+                    help="1: each fake agent also runs `cmux workspace list` once per turn; 0: hooks only")
     args = ap.parse_args()
     b = Bench(args)
     status = 0
@@ -531,6 +537,10 @@ def main():
             b.scenario("scale", 50, 200, 0.05)
         if "agents" in wanted:
             b.agents()
+        if "agents-hooks" in wanted:
+            # The hooks only: no shipped agent hook calls the CLI per turn.
+            args.agent_cli = 0
+            b.agents("agents-hooks")
     except Exception as e:  # noqa: BLE001
         log("FAILED", repr(e), b.tail()[-1500:])
         b.result["error"] = repr(e)

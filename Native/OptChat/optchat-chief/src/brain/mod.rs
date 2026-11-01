@@ -45,6 +45,7 @@ mod screen;
 pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
+mod session_tell;
 mod side;
 mod spawns;
 mod steer;
@@ -177,6 +178,27 @@ pub enum Input {
         /// Its public id (`ws_…`), when the place can name it.
         ws: Option<String>,
     },
+    /// Where a subagent's workspace opens (`control show`), sent at its
+    /// start whether or not it opens then (`subagents.showWorkspaces`).
+    SubagentWorkspaceSlot {
+        id: String,
+        name: String,
+        slot: crate::state::WorkspaceSlot,
+    },
+    /// `control show` opened workspace `key`.
+    SubagentWorkspaceShown {
+        id: String,
+        key: String,
+        name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
+    },
+    /// Workspace `key` is gone (it could not open, or a short task's idle
+    /// close closed it): the subagent stays hidden until `control show`.
+    SubagentWorkspaceFailed {
+        id: String,
+        key: String,
+    },
     /// A subagent could not start.
     SubagentFailed {
         id: String,
@@ -195,6 +217,13 @@ pub enum Input {
     /// Revoking subagent `id`'s sandbox key failed; the next tick retries.
     AgentKeyRevokeFailed {
         id: String,
+    },
+    /// The answer of acpmux session `name` to the Chief's `tell(id:
+    /// "session:NAME")` (session_tell.rs): another agent's words, queued as
+    /// its report under the ask floor.
+    SessionReply {
+        name: String,
+        text: String,
     },
     /// The answer of a prompt the host sent a subagent (token use, cost).
     SubagentAnswer {
@@ -642,8 +671,18 @@ impl Queued {
             } | Source::Spawn(crate::state::SpawnRef {
                 requires_approval: true,
                 ..
-            })
+            }) | Source::Agent { .. }
         )
+    }
+
+    /// The acpmux session that wrote it: a message another agent sent
+    /// through the CLI, or a session's answer to the Chief's tell.
+    fn agent(&self) -> Option<&str> {
+        match &self.source {
+            Source::Message { agent, .. } => agent.as_deref(),
+            Source::Agent { from } => Some(from),
+            _ => None,
+        }
     }
 }
 
@@ -659,7 +698,13 @@ enum Source {
         id: String,
         remote: Option<String>,
         requires_approval: bool,
+        /// The acpmux session that sent it through the CLI
+        /// (`cmux_conversation::agent_sender`), None for a person's.
+        agent: Option<String>,
     },
+    /// The answer of acpmux session `from` to the Chief's tell
+    /// (session_tell.rs): another agent's words, so its turn asks.
+    Agent { from: String },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
@@ -842,6 +887,9 @@ pub struct Brain {
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
+    /// The acpmux sessions whose messages the running turn carries
+    /// (`Queued::agent`): an ask turn may `tell` them back, no other session.
+    turn_agents: std::collections::BTreeSet<String>,
     /// The last turn was an ask turn: a tool call of it that reaches the
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
@@ -990,6 +1038,7 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
+            turn_agents: std::collections::BTreeSet::new(),
             last_turn_ask: false,
             turn_denied: Vec::new(),
             repeat_denials: 0,
@@ -1391,11 +1440,19 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name, ws } => {
                 self.sub_workspace(&id, key, name, ws)
             }
+            Input::SubagentWorkspaceSlot { id, name, slot } => {
+                self.sub_workspace_slot(&id, name, slot)
+            }
+            Input::SubagentWorkspaceFailed { id, key } => self.sub_workspace_failed(&id, &key),
+            Input::SubagentWorkspaceShown { id, key, name, ws } => {
+                self.sub_workspace_opened(&id, key, name, ws, false)
+            }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
             Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
             Input::AgentKeyRevokeFailed { id } => self.agent_key_revoke_failed(&id),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::SessionReply { name, text } => self.session_reply(&name, &text),
             Input::AutoResume {
                 id,
                 attempt,
@@ -1481,8 +1538,13 @@ impl Brain {
                 self.tell_undelivered(&id, message, &error);
             }
             Input::Control { request, reply } => {
-                let answer = self.control(&request);
-                let _ = reply.send(answer);
+                if matches!(request.action.as_str(), "show" | "hide") {
+                    // Opening or closing a workspace is the daemon's I/O: off the run loop.
+                    self.control_workspace(&request, reply);
+                } else {
+                    let answer = self.control(&request);
+                    let _ = reply.send(answer);
+                }
             }
             Input::CloudTick => {
                 self.cloud_tick();
@@ -1706,8 +1768,8 @@ impl Brain {
     /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
-            parse_reply_threads, parse_ttl,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT,
+            SHOW_SUBAGENT_WORKSPACES, parse_bool, parse_reply_threads, parse_ttl,
         };
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
@@ -1765,6 +1827,18 @@ impl Brain {
             (self.log)(&format!("setting {key} = {on}"));
             return Ok(format!("{key} = {on}"));
         }
+        if key == SHOW_SUBAGENT_WORKSPACES {
+            // From the next spawn on; a subagent already running keeps its
+            // workspace or stays hidden (`control show|hide ID` changes one).
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.show_subagent_workspaces = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == REPLY_THREADS {
             let threads = parse_reply_threads(value)?;
             let mut next = self.chief;
@@ -1790,7 +1864,7 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
         ))
     }
 
