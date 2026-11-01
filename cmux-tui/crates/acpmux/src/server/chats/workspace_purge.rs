@@ -44,10 +44,27 @@ pub(super) async fn handle(
         .filter(|w| crate::session_env::is_workspace_id(w))
         .ok_or_else(|| RpcError::invalid_params("workspaceId must be a workspace id (a UUID)"))?
         .to_ascii_lowercase();
-    // Not implemented yet: nothing is purged (the test proves the next commit's fix).
-    let purged: Vec<String> = Vec::new();
-    let _ = (of_workspace, own_transcripts, remove);
-    Ok(json!({"workspaceId": workspace, "purged": purged, "transcripts": 0}))
+    let mut purged = Vec::new();
+    let mut transcripts = 0usize;
+    for session in of_workspace(hub, &workspace) {
+        // A parent's purge may already have taken this one.
+        if !hub.resolve(&session.id).is_ok_and(|s| Arc::ptr_eq(&s, &session)) {
+            continue;
+        }
+        // Read before the stop: the purge forgets the session.
+        let files = own_transcripts(hub, &session.meta());
+        if let Err(e) = hub.kill(&session, true).await {
+            tracing::warn!(session = %session.id, "workspace purge failed: {}", e.message);
+            continue;
+        }
+        purged.push(session.id.clone());
+        // After the stop, so the harness writes no more of it.
+        transcripts += files.iter().filter(|f| remove(f)).count();
+        if let Some(index) = hub.chat_index().filter(|_| !files.is_empty()) {
+            index.paths_changed(&files, false);
+        }
+    }
+    Ok(json!({"workspaceId": workspace, "purged": purged, "transcripts": transcripts}))
 }
 
 /// This daemon's sessions recorded for `workspace` (a lowercase workspace id).

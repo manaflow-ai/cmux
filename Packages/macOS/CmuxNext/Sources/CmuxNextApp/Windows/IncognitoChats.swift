@@ -34,7 +34,8 @@ enum IncognitoChats {
     /// The acpmux workspace key whose chats go when workspace `id` closes: its key when it is
     /// incognito, else nil (a normal workspace's chats stay in history).
     static func key(of id: String, key: String?, incognito: (String) -> Bool) -> String? {
-        nil  // not implemented yet
+        guard let key, !key.isEmpty, incognito(id) else { return nil }
+        return key
     }
 
     /// Quit: the purges of the incognito workspaces just closed reach acpmux before its agents end.
