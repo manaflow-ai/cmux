@@ -290,7 +290,7 @@ pub(super) fn plan_with(
             match answer {
                 Ok(body) => {
                     let line = ensure_answer(Ok(body));
-                    let Some(id) = line["machine"].as_str() else { return line };
+                    let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
                     // Pinned before the App opens anything there, as a machine the App made.
                     if let Err(error) = Ledger::update(ledger, |pins| {
                         pins.record(id, &send);
@@ -301,7 +301,8 @@ pub(super) fn plan_with(
                         return refused("ledger_failed", format!("{error:#}"));
                     }
                     json!({"ok": true, "machine": id, "ensured": {
-                        "created": line["created"], "snapshot": line["snapshot"], "environment": line["environment"],
+                        "created": line.get("created"), "snapshot": line.get("snapshot"),
+                        "environment": line.get("environment"),
                     }})
                 }
                 // The platform made no machine: the App makes it, as before.
