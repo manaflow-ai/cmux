@@ -139,3 +139,54 @@ multiplier left is in **per-agent RAM** and **busy CPU with many agents**:
 ## 8. Runs
 
 Filled in by the measuring agent as the Mac-mini runs finish.
+
+## 9. Waste ranking (2026-11-01)
+
+Leo (2026-10-21): "Rank the waste: hidden or background tabs and webviews that still render,
+animate or poll; timers; transcripts held fully in memory (the 700-turn chat); idle acpmux
+sessions kept hot; per-row animations; GPU layers."
+
+Read from the code at `feat-cmux-next` 796b77a747a6, not measured: the costs are estimates from
+the code and from the numbers in sections 3 and idle-wakeups.md section 7. The bench that turns
+each row into a number is `scripts/perf-bench/budget.py` (the `cmux-budget` session: footprint
+per hidden tab, CPU and wakeups with the window shown and hidden) plus `bench_memory.py --mix
+terminal+chat` for agents. Paths are under `Packages/macOS/CmuxNext/Sources/` (Swift),
+`webviews/src/` (web; a bare `App.tsx`, `direct.ts`, `model.ts`, `tailCache.ts` or `summary/` is in
+`webviews/src/agent-session/acpmux/`) or `cmux-tui/crates/acpmux/src/` (acpmux).
+
+Ranked by what it costs a person with a normal day open (a few workspaces, 10-20 chats, a
+long chat, some browser tabs). "Settled" names a design Leo asked for that a fix must keep.
+
+| # | Waste | Where | Cost (estimate) | Bound today |
+| --- | --- | --- | --- | --- |
+| 1 | **Hidden chat pages are kept for the tab's life.** Each chat tab is its own web content process; hidden, it keeps its attach open and keeps reducing every event into rows (it only defers drawing). | `CmuxNextSettings/BrowserHibernationSetting.swift:80` (`discardsAutomatically: false`), `CmuxNextApp/Hibernation/AgentPageHibernation.swift:186` (`.keepsState`, before any memory-pressure check) | ~75 MB per hidden chat (the file's own figure), 0.75-1.5 GB at 10-20 chats, plus CPU per streamed event in each | Only `browser.hibernation` in cmux.json, or the whole workspace hibernating (60 idle min; a space no window shows, 15 min) |
+| 2 | **Agents started unasked on every pane connect.** The composer's first paint calls `warmRecentProjects()`, which starts a live harness in each of the 3 most recent trusted folders. Idle children are reaped after 2 min, so every pane opened after that starts them again. | `agent-session/acpmux/App.tsx:10725`, `agent-session/acpmux/direct.ts:6337`, `hub/warm.rs:13` | Up to 3 harness processes with their MCP sidecars (about 40 MB of cmux sidecars per agent, section 3, plus the harness), for ~2 min after each pane open | `IDLE_CHILD` 2 min (`hub/mod.rs:285`); a child already live is reused. The session pool adds up to 2 per folder, 1 GB RSS cap, 10 idle min (`hub/pool/mod.rs:22`) |
+| 3 | **The 700-turn chat: history only grows once loaded.** Opening pages 128 KB and older pages 256 KB, but `events`, the ordered rows and the per-row measure cache (markdown tokens, measured text) are only dropped on a chat switch. Every loaded row is lexed (`marked`) and measured eagerly; only on-screen rows render. Each page also keeps 20 recent tails and 24 read-ahead tails of 400 events with no byte cap. | `direct.ts:335`, `direct.ts:1599`, `direct.ts:1318`, `model.ts:998`, `model.ts:1204`, `tailCache.ts:32` | 20-100 MB of JS heap per page after scrolling a long chat to the top; 5-50 MB of tails per page with big tool output | The virtualizer (`model.ts:2073`, 4 rows of overscan) bounds the DOM, not the data. The app-shared tail is capped at 256 KB per chat |
+| 4 | **Polls that start a process or a round trip, with no visibility gate.** | Cloud access triage: `CmuxNextApp/Cloud/CloudAccessAsks.swift:44`, `CmuxNextDaemonService/CloudMoveSetup.swift:20` (a `cmux link access triage` CLI run every 3 s per machine, `link access sync` every 60 s per moved chat). PR badge: `CmuxNextApp/AgentChatPullRequest.swift:63` (`gh` every 60 s per chat while checks are pending, hidden chats included, not shared per folder). Remote file tab: `CmuxNextDaemonService/RemoteFilePageFiles.swift:250` (a stat every 2 s per tab until it closes; a symlink reads the whole file). Background task tray: `agent-session/acpmux/conversation/backgroundTaskOutput.ts:148` (a host read every 1.2 s per open tray row). Read-ahead: `direct.ts:468` (12 chats re-read every 5 s in every page, hidden ones too). Diff freshness: `diff-viewer/freshness.ts:84` (a full `git diff` hash every 4 s while shown) | Cloud triage ~1,200 process starts an hour per machine for anyone who moved a chat; the rest scale per chat, per tab or per page | Cloud triage stops only when no moved chat or revoke is left; the PR badge when checks finish; diff freshness skips hidden pages; the others never |
+| 5 | **Hidden app pages are hidden, never frozen.** Chats, Home channels, the diff viewer, markdown and settings pages stop rAF and CSS animation when hidden but keep their timers (~1 Hz each). The spare New Tab page is parked off screen and still reports itself visible (its Now Playing bars and 1 s timer run at full rate). An agent-driven WebKit tab stays in an off-screen render window with occlusion off until a pane shows it or it closes. | `CmuxNextApp/Pages/Chromium/CEFPageChromiumPage.swift:90` (only `setContentVisible`; the freeze in `CmuxNextBrowser/CEF/CEFTab+Freeze.swift:11` is browser tabs' only), `CmuxNextApp/NewTab/NewTabSparePool.swift:69`, `CmuxNextBrowserHost/BrowserHost/AgentRenderWindows.swift:39` | ~1 wakeup/s per hidden app page; one renderer drawing at display rate while music plays; a full-rate offscreen page per agent-driven WebKit tab | Browser tabs freeze after 30 s hidden (`CmuxNextApp/Hibernation/BrowserHibernation.swift:483`) |
+| 6 | **Per-row and per-card timers that skip the shared page clock.** Home channels' `useNow` is a 1 s `setInterval` per running card (RunCard, RunSheet, LiveTyping, GoalStrip), re-rendering every second even for a run quiet for 30 min; the cloud start card, the New Tab timer and Now Playing tick at 1 s the same way. | `pages/home-channels/RunCard.tsx:35`, `agent-session/acpmux/CloudStartView.tsx:230`, `agent-session/acpmux/newtab/NewTabExtras.tsx:24`, `agent-session/acpmux/newtab/NowPlayingPlayer.tsx:42` | A React render per card per second; small, but it scales with running runs | None: they do not use `visibleInterval` / `subscribePageSecond` (`ui/pageClock.ts:22`) |
+| 7 | **O(rows) passes on every streamed frame.** Snapshots are coalesced to one per frame and heights are laid out from the first changed row, but each frame still copies the whole row array and walks every row several times (the rule in section 1: "work is proportional to the change"). | `direct.ts:1546` (`OrderedRows.sorted()`), `App.tsx:5902` (`renderPages`), `App.tsx:7113` with `summary/sessionSummary.ts:44` (`tools(rows)`), `App.tsx:6584` (`sourceRows`, `withoutQuietThoughts`), `App.tsx:3245` | ~1-5 ms a frame at ~10k rows, mostly allocation; grows with the chat, so the 700-turn chat streams slowest | None |
+| 8 | **GPU layers.** The agent-cursor glass is a full-window, always-active behind-window blur masked to the name tags, made on first use and kept for the window's life. Sleepy Mode runs ~93 infinite Core Animation layers for hours. Each sticky diff file header has its own `backdrop-filter` in see-through mode. The Cloud art animates `offset-distance`, which may not stay on the compositor. | `CmuxNextDesign/Overlay/WindowOverlayHost+AgentCursor.swift:18`, `CmuxNextDesign/NightSky/NightSkyView.swift:152`, `pierre-options.ts:178`, `pages/cloud/styles.css:876` | Render-server compositing, little app CPU; the cursor glass may keep WindowServer sampling the backdrop with nothing shown | Sleepy Mode only while it shows; the rest none |
+| 9 | **Idle acpmux sessions kept hot: mostly solved.** Idle harnesses stop after 2 min on deadlines (no poll), an attached chat does not keep one awake, and native wrappers hibernate too (#29138). Left: an agent with any non-MCP child process (a dev server), a Claude chat with turns but nothing stored (`claude_unstored`), or a failed process census stays up for good, re-checked with a `ps` every 2 min. The daemon holds no event log in RAM; `message_ids` per session grows slowly. | `hub/idle.rs:69`, `hub/idle_census.rs`, `hub/session.rs:59` | One harness (hundreds of MB) per stuck session; the `ps` is cheap | `IDLE_CHILD` (`ACPMUX_IDLE_CHILD_SECS`); agent hosts with no daemon exit after 10 min (`agent_host/mod.rs:252`) |
+| 10 | **Per-row animations: solved.** Native spinners share one `SpinnerClock` phase and run in Core Animation, paused on occlusion, hidden ancestors and Reduce Motion (`CmuxNextDesign/StatusIndicator/StatusIndicatorView.swift:101`); a window out of sight gets no animation frames (#29429); web loops pause under `data-cmux-page-hidden` (`pages/shared/desktop.css:749`) and the activity line ticks on the shared page clock (#28753). Left: the opt-in shimmer look repaints `background-position` per working tool row (`agent-session/acpmux/conversation/conversation.css:2098`). | | Nothing by default | |
+
+Already fixed since 2026-10-21, so not in the ranking: hidden-space and idle-workspace hibernation
+(#30666, #30815, #30924), no frames for windows out of sight (#29429), a folded running tray
+skips its hidden rows (#29250), the activity line on the shared clock (#28753), idle native
+wrappers hibernate (#29138), the app's idle acpmux and browser host stop on quit (#30090), and
+cmux-tui scans no idle terminal per wake (#30063).
+
+Settled, so a fix must keep it: a browser page never reloads unless the person asks (#25791, Leo:
+"why does cmux-next's browser keep refreshing and reloading?"), and #25920 put agent chat pages
+under the same setting. A fix for row 1 must therefore bring a chat back with no visible reload
+(its draft, scroll position and selection restored from acpmux and the tab), or stay on memory
+pressure only; it must not turn on browser-tab discarding.
+
+What each fix looks like, in rank order: (1) release a hidden, idle chat page after N minutes and
+under memory pressure, restoring it in place; (2) warm recent projects once per app session, not
+per pane connect; (3) drop loaded history pages that are far off screen and lex/measure rows
+lazily, and give the page's tails a byte cap; (4) gate each poll on visibility and share the PR
+badge per folder, and replace the triage poll with a push from the machine; (5) freeze hidden app
+pages with the browser tabs' freeze, and hide the spare New Tab after its first paint; (6) move the
+1 s tickers onto `subscribePageSecond` / `subscribePageMinute`; (7) keep the row array and the
+per-frame summaries incremental; (8) tear down the cursor glass when no cursor shows.
