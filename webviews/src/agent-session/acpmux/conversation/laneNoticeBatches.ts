@@ -39,6 +39,10 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
 /// Parse only the immutable incoming message object. laneNotice itself caches the presentation in a
 /// WeakMap, so this remains constant-time when a transcript token updates around an unchanged row.
 export const noticeOf = (row: AcpmuxRow): LaneNotice | undefined => {
+  // A person's prompt (a guest's held or declined one, or any row with its author) is never a
+  // notice, whatever its text looks like: laneReport.ts `laneNotice` says the same of its message.
+  const queued = row.queuedMessage;
+  if (queued?.person || queued?.held || queued?.declined) return undefined;
   const incoming = row.incoming;
   if (incoming?.kind !== "message" && incoming?.kind !== "inbox") return undefined;
   const cacheKey = incoming.kind === "message" ? incoming.message : row;

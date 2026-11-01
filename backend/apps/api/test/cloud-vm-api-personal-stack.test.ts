@@ -50,13 +50,15 @@ it("deletes a created team whose owner could not be added, so a later create may
 it("ignores client-selected metadata and follows all discovery and membership pages", async () => {
   const stack = personalTenantStack(e, async (r) => {
     const url = new URL(r.url)
-    expect(url.searchParams.get("limit")).toBe("100")
     if (url.pathname.endsWith("/teams")) {
+      expect(url.searchParams.get("limit")).toBe("100")
       expect(url.searchParams.get("user_id")).toBe(stackUser)
       return Response.json(url.searchParams.has("cursor") ? { items: [team], pagination: { next_cursor: null } } : { items: [{ id: tenant, client_metadata: { cmuxVmPersonalTenant: marker }, client_read_only_metadata: { cmuxVmPersonalTenant: marker } }], pagination: { next_cursor: "next" } })
     }
-    expect(url.pathname).toBe("/api/v1/team-member-profiles")
-    expect(url.searchParams.get("team_id")).toBe(tenant)
+    // The production members read (stack-server.ts listTeamMembers): team_id alone. Stack refuses `limit` here (400 SCHEMA_ERROR).
+    expect(r.method).toBe("GET")
+    if (!url.searchParams.has("cursor")) expect(r.url).toBe(`https://api.stack-auth.com/api/v1/team-member-profiles?team_id=${tenant}`)
+    expect([...url.searchParams.keys()].filter((k) => k !== "cursor")).toEqual(["team_id"])
     return Response.json(url.searchParams.has("cursor") ? { items: [{ user_id: "another-user" }], pagination: { next_cursor: null } } : { items: [{ user_id: stackUser }], pagination: { next_cursor: "members-next" } })
   })!
   expect(await stack.find(marker)).toEqual([{ id: tenant, marker }])

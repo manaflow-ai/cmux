@@ -602,6 +602,13 @@ export class SettingsStore {
     return reply.ok ? null : reply.error.message;
   }
 
+  /** A build row's Switch in Settings > Updates' Channels card; answers the host's refusal, else
+   * null (success quits the app into that build). */
+  async channelsSwitchBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.switch_build", { build });
+    return reply.ok ? null : reply.error.message;
+  }
+
   /** The Update button of a machine in Settings > Updates' row of other machines; answers the
    * host's refusal, else null (the row's push then shows it updating). */
   async channelsUpdateMachine(id: string): Promise<string | null> {

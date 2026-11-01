@@ -29,7 +29,8 @@ struct HandoffNoticeTests {
     static let id = "ho_0123456789abcdef0123"
 
     /// A `{handoff}` answer; `turn` and `state` nil leave them out (the store before turns).
-    static func handoff(_ status: String, version: Int, turn: Int? = 1, state: String? = "open", summary: String? = nil) -> Result<String, CloudAPIError> {
+    static func handoff(_ status: String, version: Int, turn: Int? = 1, state: String? = "open", summary: String? = nil,
+                        id: String = id) -> Result<String, CloudAPIError> {
         var handoff: [String: Any] = ["id": id, "sessionId": "s1", "status": status, "version": version, "summary": summary ?? NSNull()]
         if let turn { handoff["turn"] = turn }
         if let state { handoff["state"] = state }
@@ -49,12 +50,13 @@ struct HandoffNoticeTests {
         return (follower, ends)
     }
 
-    private static func listEntry(status: String = "starting", version: Int? = nil, turn: Int? = nil) -> CloudHandoff {
+    private static func listEntry(status: String = "starting", version: Int? = nil, turn: Int? = nil, id: String = id,
+                                  state: String = "open") -> CloudHandoff {
         CloudHandoff(id: id, sessionId: "s1", status: status, summary: nil, createdAt: Date().timeIntervalSince1970 * 1_000,
-                     version: version, turn: turn, state: "open")
+                     version: version, turn: turn, state: state)
     }
 
-    private func record() -> SandboxRunRecord { HandoffNotices.record(Self.listEntry(), user: "u1", host: nil) }
+    private func record(_ id: String = Self.id) -> SandboxRunRecord { HandoffNotices.record(Self.listEntry(id: id), user: "u1", host: nil) }
 
     private func settle(_ follower: SandboxRunFollower) async {
         while follower.isPolling(Self.id) { await Task.yield() }
@@ -402,8 +404,8 @@ struct HandoffNoticeTests {
     @MainActor final class Account { var user: String? = "u1" }
     private static var kept: [AppServices] = []
 
-    private func notices(_ held: HeldList, _ account: Account, store: Store) throws -> (HandoffNotices, SandboxRunFollower) {
-        let (follower, _) = follower(store, defaults: try defaults())
+    private func notices(_ held: HeldList, _ account: Account, store: Store, defaults: UserDefaults? = nil) throws -> (HandoffNotices, SandboxRunFollower) {
+        let (follower, _) = follower(store, defaults: try defaults ?? self.defaults())
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         Self.kept.append(services) // HandoffNotices holds its services weakly
@@ -458,6 +460,51 @@ struct HandoffNoticeTests {
         await call.value
         await settle(follower)
         #expect(await store.afters == [nil, 2])
+        notices.stop()
+    }
+
+    /// Issue #31208: an incognito hand-off that closed while the app was stopped is never resumed (its
+    /// record isn't saved), so nothing removed its id. Once the signed-in list answers, an id of that user
+    /// neither followed nor open in the list is dropped; one open in the list, one followed by this launch,
+    /// and another account's stay.
+    @Test func incognitoIDsNeitherFollowedNorListedAreDroppedOnceTheListAnswers() async throws {
+        let (gone, listed, followed) = ("ho_0123456789abcdef0124", "ho_0123456789abcdef0125", "ho_0123456789abcdef0126")
+        let (closed, other) = ("ho_0123456789abcdef0127", "ho_0123456789abcdef0128")
+        let store = Store()
+        for id in [gone, listed, followed, closed, other] { await store.script(id, [Self.handoff("running", version: 2, id: id)]) }
+        let defaults = try defaults()
+        let (first, _) = follower(store, defaults: defaults)
+        // Another account's open incognito hand-off, made before u1 signed in.
+        first.account("u2")
+        var theirs = record(other)
+        (theirs.user, theirs.incognito) = ("u2", true)
+        first.watch(theirs)
+        first.account("u1")
+        for id in [gone, listed, followed, closed] {
+            var incognito = record(id)
+            incognito.incognito = true
+            first.watch(incognito)
+        }
+        first.stop()
+        func saved() -> String { String(decoding: defaults.data(forKey: SandboxRunFollower.Source.handoffsKey) ?? Data(), as: UTF8.self) }
+        #expect([gone, listed, followed, closed, other].allSatisfy { saved().contains($0) })
+        // The relaunch: this app watches `followed` again before the list answers; `gone` and `closed` closed while it was stopped.
+        let held = HeldList(), account = Account()
+        let (notices, relaunched) = try notices(held, account, store: store, defaults: defaults)
+        notices.followAccount("u1")
+        await held.called()
+        let call = try #require(notices.listing)
+        var again = record(followed)
+        again.incognito = true
+        relaunched.watch(again)
+        await held.respond([Self.listEntry(status: "running", version: 2, turn: 1, id: listed),
+                            Self.listEntry(status: "done", version: 3, turn: 1, id: closed, state: "closed")])
+        await call.value
+        #expect(!saved().contains(gone), "an incognito hand-off that ended while the app was stopped kept its id")
+        #expect(!saved().contains(closed), "a closed incognito hand-off in the list kept its id")
+        #expect(saved().contains(listed) && saved().contains(followed))
+        #expect(saved().contains(other), "another account's list took its incognito hand-off's flag away")
+        #expect(relaunched.following.filter { $0.incognito == true }.map(\.id).sorted() == [listed, followed])
         notices.stop()
     }
 

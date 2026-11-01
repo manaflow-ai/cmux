@@ -17,7 +17,9 @@ export type CmuxCommand = SlashCommand & {
     | "btw"
     | "side"
     | "status"
-    | "cd";
+    | "cd"
+    | "resume"
+    | "login";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -119,6 +121,22 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     hint: "<folder>",
     source: "cmux",
     action: "cd",
+  },
+  // Claude Code's own /resume and /login need its terminal UI; these are the GUI's (Lawrence:
+  // "in gui, having /resume would be nice, maybe /login as well"). /resume opens the chats search.
+  {
+    name: "resume",
+    description: "",
+    descriptionKey: "composer.slashResume",
+    source: "cmux",
+    action: "resume",
+  },
+  {
+    name: "login",
+    description: "",
+    descriptionKey: "composer.slashLogin",
+    source: "cmux",
+    action: "login",
   },
 ];
 
@@ -254,6 +272,8 @@ export function cmuxCommandRefusal(
     case "context":
     case "plan":
     case "passThrough":
+    case "resume":
+    case "login":
       return undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
