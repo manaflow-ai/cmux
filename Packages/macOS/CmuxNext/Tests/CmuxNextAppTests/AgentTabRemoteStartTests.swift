@@ -147,10 +147,10 @@ private nonisolated final class RemoteStartDaemon: Sendable {
     func firstStart() async throws -> Data {
         let descriptor = descriptor
         let path = path
-        let supportsNoCwd = supportsNoCwd
+        let noCwdCapability = self.supportsNoCwd
         let line: Data? = await withCheckedContinuation { continuation in
             Thread.detachNewThread {
-                let line = Self.serve(descriptor, until: Date().addingTimeInterval(20), supportsNoCwd: supportsNoCwd)
+                let line = Self.serve(descriptor, until: Date().addingTimeInterval(20), supportsNoCwd: noCwdCapability)
                 // The serving thread alone owns closure. It has already closed its accepted
                 // socket before these bytes return; no cleanup retains an fd that can be reused.
                 Darwin.close(descriptor)
