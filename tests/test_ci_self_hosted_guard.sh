@@ -772,6 +772,7 @@ while [[ $# -gt 0 ]]; do
 			shift 2
 			;;
 		*)
+			[[ -z "${CURL_LOG:-}" ]] || printf '%s\n' "$1" >> "$CURL_LOG"
 			shift
 			;;
 	esac
@@ -794,9 +795,19 @@ last=""
 for arg in "$@"; do
 	last="$arg"
 done
-printf 'dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5  %s\n' "$last"
+printf '%s  %s\n' "${FAKE_SHA256:-dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5}" "$last"
 EOF
   chmod +x "$bin_dir/shasum"
+  # The helper picks its asset from uname; the nightly's dSYM upload job runs it on Linux.
+  cat > "$bin_dir/uname" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+	-s) echo "${FAKE_UNAME_S:-Darwin}" ;;
+	-m) echo "${FAKE_UNAME_M:-arm64}" ;;
+	*) echo "${FAKE_UNAME_S:-Darwin}" ;;
+esac
+EOF
+  chmod +x "$bin_dir/uname"
 
   if ! RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
     echo "FAIL: sentry-cli helper behavior test should install pinned CLI"
@@ -818,8 +829,38 @@ EOF
     exit 1
   fi
 
+  # nightly.yml's upload-nightly-dsyms runs on Linux: the pinned Linux asset, checked against its own digest.
+  local platform os arch asset digest
+  for platform in "Linux x86_64 sentry-cli-Linux-x86_64 5563b71cc28cd8b1e2cd1037f8e377083992ec112c9bf1ff0efd26dfe3b1e67e" \
+    "Linux aarch64 sentry-cli-Linux-aarch64 66ac0b802e82fcef7610dc29559f18efc1eef67bf9610a19705a844ed0697dd4" \
+    "Darwin arm64 sentry-cli-Darwin-universal dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5"; do
+    read -r os arch asset digest <<< "$platform"
+    rm -rf "$tmp_dir/runner" "$tmp_dir/curl.log"
+    if ! FAKE_UNAME_S="$os" FAKE_UNAME_M="$arch" FAKE_SHA256="$digest" CURL_LOG="$tmp_dir/curl.log" \
+      RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
+      echo "FAIL: sentry-cli helper should install $asset on $os $arch"
+      cat "$stderr" >&2 || true
+      exit 1
+    fi
+    if ! grep -Fxq "https://github.com/getsentry/sentry-cli/releases/download/3.3.0/$asset" "$tmp_dir/curl.log"; then
+      echo "FAIL: sentry-cli helper must download $asset on $os $arch"
+      cat "$tmp_dir/curl.log" >&2 || true
+      exit 1
+    fi
+    if FAKE_UNAME_S="$os" FAKE_UNAME_M="$arch" FAKE_SHA256=0000 RUNNER_TEMP="$tmp_dir/runner" \
+      PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
+      echo "FAIL: sentry-cli helper must refuse $asset when its digest differs"
+      exit 1
+    fi
+  done
+  if FAKE_UNAME_S=Linux FAKE_UNAME_M=riscv64 RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" \
+    "$helper" >"$stdout" 2>"$stderr"; then
+    echo "FAIL: sentry-cli helper must refuse a platform with no pinned asset"
+    exit 1
+  fi
+
   rm -rf "$tmp_dir"
-  echo "PASS: sentry-cli helper installs the pinned binary without ambient PATH state"
+  echo "PASS: sentry-cli helper installs the pinned binary for its platform without ambient PATH state"
 }
 
 check_dmg_signing_uses_build_keychain() {

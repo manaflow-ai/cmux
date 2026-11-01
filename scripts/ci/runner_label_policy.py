@@ -167,9 +167,9 @@ TRUSTED_POOL_PREFIX = "glaeda-trusted-"
 def trusted_pool_reason(label: str) -> str | None:
     """Why CI_SEED_TRUSTED_POOL is not allowed, or None when it is fine.
 
-    seed-derived-data.yml seeds on this pool and nightly.yml's app build asks
-    for it beside CI_NIGHTLY_TRUSTED_RUNNER on attempt 1, both with the
-    ci-cache-writer R2 keys, and the app build's product is signed and shipped. So it may name only the trusted
+    seed-derived-data.yml seeds on this pool with the ci-cache-writer R2 keys,
+    and nightly.yml's app build asks for it beside CI_NIGHTLY_TRUSTED_RUNNER on
+    attempt 1; the app build's product is signed and shipped. So it may name only the trusted
     owned pool, glaeda-trusted-<class>-xcode-<version>: minis with no pull
     request runners, whose hook admits only main's push and schedule jobs.
     A pull request pool label (glaeda-std-...) would put those credentials and
