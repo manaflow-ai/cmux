@@ -75,7 +75,7 @@ function Row({
 }) {
   const content = (
     <>
-      <Icon name={icon} size={ROW_ICON} row />
+      <Icon name={icon} size={ROW_ICON} row fit />
       {children}
     </>
   );
@@ -173,6 +173,7 @@ export function EnvironmentSection({
           name={machine.icon}
           size={ROW_ICON}
           row
+          fit
           color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
         />
         <span className="acpmux-session-info-row__name">{machine.name ?? "—"}</span>
@@ -218,7 +219,7 @@ export function EnvironmentSection({
       )}
       {remoteControl && (
         <li className="acpmux-session-info-row">
-          <Icon name="device.phone" size={ROW_ICON} row />
+          <Icon name="device.phone" size={ROW_ICON} row fit />
           <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
             <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
             <input
