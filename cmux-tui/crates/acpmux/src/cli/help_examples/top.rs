@@ -121,7 +121,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "retry",
         &[
             ("Retry a session's failed last turn now", "acpmux retry review-27310"),
-            ("Retry a failed turn of a session on another machine", "acpmux retry mini-3/review-27"),
+            (
+                "Retry a failed turn of a session on another machine",
+                "acpmux retry mini-3/review-27",
+            ),
         ],
     ),
     (
@@ -179,7 +182,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Print a review session's last reply", "acpmux last review-27310"),
             ("Print coord's last 3 replies, newest last", "acpmux last coord -n 3"),
-            ("Print the last reply of a session on another machine", "acpmux last mini-3/review-27"),
+            (
+                "Print the last reply of a session on another machine",
+                "acpmux last mini-3/review-27",
+            ),
         ],
     ),
     (
@@ -192,7 +198,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "send",
         &[
-            ("Send to the one live `review`, here or on another machine", "acpmux send review \"ship it\""),
+            (
+                "Send to the one live `review`, here or on another machine",
+                "acpmux send review \"ship it\"",
+            ),
             ("Send to `review` on machine hb", "acpmux send hb/review \"ship it\""),
             ("Send to a session by its id prefix", "acpmux send 0199aaaa \"ship it\""),
             (

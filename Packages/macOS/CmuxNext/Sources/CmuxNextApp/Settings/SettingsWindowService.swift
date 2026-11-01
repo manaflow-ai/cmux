@@ -45,6 +45,8 @@ final class SettingsWindowService: InternalPageProvider {
     private var pendingRoute: String?
     /// A show that waits for a main window with a workspace.
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
+    /// Cached projection for the wallpaper grid in the host-lists payload.
+    var backdropRowsCache = BackdropCatalogPageRowsCache()
     var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button

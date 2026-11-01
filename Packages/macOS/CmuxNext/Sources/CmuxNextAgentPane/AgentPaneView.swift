@@ -45,7 +45,7 @@ public final class AgentPaneView: NSView {
     let dictation: AgentPaneDictation
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
-    /// Shown when the page's web content ends (it never reloads by itself).
+    /// Shown when the page's web content kept ending (``AgentPageCrashRetry`` gave up retrying).
     var crashNotice: NSView?
     /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
     public var showsCrashNotice: Bool { crashNotice != nil }
@@ -54,6 +54,8 @@ public final class AgentPaneView: NSView {
     var knownWebContentPid: Int32 = 0
     /// Reloads the person asked for with a crash notice's Reload (this pane's or a sibling's).
     var crashReloadCount = 0
+    /// The automatic retries after the page's web content ended.
+    let crashRetry = AgentPageCrashRetry()
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
@@ -429,6 +431,7 @@ public final class AgentPaneView: NSView {
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
         terminations.forget(self)
+        crashRetry.cancel()
         popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
@@ -457,7 +460,8 @@ public final class AgentPaneView: NSView {
         removeContextMenu()
         if let page {
             webView.stopLoading()
-            webView.loadHTMLString("", baseURL: nil)
+            // A Chromium chat's WebKit view never loaded: a blank load would start a process to close.
+            if webView.url != nil { webView.loadHTMLString("", baseURL: nil) }
             // The page host retires its web view (WebViewRetirement).
             page.close()
         } else {

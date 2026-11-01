@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 788,
-    "mcp": 704
+    "verbs": 791,
+    "mcp": 707
   },
   "nouns": [
     {
@@ -1968,6 +1968,13 @@
           "mcpTool": "app_home_enable_channels"
         },
         {
+          "command": "cmux home hide",
+          "title": "Delete Conversation from List",
+          "id": "home.hideConversation",
+          "mcp": true,
+          "mcpTool": "app_home_hide"
+        },
+        {
           "command": "cmux home invite",
           "title": "Invite to cmux-next…",
           "id": "home.invite",
@@ -2036,6 +2043,13 @@
           "id": "home.sendMessage",
           "mcp": true,
           "mcpTool": "app_home_send"
+        },
+        {
+          "command": "cmux home show-hidden",
+          "title": "Show Hidden Conversations",
+          "id": "home.showHiddenConversations",
+          "mcp": true,
+          "mcpTool": "app_home_show_hidden"
         },
         {
           "command": "cmux home switch-view",
@@ -4395,6 +4409,13 @@
           "id": "moveSurfaceToPreviousPane",
           "mcp": true,
           "mcpTool": "app_tab_move_to_previous_pane"
+        },
+        {
+          "command": "cmux tab move-to-space",
+          "title": "Move Tab to Space…",
+          "id": "tab.moveToSpace",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_space"
         },
         {
           "command": "cmux tab move-to-workspace",

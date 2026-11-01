@@ -27,6 +27,7 @@ mod lone_dock;
 mod matrix;
 mod notifications;
 mod pane_close;
+mod read_paths;
 mod registry_reads;
 mod resource_effects;
 mod resource_restore;
