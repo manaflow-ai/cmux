@@ -604,4 +604,49 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       await page.close();
     }
   });
+
+  test("the menu is as wide as the rows its tabs show; a long Legacy model never widens it", async () => {
+    // Leo 2026-11-01: "i also don't like the way this composer has so much space between stuff
+    // surely we can get more compact horizontally" / "see claude code has that".
+    const widths: Record<string, number> = {};
+    for (const variant of ["width-fit", "width-wide"]) {
+      const page = await open(variant, 900, 640);
+      try {
+        widths[variant] = (await bounds(page, ".acpmux-quick-menu")).width;
+        if (variant === "width-fit") {
+          // The widest shown name ends close to its row's ⌘N key: no wide empty band between.
+          const gap = await page.evaluate(() => {
+            const gaps = [...document.querySelectorAll(".acpmux-quick-model-effort")].flatMap((row) => {
+              const name = row.querySelector(".acpmux-menu-label")?.getBoundingClientRect();
+              const key = row.querySelector(".ui-menu-shortcut")?.getBoundingClientRect();
+              return name && key ? [key.left - name.right] : [];
+            });
+            return Math.min(...gaps);
+          });
+          expect(gap).toBeLessThan(160);
+        }
+      } finally {
+        await page.close();
+      }
+    }
+    expect(widths["width-fit"]!).toBeLessThan(widths["width-wide"]! - 40);
+  });
+
+  test("one tab per harness: Claude and Codex routes are Account choices, never tabs", async () => {
+    // Leo 2026-11-01: "we have too many harnesses because you didn't put those things into
+    // accounts or whatever".
+    const page = await open("routes-one-tab");
+    try {
+      const marks = await page
+        .locator(".acpmux-quick-rail-tab:not(.acpmux-quick-rail-add)")
+        .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute("aria-label")));
+      expect(marks.filter((name) => /claude/i.test(name ?? ""))).toHaveLength(1);
+      expect(marks.filter((name) => /codex/i.test(name ?? ""))).toHaveLength(1);
+      await page.getByRole("menuitem", { name: /^Account/ }).hover();
+      for (const route of ["claude-sr2", "Claude Code (work)"])
+        await page.getByRole("menuitemradio", { name: route, exact: true }).waitFor();
+    } finally {
+      await page.close();
+    }
+  });
 });
