@@ -1,6 +1,24 @@
 import Testing
 
 struct CodexAutoNamingArgumentsTests {
+    @Test func emptyCodexHomeFallsBackToDefaultHome() {
+        #expect(
+            CodexAutoNamingArguments.configHome(from: [
+                "CODEX_HOME": "",
+                "HOME": "/tmp/codex-user"
+            ]) == "/tmp/codex-user/.codex"
+        )
+    }
+
+    @Test func explicitCodexHomeIsPreserved() {
+        #expect(
+            CodexAutoNamingArguments.configHome(from: [
+                "CODEX_HOME": "~/.codex-custom",
+                "HOME": "/tmp/codex-user"
+            ]) == "~/.codex-custom"
+        )
+    }
+
     @Test func disablesFeaturesAndForwardsSelectedProviderAndModel() {
         let args = CodexAutoNamingArguments.build(configToml: """
         model = "gpt-5-codex"
@@ -68,12 +86,16 @@ struct CodexAutoNamingArgumentsTests {
         X-Org-ID = "sensitive-value" # trailing comment
         [model_providers.subrouter-extra]
         base_url = "http://127.0.0.1:9999/v1"
+        [model_providers.subrouter2]
+        base_url = "http://127.0.0.1:9998/v1"
         """)
         let overrides = configOverrides(args)
         #expect(overrides.contains("model_provider=\"subrouter\""))
         #expect(overrides.contains("model=\"gpt-5-codex\""))
         #expect(!overrides.contains(where: { $0.contains("http_headers") }))
         #expect(!overrides.contains(where: { $0.contains("subrouter-extra") }))
+        #expect(!overrides.contains(where: { $0.contains("subrouter2") }))
+        #expect(!overrides.contains(where: { $0.contains("127.0.0.1:9998") || $0.contains("127.0.0.1:9999") }))
         #expect(!overrides.contains(where: { $0.contains("sensitive-value") }))
         #expect(!args.joined(separator: " ").contains("secret"))
         #expect(!args.joined(separator: " ").contains("api-secret"))
