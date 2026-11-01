@@ -84,7 +84,7 @@ import Testing
     @Test func theHeroShowsTheChiefsFace() {
         let hero = HomeFirstRunHero(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
         hero.setAvatar(picture: nil, text: nil, name: "Chief")
-        #expect(hero.monogram?.initials == "CH")
+        #expect(hero.monogram?.initials == "C")
         #expect(hero.glyph.isHidden)
         #expect(!hero.picture.isHidden)
         hero.setAvatar(picture: nil, text: "🐙", name: "Chief")

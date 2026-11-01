@@ -367,7 +367,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func applyHeader() {
         let title = titleOverride ?? HomeMapping.title(shownSummary, me: me)
         controller.host.paneHeader.title = title
-        // No chosen text: the monogram of the name the header shows ("Chief" is CH), so the letters always match the pill.
+        // No chosen text: the monogram of the name the header shows ("Chief" is C), so the letters always match the pill.
         controller.host.paneHeader.initials = initialsOverride ?? MonogramAvatar(name: title).initials
     }
 

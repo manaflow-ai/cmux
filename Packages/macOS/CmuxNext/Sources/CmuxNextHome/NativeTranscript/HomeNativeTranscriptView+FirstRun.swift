@@ -34,14 +34,14 @@ extension HomeNativeTranscriptView {
     }
 
     /// The Chief's avatar as the host resolved it (its picture, else its profile's text, else nil:
-    /// the monogram of its name, "CH" for "Chief"), on the header and the first-run hero.
+    /// the monogram of its name, "C" for "Chief"), on the header and the first-run hero.
     public func setChiefAvatar(picture: NSImage?, text: String?) {
         avatarPicture = picture
         avatarText = text
         applyHeroFace()
     }
 
-    /// The letters the header's monogram shows now (its text, else its name's initials, "CH" for
+    /// The letters the header's monogram shows now (its text, else its name's initials, "C" for
     /// "Chief"), for another view of the same Chief (the settings card) to match it.
     public var shownMonogram: String { transcript.shownInitials }
 

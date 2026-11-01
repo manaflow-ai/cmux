@@ -300,13 +300,13 @@ extension HomeService {
         case .text(let own): text = own
         case nil: break
         }
-        if picture == nil, text == nil { text = HomeChiefAvatar.monogram(of: name ?? "") }  // as Home's header (CH)
+        if picture == nil, text == nil { text = HomeChiefAvatar.monogram(of: name ?? "") }  // as Home's header (C)
         return await avatars.chiefFace(name: name, picture: picture, text: text)
     }
 
     /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing its `picture` (its upload) when it has one.
     static func chiefFaces(chiefs: Set<String>, own: [String: HomeChiefAvatar], picture: (String) -> URL?) -> [String: HomeChiefAvatar] {
-        var faces = own
+        var faces = own.compactMapValues(\.chosen)
         for chief in chiefs where faces[chief] == nil {
             if let url = picture(chief) { faces[chief] = .picture(url) }
         }

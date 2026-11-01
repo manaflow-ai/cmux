@@ -21,7 +21,7 @@ import Testing
         let files = HomeChiefFiles(muxHome: try Self.home())
         // A new Chief has no profile, so the tile falls back to the default: the CH monogram.
         #expect(files.tileAvatar() == nil)
-        #expect(HomeHostView.defaultTileAvatar(picture: nil) == .text("CH"))
+        #expect(HomeHostView.defaultTileAvatar(picture: nil) == .text("C"))
         let upload = URL(fileURLWithPath: "/tmp/upload.png")
         #expect(HomeHostView.defaultTileAvatar(picture: upload) == .picture(upload), "a worn upload still shows")
     }
@@ -81,8 +81,8 @@ import Testing
 /// A Chief with no avatar of its own draws its monogram: the default Chief's is CH.
 @Suite struct ChiefDefaultHeaderAvatarTests {
     @Test func theDefaultChiefIsCH() {
-        #expect(HomeChiefAvatar.resolved(nil) == .text("CH"))
+        #expect(HomeChiefAvatar.resolved(nil) == .text("C"))
         #expect(HomeChiefAvatar.resolved(.text("🐙")) == .text("🐙"))
-        #expect(HomeChiefAvatar.chiefDefault.isMonogram, "CH draws as a monogram")
+        #expect(HomeChiefAvatar.chiefDefault.isMonogram, "C draws as a monogram")
     }
 }

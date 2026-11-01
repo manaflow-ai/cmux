@@ -201,8 +201,8 @@ final class PaneHeaderView: NSView {
     }
 
     /// The header's avatar for `initials`: letters and digits as Messages' grey
-    /// gradient monogram (``MonogramAvatar``, Lawrence 2026-10-30: "CH for chief?
-    /// like in imessage"); anything else (an emoji) on the plain disc (white 253,
+    /// gradient monogram (``MonogramAvatar``, like iMessage);
+    /// anything else (an emoji) on the plain disc (white 253,
     /// as HeaderView draws it; the theme's secondary grey in a light theme).
     static func avatarImage(_ initials: String, light: Bool = false) -> NSImage {
         if MonogramAvatar.isMonogram(initials) {

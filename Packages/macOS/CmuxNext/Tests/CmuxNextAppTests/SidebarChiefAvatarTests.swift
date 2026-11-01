@@ -7,6 +7,7 @@ import Foundation
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextAgentLanes
+@testable import CmuxNextApp
 import Testing
 
 /// Leo: "they even show chief-operated chats". Ownership comes from the existing acpmux tags.
@@ -18,6 +19,9 @@ import Testing
     /// "why does my sidebar have this CH thing": no chosen face, no mark on the row.
     @Test func aChiefWithNoChosenFaceDrawsNoMonogramOnTheRow() throws {
         #expect(SidebarChiefAvatar(home: nil) == nil)
+        #expect(SidebarChiefAvatar(home: .text("CH")) == nil, "the retired default a saved profile may hold")
+        #expect(HomeChiefAvatar.resolved(.text("CH")) == .text("C"))
+        #expect(HomeService.chiefFaces(chiefs: [], own: ["a": .text("CH")], picture: { _ in nil }).isEmpty)
         #expect(SidebarChiefAvatar(home: .text("🦊")) == .text("🦊"))
         let url = try #require(URL(string: "file:///tmp/face.png"))
         #expect(SidebarChiefAvatar(home: .picture(url)) == .picture(url))

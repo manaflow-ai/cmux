@@ -46,7 +46,7 @@ final class SidebarChiefAvatarView: NSView {
                                                                       fraction: 1, respectFlipped: true, hints: nil)
             } else {
                 let text: String
-                if case .text(let own) = avatar { text = own } else { text = "CH" }
+                if case .text(let own) = avatar { text = own } else { text = "" }
                 let attributes: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: bounds.height * (text.allSatisfy { $0.isLetter || $0.isNumber } ? 0.52 : 0.85)),
                     .foregroundColor: Palette.textPrimary,

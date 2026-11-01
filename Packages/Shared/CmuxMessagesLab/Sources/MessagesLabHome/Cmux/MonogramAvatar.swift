@@ -7,7 +7,7 @@ import AppKit
 /// first-run hero and anywhere else a monogram is drawn from a name.
 ///
 /// ```swift
-/// MonogramAvatar(name: "Chief").initials       // "CH"
+/// MonogramAvatar(name: "Chief").initials       // "C"
 /// MonogramAvatar(name: "Scout Two").initials   // "ST"
 /// let image = MonogramAvatar(name: "Chief").image(side: 40, light: false)
 /// ```
@@ -21,15 +21,15 @@ public struct MonogramAvatar: Hashable, Sendable {
         self.initials = initials
     }
 
-    /// A monogram of `name`'s initials: the first letters of its first two words, else the first two
-    /// characters of its one word ("Chief" is "CH"), else "?".
+    /// A monogram of `name`'s initials: the first letters of its first two words, else the first
+    /// character of its one word ("Chief" is "C"), else "?".
     /// - Parameter name: The Chief's or person's shown name.
     public init(name: String) {
         let words = name.split(whereSeparator: { $0.isWhitespace || $0 == "-" || $0 == "_" })
             .filter { $0.contains(where: { $0.isLetter || $0.isNumber }) }
         let letters: String = switch words.count {
         case 0: "?"
-        case 1: String(words[0].filter { $0.isLetter || $0.isNumber }.prefix(2))
+        case 1: String(words[0].filter { $0.isLetter || $0.isNumber }.prefix(1))
         default: String(words.prefix(2).compactMap { $0.first(where: { $0.isLetter || $0.isNumber }) })
         }
         initials = letters.uppercased()

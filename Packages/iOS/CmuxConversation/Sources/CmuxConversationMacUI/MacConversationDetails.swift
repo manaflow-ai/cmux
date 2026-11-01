@@ -255,7 +255,7 @@ final class MacConversationDetailsViewController: NSViewController {
         let info = store.info
         nameLabel.stringValue = info?.title ?? ""
         if isGroup {
-            avatar.initials = String((info?.title ?? "").prefix(2)).uppercased()
+            avatar.initials = String((info?.title ?? "").prefix(1)).uppercased()
             avatar.colorHex = nil
         } else {
             avatar.initials = others.first?.initials ?? ""

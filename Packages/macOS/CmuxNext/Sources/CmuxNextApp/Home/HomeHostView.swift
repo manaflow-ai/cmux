@@ -44,7 +44,7 @@ final class HomeHostView: NSView {
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: `picture` (`AppServices.chosenPicture(of:)`, its
-    /// upload or picked character), else its monogram (``HomeChiefAvatar/chiefDefault``, CH; Lawrence 2026-10-30).
+    /// upload or picked character), else its monogram (``HomeChiefAvatar/chiefDefault``, C).
     static func defaultTileAvatar(picture: URL?) -> HomeChiefAvatar { picture.map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).

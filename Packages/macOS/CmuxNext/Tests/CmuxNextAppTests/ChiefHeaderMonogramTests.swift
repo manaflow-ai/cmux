@@ -51,7 +51,7 @@ import Testing
         defer { window.close() }
         let header = view.transcript.controller.host.paneHeader
         let initials = header.initials
-        #expect(initials == "CH", "the Chief's monogram is CH, got \(initials)")
+        #expect(initials == "C", "the Chief's monogram is C, got \(initials)")
         let image = try #require(header.avatar.image)
         let side = image.size.width
         // Off the letters, near the disc's top and bottom: grey (no hue), the top lighter than the bottom.
@@ -72,7 +72,7 @@ import Testing
     }
 
     @Test func theDefaultChiefsTileIsItsMonogramNotAPetCharacter() {
-        #expect(HomeHostView.defaultTileAvatar(picture: nil) == .text("CH"))
+        #expect(HomeHostView.defaultTileAvatar(picture: nil) == .text("C"))
         #expect(HomeChiefAvatar.chiefDefault.isMonogram, "the default Chief draws as a monogram")
     }
 
