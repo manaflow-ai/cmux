@@ -3966,9 +3966,10 @@ jobs:
     # Also when only the legacy sign runs (a full re-run of a published build), so it can take an owned Mac.
     if: ${{ !cancelled() && (needs.prepare-nightly-variant.result == 'success' || needs.decide.result == 'success' && github.ref == 'refs/heads/nightly-next' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off') }}
     # A failed pick reads as success to the signing jobs, whose runs-on then falls back to
-    # vars.MACOS_RUNNER_26: a pick never blocks signing. It holds a key: Blacksmith Linux 32.
+    # vars.MACOS_RUNNER_26: a pick never blocks signing. It holds a key, so it takes a trusted route: GitHub-hosted
+    # Ubuntu (W44: 74 hosted picks, p50 9 s), Blacksmith Linux 4 vCPU on a re-run.
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
@@ -5270,10 +5271,17 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # The signer jobs take GitHub-hosted Ubuntu first and Blacksmith Linux 4 vCPU on a re-run, never 16 or 32 vCPU.
+  # They are notarization-bound, not CPU-bound (HQ build-fleet summary, W44 p50 on Blacksmith 32 vCPU: signer-app
+  # 240 s, signer-dmg 199 s, signer-build 7 s from its cache). The secret jobs stay on trusted runners (hosted or
+  # Blacksmith), and rcodesign stays the Linux build: the owned-Mac route (#29801) was taken back by #29821.
+  # A hosted job GitHub drops unstarted fails the pool path, and the macOS signer (build-sign-notarize-nightly)
+  # signs instead, so a hosted queue never holds the nightly. Leo, 2026-11-01: "surely we measured the signign we
+  # dont need 32/16 just for signing", then "surely github has linux hosted we can just use".
   signer-build:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -5316,7 +5324,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, signer-build]
     if: needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -5405,7 +5413,7 @@ jobs:
   signer-app-notary:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, resolve-nightly-cmux-tui-client, signer-build, signer-app]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -5522,7 +5530,7 @@ jobs:
   signer-dmg:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-app-notary, signer-dmg-image]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 40
     permissions:
       contents: read
