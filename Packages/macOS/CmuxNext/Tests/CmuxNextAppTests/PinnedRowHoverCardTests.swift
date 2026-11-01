@@ -39,7 +39,7 @@ import Testing
         func tearDown() {
             coordinator.dismiss(.action)
             // Dismiss only orders the card panel out; close it so the suite's leak check never finds it.
-            coordinator.cardWindow?.close()
+            coordinator.cardWindow?.closeAfterTest()
             window.contentView = nil
             window.close()
         }
