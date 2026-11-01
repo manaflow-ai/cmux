@@ -224,6 +224,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
                 "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
                 "sidebar.groupHeader.unreadCount", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+                "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
             ]),
             card("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces", [
                 "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",

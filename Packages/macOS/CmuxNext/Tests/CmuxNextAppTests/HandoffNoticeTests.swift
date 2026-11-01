@@ -142,6 +142,64 @@ struct HandoffNoticeTests {
         #expect(await store.afters.suffix(2) == [3, 3])
     }
 
+    /// Issue #31040: an incognito hand-off is never saved, so after a relaunch it comes back from the
+    /// owner's list. It stays incognito there: its later banners are redacted, and its click opens nothing.
+    @Test func anIncognitoHandoffFoundInTheListAfterARelaunchStaysIncognito() async throws {
+        let store = Store()
+        await store.script(Self.id, [Self.handoff("running", version: 2)])
+        let defaults = try defaults()
+        let (first, _) = follower(store, defaults: defaults)
+        var incognito = record()
+        incognito.incognito = true
+        first.watch(incognito)
+        while await store.afters.isEmpty { await Task.yield() }
+        first.stop()
+        let (relaunched, ends) = follower(store, defaults: defaults)
+        #expect(!relaunched.knows(Self.id), "an incognito hand-off's record outlived the run")
+        await store.script(Self.id, [Self.handoff("needs-you", version: 3),
+                                     Self.handoff("done", version: 4, state: "closed", summary: "Pushed")])
+        relaunched.watch(HandoffNotices.listed(Self.listEntry(status: "running", version: 2, turn: 1), user: "u1"))
+        await settle(relaunched)
+        #expect(ends.all.map(\.outcome) == [.needsYou, .succeeded])
+        #expect(ends.all.map(\.record.incognito) == [true, true], "a relaunch's banner of an incognito hand-off posted its full text")
+        #expect(relaunched.endedRun(Self.id)?.record.incognito == true)
+    }
+
+    /// Review of #31055: the owner's list can answer before the app's own watch of an incognito hand-off;
+    /// the watch's flag reaches the record already followed, which is then no longer saved.
+    @Test func anIncognitoWatchAfterTheListedRecordMakesItIncognito() async throws {
+        let store = Store()
+        await store.script(Self.id, [Self.handoff("running", version: 2)])
+        let defaults = try defaults()
+        let (follower, _) = follower(store, defaults: defaults)
+        follower.watch(HandoffNotices.listed(Self.listEntry(status: "running", version: 2, turn: 1), user: "u1"))
+        var incognito = record()
+        incognito.incognito = true
+        follower.watch(incognito)
+        #expect(follower.following.first?.incognito == true)
+        follower.stop()
+        let (relaunched, _) = self.follower(store, defaults: defaults)
+        #expect(!relaunched.following.contains { $0.id == Self.id }, "an incognito hand-off's record was saved")
+        relaunched.stop()
+    }
+
+    /// Review of #31055: the listed record can even end before the app's own incognito watch; the ended record
+    /// is then flagged too, and no longer saved.
+    @Test func anIncognitoWatchAfterTheListedRecordEndedMakesItIncognito() async throws {
+        let store = Store()
+        await store.script(Self.id, [Self.handoff("done", version: 3, state: "closed", summary: "Pushed")])
+        let defaults = try defaults()
+        let (follower, _) = follower(store, defaults: defaults)
+        follower.watch(HandoffNotices.listed(Self.listEntry(status: "running", version: 2, turn: 1), user: "u1"))
+        await settle(follower)
+        var incognito = record()
+        incognito.incognito = true
+        follower.watch(incognito)
+        #expect(follower.endedRun(Self.id)?.record.incognito == true)
+        let (relaunched, _) = self.follower(store, defaults: defaults)
+        #expect(relaunched.endedRun(Self.id) == nil, "an incognito hand-off's ended record was saved")
+    }
+
     @Test func aHandoffFoundInTheListTellsOnlyWhatChangesAfter() async throws {
         let store = Store()
         // The store answers at its deadline with the state the list showed, then turn 3 runs and ends.
