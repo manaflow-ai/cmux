@@ -150,7 +150,9 @@ pub(super) async fn handle(
     // A named chat this daemon does not have: never run the sign-in here in its place (a chat
     // on a peer was forwarded before this; one that resolves nowhere is stale or not mirrored
     // yet, and this machine's own sign-in is not the one asked for).
-    if let Some(key) = text(params, "sessionId")
+    // A cancel only stops a sign-in by its id: it always may.
+    if m != method::MUX_AGENT_LOGIN_CANCEL
+        && let Some(key) = text(params, "sessionId")
         && hub.resolve(key).is_err()
     {
         return Err(error(LoginError::new(

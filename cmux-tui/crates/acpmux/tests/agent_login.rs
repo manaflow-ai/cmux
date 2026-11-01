@@ -198,10 +198,15 @@ async fn agent_login_over_the_wire() {
     let home = dirs::home_dir().unwrap();
     assert!(!home.join(".config/cmux/agent-auth/claude").exists());
 
-    // Cancel stops a sign-in; a second cancel is a no-op.
+    // Cancel stops a sign-in, whatever chat it names; a second cancel is a no-op.
     let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
     assert_eq!(
-        c.call(method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": s["loginId"]})).await.unwrap(),
+        c.call(
+            method::MUX_AGENT_LOGIN_CANCEL,
+            json!({"loginId": s["loginId"], "sessionId": "stale"})
+        )
+        .await
+        .unwrap(),
         json!({})
     );
     assert_eq!(

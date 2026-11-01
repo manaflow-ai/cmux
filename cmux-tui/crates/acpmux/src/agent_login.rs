@@ -96,7 +96,7 @@ pub mod reason {
     pub const EXPIRED: &str = "expired";
     pub const FAILED: &str = "failed";
     pub const UNKNOWN_LOGIN: &str = "unknown_login";
-    /// A  that names no chat here or on a peer.
+    /// A `sessionId` that names no chat here or on a peer.
     pub const UNKNOWN_SESSION: &str = "unknown_session";
 }
 
