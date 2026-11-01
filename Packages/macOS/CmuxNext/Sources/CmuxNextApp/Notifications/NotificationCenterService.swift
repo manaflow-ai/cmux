@@ -659,7 +659,7 @@ final class NotificationCenterService {
             self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
-                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil)
+                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil, incognito: workspace.map { self.services?.windows.isIncognito(workspace: $0) == true } ?? false)
             if let sound, sound != "default" { self.soundGate.player.play(sound, volume: volume, banner: true) }
             if let owner {
                 self.banners[owner.id, default: []].append(id)

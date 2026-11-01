@@ -17,6 +17,14 @@ main's tests/test_ci_runner_set.py accepts LINUX_RUNNER as a live source and is 
 branch, so nothing caught it. SINGLE_SIZE counts, per workflow, the jobs that still read
 LINUX_RUNNER this way. It only shrinks: a workflow with more such jobs than its count fails (a
 new pin), and one with fewer fails until its count is lowered, so a moved job can't come back.
+
+FIXED_PAIR counts the other single-size shape, `!startsWith(vars.LINUX_RUNNER, 'blacksmith-') &&
+vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && '<size>' || '<size>'`. While LINUX_RUNNER names a
+Blacksmith label (always, since runner_pools.py mirrors the pool into it) it reads neither the variable
+nor the pool: the job waits on its one literal size, and the overflow record (set only once every probed
+size stalls) swaps it for the other literal. On 2026-10-31 gallery health sat 46 min queued on
+blacksmith-16vcpu-ubuntu-2404 and web validation 44 min, with nothing started. Leo, 2026-10-31: "stop
+falling only to a [...] Blacksmith that isn't available". Same ratchet: it only shrinks.
 """
 
 from __future__ import annotations
@@ -33,6 +41,11 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # The whole expression, or its last `||` alternative after the fork branches, is LINUX_RUNNER then
 # one Blacksmith Linux literal.
 SINGLE_SIZE_TAIL = re.compile(r"(?:^|\|\|)\s*vars\.LINUX_RUNNER\s*\|\|\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*$")
+
+FIXED_PAIR_TAIL = re.compile(
+    r"(?:^|\|\|)\s*!startsWith\(vars\.LINUX_RUNNER,\s*'blacksmith-'\)\s*&&\s*vars\.LINUX_RUNNER\s*\|\|"
+    r"\s*vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*\|\|\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*$"
+)
 
 LIVE_SOURCE = re.compile(r"\b(?:needs|matrix|inputs|steps|env)\.|vars\.(?!LINUX_RUNNER\b)[A-Z0-9_]+")
 
@@ -136,7 +149,6 @@ SINGLE_SIZE: dict[str, int] = {
     "nightly-next-verdict.yml": 1,
     "nightly-tag-permission-probe.yml": 1,
     "pr-capture-check.yml": 1,
-    "pr-checks.yml": 4,
     "pr-design-spec-check.yml": 1,
     "pr-media-prune.yml": 1,
     "pr-perf-section-check.yml": 1,
@@ -174,7 +186,50 @@ SINGLE_SIZE: dict[str, int] = {
     "update-homebrew.yml": 2,
     "vendored-agent-cursor.yml": 1,
     "vercel-auth-health.yml": 1,
-    "web-validation.yml": 3,
+}
+
+
+# workflow file -> jobs whose runs-on ends in FIXED_PAIR_TAIL. Lower a count when a job moves to
+# fromJSON(vars.RUNNER_POOLS).<pool> or a picker; never raise one.
+FIXED_PAIR: dict[str, int] = {
+    "backend.yml": 1,
+    "ci-web.yml": 5,
+    "cloudflare-relay.yml": 1,
+    "cmux-actions.yml": 1,
+    "cmux-browser-host-chromium.yml": 1,
+    "cmux-cloud-cli.yml": 1,
+    "cmux-mobile-ffi.yml": 2,
+    "cmux-next-car-guards.yml": 1,
+    "cmux-next-fast-gates.yml": 1,
+    "cmux-next-guards.yml": 1,
+    "cmux-next-shim-cpp.yml": 1,
+    "cmux-next-source-archive.yml": 1,
+    "cmux-next-web-bundle-publish.yml": 1,
+    "cmux-next-web-bundles.yml": 2,
+    "cmux-next.yml": 2,
+    "cmux-tui-artifacts.yml": 16,
+    "cmux-tui-headless-debug.yml": 1,
+    "cmux-tui-sdks.yml": 4,
+    "cmux-tui-spec.yml": 3,
+    "cmux-tui-windows-check.yml": 1,
+    "cmux-tui.yml": 3,
+    "cmux-vm-clients.yml": 2,
+    "cmux-vm-cloud.yml": 1,
+    "cmux-vm.yml": 1,
+    "coderouter-ci.yml": 1,
+    "iroh-relay-minter.yml": 1,
+    "iroh-v2.yml": 1,
+    "nightly-next-launch-smoke.yml": 3,
+    "presence.yml": 1,
+    "remote-daemon.yml": 1,
+    "rust-workspaces.yml": 1,
+    "sdk-bootstrap-crates.yml": 1,
+    "sdk-publish-crates.yml": 1,
+    "sdk-publish-go.yml": 3,
+    "sdk-publish-java.yml": 1,
+    "sdk-publish-npm.yml": 1,
+    "sdk-publish-python.yml": 1,
+    "swift-packages-linux.yml": 1,
 }
 
 
@@ -190,12 +245,23 @@ def single_size(runs_on: object) -> bool:
     return tail is not None and LIVE_SOURCE.search(expression[:tail.start()]) is None
 
 
-def counts() -> dict[str, int]:
+def fixed_pair(runs_on: object) -> bool:
+    if not isinstance(runs_on, str):
+        return False
+    text = runs_on.strip()
+    if not (text.startswith("${{") and text.endswith("}}")):
+        return False
+    expression = text[3:-2].strip()
+    tail = FIXED_PAIR_TAIL.search(expression)
+    return tail is not None and LIVE_SOURCE.search(expression[:tail.start()]) is None
+
+
+def counts(rule=single_size) -> dict[str, int]:
     found: dict[str, int] = {}
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for job in (document.get("jobs") or {}).values():
-            if isinstance(job, dict) and single_size(job.get("runs-on")):
+            if isinstance(job, dict) and rule(job.get("runs-on")):
                 found[path.name] = found.get(path.name, 0) + 1
     return found
 
@@ -216,6 +282,24 @@ class SingleSizeRuleTests(unittest.TestCase):
                            "needs.pick.outputs.label || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"):
             with self.subTest(expression=expression):
                 self.assertFalse(single_size("${{ " + expression + " }}"))
+
+
+class FixedPairRuleTests(unittest.TestCase):
+    PAIR = ("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
+            "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404'")
+
+    def test_the_overflow_pair_is_one_size(self) -> None:
+        fork = ("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' "
+                "&& github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ")
+        # gallery health's runs-on before the move.
+        self.assertTrue(fixed_pair("${{ " + fork + self.PAIR + " }}"))
+        self.assertTrue(fixed_pair("${{ " + self.PAIR + " }}"))
+
+    def test_a_pool_or_picker_ahead_is_not(self) -> None:
+        for expression in ("needs.place.outputs.linux_runner || " + self.PAIR,
+                           "fromJSON(vars.RUNNER_POOLS).linux"):
+            with self.subTest(expression=expression):
+                self.assertFalse(fixed_pair("${{ " + expression + " }}"))
 
 
 class WorkflowTests(unittest.TestCase):
@@ -244,6 +328,17 @@ class WorkflowTests(unittest.TestCase):
                   if found.get(name, 0) < count}
         self.assertEqual(shrunk, {}, "these workflows have fewer single-size Linux jobs (found, allowed); "
                                      "lower SINGLE_SIZE so they stay moved")
+
+    def test_no_workflow_adds_a_fixed_pair_linux_job(self) -> None:
+        found = counts(fixed_pair)
+        grown = {name: (count, FIXED_PAIR.get(name, 0)) for name, count in found.items()
+                 if count > FIXED_PAIR.get(name, 0)}
+        self.assertEqual(grown, {}, "these workflows wait on one fixed Blacksmith Linux size (found, allowed); "
+                                    "read fromJSON(vars.RUNNER_POOLS).linux after the fork branches instead")
+        shrunk = {name: (found.get(name, 0), count) for name, count in FIXED_PAIR.items()
+                  if found.get(name, 0) < count}
+        self.assertEqual(shrunk, {}, "these workflows have fewer fixed-pair Linux jobs (found, allowed); "
+                                     "lower FIXED_PAIR so they stay moved")
 
 
 if __name__ == "__main__":
