@@ -23,6 +23,22 @@ pub trait OwnerCapability: Send + Sync {
     fn bearer(&self) -> Result<Zeroizing<String>>;
 }
 
+/// Ephemeral turn capability from the owner bridge. It cannot be logged or serialized.
+pub struct EphemeralCapability(Zeroizing<String>);
+
+impl EphemeralCapability {
+    pub fn new(token: String) -> Result<Self> {
+        anyhow::ensure!(token.starts_with("trc_"), "turn capability is malformed");
+        Ok(Self(Zeroizing::new(token)))
+    }
+}
+
+impl OwnerCapability for EphemeralCapability {
+    fn bearer(&self) -> Result<Zeroizing<String>> {
+        Ok(Zeroizing::new(self.0.to_string()))
+    }
+}
+
 #[derive(Clone)]
 pub struct CloudTurnClient {
     http: reqwest::Client,
@@ -127,6 +143,52 @@ impl CloudTurnClient {
         serde_json::from_slice(&bytes).context("decode cloud turn response")
     }
 
+    /// Claims the one-use execution capability immediately before the harness prompt is sent.
+    /// The supplied capability must be the opaque `trc_…` token minted by the owner bridge.
+    pub async fn claim_execution(&self, scope: &TurnScope) -> Result<ExecutionReply> {
+        self.execution_post("claim", scope).await
+    }
+
+    /// Finishes a claimed execution after the harness outcome is recorded.
+    pub async fn finish_execution(&self, scope: &TurnScope) -> Result<ExecutionReply> {
+        self.execution_post("finish", scope).await
+    }
+
+    async fn execution_post<R: for<'de> Deserialize<'de>>(
+        &self,
+        operation: &str,
+        scope: &TurnScope,
+    ) -> Result<R> {
+        for (name, value) in [
+            ("team", &scope.team),
+            ("user", &scope.user),
+            ("workspace", &scope.workspace),
+            ("machine", &scope.machine),
+            ("session", &scope.session),
+            ("turn", &scope.turn),
+        ] {
+            valid_component(name, value)?;
+        }
+        let token = self.auth.bearer().context("turn capability unavailable")?;
+        anyhow::ensure!(token.starts_with("trc_"), "turn capability is malformed");
+        let mut url = self.origin.clone();
+        url.set_path(&format!("/v1/turn-execution/{operation}"));
+        let response = self
+            .http
+            .post(url)
+            .bearer_auth(token.as_str())
+            .json(scope)
+            .send()
+            .await
+            .with_context(|| format!("turn execution {operation} request failed"))?;
+        let status = response.status();
+        let bytes = response.bytes().await.context("read turn execution response")?;
+        if !status.is_success() {
+            bail!("turn execution {operation} failed ({})", status.as_u16());
+        }
+        serde_json::from_slice(&bytes).context("decode turn execution response")
+    }
+
     /// Reads the authoritative capture state before dispatch or after reconnect. The caller must
     /// compare `machine_generation` with its local fence; a restored guest can still be running
     /// old process state, so a local socket reconnect is not proof of freshness.
@@ -185,6 +247,25 @@ impl CloudTurnClient {
             turn,
             "snapshot",
             &SnapshotRequest { session, client_key, expected_machine, expected_generation },
+        )
+        .await
+    }
+
+    /// Mints a short-lived, turn-scoped capability through the owner route. The returned token
+    /// must be held only in memory and claimed immediately before the prompt is sent.
+    pub async fn mint_capability(
+        &self,
+        turn: &str,
+        session: &str,
+        expected_machine: &str,
+        expected_generation: u64,
+    ) -> Result<MintedCapability> {
+        valid_component("machine", expected_machine)?;
+        Self::client_key(session)?;
+        self.post(
+            turn,
+            "capability",
+            &CapabilityRequest { session, expected_machine, expected_generation },
         )
         .await
     }
@@ -249,11 +330,43 @@ fn valid_component(name: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Full scope bound into an opaque, one-use `trc_…` execution capability.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnScope {
+    pub team: String,
+    pub user: String,
+    pub workspace: String,
+    pub machine: String,
+    pub generation: u64,
+    pub session: String,
+    pub turn: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionReply {
+    #[serde(default)]
+    pub claimed: Option<bool>,
+    #[serde(default)]
+    pub finished: Option<bool>,
+    #[serde(default)]
+    pub scope: Option<TurnScope>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SnapshotRequest<'a> {
     session: &'a str,
     client_key: String,
+    expected_machine: &'a str,
+    expected_generation: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CapabilityRequest<'a> {
+    session: &'a str,
     expected_machine: &'a str,
     expected_generation: u64,
 }
@@ -290,6 +403,35 @@ pub struct SnapshotReply {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MintedCapability {
+    pub capability: String,
+    pub team: String,
+    pub user: String,
+    pub workspace: String,
+    pub machine: String,
+    pub generation: u64,
+    pub session: String,
+    pub turn: String,
+    pub expires_at: u64,
+}
+
+impl MintedCapability {
+    pub fn into_scope_and_auth(self) -> Result<(TurnScope, EphemeralCapability)> {
+        let scope = TurnScope {
+            team: self.team,
+            user: self.user,
+            workspace: self.workspace,
+            machine: self.machine,
+            generation: self.generation,
+            session: self.session,
+            turn: self.turn,
+        };
+        Ok((scope, EphemeralCapability::new(self.capability)?))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
