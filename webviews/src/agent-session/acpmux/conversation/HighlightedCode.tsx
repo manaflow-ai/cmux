@@ -110,7 +110,7 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
       fileContainer: el,
       file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
-  }, [code, lang, pool, wrap, name, workerAvailable]);
+  }, [code, lang, look, pool, wrap, name, workerAvailable]);
   if (!workerAvailable) return <PlainCode code={code} lang={lang} actions={actions} />;
   return (
     <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>
