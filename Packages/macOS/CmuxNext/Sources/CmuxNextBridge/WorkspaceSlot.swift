@@ -82,6 +82,12 @@ public enum WorkspaceSlot: Hashable, Sendable {
         return position(moving: moving, section: home.id, in: sections)
     }
 
+    /// Right below `anchor` when `sections` list it in a group, so a new workspace joins that group (an
+    /// agent's spawn joins its own workspace's group); nil when `anchor` is loose or not listed.
+    public static func belowGrouped(_ anchor: String, in sections: [SidebarRowSection]) -> WorkspaceSlot? {
+        sections.contains { group(containing: anchor, in: $0.nodes) != nil } ? .below(anchor) : nil
+    }
+
     private var isTop: Bool {
         if case .top = self { return true }
         return false

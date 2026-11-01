@@ -267,11 +267,10 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
             return;
         }
     };
-    // The first hint comes when the watch is armed. A hint can also be an
-    // unrelated change in the nearest existing ancestor of a missing socket
-    // directory (macOS watches that ancestor's entries): with no socket there
-    // is nothing to connect to, and its creation hints again. The wait ends
-    // when the mux is dropped or shuts down (`AgentChatNoticesWake`).
+    // The first hint comes when the watch is armed. A hint can also be the
+    // socket's folder appearing, or the socket going away: with no socket
+    // there is nothing to connect to, and its creation hints again. The wait
+    // ends when the mux is dropped or shuts down (`AgentChatNoticesWake`).
     while hints.recv().is_ok() {
         // Hints that queued meanwhile are one change.
         while hints.try_recv().is_ok() {}
@@ -605,6 +604,9 @@ struct Chat {
     muted: bool,
     /// The last turn that ended: its id and status.
     last_turn: Option<(String, String)>,
+    /// Work it started runs past its turn (a background subagent, a working sub-session;
+    /// acpmux's `subagentsWorkingSince`): the task is not done yet.
+    works_below: bool,
     /// The ended turn already notified (or passed over), so it notifies once.
     notified_turn: Option<String>,
     last_message: String,
@@ -648,6 +650,7 @@ impl Chat {
             shown: summary["shown"].as_bool() == Some(true),
             muted: summary["tags"][MUTE_TAG] == MUTED,
             last_turn,
+            works_below: summary["subagentsWorkingSince"].is_u64(),
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
@@ -696,6 +699,8 @@ impl Chat {
     /// An ended turn notifies once, unless a pane showed the chat as it ended:
     /// when it ends while no pane shows the chat, or once acpmux marks the
     /// chat unread (a turn that failed before it started is never marked so).
+    /// A turn that ends while work it started still runs waits: acpmux marks
+    /// the chat unread when that work ends (manaflow-ai/cmux#25563).
     fn notices(&mut self, before: Option<&Chat>) -> Vec<Notice> {
         let mut notices = Vec::new();
         let name = &self.name;
@@ -704,6 +709,7 @@ impl Chat {
             before.is_some_and(|chat| chat.last_turn.as_ref().map(|(id, _)| id) != Some(turn))
         };
         if let Some((turn, status)) = &self.last_turn
+            && !self.works_below
             && (self.unread || (!self.shown && ended_now(turn)))
             && self.notified_turn.as_ref() != Some(turn)
         {
@@ -787,6 +793,20 @@ mod tests {
     /// The same ask re-issued by an acpmux that restarted (`permission_reissued`: no turn, no group).
     fn reissued(permission: &str, seq: u64) -> Value {
         json!({"permissionId": permission, "seq": seq, "sessionId": "chat-1", "via": "watch", "request": {}})
+    }
+
+    /// A chat whose turn `turn` ended, hidden, `unread`, with or without work below it.
+    fn ended(turn: &str, unread: bool, works_below: bool) -> Chat {
+        Chat::of(&json!({
+            "sessionId": "chat-1",
+            "title": "Review",
+            "indicator": if works_below { "working" } else { "done" },
+            "unread": unread,
+            "lastSeq": 20,
+            "lastTurn": {"turnId": turn, "status": "completed"},
+            "subagentsWorkingSince": if works_below { json!(1_700_000_000_000_u64) } else { Value::Null },
+        }))
+        .expect("a local chat")
     }
 
     fn key(notice: Option<Notice>) -> Option<String> {
@@ -1064,6 +1084,20 @@ mod tests {
             assert!(followed.is_err());
             assert!(chats.contains_key("chat-1"), "an unfinished list drops no chat");
         }
+    }
+
+    #[test]
+    fn a_turn_that_ends_while_its_subagents_run_finishes_when_they_end() {
+        // manaflow-ai/cmux#25563: the parent's turn ended unseen, its background work runs on.
+        let working = chat("working", 8);
+        let mut waiting = ended("turn-1", false, true);
+        waiting.notified_turn = working.notified_turn.clone();
+        assert!(waiting.notices(Some(&working)).is_empty(), "not done while its subagents run");
+        // The last of the work ends and acpmux marks the chat unread: now it finished.
+        let mut done = ended("turn-1", true, false);
+        done.notified_turn = waiting.notified_turn.clone();
+        let keys: Vec<_> = done.notices(Some(&waiting)).into_iter().map(|n| n.key).collect();
+        assert_eq!(keys, ["done-turn-1"]);
     }
 
     #[test]

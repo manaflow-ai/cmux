@@ -62,9 +62,30 @@ test("the popup names the full build, lists the highlights and has See all chang
     ),
   );
   const text = host.textContent ?? "";
-  // A short, quiet title (Leo 2026-10-19); the raw build stays in its tooltip.
+  // A short, quiet title (Leo 2026-10-19), with no tooltip (2026-10-31, Lawrence on the Updated
+  // card's: "seems excessive"): a click on the version copies the full build instead.
   expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3845050");
-  expect(host.querySelector(".wn-pop-title")?.getAttribute("title")).toBe("1.0.0-nightly.3845050428001");
+  expect(host.querySelector(".wn-pop [title]")).toBeNull();
+  const copied: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (value: string) => void copied.push(value) },
+  });
+  const version = host.querySelector<HTMLElement>(".wn-pop-title .wn-copy-version")!;
+  expect(version.textContent).toBe("nightly 3845050");
+  // A native button (CopyVersion): focus, Return and Space come from the platform.
+  expect(version.tagName).toBe("BUTTON");
+  expect(version.getAttribute("type")).toBe("button");
+  expect(version.hasAttribute("role")).toBe(false);
+  expect(version.getAttribute("aria-label")).toBe("Copy Version 1.0.0-nightly.3845050428001");
+  await act(async () => {
+    version.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  });
+  expect(copied).toEqual(["1.0.0-nightly.3845050428001"]);
+  // "Copied" in the heading's own line, after the version: nothing pops over the list.
+  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3845050 · Copied");
+  expect(host.querySelector(".wn-pop [title]")).toBeNull();
+  delete (window.navigator as { clipboard?: unknown }).clipboard;
   expect(text).toContain("Workspace groups you can see at a glance");
   // The card has these; the popup does not say them again.
   expect(text).not.toContain("is ready");
@@ -105,7 +126,8 @@ test("the Updated card names the short build, says What's new in this build and 
   expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to Nightly · Oct 13");
   expect(host.querySelector(".wn-card-headline")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  expect(buttons).toEqual(["Close", "See What's New"]);
+  // The build line's commit is the copy button (CopyVersion), then the card's own two.
+  expect(buttons).toEqual(["3845050", "Close", "See What's New"]);
 });
 
 // Notes published before the pipeline's readable rules (#21873) reach the card and popup as they

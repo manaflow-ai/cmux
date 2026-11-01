@@ -96,9 +96,7 @@ enum AgentSessionWorkspace {
            let row = windows.controllers.lazy.compactMap({ SidebarEdits.predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
-        // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
-        // workspace the window shows, when it is in one (cx-caoh), then into
-        // the named `group`.
+        // Placed like Cmd-N (`workspaces.newPlacement`, cx-caoh), then into the named `group`, else below the caller's grouped row.
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
             join = { id, sidebar in
@@ -106,7 +104,9 @@ enum AgentSessionWorkspace {
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
+        let own = group == nil ? AgentSessionParents.workspace(of: parent, in: services.machines.allWorkspaces.map { $0.0 }) : nil
+        let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, slot: slot, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
                                       then: join, windows: windows)
         return Task { @MainActor in
             do {
