@@ -86,7 +86,6 @@ await requireBrowserLane("thread-rail-sent-prompt.test.ts", async () => {
           (row) => row.dataset.rowId === `local-${expectedPromptId}` && row.textContent?.includes("Brand new prompt"),
         ),
       promptId,
-      undefined,
       { timeout: 10_000 },
     );
     // A few more frames after the echo.
