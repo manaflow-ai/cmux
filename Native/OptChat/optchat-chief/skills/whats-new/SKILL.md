@@ -35,7 +35,7 @@ The notes sit next to the feed: replace the feed URL's last path part with
 
 ```sh
 NOTES=https://files-next.cmux.com/nightly-next/next/notes   # from the feed, as above
-curl -fsS "$NOTES/index.json"                # {"builds": [{build, shortVersion, date, head, highlights}, ...]}, newest first
+curl -fsS "$NOTES/index.json"                # <feed folder>/notes/index.json: {"builds": [{build, shortVersion, date, head, highlights}, ...]}, newest first
 curl -fsS "$NOTES/<build>.json"              # one build's notes
 ```
 
@@ -67,14 +67,14 @@ At most six lines:
    morning): 3 builds").
 2. Up to three highlights worth trying, newest first, entries with a `tryIt`
    ahead of the rest. One line each: what it does for them, then how to try
-   it. Offer to run a `tryIt` for them: `cmux action run <action>` or, for
-   a deeplink, `open 'cmux://…'` (macOS `open`; `cmux open` does not take
-   `cmux://` links).
+   it. Offer to run a `tryIt` action for them: `cmux action run <action>`.
+   For a `tryIt` that is only a deeplink, point them to the entry on the
+   What's New page instead.
 3. One line for the rest ("plus 9 fixes"), offering the full list.
 
 Link each highlight's PR (`https://github.com/manaflow-ai/cmux/pull/<pr>`)
-when it has one. To show the whole page instead: `cmux action run
-updates.whatsNew`.
+when it has one. To show the whole page instead, run
+`cmux action run updates.whatsNew`.
 
 Then remember the newest build you covered, so next time you start there.
 
