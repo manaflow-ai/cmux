@@ -389,9 +389,14 @@ def step_quit_speed(j, step):
         main = r.get("main_start")
         sub = lambda mark: round(mark - main, 1) if isinstance(mark, (int, float)) and isinstance(main, (int, float)) else None
         first_content = {}
-        for at, panes in r.get("trace") or []:
-            for pane, held, replayed, _link, _attach, _status in panes:
-                if (held or replayed) and pane not in first_content and at is not None:
+        trace = r.get("trace") or []
+        for at, panes in trace:
+            for row in panes:
+                pane, held, replayed = row[0], row[1], row[2]
+                has_text = bool(row[6]) if len(row) > 6 else True
+                kind = row[7] if len(row) > 7 else "terminal"
+                # The blank rule of restore_no_blank: its held last frame, or its replayed screen with text.
+                if kind == "terminal" and (held or (replayed and has_text)) and pane not in first_content and at is not None:
                     first_content[pane] = at
         visible = int(r.get("visible_terminals") or 0)
         live = list((r.get("live_from_main_ms") or {}).values())
@@ -406,12 +411,15 @@ def step_quit_speed(j, step):
                      "first_frame_ms": sub(marks.get("terminal.launch_frame_shown", r.get("launch_frame_shown"))),
                      "frame_missed": marks.get("terminal.launch_frame_missed"),
                      "all_frames_ms": sub(max(first_content.values())) if len(first_content) >= visible > 0 else None,
+                     "frames_censored": not (len(first_content) >= visible > 0),
                      "window_frame_ms": sub(r.get("first_window_frame_committed")),
                      "interactive_ms": None if censored else max(live), "censored": censored,
                      "visible_terminals": visible, "samples": r.get("samples"), "blank_pane_samples": r.get("blank_pane_samples"),
                      "occluded": occluded, "socket_ms": r.get("socket_ms"), "main_start_ms": main})
         (j.out / "speed.json").write_text(json.dumps({"how": step.get("how", "quit-keep"), "rows": rows}, indent=1) + "\n")
-    return {"rows": rows}
+    return {"rows": rows, "summary": {"cycles": len(rows), "censored": sum(1 for x in rows if x["censored"]),
+                                      "frames_censored": sum(1 for x in rows if x["frames_censored"]),
+                                      "occluded": sum(1 for x in rows if x["occluded"])}}
 
 
 STEPS = {"quit_state": step_quit_state, "quit_speed": step_quit_speed, "real_quit": step_real_quit, "require_whole_host": step_require_whole_host,

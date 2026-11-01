@@ -189,7 +189,8 @@ def step_restore_relaunch(journey, step):
         "live_terminals": settled.get("live_terminals"),
         "socket_ms": round((zero - start) * 1000, 1) if zero and start else None,
         "trace": [[round((s["t"] - start) * 1000, 1) if start else None,
-                   [[r["pane"], int(r["held"]), int(r["replayed"]), r["link"], r["attach"], r["status"]] for r in s["panes"]]]
+                   [[r["pane"], int(r["held"]), int(r["replayed"]), r["link"], r["attach"], r["status"], int(r["text"]),
+                     r["kind"]] for r in s["panes"]]]
                   for s in sampler.samples[:400]],
     }
     record["restore"] = {k: v for k, v in journey.restore.items() if k != "trace"}
