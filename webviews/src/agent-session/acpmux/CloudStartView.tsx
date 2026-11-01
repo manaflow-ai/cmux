@@ -100,7 +100,7 @@ export function CloudStartView({ start, bubble = true, onOpenEnvironment }: { st
     else window.dispatchEvent(new CustomEvent("cmux:open-cloud-environment", { detail: options }));
   };
   return <section className="acpmux-cloud-start" data-state={start.state} data-look={arm} data-initialized={start.initialized ? "true" : undefined}>
-    {bubble && !failed && <div className="cv-user"><div className="ui-glass cv-user__bubble selectable">{start.task}</div></div>}
+    {bubble && <div className="cv-user"><div className="ui-glass cv-user__bubble selectable">{start.task}</div></div>}
     {!failed && !start.initialized && <output className="acpmux-cloud-start__status"><Spinner size={14} loading /><span>{t("cloudStart.title")}</span></output>}
     <div className="acpmux-cloud-start__card">
       <button type="button" className="acpmux-cloud-start__summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><span>{start.initialized ? t("cloudStartup.initialized") : t("cloudStartup.title")}</span>{expanded ? <ChevronDown size={14} /> : start.initialized ? <span aria-hidden>›</span> : <ChevronRight size={14} />}</button>
