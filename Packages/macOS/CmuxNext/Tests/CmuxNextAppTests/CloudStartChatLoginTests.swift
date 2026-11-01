@@ -1,3 +1,4 @@
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloudCredentials
 import Testing
@@ -6,14 +7,23 @@ import Testing
 struct CloudStartChatLoginTests {
     typealias Step = CloudStartChat.LoginStep
 
-    @Test func theSettingWinsElseOnlyDebugBuildsPassALogin() {
-        #expect(CloudStartChat.passesHarnessLogin(isDebugBuild: true, setting: nil))
-        #expect(!CloudStartChat.passesHarnessLogin(isDebugBuild: false, setting: nil))
-        #expect(CloudStartChat.passesHarnessLogin(isDebugBuild: false, setting: true))
-        #expect(CloudStartChat.passesHarnessLogin(isDebugBuild: true, setting: true))
+    @Test func theSettingWinsElseOnlyDogfoodBuildsPassALogin() {
+        #expect(CloudStartChat.passesHarnessLogin(isDogfoodBuild: true, setting: nil))
+        #expect(!CloudStartChat.passesHarnessLogin(isDogfoodBuild: false, setting: nil))
+        #expect(CloudStartChat.passesHarnessLogin(isDogfoodBuild: false, setting: true))
+        #expect(CloudStartChat.passesHarnessLogin(isDogfoodBuild: true, setting: true))
         // `defaults write ... cmux.cloud.passHarnessLogin -bool NO`: a DEV build behaves as production.
-        #expect(!CloudStartChat.passesHarnessLogin(isDebugBuild: true, setting: false))
-        #expect(!CloudStartChat.passesHarnessLogin(isDebugBuild: false, setting: false))
+        #expect(!CloudStartChat.passesHarnessLogin(isDogfoodBuild: true, setting: false))
+        #expect(!CloudStartChat.passesHarnessLogin(isDogfoodBuild: false, setting: false))
+    }
+
+    /// The NEXT nightly is dogfood (only the team uses NEXT Cloud), so it passes the login by
+    /// default like a DEV build; the shipping app does not.
+    @Test(arguments: [("com.cmuxterm.app.nightly.cmux-next", false, true), ("com.cmuxterm.app.debug.next", true, true),
+                      ("com.cmuxterm.app", false, false), ("com.cmuxterm.app.rc", false, false)])
+    func dogfoodBundlesPassALoginByDefault(bundleID: String, isDebugBuild: Bool, passes: Bool) {
+        let dogfood = DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
+        #expect(CloudStartChat.passesHarnessLogin(isDogfoodBuild: dogfood, setting: nil) == passes)
     }
 
     @Test func harnessFamiliesMapToTheirProvider() {
