@@ -311,7 +311,7 @@ test("the panel names the document, copies when saving fails, and hands focus ba
 test("the preview's Pin control follows its parent state, and galleries stay opt-in", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
-  const artifact = { kind: "markdown" as const, lang: "md", code: "# Review\\n\\nTwo warnings." };
+  const artifact = { kind: "markdown" as const, lang: "md", code: "# Review\n\nTwo warnings." };
   const changes: boolean[] = [];
 
   act(() => root?.unmount());
