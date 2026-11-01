@@ -43,7 +43,13 @@ export function artifactVersionsForSession(
   liveVersions?: readonly Artifact[],
 ): readonly Artifact[] | undefined {
   if (!opened) return undefined;
-  if (opened.sessionId !== activeSession)
-    return opened.pinned ? (opened.pinVersions ?? [opened]) : undefined;
-  return liveVersions ?? (opened.pinned ? (opened.pinVersions ?? [opened]) : undefined);
+  const snapshot = opened.pinned ? (opened.pinVersions ?? [opened]) : undefined;
+  if (opened.sessionId !== activeSession) return snapshot;
+  // Paged or reconnecting transcripts may temporarily contain only some of the original
+  // revisions. Keep the pinned snapshot until every captured revision has reappeared.
+  if (snapshot) {
+    const liveCodes = new Set(liveVersions?.map((version) => version.code) ?? []);
+    if (snapshot.some((version) => !liveCodes.has(version.code))) return snapshot;
+  }
+  return liveVersions ?? snapshot;
 }
