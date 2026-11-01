@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSwiftRender
 @testable import CmuxSwiftRenderUI
 import Testing
@@ -26,6 +27,65 @@ struct SidebarJSRuntimeTests {
         let first = root?.children.first.flatMap { runtime.store.node($0) }
         #expect(first?.string("text") == "Hello")
         #expect(first?.string("font") == "headline")
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/26306: `Image()` only
+    /// took an SF Symbol name, so a sidebar could not draw the agent marks
+    /// cmux bundles. Both the name form and `{ asset }` reach the node.
+    @Test func imageCarriesBundledAssetNames() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => HStack([
+            Image("AgentIcons/Codex"),
+            Image({ asset: "AgentIcons/Claude" }).size(16),
+            Image("star.fill"),
+        ]))
+        """)
+        #expect(runtime.errorMessage == nil)
+        let root = try! #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let byName = try! #require(runtime.store.node(root.children[0]))
+        let byAsset = try! #require(runtime.store.node(root.children[1]))
+        let symbol = try! #require(runtime.store.node(root.children[2]))
+        #expect(byName.string("systemName") == "AgentIcons/Codex")
+        #expect(byAsset.string("asset") == "AgentIcons/Claude")
+        #expect(byAsset.double("size") == 16)
+        #expect(symbol.string("systemName") == "star.fill")
+    }
+
+    @Test func reactiveImageNamesUpdateInPlace() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        sidebar(() => HStack([
+            Image(() => data.icon()),
+            Image({ asset: () => data.icon() }),
+        ]))
+        """))
+        let root = try #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let nameId = root.children[0]
+        let assetId = root.children[1]
+        for name in ["AgentIcons/Codex", "AgentIcons/Claude", "person.fill"] {
+            runtime.updateData(key: "icon", value: .string(name))
+            #expect(runtime.store.node(nameId)?.string("systemName") == name)
+            #expect(runtime.store.node(assetId)?.string("asset") == name)
+            #expect(runtime.store.node(try #require(runtime.store.rootId))?.children == [nameId, assetId])
+        }
+        #expect(runtime.errorMessage == nil)
+    }
+
+    @Test func bundledImageResolvesOnlyAgentIcons() throws {
+        let fixture = try SidebarImageTestBundle()
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let resolver = DSLBundledImageResolver(bundle: fixture.bundle)
+        #expect(resolver.bundledImage("AgentIcons/Codex") != nil)
+        // Even an existing image outside the allowed namespace stays a symbol.
+        #expect(fixture.bundle.image(forResource: "AppIcon") != nil)
+        #expect(resolver.bundledImage("AppIcon") == nil)
+        #expect(resolver.bundledImage("AgentIcons/") == nil)
+        #expect(resolver.bundledImage("star.fill") == nil)
+        #expect(resolver.bundledImage(nil) == nil)
+        #expect(resolver.bundledImage("AgentIcons/Nope") == nil)
+        #expect(resolver.bundledImage("AgentIcons/../AppIcon") == nil)
+        #expect(resolver.bundledImage("AgentIcons/Codex/../../AppIcon") == nil)
     }
 
     @Test func fixedSizeReachesTheNode() {
