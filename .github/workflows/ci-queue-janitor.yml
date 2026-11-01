@@ -252,7 +252,9 @@ jobs:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
-        run: python3 scripts/ci/queue_janitor.py
+        # PyYAML reads the runs-on of a route move's jobs (scripts/ci/route_moves.py); installed in this job's
+        # scratch only when the runner's Python lacks it.
+        run: bash scripts/ci/python-with-yaml.sh scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on
       # 2026-10-25 every NEXT nightly's legacy publish failed and nothing said so first. One

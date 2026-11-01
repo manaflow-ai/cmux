@@ -65,6 +65,18 @@ def queued(name: str, label: str = OLD, age: float = 25, **extra) -> dict:
 IDS = iter(range(900000, 999999))
 
 
+def janitor_pools_value() -> str:
+    """The RUNNER_POOLS runner_pools.main() writes when linux and LINUX_RUNNER both leave OLD in one pass."""
+    import runner_pools  # noqa: PLC0415
+
+    current, _ = runner_pools.parse_value(json.dumps({"linux": OLD}), runner_pools.load_pools())
+    value, _ = runner_pools.reconcile(current, runner_pools.load_pools(), dead_now={OLD}, served_now=(),
+                                      now=MOVED_AT)
+    value = runner_pools.with_moves(value, current, runner_pools.load_pools(), [("LINUX_RUNNER", value["linux"])],
+                                    {"LINUX_RUNNER": OLD}, now=MOVED_AT)
+    return runner_pools.render(value)
+
+
 class Record(unittest.TestCase):
     def test_a_move_is_recorded_replaced_expired_and_dropped_when_it_moves_back(self) -> None:
         first = route_moves.record_moves([], [("LINUX_RUNNER", OLD, NEW)], current={"LINUX_RUNNER": NEW}, now=NOW)
@@ -160,6 +172,18 @@ class RouteLost(unittest.TestCase):
         self.assertEqual(found[moved["id"]].labels, OLD)
         self.assertTrue(any("another job of the run is unfinished" in line for line in lines))
 
+    def test_a_linux_runner_job_moves_when_the_pool_move_off_the_same_label_is_recorded_first(self) -> None:
+        # runner_pools.with_moves() records RUNNER_POOLS.linux before LINUX_RUNNER when both leave one label;
+        # the `vars.LINUX_RUNNER` shape (the 2,000-run backlog) qualifies only on the second entry.
+        run = make_run(age=60, path=".github/workflows/lint.yml", name="Lint", status="queued", sha="d" * 40)
+        found, _ = self.find([run], {run["id"]: [queued("Lint")]}, moves=(POOL_MOVE, MOVE))
+        self.assertEqual(set(found), {run["id"]})
+        self.assertIn("LINUX_RUNNER moved", found[run["id"]].route)
+        recorded = route_moves.parse_moves(json.loads(janitor_pools_value())["_moved"])
+        self.assertEqual([m.variable for m in recorded], ["RUNNER_POOLS.linux", "LINUX_RUNNER"])
+        found, _ = self.find([run], {run["id"]: [queued("Lint")]}, moves=recorded)
+        self.assertEqual(set(found), {run["id"]})
+
     def test_a_route_lost_job_takes_category_e_verdicts(self) -> None:
         run = make_run(age=60, prs=(5,), sha="b" * 40)
         lost = janitor.LostJob("Lint", OLD, NOW - dt.timedelta(minutes=50), 0, 1, (1,), route=MOVE.line())
@@ -178,7 +202,7 @@ class RouteLost(unittest.TestCase):
 class Sweep(unittest.TestCase):
     """main() end to end over FakeGitHub: a lint run on a linux-only workflow, so only the route pass lists it."""
 
-    def sweep(self, *args, fake_class=FakeGitHub, pools=None):
+    def sweep(self, *args, fake_class=FakeGitHub, pools=None, patch_files=True, started_ago=0.0):
         stale = make_run(age=60, prs=(5,), branch="stale", path=".github/workflows/lint.yml", name="Lint",
                          status="queued", sha="c" * 40)
         runs = {stale["id"]: dict(stale)}
@@ -208,9 +232,14 @@ class Sweep(unittest.TestCase):
                                                                    "steps": [{"run": "true"}]}}))
             summary = Path(temp) / "summary.md"
             argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary), "--workflows-dir", str(workflows), *args]
+            monotonic_calls: list[int] = []  # the first read is the sweep's start; later ones are `started_ago` on
             env = {"GH_TOKEN": "t", "RUNNER_POOLS": raw, "LINUX_RUNNER": NEW, "CI_CLOUD_OVERFLOW_SAVED": ""}
             with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
-                    mock.patch.object(route_moves, "WorkflowFiles", Files), \
+                    (mock.patch.object(route_moves, "WorkflowFiles", Files) if patch_files
+                     else mock.patch.object(route_moves, "MOVED_KEY", route_moves.MOVED_KEY)), \
+                    mock.patch.object(janitor.time, "monotonic", lambda real=janitor.time.monotonic: real()
+                                      + (started_ago if monotonic_calls.append(1) or len(monotonic_calls) > 1
+                                         else 0.0)), \
                     mock.patch.dict("os.environ", env), \
                     mock.patch.object(janitor.time, "sleep", lambda _: None), \
                     mock.patch.object(janitor, "utc_now", lambda: NOW), \
@@ -237,6 +266,11 @@ class Sweep(unittest.TestCase):
                           "&page=1"), fake.log)
         self.assertIn("Route moves: none", text)
 
+    def test_an_old_sweep_skips_the_route_pass(self) -> None:
+        code, fake, text, _ = self.sweep(started_ago=janitor.ROUTE_SWEEP_CUTOFF_S + 1)
+        self.assertEqual((code, fake.posts()), (0, []))
+        self.assertIn("Route moves: none (the sweep is past", text)
+
     def test_a_rate_limit_on_a_route_listing_stops_before_any_cancel(self) -> None:
         class Limited(FakeGitHub):
             def jobs(self, run_id):
@@ -247,6 +281,49 @@ class Sweep(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("rate limit", fake.rate_limited)
         self.assertEqual(fake.posts(), [])
+
+
+class ReadFailures(unittest.TestCase):
+    def test_a_refused_file_read_leaves_the_job_alone_and_only_a_rate_limit_stops_the_sweep(self) -> None:
+        sha = "e" * 40
+        for error in (RuntimeError("GET /repos/x/contents/y failed (404)"),
+                      RuntimeError("GET /repos/x/contents/y failed (502)"),
+                      RuntimeError("GET /repos/x/contents/y not sent: past the sweep's deadline")):
+            with self.subTest(error=str(error)):
+                def api(path, error=error):
+                    raise error
+                files = route_moves.WorkflowFiles("manaflow-ai/cmux", api=api, git=False)
+                self.assertIsNone(files.read(sha, ".github/workflows/ci.yml"))
+
+        def limited(path):
+            raise janitor.RateLimited("GET /contents failed (403: rate limit)")
+        files = route_moves.WorkflowFiles("manaflow-ai/cmux", api=limited, git=False)
+        with self.assertRaises(janitor.RateLimited):
+            files.read(sha, ".github/workflows/ci.yml")
+
+    def test_a_sweep_whose_workflow_file_is_missing_still_acts_on_everything_else(self) -> None:
+        # A pull_request run whose workflow file is not at its head: the API answers 404. The sweep goes on.
+        real = route_moves.WorkflowFiles
+
+        class Missing:
+            def __init__(self, *a, **k):
+                self.inner = real("manaflow-ai/cmux", git=False, api=self.api)
+
+            @staticmethod
+            def api(path):
+                raise RuntimeError(f"GET {path.split('?')[0]} failed (404)")
+
+            def read(self, sha, path):
+                return self.inner.read(sha, path)
+
+            def line(self):
+                return self.inner.line()
+
+        with mock.patch.object(route_moves, "WorkflowFiles", Missing):
+            code, fake, text, stale = Sweep.sweep(Sweep(), patch_files=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.posts(), [])
+        self.assertIn("### Route moves", text)
 
 
 class Wiring(unittest.TestCase):

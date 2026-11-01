@@ -506,8 +506,15 @@ class WorkflowFiles:
         if text is not None:
             self.git_reads += 1
         else:
-            # A rate limit propagates (the caller's client raises): the sweep stops before acting.
-            text = self._api_read(sha, path)
+            # A rate limit propagates (the caller's client raises): the sweep stops before acting. Any other
+            # refusal (a 404 for a file missing at that commit, a 5xx after retries, the sweep's deadline)
+            # leaves this job alone instead of failing the whole sweep.
+            try:
+                text = self._api_read(sha, path)
+            except Exception as error:  # noqa: BLE001 - only a rate limit may end the sweep
+                if type(error).__name__ == "RateLimited":
+                    raise
+                text = None
             if text is not None:
                 self.api_reads += 1
         self.cache[key] = text

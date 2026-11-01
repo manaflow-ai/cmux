@@ -794,7 +794,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
-        self.assertIn("run: python3 scripts/ci/queue_janitor.py", text)
+        self.assertIn("run: bash scripts/ci/python-with-yaml.sh scripts/ci/queue_janitor.py", text)
         self.assertIn("persist-credentials: false", text)
 
     def test_manual_dispatch_defaults_to_dry_run(self):

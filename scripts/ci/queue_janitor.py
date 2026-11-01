@@ -1527,7 +1527,10 @@ ROUTE_MIN_QUEUED_SECONDS = 5 * 60
 ROUTE_MAX_RUNS = 20
 ROUTE_JOB_READS = 20
 ROUTE_FILE_READS = 40
-ROUTE_BUDGET_S = 150.0
+ROUTE_BUDGET_S = 90.0
+# The route pass is skipped once the sweep is this old: a whole-queue listing took up to 13 minutes on
+# 2026-10-30, and the job's timeout-minutes (15) would skip the snapshot upload that carries re-runs.
+ROUTE_SWEEP_CUTOFF_S = 8 * 60.0
 
 
 def route_scope(run: Mapping[str, Any], moves: Sequence[route_moves.Move]) -> list[route_moves.Move]:
@@ -1604,15 +1607,22 @@ def route_lost(
             if not unassigned(job):
                 continue
             labels = [str(label).lower() for label in job.get("labels") or ()]
-            move = next((m for m in held if labels == [m.old.lower()]), None)
-            if move is None:
+            matching = [m for m in held if labels == [m.old.lower()]]
+            if not matching:
                 continue
             since = lost_wait_start(job, run_jobs)
             if since is None or (now - since).total_seconds() < ROUTE_MIN_QUEUED_SECONDS:
                 why_not = why_not or f"`{job.get('name')}` queued under {ROUTE_MIN_QUEUED_SECONDS // 60} minutes"
                 continue
             runs_on = route_moves.runs_on_of(lambda file, sha=sha: read(sha, file), path, str(job.get("name") or ""))
-            target, why = route_moves.qualifies(runs_on, move, values, context)
+            # Several variables may have left the same label in one pass (RUNNER_POOLS.linux and LINUX_RUNNER):
+            # the job moves if any of them gave it its label.
+            target, why = None, ""
+            for move in matching:
+                target, note = route_moves.qualifies(runs_on, move, values, context)
+                why = note if target is not None or not why else why
+                if target is not None:
+                    break
             if target is None:
                 why_not = why_not or f"`{job.get('name')}`: {why}"
                 continue
@@ -4419,6 +4429,9 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         moves, no_moves = route_moves.moves_in(os.environ.get("RUNNER_POOLS"), now=now)
         if moves and not route_moves.yaml_available():
             moves, no_moves = [], "PyYAML is missing on this runner, so no runs-on can be read"
+        if moves and time.monotonic() - sweep_started > ROUTE_SWEEP_CUTOFF_S:
+            moves, no_moves = [], (f"the sweep is past {ROUTE_SWEEP_CUTOFF_S / 60:.0f} minutes; "
+                                   "the next sweep moves them")
         if moves:
             route_files = route_moves.WorkflowFiles(
                 args.repo, api=lambda path: github.request("GET", path), max_reads=ROUTE_FILE_READS,
