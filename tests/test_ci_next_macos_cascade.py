@@ -1632,8 +1632,8 @@ class Wiring(unittest.TestCase):
                                    JOBS="fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files"), (),
                                {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.retry_runner, SMALL)
-        self.assertEqual(result.retry_jobs, ("swift-test", "daemon-test"))
-        self.assertLessEqual(len(result.retry_jobs), cascade.MAX_PER_RUN)
+        self.assertEqual(result.retry_jobs, ())
+        self.assertLessEqual(len(result.jobs[SMALL]) + len(result.retry_jobs), cascade.MAX_PER_RUN)
 
     def test_fast_tier_keeps_fork_and_disabled_pool_routes(self):
         runs_on = self.jobs["fast-tier"]["runs-on"]
