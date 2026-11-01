@@ -59,6 +59,31 @@ fn cloud_repo_recent_reaches_new_machine_without_copying_chat_attachments() {
 }
 
 #[test]
+fn cloud_repo_pending_exposes_only_running_progress_for_this_chat() {
+    let mux = mux("cloud-repo-progress");
+    let progress = json!({"received_bytes":1024,"objects":2,"total_objects":4});
+    set_job(
+        &mux,
+        "chat-1",
+        "repo",
+        Some(&json!({
+            "job":"internal-id", "repo":"o/repo", "ref":"main", "state":"running",
+            "phase":"clone", "progress":progress, "notes":["lfs_unavailable"]
+        })),
+    )
+    .unwrap();
+    let rows = pending(&mux, "chat-1").unwrap();
+    assert_eq!(
+        rows,
+        vec![json!({"repo":"o/repo","state":"running","phase":"clone",
+        "progress":progress,"notes":["lfs_unavailable"]})]
+    );
+    assert!(pending(&mux, "chat-2").unwrap().is_empty());
+    set_job(&mux, "chat-1", "repo", Some(&json!({"repo":"o/repo","state":"done"}))).unwrap();
+    assert!(pending(&mux, "chat-1").unwrap().is_empty());
+}
+
+#[test]
 fn cloud_repo_remember_rejects_invalid_attachment_without_mutating_catalog() {
     let mux = mux("cloud-repo-invalid-remember");
     let good = attachment("o/repo", "chat-1");

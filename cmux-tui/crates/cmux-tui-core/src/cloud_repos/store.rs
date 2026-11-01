@@ -73,6 +73,24 @@ pub(super) fn attached(mux: &Mux, session: &str) -> Result<Vec<Value>, Failure> 
     let (doc, _) = load(mux)?;
     Ok(doc["chats"][session].as_array().cloned().unwrap_or_default())
 }
+pub(super) fn pending(mux: &Mux, session: &str) -> Result<Vec<Value>, Failure> {
+    let (doc, _) = load(mux)?;
+    Ok(doc["jobs"][session]
+        .as_object()
+        .into_iter()
+        .flat_map(|jobs| jobs.values())
+        .filter(|job| job["state"] == "running")
+        .map(|job| {
+            let mut result = json!({"repo":job["repo"],"state":"running"});
+            for key in ["phase", "progress", "notes"] {
+                if let Some(value) = job.get(key) {
+                    result.set(key, value.clone());
+                }
+            }
+            result
+        })
+        .collect())
+}
 pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     if args.get("complete").is_some_and(|v| v != true) {
         return Err(Failure::new(
