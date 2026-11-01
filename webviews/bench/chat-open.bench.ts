@@ -202,7 +202,14 @@ try {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
     await page.addInitScript(([latestText, instrument]) => {
-      const forced = { writes: 0, writeMs: 0, reads: 0, readMs: 0, byClass: {} as Record<string, number>, log: [] as string[] };
+      const forced = {
+        writes: 0,
+        writeMs: 0,
+        reads: 0,
+        readMs: 0,
+        byClass: {} as Record<string, number>,
+        log: [] as string[],
+      };
       (window as unknown as { __forced: typeof forced }).__forced = forced;
       // INSTRUMENT=1: scroll writes and layout reads the page makes, and the time each takes (a write
       // or read after a DOM change is where the browser lays out synchronously).
