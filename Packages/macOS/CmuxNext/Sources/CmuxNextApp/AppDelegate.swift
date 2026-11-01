@@ -123,7 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment, keyWindowSource: { NSApp.keyWindow }, appActiveSource: { NSApp.isActive }, work: launchReads.work, mainWork: mainWork,
+        let services = AppServices(environment: environment, keyWindowSource: { NSApp.keyWindow }, appActiveSource: { NSApp.isActive },
+                                   heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
         self.services = services

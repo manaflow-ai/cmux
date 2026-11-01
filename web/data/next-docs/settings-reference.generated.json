@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 537,
+  "count": 536,
   "sections": [
     {
       "id": "general",
@@ -1622,6 +1622,19 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptView",
+          "title": "Transcript View",
+          "help": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+          "kind": "choice",
+          "default": "normal",
+          "group": "Agent Chat",
+          "values": [
+            "normal",
+            "thinking",
+            "verbose"
           ]
         },
         {
@@ -5740,26 +5753,6 @@
           "kind": "string_map",
           "default": {},
           "group": "Machine Colors"
-        },
-        {
-          "key": "cloud.newWorkspaceFolder",
-          "title": "New Cloud Workspaces Start In",
-          "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
-          "kind": "choice",
-          "default": "inherit",
-          "group": "Cloud Workspaces",
-          "values": [
-            "inherit",
-            "empty"
-          ]
-        },
-        {
-          "key": "cloud.newWorkspacesInCloud",
-          "title": "Run New Workspaces in Cloud",
-          "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Workspaces"
         },
         {
           "key": "phone.allowConnections",
