@@ -12,7 +12,7 @@ extension SidebarRowFeed {
     }
 }
 
-/// Rows show their agent sessions' acpmux lane state (`sidebar.laneStatus`, Debug, on by default):
+/// Rows can show their agent sessions' acpmux lane state (`sidebar.laneStatus`, off by default):
 /// a row's status mark also follows the lane (`AgentLaneStore`) of each agent chat in it on this
 /// Mac (`SidebarLocalLanes`), so it reads working, waiting on you or failed even when no turn
 /// state reached the row, whatever harness runs the chat.
@@ -23,9 +23,9 @@ extension SidebarRowFeed {
 @MainActor
 enum SidebarLaneStatus {
     /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
-    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`). The toggles, the lanes
-    /// and the read marks are read inside the row's mapping, so flipping a toggle, a lane change or
-    /// a mark maps that row again; with every toggle off no lane is read.
+    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`), and always its lanes'
+    /// usage warnings (the row's warning badge). The toggles, the lanes and the read marks are read
+    /// inside the row's mapping, so flipping a toggle, a lane change or a mark maps that row again.
     static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore,
                          turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared) -> SidebarMapping.RowSource {
         { workspace, machine, make in
@@ -33,9 +33,11 @@ enum SidebarLaneStatus {
                 var row = make()
                 let mergesState = SidebarTunables.laneStatus.value, namesState = SidebarTunables.rowStatus.value
                 let saysStep = SidebarTunables.nowLine.value
-                guard mergesState || namesState || saysStep else { return row }
                 let local = SidebarTunables.laneFixture.value ? SidebarLaneFixture.lanes(workspace)
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
+                // A runaway session's warning shows whatever the lane toggles say (Leo 2026-10-30).
+                row.usageWarnings = usageWarnings(local)
+                guard mergesState || namesState || saysStep else { return row }
                 if mergesState { merge(local, into: &row) }
                 if namesState { row.agentChip = chip(local, marks: marks.state) }
                 if saysStep { row.agentStep = step(local) }
@@ -89,12 +91,26 @@ enum SidebarLaneStatus {
         .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
     }
 
-    /// The first line of the step of the working lane that started last, nil when none works or
-    /// says what it does.
+    /// Activity from the most recently started working lane that has any. acpmux derives
+    /// lane.step from turn.prompt whenever it exists, then masks, folds and truncates it:
+    /// comparing the strings would leak long prompts. Keep the opt-in Now line, using the
+    /// turn's activity/plan instead, or the lane step only when it has no prompt source.
     static func step(_ lanes: [AgentActivityLane]) -> String? {
-        let step = lanes.filter { $0.state == .working && $0.step?.isEmpty == false }
-            .max { ($0.since ?? .distantPast) < ($1.since ?? .distantPast) }?.step
-        return step?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+        func firstLine(_ text: String?) -> String? {
+            text?.split(whereSeparator: \.isNewline).first
+                .map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        return lanes.filter { $0.state == .working }.compactMap { lane -> (Date, String)? in
+            guard let text = firstLine(lane.turnActivity) ?? firstLine(lane.turnPlanStep)
+                ?? (lane.turnPrompt == nil ? firstLine(lane.step) : nil) else { return nil }
+            return (lane.since ?? .distantPast, text)
+        }.max { $0.0 < $1.0 }?.1
+    }
+
+    /// Each usage warning of `lanes`, once, in lane order.
+    static func usageWarnings(_ lanes: [AgentActivityLane]) -> [String] {
+        var seen = Set<String>()
+        return lanes.flatMap(\.usageWarnings).filter { seen.insert($0).inserted }
     }
 
     /// A lane state as the row's status mark.

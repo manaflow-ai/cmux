@@ -27,12 +27,15 @@ public final class BrowserFolderAccess {
 
     public func detect() async -> [BrowserSource] {
         let grants = grants, environment = environment
-        return await Task.detached { grants?.detect() ?? BrowserSourceDetector(environment: environment).detect() }.value
+        // The scan runs detached; cancelling the caller cancels it too, so it stops between browsers.
+        let scan = Task.detached { grants?.detect() ?? BrowserSourceDetector(environment: environment).detect() }
+        return await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
     }
 
     public func awaiting() async -> [ImportBrowser] {
         guard let grants else { return [] }
-        return await Task.detached { grants.awaiting() }.value
+        let scan = Task.detached { grants.awaiting() }
+        return await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
     }
 
     public func folder(_ browser: ImportBrowser) -> URL? { grants?.folder(browser) }

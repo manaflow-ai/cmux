@@ -80,7 +80,7 @@ final class SandboxRunNotices {
     private func post(_ end: SandboxRunEnd) {
         guard let center = services?.notifications else { return }
         var arrival = NotificationPolicy.Arrival(source: .agent)
-        arrival.appActive = NSApp.isActive
+        arrival.appActive = services?.appActiveSource() ?? false
         // A tab whose page still shows the send's earlier answer doesn't show the end.
         arrival.paneIsViewed = !stale(end.record.key) && (tab(holding: end.record.key).map { center.isViewed($0) } ?? false)
         arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .cancelled ? .message : .error
@@ -111,6 +111,8 @@ final class SandboxRunNotices {
         case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
         case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module)
         case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module)
+        // A Run never stops for the person (only a hand-off does, HandoffNotices).
+        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
         }
         return (title, body)
     }

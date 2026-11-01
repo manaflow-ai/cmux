@@ -79,6 +79,7 @@ impl Mux {
     /// `notification` event follow a successful commit only, so a client
     /// that acknowledges on the event reads the committed item.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_notification_effect(
         &self,
         actor: &crate::Actor,

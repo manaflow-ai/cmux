@@ -175,5 +175,5 @@ async fn daemon_restart_sends_close_1012_before_wireguard_shutdown() {
     .unwrap();
     assert_eq!(close.code, CloseCode::Restart);
     let _ = websocket.close(None).await;
-    transport.shutdown().await;
+    transport.shutdown(tokio::time::Instant::now()).await;
 }

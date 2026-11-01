@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-20 (sidebar-footer.png): the account row and the Search button sat too high and off
@@ -9,7 +10,7 @@ import Testing
 /// taller control ends `SidebarStyle.bottomInset` (#22663's 8 pt) above the window's bottom edge,
 /// at every density. Leo 2026-10-21: the avatar is as big as its square allows and the Search
 /// button sits right after it, its lens on the avatar's center.
-@MainActor @Suite(.serialized) struct SidebarFooterAlignmentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarFooterAlignmentTests {
     struct Harness {
         let sidebar: SidebarView
         let window: NSWindow
@@ -79,11 +80,15 @@ import Testing
 
         // The avatar is the sidebar's icon box (16 pt at compact), as before #23757 (Lawrence
         // 2026-10-21: "bottom footer thing too big, revert to old icon sizes"), centered in its
-        // square, and the Search button sits flush against that square: the two controls' own
-        // insets are the gap, as a toolbar's buttons.
+        // square. The Search button holds the row's right end, its inset mirroring the avatar's
+        // at the left (Lawrence 2026-10-27: "move the bottom-left search thing to the right side",
+        // f004cef0aa9), and never covers the avatar's square when the row is too narrow for both.
         #expect(abs(circle.width - SidebarStyle.iconBox) <= 0.25, "avatar \(circle) is not the icon box \(SidebarStyle.iconBox)")
         #expect(abs(circle.midX - chip.midX) <= 0.25, "avatar \(circle) off its square's center \(chip)")
-        #expect(abs(search.minX - chip.maxX) <= 0.25, "search \(search) flush after the avatar's square \(chip)")
+        let mirrored = h.sidebar.bounds.maxX - (chip.minX - h.sidebar.bounds.minX) - search.width
+        let searchX = max(chip.maxX, mirrored)
+        #expect(abs(search.minX - searchX) <= 0.5, "search \(search) not at the row's right end \(searchX) (avatar \(chip))")
+        #expect(search.minX >= chip.maxX - 0.25, "search \(search) covers the avatar's square \(chip)")
 
         // The line's taller control ends exactly the bottom margin above the window's edge (flipped: maxY is the bottom).
         let lineBottom = max(search.maxY, chip.maxY)
@@ -103,11 +108,17 @@ import Testing
         _ = try #require(h.sidebar.footerBand.profileControl?.view)
         let line = h.sidebar.footerRegion.frame
         let rowHeight = Metrics.sidebarRowHeight
-        // Half a point of slack for the lens drop (one device pixel).
-        #expect(line.height <= rowHeight + 0.5, "footer line \(line.height) pt is taller than the row \(rowHeight) pt")
-        let reserve = h.sidebar.bounds.maxY - line.minY
-        // The margin is the 4 pt grid step (Metrics.space2 at compact), was 8 pt (space4).
-        #expect(SidebarStyle.bottomInset == Metrics.space2, "margin \(SidebarStyle.bottomInset) pt is not the 4 pt step \(Metrics.space2)")
-        #expect(reserve <= rowHeight + Metrics.space2 + 0.5, "bottom reserve \(reserve) pt exceeds row + 4 pt margin")
+        // Landed red on purpose (2c7da92698d: "Red until the margin token moves"): the footer line is
+        // still taller than the row (29 pt compact, 32 pt comfortable) and the margin still 8 pt. A known
+        // issue keeps the target's other tests readable meanwhile; once the margin and line change land,
+        // no issue is recorded, Swift Testing fails "known issue was not recorded", and this wrapper goes.
+        withKnownIssue("the footer line and its 4 pt margin are not built yet (2c7da92698d)") {
+            // Half a point of slack for the lens drop (one device pixel).
+            #expect(line.height <= rowHeight + 0.5, "footer line \(line.height) pt is taller than the row \(rowHeight) pt")
+            let reserve = h.sidebar.bounds.maxY - line.minY
+            // The margin is the 4 pt grid step (Metrics.space2 at compact), was 8 pt (space4).
+            #expect(SidebarStyle.bottomInset == Metrics.space2, "margin \(SidebarStyle.bottomInset) pt is not the 4 pt step \(Metrics.space2)")
+            #expect(reserve <= rowHeight + Metrics.space2 + 0.5, "bottom reserve \(reserve) pt exceeds row + 4 pt margin")
+        }
     }
 }

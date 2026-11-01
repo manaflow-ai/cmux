@@ -18,6 +18,11 @@ enum WorkspaceSetVerbs {
                 if let window = controller.window { WindowTargeting.close(window) }
             }
         })
+        // Every other normal window's workspaces move here (each keeps its space); those windows close.
+        registry.bindEffect("window.mergeAll", requires: nil, effect: { invocation in
+            try context.services.windows.mergeWindows(into: context.window(invocation).state)
+            return .done
+        })
         registry.bind("workspaceGroup.duplicate", run: { try duplicateGroup($0, context) })
         registry.bind("sidebar.section.newWorkspace", run: { try newWorkspace(inSection: $0, context) })
         // A pure lookup (no refusal): the pane a pane or tab target names, if it shows an agent chat or sits on a canvas.
@@ -26,7 +31,7 @@ enum WorkspaceSetVerbs {
             let services = context.services
             let pane: PaneController? = switch target.kind {
             case .pane: services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == target.id } }.first
-            case .tab: services.locateTab(target.id).flatMap { services.paneController(for: $0.1) }
+            case .tab: context.targetTab(target.id, invocation).flatMap { services.paneController(for: $0.1) }
             default: nil
             }
             var facts: ActionContext = []
@@ -60,14 +65,19 @@ enum WorkspaceSetVerbs {
     }
 
     /// A new workspace listed in the target section: added as its item (Pinned
-    /// too), or at the bottom of the window's list for the workspaces section.
+    /// too), or for the workspaces section by `workspaces.newPlacement`: first in
+    /// the list under the default `top` (not into the current workspace's group),
+    /// last under `bottom`, after the current workspace under `afterCurrent`
+    /// (Leo 2026-10-22: "DEFAULT NEW WORKSPACE AT THE TOP"; it went to the bottom
+    /// whatever the setting).
     private static func newWorkspace(inSection invocation: ActionInvocation, _ context: AppActionContext) throws {
         let layout = context.services.sidebarLayout
         if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         let section = try SidebarSectionResolve.section(invocation.target, in: layout.document)
         switch section.content {
         case .workspaces:
-            try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .bottom(anchor: nil))
+            // No slot: the setting's, so the daemon's create already lists it there (one write, no move).
+            try WorkspaceVerbHandlers.create(context, invocation, anchorFree: nil, fromCurrent: false)
         case .items:
             let origin = invocation.origin, sectionID = section.id, services = context.services, end = section.items.count
             try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .bottom(anchor: nil)) { id, _ in

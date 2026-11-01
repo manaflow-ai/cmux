@@ -13,6 +13,8 @@ export interface UpdateHighlightItem {
   category: WhatsNewCategory;
   /** An SF Symbol name when the source names one; the web views do not draw it. */
   symbol?: string | null;
+  /** Optional GitHub PR URL from the structured entry. */
+  pr?: string | null;
   /** The change's picture, inlined and checked by the host (`data:` URLs only); absent without one. */
   media?: UpdateHighlightMedia | null;
 }

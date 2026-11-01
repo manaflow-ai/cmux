@@ -28,7 +28,10 @@ struct ChiefQuestionBar: View {
     static let fadeDuration = 0.2
 
     var body: some View {
-        VStack(spacing: 0) { content }
+        VStack(spacing: 0) {
+            content
+            ChiefOutboxView(session: session, resized: resized)
+        }
             .onAppear {
                 shown = session.barItem
                 visible = shown != nil

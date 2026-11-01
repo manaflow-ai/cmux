@@ -3,7 +3,8 @@
 //! owner daemon (`cmux-chief-<id>`) move into the user's session (the app's daemon) when the
 //! host starts: the same key, the name the user saw (without the Chief-made `aN · `), the
 //! same tabs (the agent chat on the SAME acpmux session, the terminal in the same directory,
-//! browser pages) and the personal sidebar group of the same name. The old workspace closes
+//! browser pages) and the user's "Chief agents" group when it was in one (#27712: no other
+//! group, and none is made). The old workspace closes
 //! only once the new one holds every chat tab, so no chat is ever lost.
 
 use std::io::{BufRead, BufReader, Write};
@@ -69,10 +70,10 @@ fn sent(log: &Log, cmd: &str) -> Vec<Value> {
 }
 
 /// The owner daemon's tree: one subagent workspace with a terminal and its chat, in group
-/// "Performance", and a terminal running a command (left alone).
+/// "Chief agents", and a terminal running a command (left alone).
 fn owner_tree() -> Value {
-    json!({"groups": [{"id": "chief-topic-performance", "name": "Performance"}], "workspaces": [
-        {"id": 1, "key": "k-1", "kind": "normal", "name": "a421 · Panes performance", "group": "chief-topic-performance",
+    json!({"groups": [{"id": "chief-agents", "name": "Chief agents"}], "workspaces": [
+        {"id": 1, "key": "k-1", "kind": "normal", "name": "a421 · Panes performance", "group": "chief-agents",
          "resource_id": "ws_old1", "screens": [{"panes": [{"id": 5, "tabs": [
             {"kind": "pty", "cwd": "/Users/x/fun/cmux", "title": "x@mac:~/fun/cmux", "dead": false, "conversation": null},
             // A page listed before the chat still moves (it opens after the chat's pane exists).
@@ -91,7 +92,7 @@ fn owner_tree() -> Value {
     ]})
 }
 
-/// The app's daemon: it lists what was created, has the personal group "performance".
+/// The app's daemon: it lists what was created, has the personal group "chief agents".
 fn app_answer(chat_ok: bool) -> impl Fn(&Value, &Log) -> Option<Value> + Send + Sync + 'static {
     move |req: &Value, log: &Log| {
         let created = log
@@ -119,7 +120,7 @@ fn app_answer(chat_ok: bool) -> impl Fn(&Value, &Log) -> Option<Value> + Send + 
             (Some("new-frontend-browser-tab"), _) => Some(json!({"surface": 93})),
             (Some("close-workspace"), _) => Some(json!({"closed": true})),
             (_, Some("workspace_group.list")) => {
-                Some(json!([{"id": "grp_perf", "name": "performance", "index": 0}]))
+                Some(json!([{"id": "grp_agents", "name": "chief agents", "index": 0}]))
             }
             (_, Some("workspace.place")) => {
                 Some(json!({"value": {"group_id": req["params"]["group"]}}))
@@ -176,7 +177,7 @@ fn an_owner_session_workspace_moves_into_the_users_session_with_its_chat() {
     let placed = sent(&app, "workspace.place");
     assert_eq!(placed[0]["params"]["workspace"], "ws_new1");
     assert_eq!(
-        placed[0]["params"]["group"], "grp_perf",
+        placed[0]["params"]["group"], "grp_agents",
         "the user's group of that name, any case"
     );
     // Conversation tabs are read in their canonical form.

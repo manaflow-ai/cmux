@@ -7748,6 +7748,10 @@
     },
     "request:cloud-host-replica-status": {},
     "request:cloud-inbox-list": {
+      "/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
       "/include_archived": {
         "ty": "boolean"
       },
@@ -19036,6 +19040,21 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/hook_queue": {
+        "ty": "object"
+      },
+      "/data/hook_queue/queued_events": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue/reset_dropped_events": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue/undeliverable_events": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,
@@ -19191,6 +19210,371 @@
         "required": true
       },
       "/data/journal_writer/terminal_queued": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks": {
+        "ty": "object"
+      },
+      "/data/locks/registry": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*": {
+        "ty": "object"
+      },
+      "/data/locks/registry/by_hold_p99/*/acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/hold_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/hold_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/hold_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/wait_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/wait_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_p99/*/wait_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*": {
+        "ty": "object"
+      },
+      "/data/locks/registry/by_hold_total/*/acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/hold_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/hold_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/hold_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/wait_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/wait_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/by_hold_total/*/wait_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/contended_acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/holder": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/registry/holder/held_for_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/holder/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/registry/last_stall": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/registry/last_stall/blocker": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/registry/last_stall/waited_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/last_stall/waiter": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/registry/sites": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/stalls": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/registry/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*": {
+        "ty": "object"
+      },
+      "/data/locks/state/by_hold_p99/*/acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/hold_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/hold_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/hold_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/wait_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/wait_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_p99/*/wait_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*": {
+        "ty": "object"
+      },
+      "/data/locks/state/by_hold_total/*/acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/hold_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/hold_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/hold_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/wait_max_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/wait_p99_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/by_hold_total/*/wait_total_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/contended_acquisitions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/state/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/holder": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/state/holder/held_for_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/holder/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/state/last_stall": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/state/last_stall/blocker": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/locks/state/last_stall/waited_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/last_stall/waiter": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/locks/state/sites": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/stalls": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/locks/state/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/locks/state/wait_us/p99": {
         "ty": "uint64",
         "required": true
       },

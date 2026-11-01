@@ -203,11 +203,12 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow) {
-        let reopening = dismissing && isVisible
         dismissing = false
         ignoresMouseEvents = false
         self.anchor = anchor
         generation += 1
+        // Restore the whole card before ordering it front, including during a closing fade.
+        showPopupAtOnce()
         if self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -218,11 +219,9 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         let card = PopupAnchor(rect: anchor, edge: .leading, gap: Metrics.space2)
             .cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame)
         setFrame(PopupStyle.standard.windowFrame(forCard: card), display: true)
-        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor), entrance: true)
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
