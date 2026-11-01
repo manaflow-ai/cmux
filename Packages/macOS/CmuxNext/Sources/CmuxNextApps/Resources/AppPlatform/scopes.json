@@ -417,6 +417,10 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.vm.attention.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
     "cloud.vm.event.emit": {
       "scope": "cloud:execute",
       "class": "mutation"
