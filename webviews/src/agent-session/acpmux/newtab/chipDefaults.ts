@@ -50,7 +50,9 @@ export function newTabStart(
         harness,
         // The agent's model, named on the chip (its own "default" when none is known yet).
         model:
-          (kept && harness === picked ? remembered?.model : undefined) ??
+          (kept && harness === picked && remembered && !isDefaultChoice({ id: remembered.model })
+            ? remembered.model
+            : undefined) ??
           defaultModel(harness, snapshot.catalog, undefined, folder) ??
           "default",
       },

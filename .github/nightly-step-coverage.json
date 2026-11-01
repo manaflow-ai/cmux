@@ -3,6 +3,8 @@
   "workflows": {
     "nightly.yml": {
       "decide": {
+        "Mint the routing token for early nightly controls": {"plumbing": true},
+        "Place early controls on fleet Linux or free owned minis": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py from the ci group; the reusable workflow excludes that matrix row because this job already runs it"},
         "Decide whether a nightly build is needed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"}},
       "promote-nightly-next": {
         "Decide the promotion": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"},
@@ -311,6 +313,7 @@
       "pick-nightly-sign-runner": {
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot and signing-job reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
+        "Pick the Blacksmith Linux label for release-pool signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
         "Mint the owned-pool routing token": {"nightly_only": "mints a glaeda-route GitHub App token from GLAEDA_ROUTE_APP_KEY, only on nightly-next push attempt 1; its guard is checked by tests/test_nightly_sign_runner.py"},
         "Mint the routing token without the org permission": {"nightly_only": "mints the glaeda-route GitHub App token with repository administration read only, when the org-permission mint failed on a nightly-next push"},
         "Pick an owned Mac for the verify jobs": {"nightly_only": "reads the live owned pool with the routing token through nightly_build_runner.py verify on nightly-next push and dispatch runs with owned pools on; its guard and continue-on-error are checked by tests/test_nightly_sign_runner.py"},

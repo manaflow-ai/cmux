@@ -63,20 +63,35 @@ nonisolated enum ComputerUsePreviewRoute {
         var exact: Bool
     }
 
-    /// In order: the chat of the session's `acp_session`; the chat of its harness session id. A
-    /// session that has either id and no open chat it names shows nowhere. Else a guess, only in its
-    /// workspace when it names one: the one working chat of its agent family (in its workspace, the
-    /// only chat of that family also fits). A session of no known family goes only to the one chat
-    /// that works at all. Nil when none fits, or when several chats could be its.
+    /// Prefer a unique acpmux session ID, then a unique harness session ID. Both must agree with
+    /// the helper's workspace when known. Harness IDs are local to their harness, so their family
+    /// must also agree. A conflicting or ambiguous ID never puts another agent's window in a chat.
+    /// Only sessions without either ID can use the single-working-chat fallback.
     static func pick(for session: ComputerUsePreviewSession, chats: [ComputerUsePreviewChat]) -> Pick? {
-        if let acp = session.acpSession, let chat = chats.first(where: { $0.session == acp }) {
+        func sameWorkspace(_ chat: ComputerUsePreviewChat) -> Bool {
+            guard let workspace = session.workspaceID else { return true }
+            return chat.workspaceID == workspace
+        }
+        func unique(_ candidates: [ComputerUsePreviewChat]) -> Pick? {
+            guard candidates.count == 1, let chat = candidates.first else { return nil }
             return Pick(key: chat.key, exact: true)
         }
-        if let harness = session.harnessSessionID, let chat = chats.first(where: { $0.agentSession == harness }) {
-            return Pick(key: chat.key, exact: true)
+        if let acp = session.acpSession {
+            let candidates = chats.filter { $0.session == acp && sameWorkspace($0) }
+            // A duplicated acpmux id is ambiguous even when a harness id would select one.
+            if candidates.count > 1 { return nil }
+            if let found = unique(candidates) { return found }
+        }
+        if let harness = session.harnessSessionID {
+            let candidates = chats.filter { chat in
+                guard chat.agentSession == harness, sameWorkspace(chat) else { return false }
+                guard let expected = Self.family(session.agentKind) else { return true }
+                return Self.family(chat.harness) == expected
+            }
+            return unique(candidates)
         }
         // Its own chat is not open here: no other chat owns it.
-        guard session.acpSession == nil, session.harnessSessionID == nil else { return nil }
+        guard session.acpSession == nil else { return nil }
         let open = chats.filter { $0.session != nil }
         let here = session.workspaceID.map { workspace in open.filter { $0.workspaceID == workspace } } ?? open
         guard let family = Self.family(session.agentKind) else {
