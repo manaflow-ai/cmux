@@ -16,6 +16,7 @@ import os
 final class CommandHistory {
     private unowned let services: AppServices
     private var mirrors: [String: TerminalCommandMirror] = [:]
+    private var suggestionStore = TerminalCommandSuggestionStore()
     private var refreshing: Task<Void, Never>?
     private var observation: Task<Void, Never>?
     /// What each connected daemon was last sent, by machine; a restarted
@@ -133,6 +134,25 @@ final class CommandHistory {
                 mirrors[machine] = nil
             }
         }
+        suggestionStore.replace(mirrors.values.flatMap(\.commands))
+    }
+
+    /// Repeated successful commands for one exact machine and directory. The
+    /// projection is opt-in with command history and never runs a command.
+    func suggestions(machine: String, cwd: String) -> [TerminalCommandSuggestion] {
+        suggestionStore.suggestions(machine: machine, cwd: cwd)
+    }
+
+    func dismissSuggestion(_ suggestion: TerminalCommandSuggestion) {
+        suggestionStore.dismiss(suggestion)
+    }
+
+    func clearSuggestions() {
+        suggestionStore.clear()
+    }
+
+    func exportSuggestion(_ suggestion: TerminalCommandSuggestion, name: String? = nil) -> String {
+        suggestionStore.exportAction(suggestion, name: name)
     }
 
     static func command(_ row: TerminalCommandRow, machine: String) -> TerminalCommand? {
