@@ -159,6 +159,14 @@ class StuckRun(unittest.TestCase):
         tick(gh)
         self.assertEqual(gh.writes(), [])
 
+    def test_a_healthy_started_job_keeps_the_generic_running_message(self):
+        started = job("build-nightly-app", status="in_progress", runner="mini", started_at=ago(2))
+        gh = FakeGh(runs=[run(7, "in_progress")], jobs={7: [started]})
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), [])
+        self.assertIn("running or waiting, no job stuck without a runner", out)
+        self.assertNotIn("started, waiting on a runner", out)
+
     def test_a_skipped_job_does_not_count_as_started_work(self):
         skipped = job("build-nightly-app", status="completed", conclusion="skipped", started_at=ago(40))
         queued = job("signer-build", minutes=40)
