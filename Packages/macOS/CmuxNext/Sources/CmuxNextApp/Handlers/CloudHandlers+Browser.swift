@@ -339,7 +339,7 @@ extension CloudHandlers {
     static func openPreview(_ preview: CloudMachinePreview, session: CloudMachineSession, path: String = "/", viewChange: Bool,
                             _ context: AppActionContext) async throws -> [String: ActionResultValue] {
         let names = CloudPortNames(session, port: preview.port)
-        guard let pane = context.services.windows.active?.focusedPane else { throw ActionFailure(message: CloudPortStrings.noWindow(names)) }
+        guard let pane = context.services.windows.active?.focusedPane?.pane else { throw ActionFailure(message: CloudPortStrings.noWindow(names)) }
         let url = try await wrapped(names) { try preview.browserURL(path: path) }
         let surface = try await wrapped(names) {
             try await context.services.cache.browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true),
