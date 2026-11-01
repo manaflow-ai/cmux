@@ -75,6 +75,9 @@ const INSTALL_FROM_APP: &str = "Install cmux on {host} from the app (Machines > 
 
 /// The remote user harness folder (what `ProfileSources::current` reads on
 /// a standalone acpmux or a shipped cmux), as a shell assignment.
+/// `--harness local`: every profile in this machine's harness folder (what
+/// Add Machine copies, so a remote chat starts with the agents this Mac has).
+pub(crate) const LOCAL_HARNESSES: &str = "local";
 const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses";
 
 /// Set by a caller that stops a run by its process group (the app's Add
