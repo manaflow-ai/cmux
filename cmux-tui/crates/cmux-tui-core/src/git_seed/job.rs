@@ -223,12 +223,15 @@ impl GitSeedService {
                 return Err(SeedRefusal::bad_request("another seed is running in this folder"));
             }
         }
+        let mut others = jobs.by_id.values().map(|job| job.folder.as_path());
+        place::not_nested(&self.roots, &folder, &mut others)?;
+        let id = new_id();
         let bundle = match params.clone_only {
             Some(_) => None,
-            None => Some(place::bundle(&self.roots, &params.bundle)?),
+            None => Some(place::bundle(&self.roots, &params.bundle, &id)?),
         };
         let job = Arc::new(Job {
-            id: new_id(),
+            id,
             folder: folder.clone(),
             key: params.retry_key(),
             status: Mutex::new(Status {
@@ -247,6 +250,7 @@ impl GitSeedService {
             params,
             folder,
             bundle,
+            self.roots.clone(),
             self.config.git.clone(),
             credentials,
         );

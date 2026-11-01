@@ -68,10 +68,8 @@ pub struct StartParams {
 impl StartParams {
     /// What makes a retry the same job, with the folder.
     pub fn retry_key(&self) -> String {
-        match &self.clone_only {
-            Some(git_ref) => format!("clone:{}", git_ref.as_deref().unwrap_or("")),
-            None => format!("seed:{}:{}", self.bundle, self.work),
-        }
+        // Every field, so a start that differs in anything is a new job.
+        format!("{self:?}")
     }
 }
 

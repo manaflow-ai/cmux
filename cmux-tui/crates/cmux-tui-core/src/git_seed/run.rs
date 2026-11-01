@@ -9,10 +9,13 @@ use std::sync::Arc;
 use super::git::{Credential, Failure, Git};
 use super::job::{Failed, Job, Phase};
 use super::params::StartParams;
-use super::{SeedRefusal, worktree};
+use super::{SeedRefusal, place, worktree};
+use crate::fs_ops::Roots;
 
-/// The refspec of the Mac's bundle.
-const SEED_REFSPEC: &str = "+refs/cmux-seed/*:refs/cmux-seed/*";
+/// The refspec of the Mac's bundle. It lands beside the folder's seed record
+/// (`refs/cmux-seed/*`), which moves only once the checkout succeeded, so a
+/// failed delta can be retried with the same `since`.
+const SEED_REFSPEC: &str = "+refs/cmux-seed/*:refs/cmux-seed-incoming/*";
 
 /// Refuses a folder that holds something other than this repository: a
 /// non-empty folder without `.git`, or a clone of another remote.
@@ -55,8 +58,9 @@ pub struct Seed {
     job: Arc<Job>,
     params: StartParams,
     folder: PathBuf,
-    /// The Mac's bundle (`None`: clone only).
-    bundle: Option<PathBuf>,
+    /// This daemon's copy of the Mac's bundle (`None`: clone only).
+    bundle: Option<place::BundleCopy>,
+    roots: Roots,
     git: Git,
     credentials: Vec<Credential>,
     /// The path that worked last (the first one until one has).
@@ -68,12 +72,13 @@ impl Seed {
         job: Arc<Job>,
         params: StartParams,
         folder: PathBuf,
-        bundle: Option<PathBuf>,
+        bundle: Option<place::BundleCopy>,
+        roots: Roots,
         git: Git,
         credentials: Vec<Credential>,
     ) -> Self {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
-        Self { job, params, folder, bundle, git, credentials, chosen }
+        Self { job, params, folder, bundle, roots, git, credentials, chosen }
     }
 
     pub fn run(mut self) -> Result<(), Failed> {
@@ -111,11 +116,17 @@ impl Seed {
         Ok(())
     }
 
-    /// The bundle has been applied; it is not needed again.
-    fn remove_bundle(&self) {
-        if let Some(bundle) = &self.bundle {
-            let _ = std::fs::remove_file(bundle);
+    /// The bundle has been applied; neither the upload nor this daemon's
+    /// copy is needed again.
+    fn remove_bundle(&mut self) {
+        if self.bundle.take().is_some() {
+            place::delete_upload(&self.roots, &self.params.bundle);
         }
+    }
+
+    /// The folder is still where it was placed (before every step).
+    fn recheck(&self) -> Result<(), Failed> {
+        place::recheck(&self.folder).map_err(|refusal| failed(refusal.code, refusal.message))
     }
 
     /// Records what the folder has checked out, for the status answer.
@@ -132,6 +143,7 @@ impl Seed {
     /// Clone only: the folder must not exist or be empty (a clone already
     /// there is refused too: this mode never touches an existing checkout).
     fn clone_new(&mut self) -> Result<(), Failed> {
+        self.recheck()?;
         let folder = self.folder.clone();
         let not_empty =
             std::fs::read_dir(&folder).is_ok_and(|mut entries| entries.next().is_some());
@@ -144,6 +156,7 @@ impl Seed {
     /// Checks out `git_ref` (a remote branch, tracked; a tag or commit,
     /// detached), else the remote's default branch.
     fn checkout_ref(&mut self, git_ref: Option<&str>) -> Result<(), Failed> {
+        self.recheck()?;
         self.job.enter(Phase::Checkout);
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
         let Some(git_ref) = git_ref else {
@@ -218,6 +231,7 @@ impl Seed {
     }
 
     fn clone_or_fetch(&mut self) -> Result<(), Failed> {
+        self.recheck()?;
         let folder = self.folder.clone();
         if std::fs::symlink_metadata(folder.join(".git")).is_ok_and(|meta| meta.is_dir()) {
             check_folder(&self.git, &folder, &self.params.url)
@@ -256,6 +270,7 @@ impl Seed {
     /// is `since`, and nothing changed on the machine since (HEAD, the index
     /// and the working tree with untracked files are still that seed's).
     fn check_delta(&self, since: &str) -> Result<(), Failed> {
+        self.recheck()?;
         let mismatch = |error: &str| failed("seed.since_mismatch", error);
         let is_clone =
             std::fs::symlink_metadata(self.folder.join(".git")).is_ok_and(|meta| meta.is_dir());
@@ -308,6 +323,7 @@ impl Seed {
     }
 
     fn base(&mut self) -> Result<(), Failed> {
+        self.recheck()?;
         self.job.enter(Phase::Fetch);
         if self.has_commit(&self.params.base) {
             return Ok(());
@@ -329,10 +345,11 @@ impl Seed {
 
     fn apply_bundle(&mut self) -> Result<(), Failed> {
         self.job.enter(Phase::Bundle);
+        self.recheck()?;
         let Some(bundle) = &self.bundle else {
             return Err(failed("seed.bundle_invalid", "no bundle"));
         };
-        let bundle = bundle.display().to_string();
+        let bundle = bundle.path.display().to_string();
         let invalid = |failure: Failure| step_failed(&failure, "seed.bundle_invalid");
         self.git(&["bundle", "verify", &bundle]).map_err(invalid)?;
         // A bundle is a local file: the one place a seed reads the file
@@ -378,18 +395,41 @@ impl Seed {
                     format!("the bundle's {name} is not the requested commit"),
                 ));
             }
-            // The record a later delta seed checks: exactly this seed.
-            self.git(&["update-ref", &reference, &sha]).map_err(invalid)?;
         }
-        if self.params.stash.is_none()
-            && self.git(&["rev-parse", "--verify", "--quiet", "refs/cmux-seed/stash"]).is_ok()
-        {
-            self.git(&["update-ref", "-d", "refs/cmux-seed/stash"]).map_err(invalid)?;
+        Ok(())
+    }
+
+    /// The record a later delta seed checks, written once the checkout
+    /// succeeded: exactly this seed's commits. The fetched refs go.
+    fn record_seed(&self) -> Result<(), Failure> {
+        let mut named = vec![
+            ("head", Some(self.params.head.as_str())),
+            ("index", Some(self.params.index.as_str())),
+            ("work", Some(self.params.work.as_str())),
+            ("stash", self.params.stash.as_deref()),
+        ];
+        for (name, sha) in named.drain(..) {
+            let reference = format!("refs/cmux-seed/{name}");
+            match sha {
+                Some(sha) => {
+                    self.git(&["update-ref", &reference, sha])?;
+                }
+                None => {
+                    if self.git(&["rev-parse", "--verify", "--quiet", &reference]).is_ok() {
+                        self.git(&["update-ref", "-d", &reference])?;
+                    }
+                }
+            }
+            let incoming = format!("refs/cmux-seed-incoming/{name}");
+            if self.git(&["rev-parse", "--verify", "--quiet", &incoming]).is_ok() {
+                self.git(&["update-ref", "-d", &incoming])?;
+            }
         }
         Ok(())
     }
 
     fn checkout(&mut self) -> Result<(), Failed> {
+        self.recheck()?;
         self.job.enter(Phase::Checkout);
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
         worktree::configure(&self.git, &self.chosen, &self.folder, self.params.sparse.as_deref())
@@ -420,6 +460,7 @@ impl Seed {
     /// HEAD moves to the new head, then INDEX and the stash as in a full
     /// seed. Ignored files stay.
     fn checkout_delta(&mut self, since: &str) -> Result<(), Failed> {
+        self.recheck()?;
         self.job.enter(Phase::Checkout);
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
         worktree::configure(&self.git, &self.chosen, &self.folder, self.params.sparse.as_deref())
@@ -487,13 +528,14 @@ impl Seed {
                 }
             }
         }
-        Ok(())
+        self.record_seed().map_err(wrap)
     }
 
     /// `changed`: a delta seed's `diff-tree -z` of the two WORK trees; it
     /// needs the network only when a submodule commit or `.gitmodules`
     /// changed.
     fn submodules(&mut self, changed: Option<&[u8]>) -> Result<(), Failed> {
+        self.recheck()?;
         if !self.folder.join(".gitmodules").is_file() {
             return Ok(());
         }

@@ -659,3 +659,26 @@ fn a_delta_of_only_the_work_tree_applies() {
     assert_eq!(status["state"], "done", "{status}");
     assert_eq!(state(&folder), state(mac));
 }
+
+/// A seed never nests: not inside another repository (a seed's checkout
+/// could swap a directory above it for a symlink out of the home), and not
+/// inside or around another seed's folder.
+#[test]
+fn a_seed_folder_never_nests() {
+    let world = World::new("nested");
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let service = world.service();
+    let outer = world.home.join("outer");
+    let job = start(&service, &world.start_params(&outer, &snapshot)).unwrap();
+    assert_eq!(wait(&service, &job)["state"], "done");
+    for folder in [outer.join("inner"), world.home.join("mac/inside")] {
+        let second = world.snapshot("two", &[&world.base]);
+        let refusal = start(&service, &world.start_params(&folder, &second)).unwrap_err();
+        assert_eq!(refusal.code, "seed.bad_request", "{}", folder.display());
+        assert!(second.bundle.exists(), "a refused start keeps the upload");
+    }
+    let around = world.home.path.clone();
+    let third = world.snapshot("three", &[&world.base]);
+    let refusal = start(&service, &world.start_params(&around, &third)).unwrap_err();
+    assert_eq!(refusal.code, "seed.bad_request");
+}

@@ -1,8 +1,19 @@
 //! The sandbox of `git-seed-v1`: the folder and the bundle lie under the
-//! roots `fs-v1` serves, exactly as `fs-v1` would place them. A request path
-//! is absolute with no `.` or `..` component; its deepest existing ancestor
-//! is resolved (symlinks followed by the kernel) and must still lie under a
-//! root, so a symlink cannot lead a seed out of the home.
+//! roots `fs-v1` serves. A request path is absolute with no `.` or `..`
+//! component; its deepest existing ancestor is resolved and must still lie
+//! under a root, so a symlink cannot lead a seed out of the home.
+//!
+//! Nothing is checked once and used later by path where the remote side
+//! could swap it in between:
+//! - The bundle is opened through `fs-v1`'s own descriptor walk (no symlink
+//!   leaves the roots) and copied to a file of this daemon's own before
+//!   `git.seed.start` answers; git reads only the copy.
+//! - A seed folder never nests: no git repository above it under the root,
+//!   and no other seed's folder above or below it. A seed's checkout is the
+//!   only way the remote side can make a symlink, and it writes only inside
+//!   its own folder, so it cannot swap a directory above another seed's
+//!   folder. The worker still checks the folder again before every step
+//!   ([`recheck`]).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -40,14 +51,96 @@ pub fn folder(roots: &Roots, path: &str) -> Result<PathBuf, SeedRefusal> {
     Ok(placed)
 }
 
-/// The uploaded bundle: a regular file under a root.
-pub fn bundle(roots: &Roots, path: &str) -> Result<PathBuf, SeedRefusal> {
-    let placed = place(roots, path)?;
-    match std::fs::symlink_metadata(&placed) {
-        Ok(meta) if meta.is_file() => Ok(placed),
-        Ok(_) => Err(SeedRefusal::bad_request("the bundle is not a regular file")),
-        Err(_) => Err(SeedRefusal::bad_request("no bundle at that path")),
+/// Refuses a folder with a git repository above it (strictly under its root:
+/// a clone inside a clone), and one above or below another seed's folder.
+pub fn not_nested(
+    roots: &Roots,
+    folder: &Path,
+    others: &mut dyn Iterator<Item = &Path>,
+) -> Result<(), SeedRefusal> {
+    let nested = |message: &str| SeedRefusal::bad_request(message.to_owned());
+    let root = roots.canonical_paths().find(|root| folder.starts_with(root)).ok_or_else(outside)?;
+    let mut above = folder.parent();
+    while let Some(dir) = above {
+        if dir == root || !dir.starts_with(root) {
+            break;
+        }
+        if std::fs::symlink_metadata(dir.join(".git")).is_ok() {
+            return Err(nested("the folder is inside another git repository"));
+        }
+        above = dir.parent();
     }
+    for other in others {
+        if other != folder && (other.starts_with(folder) || folder.starts_with(other)) {
+            return Err(nested("the folder is inside or around another seed's folder"));
+        }
+    }
+    Ok(())
+}
+
+/// The folder is still where it was placed: its parent resolves to the same
+/// canonical path, and the folder itself (when it exists) is a directory,
+/// not a symlink.
+pub fn recheck(folder: &Path) -> Result<(), SeedRefusal> {
+    let parent = folder.parent().ok_or_else(outside)?;
+    if std::fs::canonicalize(parent).ok().as_deref() != Some(parent) {
+        return Err(outside());
+    }
+    match std::fs::symlink_metadata(folder) {
+        Ok(meta) if !meta.is_dir() => Err(outside()),
+        _ => Ok(()),
+    }
+}
+
+/// A bundle copied out of the roots into this daemon's own file, removed on
+/// drop.
+#[derive(Debug)]
+pub struct BundleCopy {
+    pub path: PathBuf,
+}
+
+impl Drop for BundleCopy {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Opens the uploaded bundle through `fs-v1`'s descriptor walk and copies
+/// it to a fresh private file (mode 0600, created new).
+pub fn bundle(roots: &Roots, path: &str, id: &str) -> Result<BundleCopy, SeedRefusal> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let fs = crate::fs_ops::FsService::new(roots.clone());
+    let (mut file, _) = fs.open_file(path).map_err(|error| match error {
+        crate::fs_ops::FsError::PermissionDenied => outside(),
+        crate::fs_ops::FsError::NotFound => SeedRefusal::bad_request("no bundle at that path"),
+        _ => SeedRefusal::bad_request("the bundle is not a readable regular file"),
+    })?;
+    let dir = std::env::temp_dir().join("cmux-git-seed");
+    let _ = std::fs::create_dir(&dir);
+    let copy = BundleCopy { path: dir.join(format!("{id}.bundle")) };
+    let mut out = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&copy.path)
+        .map_err(|error| SeedRefusal::bad_request(format!("cannot copy the bundle: {error}")))?;
+    std::io::copy(&mut file, &mut out).map_err(|error| {
+        let code = if error.raw_os_error() == Some(libc::ENOSPC) {
+            "seed.disk_full"
+        } else {
+            "seed.bad_request"
+        };
+        SeedRefusal { code, message: format!("cannot copy the bundle: {error}") }
+    })?;
+    Ok(copy)
+}
+
+/// Deletes the uploaded bundle through `fs-v1` (no path is reopened).
+pub fn delete_upload(roots: &Roots, path: &str) {
+    let fs = crate::fs_ops::FsService::new(roots.clone());
+    let _ =
+        fs.call("git-seed", "fs.delete", serde_json::json!({ "paths": [path], "permanent": true }));
 }
 
 /// `path` with its deepest existing ancestor canonicalized, when the result
