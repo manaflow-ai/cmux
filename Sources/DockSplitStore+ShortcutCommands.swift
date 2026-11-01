@@ -252,7 +252,8 @@ extension DockSplitStore {
     @discardableResult
     func setDockPanelCustomTitle(
         panelId: UUID,
-        title: String?
+        title: String?,
+        origin: String? = nil
     ) -> Bool {
         guard let tabId = surfaceId(forPanelId: panelId),
               let panel = panels[panelId] else {
@@ -261,6 +262,8 @@ extension DockSplitStore {
         let customTitle = title?.trimmingCharacters(
             in: .whitespacesAndNewlines
         ) ?? ""
+        let previousTab = bonsplitController.tab(tabId)
+        let previousCustomTitle = previousTab?.hasCustomTitle == true ? previousTab?.title : nil
         bonsplitController.updateTab(
             tabId,
             title: customTitle.isEmpty
@@ -268,6 +271,21 @@ extension DockSplitStore {
                 : customTitle,
             hasCustomTitle: !customTitle.isEmpty
         )
+        let currentCustomTitle = customTitle.isEmpty ? nil : customTitle
+        if currentCustomTitle != previousCustomTitle {
+            // A window Dock's `workspaceId` is the window's id.
+            let isWindowDock = AppDelegate.isWindowDockRoutingId(workspaceId)
+            CmuxEventBus.shared.publishSurfaceRenamed(
+                workspaceId: isWindowDock ? nil : workspaceId,
+                windowId: isWindowDock ? workspaceId : nil,
+                surfaceId: panelId,
+                paneId: bonsplitController.paneId(containing: tabId)?.id,
+                previousTitle: previousCustomTitle,
+                title: currentCustomTitle,
+                titleSource: Workspace.CustomTitleSource.user.rawValue,
+                origin: origin
+            )
+        }
         return true
     }
 

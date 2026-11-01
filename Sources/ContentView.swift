@@ -9426,7 +9426,8 @@ struct ContentView: View {
             if let dockBrowserStore, let browserTarget {
                 if !dockBrowserStore.setDockPanelCustomTitle(
                     panelId: browserTarget.panelId,
-                    title: nil
+                    title: nil,
+                    origin: "ui"
                 ) {
                     NSSound.beep()
                 }
@@ -9436,7 +9437,7 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            panelContext.workspace.setPanelCustomTitle(panelId: panelContext.panelId, title: nil)
+            panelContext.workspace.setPanelCustomTitle(panelId: panelContext.panelId, title: nil, renameOrigin: "ui")
         }
         registry.register(commandId: "palette.moveTabToNewWorkspace") {
             if dockBrowserStore != nil {
@@ -11125,7 +11126,7 @@ struct ContentView: View {
                 ownerID: workspaceId,
                 containingPanel: panelId
             ) {
-                guard dock.setDockPanelCustomTitle(panelId: panelId, title: normalizedName) else {
+                guard dock.setDockPanelCustomTitle(panelId: panelId, title: normalizedName, origin: "ui") else {
                     NSSound.beep()
                     return
                 }
@@ -11134,7 +11135,8 @@ struct ContentView: View {
             }) {
                 workspace.setPanelCustomTitle(
                     panelId: panelId,
-                    title: normalizedName
+                    title: normalizedName,
+                    renameOrigin: "ui"
                 )
             } else {
                 NSSound.beep()
