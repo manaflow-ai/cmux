@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
@@ -60,6 +61,7 @@ enum AgentBesidePlacement {
         let lone = controller.flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
         let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
+        let machineID = services.daemon(for: anchor).machineID
         // The chat's strip never lists the tab on its way out: it first shows on the right (OutboundTab).
         let outbound = controller.flatMap { $0.pane === anchor ? OutboundTab.begin(in: $0) : nil }
         if let chat { outbound?.hidden(whileHolding: chat.id) }
@@ -105,22 +107,20 @@ enum AgentBesidePlacement {
                 // Not when the person acted since the run began: their focus stays where they put it.
                 if (chatHadFocus || content.focusedPane?.pane === anchor) && !personActed() {
                     let listed = Task { @MainActor () -> Bool in
-                        // The store lists the chat in its new dock pane (the window's controller may come later;
-                        // focus goes by the pane's id, which the window applies when it shows the pane).
-                        for await moved in ObservationStream({ services.locateTab(model: chat).map { $0.1 !== anchor } ?? false }) where moved {
+                        // The store lists the chat in its new dock pane, found by id on its machine: that pane's tabs are new
+                        // TabModels, never `chat` (`locateTab(model:)`). Focus goes by the pane's id, which the window applies.
+                        for await moved in ObservationStream({ services.locateTab(chat.id, onMachine: machineID).map { $0.1 !== anchor } ?? false }) where moved {
                             return true
                         }
                         return false
                     }
                     let bound = DemandTimer(owner: "AgentBesidePlacement.chatDock")
-                    bound.schedule(after: openLimit) { @MainActor in
-                        listed.cancel()
-                    }
+                    bound.schedule(after: openLimit) { @MainActor in listed.cancel() }
                     let moved = await listed.value
                     bound.cancel()
-                    if moved, let pane = services.locateTab(model: chat)?.1, let clicked {
+                    if moved, let pane = services.locateTab(chat.id, onMachine: machineID)?.1, let clicked {
                         focus(surface, returningTo: LayoutPaneID(pane.id), in: clicked, generation: intent, services: services)
-                    } else if moved, let pane = services.locateTab(model: chat)?.1 {
+                    } else if moved, let pane = services.locateTab(chat.id, onMachine: machineID)?.1 {
                         // Not a view change of the run: the run moved the focused chat out of its
                         // pane, and focus follows the chat back to where the person had it (as
                         // FocusCoordinator.followMovedTab does for a person's move). Programmatic, so
@@ -144,13 +144,50 @@ enum AgentBesidePlacement {
                 await revealMoved(tab.id, from: anchor, services: services)
                 return nil
             }
-            let after = services.daemon(for: anchor).store.scrollingColumn(holding: anchor)
-            moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
+            // Hold the same turn as links and dock tools until this move lands. In particular,
+            // two header clicks must not both split below the one pane they initially saw.
+            let finish = await withCheckedContinuation { (ready: CheckedContinuation<@MainActor () -> Void, Never>) in
+                services.linkOpener.turns.serially(beside: LayoutPaneID(anchor.id)) { done in ready.resume(returning: done) }
             }
-            guard moved else { return "beside-caller: the move into a new column failed (see the app log)" }
+            defer { finish() }
+            let source = controller ?? services.paneController(for: anchor)
+            let measured = source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()
+            let kind: RightColumnPlacement.Kind? = tab.kind == .browser ? .browser : (tab.kind == .pty ? .terminal : nil)
+            let decision = RightColumnPlacement.decide(measured, opening: kind)
+            let destination: PaneController? = {
+                guard case .tab(let id) = decision, let id else { return nil }
+                return source?.workspace?.panes[LayoutPaneID(rawValue: id)]
+            }()
+            moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                switch decision {
+                case .splitRight:
+                    // The first right-side item is a pane beside the chat. Keeping this as a
+                    // split (rather than the daemon's after-last-column default) also makes the
+                    // right column visible while the chat keeps focus.
+                    TabMoves.toNewSplit(tab, pane: anchor, edge: .right, services: services, keepFocus: true) {
+                        done.resume(returning: $0)
+                    }
+                case .splitBelow(let id):
+                    let right = source?.workspace?.panes[LayoutPaneID(rawValue: id)]
+                    guard let right else { return done.resume(returning: false) }
+                    TabMoves.toNewSplit(tab, pane: right.pane, edge: .bottom, services: services, keepFocus: true) {
+                        done.resume(returning: $0)
+                    }
+                case .tab:
+                    let right = destination ?? source
+                    guard let right else { return done.resume(returning: false) }
+                    TabMoves.move(tab, to: right.pane, index: right.pane.tabs.count, services: services) {
+                        done.resume(returning: $0)
+                    }
+                }
+            }
+            guard moved else { return "beside-caller: the move into the right pane failed (see the app log)" }
             if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
-            await revealMoved(tab.id, from: anchor, services: services)
+            if case .tab = decision, let right = destination ?? source,
+               !(personActed() && right.workspace?.focusedPane === right) {
+                right.selectWhenReportedKeepingFocus(surface: surface)
+            }
+            if case .splitRight = decision { await revealMoved(tab.id, from: anchor, services: services) }
             return nil
         })
         return { surface in

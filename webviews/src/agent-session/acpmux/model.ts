@@ -14,6 +14,7 @@ import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
+import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -34,6 +35,7 @@ import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
 import { MessagePlacement } from "./conversation/messagePlacement";
+import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -257,7 +259,7 @@ export type AcpmuxRow = {
   received?: AcpmuxOfferResult;
   /// A prompt that is not the person's: another agent's message, or harness bookkeeping
   /// (conversation/incomingMessage.ts).
-  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "hidden" }>;
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "inbox" | "hidden" }>;
   /// The prompt as the agent got it, when the row shows something else (an incoming message's
   /// body): what Retry sends again.
   resend?: string;
@@ -303,6 +305,9 @@ export type AcpmuxRow = {
   retryable?: boolean;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
+  /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
+  /// run of tool calls between them, in order; undefined when the agent said nothing.
+  turnCopy?: TurnCopyPart[];
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -770,7 +775,7 @@ export type AcpmuxSnapshot = {
   /// another person's computer or a remote browser.
   ownerCloud?: boolean;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
-  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
+  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so Session Info's Connectors offer
   /// Reconnect.
   reconnectsMcp?: boolean;
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
@@ -871,6 +876,13 @@ export type AcpmuxSnapshot = {
     };
   }[];
   canLoadOlder: boolean;
+  /**
+   * The chat's prompts older than the rows it holds, from acpmux's prompt index (one read at open):
+   * the thread rail lays out every turn from the first frame, and pages loaded later fill them in
+   * instead of adding ticks. Each is a `user` row (`user-<seq>`, its promptId and the start of its
+   * text) that opens a turn. Absent while unread, and for a chat with no older history.
+   */
+  earlierPrompts?: readonly AcpmuxRow[];
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
@@ -1123,23 +1135,91 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
 /// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
 /// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
-/// Whether a reply draws its own action row (MessageActions.tsx ReplyActions; Leo, 2026-10-29: "i
-/// feel like im frequently missing the copy/whatever buttons on these steers... but claude code
-/// allows those buttons in these situations. let's have those"): every finished reply with text that
-/// something follows (a steer, another agent's message, a sent message, a tool row), except the one
-/// right over its turn's footer or over the running line the footer takes the place of, whose row
-/// the footer is (so the turn's end moves nothing). Read from the row and the drawn row after it
-/// alone, as the transcript draws and estimates each row: no pass over the turn.
-export const hasReplyActions = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "assistant" &&
-  next !== undefined &&
-  !isBeforeFooter(row, next) &&
-  row.streaming !== true &&
-  (row.settled !== true || row.foldedReply === true) &&
-  (row.text ?? "").trim().length > 0;
+/// Whether a reply draws its own action row (MessageActions.tsx ReplyActions). None does: a turn has
+/// one action row, its footer at the bottom, whose Copy copies the whole turn (conversation/turnCopy.ts),
+/// as Claude Code desktop draws it (Leo, 2026-10-31: "claude code doesn't have individual copy
+/// pastable things for the entire thing, only the bottom. ironically we have literally the complete
+/// opposite. so let's invert our behaviour"). This replaces the per-reply row of 2026-10-29. The
+/// callers' height plumbing stays until ReplyActions goes in a follow-up.
+export const hasReplyActions = (_row: AcpmuxRow, _next: AcpmuxRow | undefined) => false;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
+/// A status row: one quiet line the transcript draws in the tool rows' column among the replies (a
+/// tool run, a background task's or a subagent's end, a compaction, a failover, a policy the harness
+/// cannot keep, a paused agent pair, a session start, another agent's message or notice); an
+/// edited-files card is a card, not a line. Between two replies it sits in the middle of the gap, as
+/// Claude Code desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls /
+/// id like more alignment too"): `statusEdge`.
+export const isStatusRow = (row: AcpmuxRow | undefined) =>
+  row !== undefined &&
+  (row.kind === "backgroundTask" ||
+    row.kind === SUBAGENT_DONE ||
+    row.kind === "compaction" ||
+    row.kind === "failover" ||
+    row.kind === "policyUnenforced" ||
+    row.kind === "agentPair" ||
+    row.kind === "sessionStart" ||
+    (row.kind === "user" && (row.incoming?.kind === "message" || row.incoming?.kind === "notice")) ||
+    (row.kind === "activity" && isToolRun(row)));
+/// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
+/// `isEditRow`): a run of thoughts alone may draw nothing, so it keeps its own spacing. One pass
+/// over the row's items.
+function isToolRun(row: AcpmuxRow): boolean {
+  const card = row.foldRun === undefined && !isFoldedCopy(row);
+  let tool = false;
+  for (const item of row.items ?? []) {
+    if (!item.tool) continue;
+    tool = true;
+    if (card && (item.tool.kind === "edit" || item.tool.kind === "fileChange") && item.tool.status !== "pending")
+      return false;
+  }
+  return tool;
+}
+/// Where a row stands next to a status row, read from the next drawn row alone as the other edges
+/// are (no pass over the turn). A reply over a status row: its action row (MessageActions.tsx
+/// ReplyActions, its meta gap and line) is the room above the line (`before-status`), or, for a
+/// reply without one (a copy inside an opened "Worked for", one still streaming), the plain gap
+/// (`before-status-plain`). A status row over a reply takes the same room under its line: the action
+/// row's (`before-reply`), or the plain gap over a copy inside an opened fold (`before-reply-plain`),
+/// whose replies draw no action row. A status row takes that room only between two replies: one
+/// under a prompt (a turn that starts with a tool) keeps its own spacing, so `prev`, the drawn row
+/// above, is read for that side alone. App.tsx marks the rows `acpmux-row--<edge>` (conversation.css
+/// `--cv-status-gap`, `--cv-status-gap-plain`).
+export type StatusEdge = "before-status" | "before-status-plain" | "before-reply" | "before-reply-plain";
+export const statusEdge = (
+  row: AcpmuxRow,
+  next: AcpmuxRow | undefined,
+  prev: AcpmuxRow | undefined,
+): StatusEdge | undefined =>
+  row.kind === "assistant"
+    ? isStatusRow(next) && !isBeforeFooter(row, next)
+      ? hasReplyActions(row, next)
+        ? "before-status"
+        : "before-status-plain"
+      : undefined
+    : next?.kind === "assistant" && prev?.kind === "assistant" && isStatusRow(row)
+      ? // The same room as above the line, read from the same reply, so the two always match.
+        hasReplyActions(prev, row)
+        ? "before-reply"
+        : "before-reply-plain"
+      : undefined;
+/// The room above and below a status row between two replies, line box to text box
+/// (conversation.css `--cv-status-gap`): a reply's action row (its meta gap and line) and the step's
+/// 2px top margin; between the copies inside an opened fold, the plain gap.
+const STATUS_GAP = META_GAP + META_ROW + TOOL_RUN_TOP;
+const STATUS_GAP_PLAIN = 12;
+/// How much a row's estimate changes at a status edge, against the bottom it has elsewhere.
+function statusDelta(row: AcpmuxRow, edge: StatusEdge | undefined): number {
+  if (edge === "before-status") return -MESSAGE_GAP;
+  if (edge === "before-status-plain") return STATUS_GAP_PLAIN - TOOL_RUN_TOP - MESSAGE_GAP;
+  if (edge === undefined) return 0;
+  const gap = edge === "before-reply" ? STATUS_GAP : STATUS_GAP_PLAIN;
+  if (row.kind === "activity") return gap - TOOL_RUN_BOTTOM;
+  // Another agent's line keeps its 2px top margin and drops the bottom one.
+  if (row.kind === "user") return gap - TOOL_RUN_TOP - MESSAGE_GAP;
+  return gap - MESSAGE_GAP;
+}
 /// The row kind of another agent's message while it waits in the queue (conversation/queuedMessages.ts):
 /// its received card after the running turn, until acpmux starts it.
 export const QUEUED_MESSAGE = "queuedMessage";
@@ -1153,6 +1233,11 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
   return undefined;
 }
+/// The drawn row above `index` (`statusEdge` reads it for a status row over a reply).
+export function prevDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
+  for (let prev = index - 1; prev >= 0; prev -= 1) if (!drawsNothing(rows[prev]!)) return rows[prev];
+  return undefined;
+}
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
 /// (App.tsx marks it `acpmux-row--last-footer`). So does a footer over another agent's line (a
 /// message, a notice or a started task's result): that line belongs with the agent's text above
@@ -1163,7 +1248,10 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
     next.kind === PENDING_MESSAGES ||
     next.kind === LANE_NOTICE_BATCH ||
     ((next.kind === "user" || next.kind === QUEUED_MESSAGE) &&
-      (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
+      (next.received !== undefined ||
+        next.incoming?.kind === "message" ||
+        next.incoming?.kind === "notice" ||
+        next.incoming?.kind === "inbox")));
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
 /// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
 export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -1178,10 +1266,12 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
     next.kind === ACTIVITY_LINE);
 /// What the row after a row changes about its height (`beforeFooter`, and a reply's own action row,
 /// `hasReplyActions`), as one key.
-const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) => {
-  const edge = footerEdge(row, next);
+const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
+  const status = statusEdge(row, next, prev);
+  const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);
   return hasReplyActions(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
 };
+const STATUS_EDGE = "+";
 const ACTIONS_EDGE = "+actions";
 const footerEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next)
@@ -1558,6 +1648,29 @@ function measuredRowHeight(
     return finish(line + 2 + 4 + 16 + lines + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
+  if (row.incoming?.kind === "inbox") {
+    // acpmux's inbox notice (conversation/InboxNoticeCard.tsx): a received line per thread, under
+    // the group's line when the group look holds two or more; an opened thread adds its panel as
+    // an opened message does, its text read from the notice (else its preview).
+    const { threads } = row.incoming.notice;
+    const line = 2 + 26 + 2;
+    const grouped = threads.length > 1 && inboxNoticeLook() === "group";
+    if (grouped && !messageOpened(sessionId, row.id)) return finish(line + MESSAGE_GAP);
+    const { lineHeight } = metrics();
+    if (receivedPrepared.size > 256) receivedPrepared.clear();
+    let height = (grouped ? line : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
+    for (const thread of threads) {
+      height += line;
+      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) continue;
+      const text = thread.messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
+      const inset = grouped ? 24 : 0;
+      height += 2 + 4 + 16 + (text ? textHeight(text, Math.max(80, width - 44 - inset), receivedPrepared) : lineHeight);
+    }
+    return finish(height + MESSAGE_GAP);
+  }
+  // Empty or zero-width message text has no article; attachments and incoming cards returned
+  // above remain visible through `isVisiblyEmptyMessage`'s content checks.
+  if (isVisiblyEmptyMessage(row)) return finish(0);
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
@@ -1655,7 +1768,8 @@ export function layoutConversation(
     while (drawn >= 0 && drawsNothing(rows[drawn]!)) drawn -= 1;
     if (
       drawn >= 0 &&
-      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn)) !== rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn))
+      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn), prevDrawnRow(rows, drawn)) !==
+        rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
     )
       start = drawn;
     tops.set(previous.layout.tops.subarray(0, start));
@@ -1665,6 +1779,8 @@ export function layoutConversation(
   // Hidden bookkeeping can span many rows. Keep the next drawn row for the whole
   // pass: searching anew for every hidden row makes one run quadratic.
   let nextDrawn = start;
+  // The drawn row above the current one, carried along the pass for the same reason.
+  let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
@@ -1673,25 +1789,29 @@ export function layoutConversation(
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
     }
-    const edge = rowEdge(row, rows[nextDrawn]);
+    const prev = prevDrawn;
+    if (!drawsNothing(row)) prevDrawn = row;
+    const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
     else {
       const customHeight = measureOverride?.(row, width);
-      height =
-        customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
-          ? customHeight
-          : measuredRowHeight(
-              row,
-              width,
-              cache,
-              edge?.startsWith("footer") === true,
-              edge?.startsWith("last-turn") === true,
-              sessionId,
-              edge?.startsWith("continuation") === true,
-              edge?.endsWith(ACTIONS_EDGE) === true,
-            );
+      const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0;
+      height = custom
+        ? customHeight
+        : measuredRowHeight(
+            row,
+            width,
+            cache,
+            edge?.startsWith("footer") === true,
+            edge?.startsWith("last-turn") === true,
+            sessionId,
+            edge?.startsWith("continuation") === true,
+            edge?.endsWith(ACTIONS_EDGE) === true,
+          );
+      // A row that draws nothing stays at 0; a custom renderer's height is its own.
+      if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
       known?.set(row, { width, height, edge });
     }
     heights[index] = height;
@@ -1812,6 +1932,8 @@ import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
 import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
+import { inboxThreadKey } from "./conversation/inboxNotice";
+import { inboxNoticeLook } from "./conversation/inboxNoticeLook";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that

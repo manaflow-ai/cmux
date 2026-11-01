@@ -315,7 +315,7 @@ final class ShellModel {
             return ChiefSession.conversationOnScreen == id
         }
         guard UIApplication.shared.applicationState == .active, tab == .feed, let shown = feedPath.last,
-              let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else { return false }
+              let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID, macID: route.mac) else { return false }
         return destination == shown
     }
 

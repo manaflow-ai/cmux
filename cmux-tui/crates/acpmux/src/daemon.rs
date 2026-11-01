@@ -21,6 +21,7 @@ mod router_owner;
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod app_orphan;
 // Decided on every platform so its tests run everywhere; used on macOS only.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod login_placement;
@@ -31,7 +32,6 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
-mod dev_orphan;
 mod handover;
 mod home_watch;
 mod notify;
@@ -531,9 +531,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
-    // A DEV build's daemon whose app is gone (`daemon/dev_orphan.rs`); its
-    // bundle is read before the ready line.
-    let dev_orphan = dev_orphan::watch();
+    // A daemon whose cmux app is gone (`daemon/app_orphan.rs`); its bundle is
+    // read before the ready line.
+    // A memory store without agent hosts loses every chat on a stop, so a NIGHTLY or Release
+    // daemon then never stops for its app (as `AcpmuxVersionHandoff` never restarts one).
+    let app_orphan = app_orphan::watch(keeps_chats_across_stop(&hub, memory_store));
     // Before the ready line: a launcher may remove the home as soon as it reads it
     // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
     // on a signal: a home replaced while the agents drain is still marked lost before their last
@@ -612,6 +614,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;
             hub.finish_startup().await;
+            // An agent the previous daemon left, started from a profile changed since, restarts
+            // on the new one between turns (`hub/profile_respawn.rs`).
+            hub.spawn_profile_respawns();
             // After the login env import: it names harness homes.
             let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);
             if let Some(sources) = sources
@@ -640,10 +645,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
-                // Its build is gone too: nothing is left to adopt its agents, so they end with
-                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
-                executable_gone = dev_orphan => {
-                    if executable_gone {
+                // No build of its app is left to adopt its agents, so they end with it. An app
+                // that only quit or was updated keeps them, as its Quit does
+                // (`daemon/app_orphan.rs`).
+                end_agents = app_orphan => {
+                    if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
                 },
@@ -657,10 +663,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
-                // Its build is gone too: nothing is left to adopt its agents, so they end with
-                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
-                executable_gone = dev_orphan => {
-                    if executable_gone {
+                // No build of its app is left to adopt its agents, so they end with it. An app
+                // that only quit or was updated keeps them, as its Quit does
+                // (`daemon/app_orphan.rs`).
+                end_agents = app_orphan => {
+                    if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
                 },
@@ -674,6 +681,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // A home loss must request forced agent cleanup before the shutdown fence refuses changes
+    // to the plan. A restart handoff keeps durable provider retries for the next daemon.
+    recheck_home();
+    let home_lost = crate::config::home_lost();
+    if home_lost {
+        let _ = hub.end_agents_at_shutdown(Default::default());
+    }
+    // Fence automatic continuations before any transport or metadata drain can yield to them.
+    hub.begin_shutdown();
     // Fence tailnet supervision first: its ingress then ends through the
     // WebSocket shutdown below (1012 on restart), never as a listener failure.
     // A supervisor action under way finishes first, within its own bounds.
@@ -682,11 +698,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
-    recheck_home();
-    let home_lost = crate::config::home_lost();
-    if home_lost {
-        let _ = hub.end_agents_at_shutdown(Default::default());
-    }
     startup.abort();
     let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
@@ -695,7 +706,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
-    if hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
+    if restarting {
         ws_shutdown.restart();
     } else {
         ws_shutdown.normal_shutdown();
@@ -746,7 +758,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // A signal can arrive while metadata loads. Snapshot every stored session before
         // detaching or ending hosts. A timeout conservatively keeps their router below.
         let _ = metadata.await;
-        hub.shutdown_all().await
+        if restarting {
+            hub.shutdown_all_with_auto_resume(true).await
+        } else {
+            hub.shutdown_all().await
+        }
     })
     .await
     {
@@ -1827,6 +1843,41 @@ pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
         _ if shared_home => SHARED,
         _ => ANY,
+    }
+}
+
+/// Whether a stop keeps this daemon's chats: agents under agent hosts (as the hub runs them,
+/// never for a memory store, whatever `ACPMUX_AGENT_HOSTS` says), or chats on disk. The
+/// app-orphan watch never stops a NIGHTLY or Release daemon without it.
+fn keeps_chats_across_stop(hub: &Hub, memory_store: bool) -> bool {
+    hub.agent_hosts_enabled() || !memory_store
+}
+
+#[cfg(test)]
+mod keeps_chats_tests {
+    use super::*;
+    use crate::config::StoreMode;
+
+    fn hub(mode: StoreMode, dir: &std::path::Path) -> std::sync::Arc<Hub> {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = mode;
+        let store = crate::store::open(&cfg.store, dir).unwrap();
+        let hub = Hub::new(cfg, store);
+        // What `run` does with the default environment (no `ACPMUX_AGENT_HOSTS=0`).
+        hub.enable_agent_hosts();
+        hub
+    }
+
+    #[test]
+    fn a_memory_daemon_with_the_default_env_keeps_no_chats_across_a_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        // `--memory`, default env: agent hosts asked for, but a memory store never runs them,
+        // so the app-orphan watch must never stop it (its chats would be lost).
+        let memory = hub(StoreMode::Memory, dir.path());
+        assert!(!memory.agent_hosts_enabled());
+        assert!(!keeps_chats_across_stop(&memory, true));
+        let local = hub(StoreMode::Local, dir.path());
+        assert!(keeps_chats_across_stop(&local, false));
     }
 }
 

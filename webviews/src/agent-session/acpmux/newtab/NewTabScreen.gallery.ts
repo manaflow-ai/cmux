@@ -3,9 +3,11 @@
 // the `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
+import type { MarkdownFieldElement } from "../MarkdownField";
 import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
+import { paneLanguage, translateKey } from "../i18n";
 import { createStripLabelsFit } from "./createStripFit";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
@@ -212,6 +214,12 @@ async function waitForTabJump(
   );
 }
 
+async function typePrompt(ctx: PlayContext, text: string): Promise<void> {
+  const selector = ".nt-field [contenteditable=true]";
+  await ctx.waitFor(() => ctx.document.querySelector(selector));
+  await ctx.type(text, { selector });
+}
+
 /// A suggestion row as the popover draws it: its kind (`data-type`) and its title.
 type SuggestionRow = { type: string; title: string };
 
@@ -227,11 +235,11 @@ async function typedSuggestions(
       type: row.dataset.type ?? "",
       title: row.querySelector(".nt-row-title")?.textContent ?? "",
     }));
-  await ctx.type(text, { selector: ".nt-field" });
+  await typePrompt(ctx, text);
   try {
     await ctx.waitFor(
       () =>
-        ctx.document.querySelector<HTMLInputElement>(".nt-field")?.value === text &&
+        ctx.document.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.plainText() === text &&
         rows().length > 0 &&
         problem(rows()) === undefined,
     );
@@ -280,7 +288,7 @@ async function holdsItsPlace(ctx: PlayContext): Promise<void> {
     return `${box.top},${box.left},${box.width} ${field.top},${field.left}`;
   };
   const start = place();
-  await ctx.type("why does the release build fail", { selector: ".nt-field" });
+  await typePrompt(ctx, "why does the release build fail");
   await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
   const view = ctx.document.defaultView as unknown as typeof globalThis & {
     cmuxAcpmuxBridge?: { applyNowPlaying?(track: unknown): void };
@@ -295,7 +303,7 @@ async function holdsItsPlace(ctx: PlayContext): Promise<void> {
   const data = new view.DataTransfer();
   data.items.add(new view.File([blob], "Screenshot.png", { type: "image/png" }));
   ctx
-    .find({ selector: ".nt-field" })
+    .find({ selector: ".nt-field [contenteditable=true]" })
     .dispatchEvent(new view.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
   await ctx.waitFor(() => ctx.document.querySelector(".nt-box .acpmux-attachment-image:not([aria-busy])") !== null);
   view.cmuxAcpmuxBridge?.applyNowPlaying?.({
@@ -367,7 +375,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
         await ctx.click({ role: "option", name: /devbox/ });
-        await ctx.type("Inspect the failed build and suggest a fix.", { selector: ".nt-field" });
+        await typePrompt(ctx, "Inspect the failed build and suggest a fix.");
         await ctx.press("Enter");
         await ctx.waitFor(() => galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"));
         // Also ends on the unpatched base, so the comparison records its lost draft rather than
@@ -411,7 +419,7 @@ export default agentPaneEntry({
           throw new Error("the inherited project is not shown in the established location slot");
         const before = project.getBoundingClientRect();
         if (before.width <= 0 || before.height <= 0) throw new Error("the location slot is not mounted");
-        await ctx.type("keep this project", { selector: ".nt-field" });
+        await typePrompt(ctx, "keep this project");
         await ctx.waitFor(() => !(ctx.document.querySelector<HTMLButtonElement>(".nt-send")?.disabled ?? true));
         const after = project.getBoundingClientRect();
         if (Math.abs(after.left - before.left) > 1 || Math.abs(after.top - before.top) > 1)
@@ -653,7 +661,7 @@ export default agentPaneEntry({
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
     // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
     ...Object.fromEntries(
-      Object.entries(composerStatePlays(".nt-field")).map(([state, variant]) => [
+      Object.entries(composerStatePlays(".nt-field [contenteditable=true]")).map(([state, variant]) => [
         `composer-${state}`,
         { ...variant, ready: newTab(), snapshot: reasoningChat() },
       ]),
@@ -734,7 +742,7 @@ export default agentPaneEntry({
           () => ctx.document.querySelector(".nt-composer .acpmux-newtab-plus .acpmux-picker-button") !== null,
         );
         await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="add.files"]') !== null);
         const input = ctx.document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input");
         if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
         // The ChatGPT-style + searches (Search chats, Search pages); the page has no Search files.
@@ -743,6 +751,21 @@ export default agentPaneEntry({
             throw new Error(`the New Tab + lost ${id}`);
         if (ctx.document.querySelector('.acpmux-newtab-plus [data-value="files.search"]'))
           throw new Error("the New Tab + offers Search files, which it cannot run");
+      },
+    },
+    // Leo, 2026-10-31: "our + button is ass" / "inside chat and in the composer it's ass". New Tab's
+    // + is the chat composer's (ComposerPlusMenu): it opens over the project and machine pills above
+    // the box, and its glass hides them (it draws outside the box's backdrop root).
+    "attachment-menu-pills": {
+      note: "Play: open New Tab's +: Attach files or images, then Search chats and Search pages, each title and its muted hint on one line, over the project and machine pills, which do not show through.",
+      ready: newTab({ template: undefined }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-newtab-plus .acpmux-picker-button"));
+        await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
+        // test/composer-plus-menu-shape.browser.test.ts holds the shape (one-line rows, no header band,
+        // the pills covered); the play only opens it, so the same state draws the menu before the fix.
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="history.search"]'));
       },
     },
     // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
@@ -775,6 +798,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
         await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-chat-open" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
+      },
+    },
+    "widgets-hover-dismiss": {
+      note: "Widget view, a pointer over a Needs you chat's x: the x lights alone; its row and open button take no wash.",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-dismiss" });
       },
     },
     "stage-layout": {
@@ -830,7 +862,7 @@ export default agentPaneEntry({
       snapshot: { ...noChat([], { listedSessions: true }), catalog: [] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-create") !== null);
-        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+        await typePrompt(ctx, "fix the flaky upload test");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
         const popover = ctx.document.querySelector<HTMLElement>(".nt-popover")!;
         const style = ctx.document.defaultView!.getComputedStyle(popover);
@@ -1127,7 +1159,7 @@ export default agentPaneEntry({
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+        await typePrompt(ctx, "fix the flaky upload test");
       },
     },
     "typed-hover": {
@@ -1135,7 +1167,7 @@ export default agentPaneEntry({
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("helo", { selector: ".nt-field" });
+        await typePrompt(ctx, "helo");
         await ctx.hover({ role: "option", name: "New browser tab" });
       },
     },
@@ -1144,7 +1176,7 @@ export default agentPaneEntry({
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("helo", { selector: ".nt-field" });
+        await typePrompt(ctx, "helo");
         await ctx.hover({ role: "option", name: "New browser tab" });
         await ctx.press("Enter");
         // Ends on the unpatched base too (it opens the browser tab, and the state fails there).
@@ -1160,7 +1192,7 @@ export default agentPaneEntry({
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("rust serde", { selector: ".nt-field" });
+        await typePrompt(ctx, "rust serde");
         await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
       },
     },
@@ -1169,7 +1201,7 @@ export default agentPaneEntry({
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("why does the upload test flake?", { selector: ".nt-field" });
+        await typePrompt(ctx, "why does the upload test flake?");
         await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
       },
     },
@@ -1185,7 +1217,7 @@ export default agentPaneEntry({
       }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("release", { selector: ".nt-field" });
+        await typePrompt(ctx, "release");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
         // The workspace, Ask, then the first tab. Down to the last option (the create strip's end),
         // then three more wrap round to the first tab.
@@ -1209,7 +1241,7 @@ export default agentPaneEntry({
       }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("Release", { selector: ".nt-field" });
+        await typePrompt(ctx, "Release");
         await ctx.waitFor(() =>
           [...ctx.document.querySelectorAll<HTMLElement>('[role="option"]')].some(
             (row) => row.dataset.type === "workspace" && row.textContent?.includes("Release"),
@@ -1241,7 +1273,7 @@ export default agentPaneEntry({
         layoutShiftMax: { value: 0.02, reason: "Only the popover's rows reorder while typing; the page stays put." },
       },
       play: async (ctx) => {
-        await ctx.type("reddit", { selector: ".nt-field" });
+        await typePrompt(ctx, "reddit");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
       },
     },
@@ -1280,7 +1312,7 @@ export default agentPaneEntry({
         layoutShiftMax: { value: 0.02, reason: "Only the popover's rows reorder while typing; the page stays put." },
       },
       play: async (ctx) => {
-        await ctx.type("red", { selector: ".nt-field" });
+        await typePrompt(ctx, "red");
         await ctx.waitFor(() => {
           const titles = [...ctx.document.querySelectorAll(".nt-row-title")].map((node) => node.textContent);
           const first = ctx.document.querySelector('.nt-row[data-type="tab"] .nt-row-title');
@@ -1293,13 +1325,14 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("reddit", { selector: ".nt-field" });
+        await typePrompt(ctx, "reddit");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
         await ctx.click({ selector: ".nt-screen" });
         await ctx.waitFor(
           () =>
             !ctx.document.querySelector(".nt-popover") &&
-            ctx.document.querySelector<HTMLInputElement>(".nt-field")?.value === "reddit",
+            ctx.document.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.plainText() ===
+              "reddit",
         );
       },
     },
@@ -1308,8 +1341,73 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("localhost:3000", { selector: ".nt-field" });
+        await typePrompt(ctx, "localhost:3000");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
+      },
+    },
+    "create-strip-narrow": {
+      note: 'The create strip in a narrow pane (capture at 320px in French): the three actions go icon-only, each named by its tooltip and accessible label, never three cut labels ("Nouv…"). Wide, every shipped locale\'s labels show whole.',
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typePrompt(ctx, "localhost:3000");
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-create-strip-item"));
+        // The frame loads the pane's language store before the locale's catalog; a languagechange
+        // moves it to the case's locale (as new-tab-strip-overflow.test.ts does), so the labels are that locale's.
+        ctx.document.defaultView?.dispatchEvent(new Event("languagechange"));
+        const browserLabel = translateKey("newTab.create.browser", {}, paneLanguage());
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".nt-create-strip-item .nt-row-title")].some(
+            (title) => title.textContent === browserLabel,
+          ),
+        );
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
+        const strip = ctx.document.querySelector<HTMLElement>(".nt-create-strip");
+        if (!popover || !strip) throw new Error("the create strip did not render");
+        const items = [...strip.querySelectorAll<HTMLElement>(".nt-create-strip-item")];
+        if (items.length !== 3) throw new Error(`the create strip shows ${items.length} actions, not 3`);
+        // Every action is named whether or not its label shows.
+        for (const item of items) {
+          const name = item.querySelector(".nt-row-title")?.textContent ?? "";
+          if (!name || item.getAttribute("aria-label") !== name || item.getAttribute("title") !== name)
+            throw new Error(`a create action is not named by its aria-label and tooltip (${name})`);
+        }
+        // A label either shows whole or not at all: never cut. Icon-only (createStripFit.ts
+        // data-icons-only) hides every title, so only a strip that shows its labels can cut one.
+        const iconsOnly = () => strip.hasAttribute("data-icons-only");
+        const settled = () => ctx.waitFor(() => iconsOnly() || createStripLabelsFit(strip));
+        const cut = () =>
+          iconsOnly()
+            ? []
+            : items
+                .map((item) => item.querySelector<HTMLElement>(".nt-row-title")!)
+                .filter((title) => title.scrollWidth > title.clientWidth + 1)
+                .map((title) => title.textContent);
+        await settled();
+        if (cut().length) throw new Error(`create action labels are cut: ${cut().join(", ")}`);
+        // Wide, every shipped locale's labels show whole; narrow, the actions stay inside the strip,
+        // icon-only when their labels do not fit. The ResizeObserver settles each width in the next frame.
+        const width = popover.style.width;
+        try {
+          // The pseudo-locale pads every label on purpose, so only shipped locales must fit wide.
+          const locale = new URLSearchParams(ctx.document.defaultView?.location.search).get("locale");
+          popover.style.width = "760px";
+          if (locale !== "en-XA") {
+            await ctx.waitFor(() => !iconsOnly());
+            if (cut().length) throw new Error(`wide create action labels are cut: ${cut().join(", ")}`);
+          }
+          popover.style.width = "260px";
+          await settled();
+          if (cut().length) throw new Error(`narrow create action labels are cut: ${cut().join(", ")}`);
+          const box = strip.getBoundingClientRect();
+          for (const item of items) {
+            const rect = item.getBoundingClientRect();
+            if (rect.left < box.left - 1 || rect.right > box.right + 1)
+              throw new Error(`a narrow create action leaves the strip (${rect.left}..${rect.right})`);
+          }
+        } finally {
+          popover.style.width = width;
+        }
       },
     },
     "suggestions-ff": {
@@ -1500,7 +1598,7 @@ export default agentPaneEntry({
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
-        await ctx.type("rust serde", { selector: ".nt-field" });
+        await typePrompt(ctx, "rust serde");
         await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"]'));
       },
     },

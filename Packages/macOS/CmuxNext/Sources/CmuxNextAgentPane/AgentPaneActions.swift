@@ -78,7 +78,7 @@ extension ActionRegistry {
         toggle: @escaping @MainActor (ActionInvocation) -> Void
     ) -> Bool {
         bindEffect(.toggleSessionInfo, effect: { invocation in
-            guard isOn?() ?? AgentPaneTunables.inspector.value else { return .refused(AgentPaneView.sessionInfoOff) }
+            guard isOn?() ?? AgentPaneTunables.sessionInfo.value else { return .refused(AgentPaneView.sessionInfoOff) }
             guard ActionRunScope.viewChangeAllowed() else {
                 return .refused(AgentPaneView.sessionInfoNeedsFocus)
             }

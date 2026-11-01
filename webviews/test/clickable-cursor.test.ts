@@ -52,7 +52,7 @@ const PANE = `
   </div>
   <button data-expect="default" data-name="started chat row" type="button" class="acpmux-started-row">A chat</button>
   <div class="ui-glass cv-link-preview acpmux-pr-card"><button data-expect="default" data-name="hover card Open" type="button" class="cv-link-preview__open">Open</button></div>
-  <a data-expect="default" data-name="inspector pull request" class="acpmux-chat-inspector-pr__link" href="https://github.com/o/r/pull/3">PR</a>
+  <a data-expect="default" data-name="inspector pull request" class="acpmux-session-info-pr__link" href="https://github.com/o/r/pull/3">PR</a>
   <a data-expect="default" data-name="summary link" class="acpmux-summary-row acpmux-summary-link" href="https://example.com/doc">Doc</a>
   <form class="acpmux-composer"><div class="acpmux-composer-box">
     <button data-expect="default" data-name="composer Stop" type="button" class="acpmux-send acpmux-cancel"><svg data-expect="default" data-name="Stop icon"></svg></button>
