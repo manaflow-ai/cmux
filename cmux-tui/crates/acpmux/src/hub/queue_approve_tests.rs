@@ -116,10 +116,12 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         full_access_device: None,
         replaced: &replaced,
         no_queue: false,
+        admitted: false,
         after_turn: false,
     };
     session.queued.fetch_add(1, Ordering::SeqCst);
-    let _ = hub.enqueue(session, &slot, id);
+    let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };
+    let _ = hub.enqueue(session, &slot, id, limits);
 }
 
 #[tokio::test]

@@ -359,7 +359,7 @@ impl Hub {
                         drop(guard);
                         // Its `queued` reservation is still counted.
                         let (waits, position) =
-                            self.enqueue(session, &p, &turn_id).map_err(Answer::Err)?;
+                            self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                         accept(
                             json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
                         );
