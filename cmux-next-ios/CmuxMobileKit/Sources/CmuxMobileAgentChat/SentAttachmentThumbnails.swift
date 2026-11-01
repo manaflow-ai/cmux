@@ -115,6 +115,7 @@ final class SentAttachmentThumbnails {
 
     private func landed(_ key: String, _ image: UIImage?) {
         decoding[key] = nil
+        for waiter in waiting.removeValue(forKey: key) ?? [] { waiter.hold?.images[key] = image }
         if let image, images[key] == nil {
             let cost = Self.cost(image)
             images[key] = (image, cost)
@@ -188,7 +189,10 @@ final class SentAttachmentThumbnails {
                 kept[key] = image
             } else {
                 resident = false
-                start(key, data: data, side: side)
+                if start(key, data: data, side: side) != nil, decoding[key] != nil,
+                   !(waiting[key] ?? []).contains(where: { $0.hold === hold }) {
+                    waiting[key, default: []].append(WeakHold(hold: hold))
+                }
             }
         }
         hold.images = kept
