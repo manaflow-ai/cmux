@@ -279,6 +279,8 @@ impl Hub {
             // Whether this update changed which background subagents run: a root learned late
             // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
             let mut background_changed = false;
+            // Whether it changed how many subagents run (`subagents_running`, the hover card's count).
+            let mut running_changed = false;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
@@ -294,9 +296,11 @@ impl Hub {
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
                 let before = tree.background_running();
+                let running_before = tree.running_count();
                 tree.set_roots(own.iter().chain(&retired).map(String::as_str));
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
                 background_changed = tree.background_running() != before;
+                running_changed = tree.running_count() != running_before;
                 drop(tree);
                 // The chat's own words in a turn the person did not start (`background_turn.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
@@ -337,6 +341,17 @@ impl Hub {
             }
             if subagent_events || background_changed {
                 tap_hub.refresh_work_below(&tap_session);
+            }
+            // Watchers hear the new count on the summary (`subagentsRunning`, `hub/views.rs`).
+            if running_changed {
+                let count =
+                    tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner()).running_count();
+                tap_hub.append(
+                    &tap_session,
+                    "mux",
+                    super::views::SUBAGENTS_RUNNING,
+                    json!({"count": count}),
+                );
             }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {

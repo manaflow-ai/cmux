@@ -231,7 +231,11 @@ impl Hub {
             // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
             None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
             None => {
-                let turn_id = uuid::Uuid::now_v7().to_string();
+                // A Cloud turn is prepared and captured before the prompt arrives. Reuse its
+                // immutable id so the platform fence covers exactly the turn that runs.
+                let turn_id = session
+                    .prepared_turn_id(p.prompt_id)
+                    .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
                 // Another agent's message never overtakes the ones a failed turn held: they run
                 // again and it waits behind them, to go in with them (`digest.rs`).
                 // While a person's Stop holds them (`cancel.rs`), it waits with them, held.
@@ -342,6 +346,7 @@ impl Hub {
                                 message_id: message_opts.message_id,
                                 message_sender: message_opts.message_sender,
                             };
+                            session.accept_prepared(p.prompt_id, &turn_id);
                             return Ok((
                                 turn_id,
                                 false,
@@ -359,6 +364,7 @@ impl Hub {
                             session.queued.fetch_add(1, Ordering::SeqCst);
                             let (waits, position) =
                                 self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
+                            session.accept_prepared(p.prompt_id, &turn_id);
                             accept(
                                 json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "waitsForSlot": true}),
                             );
@@ -1015,9 +1021,17 @@ impl Hub {
     /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
     /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
+        self.restore_queue_only(session, None);
+    }
+
+    /// [`Self::restore_queue`]; with `only`, a live chat takes back just that logged prompt and
+    /// nothing else is rebuilt (its inbox, agent pairs, branch and move state are live already).
+    pub(super) fn restore_queue_only(&self, session: &Arc<Session>, only: Option<&str>) {
         // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
         // chat's threads stay readable.
-        self.restore_inbox(session);
+        if only.is_none() {
+            self.restore_inbox(session);
+        }
         if session.meta().status == SessionStatus::Closed {
             return;
         }
@@ -1171,12 +1185,14 @@ impl Hub {
                 }
                 true
             });
-        if scanned.is_ok() {
-            self.restore_git_branch(session, branch);
+        if only.is_none() {
+            if scanned.is_ok() {
+                self.restore_git_branch(session, branch);
+            }
+            self.restore_agent_pairs(&session.id, pair_records, &recorded);
+            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
+                transfer_out::restored_moving(scanned.is_ok(), moving);
         }
-        self.restore_agent_pairs(&session.id, pair_records, &recorded);
-        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
-            transfer_out::restored_moving(scanned.is_ok(), moving);
         // An inbox digest whose turn never started gives its messages back in its place.
         digests.finish(&mut waiting, &mut order, |id, order| {
             unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
@@ -1207,6 +1223,7 @@ impl Hub {
             // adds only what the first did not see.
             if prompt_id.is_empty()
                 || turn_id.is_empty()
+                || only.is_some_and(|only| only != prompt_id)
                 || queue.iter().any(|q| q.prompt_id == prompt_id)
             {
                 continue;
@@ -1332,6 +1349,14 @@ impl Hub {
             }
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
+            self.start_restored(session);
+        }
+    }
+
+    /// Runs the chat's restored prompts not started yet (each once: its `resume` mark), and
+    /// nothing else `resume_restored` does.
+    pub(super) fn start_restored(self: &Arc<Self>, session: &Arc<Session>) {
+        {
             let restored: Vec<QueuedPrompt> = session
                 .queue
                 .lock()

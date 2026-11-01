@@ -36,10 +36,10 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// The error code of an answer that isn't a JSON line (a crash, a kill).
     static let badAnswer = "bad_answer"
 
-    /// `cmux link sync push`: copies the working copy `local` to `remote` on
-    /// the machine whose daemon `socket` reaches.
-    func syncPush(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["link", "sync", "push", "--socket", socket, local, remote])
+    /// `cmux link seed push`: seeds `local` at `remote` on the machine `socket` reaches from its
+    /// GitHub remote plus one bundle, else copies it (`link sync push`), saying why.
+    func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
+        try await run(["link", "seed", "push", "--socket", socket, local, remote])
     }
 
     /// `cmux link sync pull`: merges the machine's `remote` (what a push left there) back into
@@ -51,7 +51,7 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// The folder copy a move makes once the chat is frozen (`--sync`): what changed since the
     /// caller's own sync, so a chat moved mid-turn takes the turn's last changes with it.
     struct FrozenSync: Sendable, Equatable {
-        /// Pull from the machine (Bring Back Local) rather than push to it (Move to Cloud).
+        /// Pull from the machine (Bring Back Local) rather than seed it (Move to Cloud, `--since-last`).
         var pull: Bool
         /// The machine link socket `link sync` uses.
         var socket: String
@@ -75,7 +75,7 @@ nonisolated struct CloudMoveCLI: Sendable {
 
     /// `agentMove`'s flags after `--cwd`.
     static func agentMoveFlags(sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPID: Int32?) -> [String] {
-        let frozen = sync.map { ["--sync", $0.pull ? "pull" : "push", "--sync-socket", $0.socket, "--sync-local", $0.local, "--sync-remote", $0.remote] } ?? []
+        let frozen = sync.map { ["--sync", $0.pull ? "pull" : "seed", "--sync-socket", $0.socket, "--sync-local", $0.local, "--sync-remote", $0.remote] } ?? []
         return ["--interrupt"] + frozen + (askFirst ? ["--ask-first"] : []) + (vmKind.map { ["--vm-kind", $0] } ?? [])
             + (toPID.map { ["--to-pid", String($0)] } ?? [])
     }
@@ -104,6 +104,9 @@ nonisolated struct CloudMoveCLI: Sendable {
         return answer
     }
 
+    /// `cmux link machine pin` (cmux-tui `link/machine_pin.rs`): its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
+    func machinePin() async -> Data? { try? await ProcessRunner.run(executable: binary, arguments: ["link", "machine", "pin"], environment: nil, timeout: .seconds(150), clock: ContinuousClock()).stdout }
+
     /// `cmux link start-chat plan`'s answer: the machine a `cloud.startChat` send takes (nil: make
     /// one named `newName`), pinned to the send, and the send's keys.
     struct StartChatPlan: Sendable, Equatable {
@@ -113,9 +116,9 @@ nonisolated struct CloudMoveCLI: Sendable {
         var tabKey: String
     }
 
-    /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`).
-    func startChatPlan(request: String) async throws -> (Answer, StartChatPlan) {
-        let run = try await parsed(["link", "start-chat", "plan", "--request", request])
+    /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`), the cmux `access` token on stdin.
+    func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
+        let run = try await parsed(["link", "start-chat", "plan", "--request", request], stdin: access.map { Data(($0 + "\n").utf8) })
         let object = run.object ?? [:]
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
                                  createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "")
@@ -160,8 +163,8 @@ nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// One run's answer, with its JSON line (nil when it printed none) and exit status.
-    private func parsed(_ arguments: [String], timeout: Duration? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
-        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
+    private func parsed(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
+        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
                                                  timeout: timeout ?? self.timeout, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),

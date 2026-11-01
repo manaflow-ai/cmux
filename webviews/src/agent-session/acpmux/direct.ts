@@ -1832,6 +1832,9 @@ export class AcpmuxDirectClient {
     () => {
       for (const group of this.permissions.state.groups)
         for (const item of group.items) if (item.state !== "pending") this.groupedPermissions.delete(item.permissionId);
+      // The groups can land after the attach drew the chat's asks (`attachWatched` no longer waits
+      // for them): an ask a group now holds is the group's card, never a second one of its own.
+      if (this.permissions.state.supported && this.permissions.state.ready) this.dropGroupedAsks();
       if (!this.permissions.state.supported && !this.pendingPermission)
         this.pendingPermission = [...this.groupedPermissions.values()].at(-1);
       this.emit();
@@ -2315,6 +2318,7 @@ export class AcpmuxDirectClient {
         this.host.newSession || this.missingSession !== undefined,
       );
       if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
+      this.seedListedSummary();
       // A reconnect to the same session keeps its transcript; the attach page holds only the newest events.
       const sessionId = this.selectedSessionId;
       const generation = this.selectionGeneration;
@@ -4086,24 +4090,31 @@ export class AcpmuxDirectClient {
     this.limitsVersion += 1;
     this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
-    // The reads the chat draws with (`startAttachReads`): asked with the attach, or now for a chat
-    // on another machine. The chat shows only once they are in, with the turn's opener.
-    const reads = sent.reads ?? this.startAttachReads(sessionId);
-    const rows = mergeEventRecords(page, this.events);
-    // acpmux names the turn's opener with its page; only an older one leaves it to a read of its own.
-    const served = servedTurnOpener(result, page, rows, sessionId);
-    const [opener] = await Promise.all([
-      served !== undefined ? (served ?? undefined) : this.fetchTurnOpener(sessionId, rows, result?.hasMore === true),
-      reads.permissions,
-      reads.handoff,
-    ]);
-    if (!current()) return [];
-    // The row moved on while those reads were out: what this attach staged is not the chat's.
-    if (strayed() || this.sessions.find((session) => session.sessionId === sessionId)?.peer !== askedOf) return again();
+    // The chat's permission groups and handoff (`startAttachReads`): asked with the attach, or now
+    // for a chat on another machine. The rows draw without waiting for them: each client draws its
+    // answer when it lands (its `changed`), in the asks and composer stack under the transcript,
+    // where a live ask lands too, and a chat read before shows its last groups until then
+    // (`PermissionGroupClient.select`). Waiting cost every cold open the slowest of the reads.
+    if (!sent.reads) this.startAttachReads(sessionId);
+    // acpmux names the turn's opener with its page; only an older one (or a kept tail drawn first)
+    // leaves it to a read of its own. That read stays awaited: the opener is the first row of the
+    // open, and older pages are read from it (`fetchOlder`).
+    const served = servedTurnOpener(result, page, mergeEventRecords(page, this.events), sessionId);
+    if (served === undefined) {
+      const opener = await this.fetchTurnOpener(
+        sessionId,
+        mergeEventRecords(page, this.events),
+        result?.hasMore === true,
+      );
+      if (!current()) return [];
+      // The row moved on while the read was out: what this attach staged is not the chat's.
+      if (strayed() || this.sessions.find((session) => session.sessionId === sessionId)?.peer !== askedOf)
+        return again();
+      this.turnOpener = opener;
+    } else this.turnOpener = served ?? undefined;
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
-    this.turnOpener = opener;
-    // Merged after the reads: live events that landed meanwhile are kept.
+    // Merged after the opener's read: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
     this.sawPrompts(page);
     this.rebuild();
@@ -4150,6 +4161,33 @@ export class AcpmuxDirectClient {
     }
     this.emit("attached");
     return page;
+  }
+
+  /// A chat opened with nothing of it drawn yet (no kept tail, no Mac's copy) takes its listed row as
+  /// its summary until the attach's detail replaces it, as a read-ahead tail does: whatever draws
+  /// before the attach (the hold running out on a slow daemon, a live row) shows the chat's title,
+  /// harness, model and folder, never "New chat" with no chips. The hold itself is unchanged: a
+  /// switch still draws all of the chat before or all of this one (agent-pane-switch-frames).
+  private seedListedSummary(): void {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.summary) return;
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    if (listed) this.summary = { ...listed };
+  }
+
+  /// Drops the attach's own asks that a permission group read since holds (`permissions`' change).
+  private dropGroupedAsks(): void {
+    if (!this.pendingPermission && this.waitingPermissions.size === 0) return;
+    const grouped = new Set(
+      this.permissions.state.groups.flatMap((group) => group.items.map((item) => item.permissionId)),
+    );
+    if (grouped.size === 0) return;
+    const asks = [this.pendingPermission, ...this.waitingPermissions.values()].filter(
+      (ask): ask is AcpmuxPermission => !!ask && !grouped.has(ask.permissionId),
+    );
+    if (asks.length === (this.pendingPermission ? 1 : 0) + this.waitingPermissions.size) return;
+    this.pendingPermission = asks[0];
+    this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
   }
 
   /// Read commands for a deferred chat without selecting or attaching it.
@@ -4790,6 +4828,8 @@ export class AcpmuxDirectClient {
     this.endAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
+    // Nor does a subagent group: the next subagent starts a group of its own, in its own turn.
+    this.subagents.closeBatch();
     if (state === "started") {
       // An older page's started record after its ended one: the line keeps how it ended.
       const ended = this.rows.openBackground(turn.id, event.seq);
@@ -5046,6 +5086,7 @@ export class AcpmuxDirectClient {
     if (update) {
       this.subagents.cause = this.turnStopCause(event);
       this.subagents.chat = this.chatThread();
+      this.subagents.session = this.selectedSessionId;
       this.subagents.harness = this.summary?.harness;
       if (this.subagents.reduce(event, update)) {
         // A later command update can associate a shell call with its recorded child session.
@@ -5164,6 +5205,15 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
+      } else if (event.kind === "host_notice") {
+        // A line from outside the chat, such as cmux Cloud's after it resized the machine
+        // (acpmux `server/host_notice.rs`): one muted notice where it happened.
+        if (typeof msg.text === "string" && msg.text.trim()) {
+          // What the agent writes or does after the notice goes below it, not into the row above.
+          this.closeSegment();
+          const id = `host-notice-${event.seq}`;
+          this.rows.set(id, { id, version: 1, at: event.at, kind: "notice", text: msg.text });
+        }
       } else if (event.kind === "policy_unenforced") {
         // The chat's policy is narrower than approve-all and its harness has no mode that asks
         // (`hub/policy_mode.rs`): its agent runs without the asks the policy would answer.
@@ -6044,6 +6094,7 @@ export class AcpmuxDirectClient {
       commands: this.commands,
       canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
       ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
+      ...(this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -7314,6 +7365,23 @@ export class AcpmuxDirectClient {
       throw new Error(translate("permission.error.selectionChanged"));
     await this.permissions.respond(groupId, revision, decision);
   }
+  /// Detaches a switch has sent and acpmux has not answered, by chat. A chat left twice in a row
+  /// (A, B, A, B before the first detach answers) has its detaches chained: the entry settles only
+  /// when every detach of that chat sent so far has answered, so an attach that waits on it is
+  /// never answered before one of them. An entry lives only until that (a reply, a refusal, or the
+  /// socket closing rejects it), so the map holds at most the chats left within one round trip.
+  private detaching = new Map<string, Promise<void>>();
+  private detachInBackground(sessionId: string): void {
+    const earlier = this.detaching.get(sessionId);
+    const reply = this.typed("_acpmux/detach", { sessionId }).then(
+      () => undefined,
+      () => undefined,
+    );
+    const sent: Promise<void> = Promise.all([earlier, reply]).then(() => {
+      if (this.detaching.get(sessionId) === sent) this.detaching.delete(sessionId);
+    });
+    this.detaching.set(sessionId, sent);
+  }
   async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
     // The chat being left is kept for its own next open, while it is still the selected one.
@@ -7348,6 +7416,7 @@ export class AcpmuxDirectClient {
       // A peer chat no tab read: the Mac's own copy of it, so a machine that is paused or offline
       // still opens on its history (peerCopy.ts).
       if (keptThrough === 0) keptThrough = await this.drawPeerCopy(sessionId, generation);
+      if (generation === this.selectionGeneration) this.seedListedSummary();
     }
     if (keptThrough > 0) {
       this.drewKeptTail = true;
@@ -7356,10 +7425,17 @@ export class AcpmuxDirectClient {
     }
     let mine = this.copyAttaches;
     try {
-      // A refused detach of the chat being left (acpmux no longer resolves it) never stops the
-      // chat being opened.
-      if (previousSessionId)
-        await this.typed("_acpmux/detach", { sessionId: previousSessionId }).catch(() => undefined);
+      // The chat being left is detached alongside the attach, not before it: acpmux keeps one
+      // subscription per chat (server/view.rs), so a detach of another chat never touches this
+      // attach, and awaiting it cost every switch a daemon round trip. Only a detach of this same
+      // chat (a switch away and straight back) is waited on, since acpmux runs each request on its
+      // own task and a detach answered after the attach would drop the new subscription. A refused
+      // detach (acpmux no longer resolves the chat) never stops the chat being opened.
+      if (previousSessionId && previousSessionId !== sessionId) this.detachInBackground(previousSessionId);
+      const detaching = this.detaching.get(sessionId);
+      if (detaching) await detaching;
+      else if (previousSessionId === sessionId)
+        await this.typed("_acpmux/detach", { sessionId }).catch(() => undefined);
       mine = this.copyAttaches;
       await this.attach(sessionId, generation, keptThrough);
       // A reconnect's attach took the chat over meanwhile: its outcome decides.
@@ -8288,7 +8364,7 @@ export class AcpmuxDirectClient {
   /// index (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): seq, promptId and the
   /// start of the text, in one reply however long the chat. A daemon without the index reads the
   /// bounded `user_message` page the request also names, which covers what it holds.
-  private promptIndex?: { sessionId: string; generation: number; rows?: AcpmuxRow[] };
+  private promptIndex?: { sessionId: string; generation: number; rows?: AcpmuxRow[]; failed?: boolean };
   /// `shownEarlierPrompts`' last answer, by what it was read from.
   private earlierShown?: { rows: AcpmuxRow[]; before: number; list: readonly AcpmuxRow[] };
 
@@ -8314,9 +8390,28 @@ export class AcpmuxDirectClient {
     return list;
   }
 
+  /// The chat's prompt count as its summary has it (`turnCount`), while the rail does not hold every
+  /// prompt yet: older history is left and the prompt index has not answered, or this daemon has none.
+  /// The rail takes its full height from it on the first frame instead of growing as the index or
+  /// older pages arrive (snapshot `promptCount`; Leo, 2026-11-01: "i also want the left scroll rail to
+  /// be starting off to its max height if there truly are that many prompts in the chat").
+  private promptCountAwaited(): number | undefined {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !this.seqHistoryLeft()) return undefined;
+    const index = this.promptIndex;
+    if (index?.rows && !index.failed && index.sessionId === sessionId && index.generation === this.selectionGeneration)
+      return undefined;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const count = Number(summary?.turnCount ?? 0);
+    return count > 0 ? count : undefined;
+  }
+
   private readPromptIndex(sessionId: string, before: number): void {
     const generation = this.selectionGeneration;
-    const entry: { sessionId: string; generation: number; rows?: AcpmuxRow[] } = { sessionId, generation };
+    const entry: { sessionId: string; generation: number; rows?: AcpmuxRow[]; failed?: boolean } = {
+      sessionId,
+      generation,
+    };
     this.promptIndex = entry;
     void this.typed("_acpmux/events", {
       sessionId,
@@ -8344,8 +8439,10 @@ export class AcpmuxDirectClient {
         this.emit();
       })
       .catch(() => {
-        // Without the index the rail grows as pages load, as it did before it.
-        if (this.promptIndex === entry) entry.rows = [];
+        // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load.
+        if (this.promptIndex !== entry) return;
+        entry.rows = [];
+        entry.failed = true;
       });
   }
 

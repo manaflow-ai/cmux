@@ -31,6 +31,7 @@ import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb, keepThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
+import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
@@ -40,6 +41,7 @@ import { callChipHost } from "../chips/host";
 import { isVideoAttachment, useVideoInfo, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
+import { TextAttachmentCard } from "./TextAttachmentCard";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -705,7 +707,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   );
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
-      if (live.current.options.locked?.()) return;
+      if (live.current.options.locked?.() || pastesPlaced.has(event)) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
       const pasted = filesFrom(event.clipboardData);
@@ -886,8 +888,11 @@ export function AttachmentStrip({
   onRetry,
   onReorder,
   originalFailures,
+  selected = false,
 }: {
   attachments: readonly ComposerAttachment[];
+  /// The prompt's whole draft is selected (Select All): the chips are in it, and show so.
+  selected?: boolean;
   /// Why a staged image's original failed to upload, by chip id (useAttachmentIntake): its chip
   /// shows Retry (`onRetry`) while its preview still sends.
   originalFailures?: Readonly<Record<string, string>>;
@@ -950,6 +955,7 @@ export function AttachmentStrip({
     <fieldset
       ref={stripRef}
       className="acpmux-attachments"
+      data-selected={selected ? "" : undefined}
       data-reorder={onReorder && attachments.length > 1 ? "" : undefined}
       aria-describedby={onReorder && attachments.length > 1 ? hint : undefined}
       aria-label={t(ATTACHMENT_LABELS.attachments)}
@@ -1244,22 +1250,18 @@ export function AttachmentChip({
     const lines = pasteLines(text);
     const count = new Intl.NumberFormat(language).format(lines);
     const expand = onExpand ? () => onExpand(attachment.id) : undefined;
-    const body = (
-      <>
-        <span className="acpmux-attachment-pasted-name">{attachment.name || pasteName(text)}</span>
-        <span className="acpmux-attachment-pasted-lines">
-          {`${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count })}`}
-        </span>
-      </>
-    );
+    const label = `${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count })}`;
+    const accessible = `${attachment.name || pasteName(text)}, ${label}`;
+    const body = <TextAttachmentCard text={text} label={label} />;
     return menu(
       expand,
-      <div className="acpmux-attachment acpmux-attachment-pasted">
+      <div className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card">
         {expand ? (
           <button
             type="button"
             className="acpmux-attachment-pasted-open"
-            /* tooltip-allow: the chip shows the paste's first words; the tooltip says a click puts it back in the prompt */
+            aria-label={accessible}
+            /* tooltip-allow: the chip shows the paste's first lines; the tooltip says a click puts it back in the prompt */
             title={t(ATTACHMENT_LABELS.editPasted)}
             onClick={expand}
           >
@@ -1271,6 +1273,26 @@ export function AttachmentChip({
         {remove}
       </div>,
       t(ATTACHMENT_LABELS.editPasted),
+    );
+  }
+  // A text file (attachments.ts readAttachment) or a picked selection: the same page of its first
+  // lines, under its name and line count.
+  if (attachment.kind === "text" && attachment.text !== undefined) {
+    const lines = pasteLines(attachment.text);
+    const label = `${attachment.name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count: new Intl.NumberFormat(language).format(lines) })}`;
+    return menu(
+      undefined,
+      <div
+        className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card"
+        data-text-kind="file"
+        /* tooltip-allow: the card cuts a long name; the tooltip has it whole */
+        title={attachment.path ?? attachment.name}
+      >
+        <span className="acpmux-attachment-pasted-open">
+          <TextAttachmentCard text={attachment.text} label={label} />
+        </span>
+        {remove}
+      </div>,
     );
   }
   if (attachment.kind === "document" && attachment.data) {

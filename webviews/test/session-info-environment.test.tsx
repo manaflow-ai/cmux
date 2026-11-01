@@ -258,6 +258,21 @@ test("without the App's actions the rows are plain text, and no Remote Control r
   expect(environment.textContent).not.toContain("Remote Control");
 });
 
+test("Remote Control's row draws a pointer, not a phone outline", async () => {
+  // Leo, 2026-11-01: "i think we should rethink what symbol we have for remote control at least".
+  // Claude Code desktop marks its Remote Control row with a pointer; ours drew device.phone.
+  const base = chat(projectsRows);
+  const environment = await renderSessionInfo({
+    summary: { ...base.summary!, cwd: `${HOME}/Projects`, branch: undefined },
+    machineName: "studio-mac",
+    rows: projectsRows,
+    remoteControl: { on: true, set: () => undefined },
+  });
+  const row = [...environment.querySelectorAll("li")].find((li) => li.textContent?.includes("Remote Control"));
+  expect(row?.querySelector("svg")?.getAttribute("data-icon")).toBe("computeruse.click");
+  expect(environment.querySelector('svg[data-icon="device.phone"]')).toBeNull();
+});
+
 test("Environment Save blocks duplicates while pending and exposes a retry after rejection", async () => {
   const container = installDom();
   let attempts = 0;

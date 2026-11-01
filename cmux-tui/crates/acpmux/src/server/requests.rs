@@ -175,6 +175,8 @@ pub(super) async fn handle_notification(
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
+                    conn.cancel_preparation(&s.id);
+                    s.abandon_prepared_connection(&conn.id);
                     // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`),
                     // a peer's person's too (`person_stop.rs`).
                     if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
@@ -678,6 +680,18 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    if conn.is_trigger() && !m.starts_with("trigger/chat.") {
+        return Err(RpcError::new(
+            -32001,
+            "trigger connection accepts trigger/chat operations only",
+        ));
+    }
+    if matches!(
+        m,
+        method::TRIGGER_CHAT_ENSURE | method::TRIGGER_CHAT_SEND | method::TRIGGER_CHAT_STATUS
+    ) {
+        return super::trigger_chat::handle(hub, conn, m, params).await;
+    }
     // Before forwarding: only the local connection's authenticated caller may attest itself.
     if m == method::MUX_TURN_ATTESTATION {
         let ask =
@@ -884,7 +898,7 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": crate::capabilities::ids(),
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -896,6 +910,8 @@ async fn dispatch_request(
                 // This connection is the person (`hub/person.rs`): never yet,
                 // as the proof comes after this reply.
                 "person": conn.is_person(),
+                // Only a verified first-initialize caller token supplies this ID.
+                "callerSessionId": conn.caller(),
                 // The challenge a local connection proves the person key against.
                 "personChallenge": if conn.challengeable() {
                     json!({"nonce": conn.nonce, "connection": conn.id})
@@ -1313,7 +1329,8 @@ async fn dispatch_request(
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
+            let provenance =
+                crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?;
             // The caller's own provenance: a `cmux agent message`, never an inbox item.
             let given_provenance = provenance.is_some();
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
@@ -1427,7 +1444,35 @@ async fn dispatch_request(
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
+            let cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope> =
+                match params.get("cloud_turn") {
+                    Some(value) => Some(
+                        serde_json::from_value(value.clone())
+                            .map_err(|_| RpcError::invalid_params("cloud_turn is malformed"))?,
+                    ),
+                    None => None,
+                };
+            if let Some(envelope) = cloud_turn.as_ref() {
+                if *conn.ended.borrow()
+                    || envelope.purpose != "execute"
+                    || envelope.session != s.id
+                    || prompt_id.as_deref() != Some(envelope.turn.as_str())
+                {
+                    return Err(RpcError::invalid_params(
+                        "cloud execution does not match this prompt",
+                    ));
+                }
+                s.validate_prepared(
+                    envelope.turn.as_str(),
+                    envelope.turn.as_str(),
+                    envelope.generation,
+                    &envelope.attempt_id,
+                    Some(&conn.id),
+                )
+                .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            }
             let opts = crate::hub::PromptOptions {
+                cloud_turn,
                 prompt_id,
                 message_id,
                 message_sender,
@@ -1502,6 +1547,8 @@ async fn dispatch_request(
         // the agent that never answers.
         method::SESSION_CANCEL => {
             let s = hub.resolve(session_key(&params)?)?;
+            conn.cancel_preparation(&s.id);
+            s.abandon_prepared_connection(&conn.id);
             if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                 tracing::debug!(conn = %conn.id, "cancel: {e}");
             }
@@ -1697,6 +1744,7 @@ async fn dispatch_request(
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
+        super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
         "_acpmux/peer_snapshot" if conn.origin.web_class() => Err(RpcError::invalid_params(
@@ -1986,6 +2034,117 @@ async fn dispatch_request(
             }
             hub.set_rules_answered(&s, rules)?;
             Ok(hub.session_summary(&s))
+        }
+        method::AGENT_SESSION_TURN_PREPARE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = params
+                .get("prompt_id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
+            let expected_workspace = std::env::var("CMUX_PLATFORM_WORKSPACE_ID")
+                .map_err(|_| RpcError::invalid_params("Cloud workspace is not configured"))?;
+            let expected_machine = std::env::var("CMUX_PLATFORM_MACHINE_ID")
+                .map_err(|_| RpcError::invalid_params("Cloud machine is not configured"))?;
+            if let Some(workspace) = params.get("workspace").and_then(Value::as_str)
+                && expected_workspace != workspace
+            {
+                return Err(RpcError::invalid_params("workspace does not match session"));
+            }
+            if let Some(machine) = params.get("machine").and_then(Value::as_str)
+                && expected_machine != machine
+            {
+                return Err(RpcError::invalid_params("machine does not match daemon"));
+            }
+            if params.get("generation").is_some_and(|v| v.as_u64().is_none()) {
+                return Err(RpcError::invalid_params("generation must be a number"));
+            }
+            let generation = params.get("generation").and_then(Value::as_u64);
+            let attempt_id = params.get("attempt_id").and_then(Value::as_str).unwrap_or(prompt_id);
+            let budget = preparation_budget(params.get("deadline_ms"), crate::store::now_ms())?;
+            let expires = tokio::time::Instant::now() + budget;
+            let cancellation = conn.preparation_cancel(&s.id);
+            let ended = conn.ended.subscribe();
+            let workspace = params
+                .get("workspace")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("workspace is required"))?;
+            let machine = params
+                .get("machine")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("machine is required"))?;
+            let generation =
+                generation.ok_or_else(|| RpcError::invalid_params("generation is required"))?;
+            let authorization: crate::cloud_rewind::CloudTurnEnvelope = serde_json::from_value(
+                params
+                    .get("authorization")
+                    .cloned()
+                    .ok_or_else(|| RpcError::invalid_params("authorization is required"))?,
+            )
+            .map_err(|_| RpcError::invalid_params("authorization is malformed"))?;
+            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
+                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let preparation = async {
+                crate::cloud_rewind::verify_preparation(
+                    &origin,
+                    workspace,
+                    machine,
+                    &s.id,
+                    prompt_id,
+                    generation,
+                    attempt_id,
+                    &authorization,
+                )
+                .await
+                .map_err(|e| {
+                    RpcError::new(-32000, format!("Cloud turn authorization refused: {e}"))
+                })?;
+                if *cancellation.borrow() || *conn.ended.borrow() {
+                    return Err(RpcError::invalid_params("preparation was canceled"));
+                }
+                s.prepare_turn(prompt_id, generation, attempt_id, &conn.id)
+                    .await
+                    .map_err(|e| RpcError::invalid_params(e.to_string()))
+            };
+            let result =
+                bounded_preparation(preparation, expires, ended, cancellation.clone()).await;
+            let (turn_id, queued, accepted, generation, attempt_id) = match result {
+                Ok(ready) => ready,
+                Err(error) => {
+                    // Also closes disconnect/cancel arriving after the waiter returned ready
+                    // but before its result could be handed to this connection.
+                    s.abandon_prepared(prompt_id, generation, attempt_id, &conn.id);
+                    return Err(error);
+                }
+            };
+            if accepted {
+                Ok(
+                    json!({"session": s.id, "turn": turn_id, "generation": generation, "attempt_id": attempt_id, "accepted": {"prompt_id": prompt_id, "turn_id": turn_id, "queued": queued}}),
+                )
+            } else {
+                Ok(
+                    json!({"session": s.id, "turn": turn_id, "generation": generation, "attempt_id": attempt_id, "queued": queued}),
+                )
+            }
+        }
+        method::AGENT_SESSION_TURN_ABANDON => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = params
+                .get("prompt_id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
+            let generation = params
+                .get("generation")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| RpcError::invalid_params("generation is required"))?;
+            let attempt_id = params
+                .get("attempt_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("attempt_id is required"))?;
+            Ok(
+                json!({"abandoned": s.abandon_prepared(prompt_id, generation, attempt_id, &conn.id)}),
+            )
         }
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -2516,4 +2675,161 @@ fn stamp_bound_sender(
         _ => None,
     };
     Some(crate::prompt_provenance::stamp_sender(provenance, bound.as_ref()))
+}
+
+fn preparation_budget(deadline: Option<&Value>, now: u64) -> Result<std::time::Duration, RpcError> {
+    let deadline = match deadline {
+        None => now.saturating_add(120_000),
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| RpcError::invalid_params("deadline_ms must be an unsigned integer"))?,
+    };
+    let remaining =
+        deadline.checked_sub(now).filter(|ms| *ms > 0 && *ms <= 600_000).ok_or_else(|| {
+            RpcError::invalid_params("prepare deadline must be within the next 600 seconds")
+        })?;
+    Ok(std::time::Duration::from_millis(remaining))
+}
+
+/// No task or timer survives a ready response: the deadline bounds waiting, not snapshot time.
+async fn bounded_preparation<T>(
+    preparation: impl std::future::Future<Output = Result<T, RpcError>>,
+    expires: tokio::time::Instant,
+    mut ended: tokio::sync::watch::Receiver<bool>,
+    mut cancellation: tokio::sync::watch::Receiver<bool>,
+) -> Result<T, RpcError> {
+    let stopped = || RpcError::invalid_params("preparation was canceled or disconnected");
+    if *ended.borrow() || *cancellation.borrow() {
+        return Err(stopped());
+    }
+    let result = tokio::select! {
+        biased;
+        _ = ended.changed() => Err(stopped()),
+        _ = cancellation.changed() => Err(stopped()),
+        _ = tokio::time::sleep_until(expires) => Err(RpcError::invalid_params("prepare deadline has expired")),
+        result = preparation => result,
+    };
+    if *ended.borrow() || *cancellation.borrow() {
+        return Err(stopped());
+    }
+    result
+}
+
+#[cfg(test)]
+mod cloud_preparation_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    #[test]
+    fn cloud_prepare_deadline_is_defaulted_bounded_and_strictly_typed() {
+        assert_eq!(preparation_budget(None, 1000).unwrap(), Duration::from_secs(120));
+        assert_eq!(
+            preparation_budget(Some(&json!(601000)), 1000).unwrap(),
+            Duration::from_secs(600)
+        );
+        for invalid in
+            [json!(1000), json!(999), json!(601001), json!(null), json!("2000"), json!(-1)]
+        {
+            assert!(preparation_budget(Some(&invalid), 1000).is_err(), "{invalid}");
+        }
+    }
+
+    struct Dropped(Arc<AtomicBool>);
+    impl Drop for Dropped {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cloud_prepare_timeout_drops_waiter_without_a_background_task() {
+        let (ended, receiver) = tokio::sync::watch::channel(false);
+        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
+        let dropped = Arc::new(AtomicBool::new(false));
+        let guard = Dropped(dropped.clone());
+        let wait = async move {
+            let _guard = guard;
+            std::future::pending::<Result<(), RpcError>>().await
+        };
+        assert!(
+            bounded_preparation(
+                wait,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+                receiver,
+                cancel.clone()
+            )
+            .await
+            .is_err()
+        );
+        assert!(dropped.load(Ordering::SeqCst));
+        drop((ended, cancel_sender));
+    }
+
+    #[tokio::test]
+    async fn cloud_prepare_disconnect_and_cancel_drop_inflight_verification_or_wait() {
+        for disconnect in [false, true] {
+            let (ended, receiver) = tokio::sync::watch::channel(false);
+            let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
+            let dropped = Arc::new(AtomicBool::new(false));
+            let guard = Dropped(dropped.clone());
+            let wait = async move {
+                let _guard = guard;
+                std::future::pending::<Result<(), RpcError>>().await
+            };
+            let mut ready = Box::pin(bounded_preparation(
+                wait,
+                tokio::time::Instant::now() + Duration::from_secs(120),
+                receiver,
+                cancel.clone(),
+            ));
+            assert!(futures::poll!(&mut ready).is_pending());
+            if disconnect {
+                ended.send_replace(true);
+            } else {
+                cancel_sender.send_replace(true);
+            }
+            assert!(ready.await.is_err());
+            assert!(dropped.load(Ordering::SeqCst));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cloud_prepare_ready_response_has_no_remaining_deadline_timer() {
+        let (ended, receiver) = tokio::sync::watch::channel(false);
+        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
+        let ready = bounded_preparation(
+            async { Ok("reserved") },
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            receiver,
+            cancel.clone(),
+        )
+        .await
+        .unwrap();
+        tokio::time::advance(Duration::from_secs(600)).await;
+        assert_eq!(ready, "reserved");
+        assert!(!*cancel.borrow());
+        drop((ended, cancel_sender));
+    }
+
+    #[tokio::test]
+    async fn cloud_prepare_rechecks_disconnect_after_ready_result() {
+        let (ended, receiver) = tokio::sync::watch::channel(false);
+        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
+        let wait = async {
+            ended.send_replace(true);
+            Ok("ready but disconnected")
+        };
+        assert!(
+            bounded_preparation(
+                wait,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+                receiver,
+                cancel.clone()
+            )
+            .await
+            .is_err()
+        );
+        drop(cancel_sender);
+    }
 }
