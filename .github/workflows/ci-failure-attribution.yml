@@ -44,7 +44,7 @@ jobs:
   attribute:
     name: Attribute
     if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token; the re-run must follow CI within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token; the re-run must follow CI within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     permissions:
       actions: write
