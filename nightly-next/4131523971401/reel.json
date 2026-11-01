@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "build": "4131523971401",
+  "notes": "notes/4131523971401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30981,
+      "title": "ci(base-red): a test red on any of the last N base verdicts is a base red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30963,
+      "title": "backend: no automatic pause of Freestyle VMs unless CLOUD_IDLE_PAUSE=on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30893,
+      "title": "cmux NEXT chat: an attached video's frames reach the agent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30827,
+      "title": "fix(app): keys typed after Cmd-N then Ctrl-` reach the new terminal, not the New Tab page (P0)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31007,
+      "title": "cmux-vm image smoke: start the acpmux daemon before acpmux ls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30979,
+      "title": "cmux-next tests: quarantine six sidebar timing tests that fail on CI runners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30949,
+      "title": "base red: the inline Summary fixture's counts outrun the column again (summary-header-surface)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30937,
+      "title": "base red: the unlabeled code block's corner actions take the transcript's shared hover fade",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30550,
+      "title": "cmux NEXT: a guest link an agent or script asks for waits for the owner's Allow (#30263)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30943,
+      "title": "test(newtab): the glyph-column test reads the field's inset variable (base red from #29659)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30942,
+      "title": "test(new-tab): the start-refusal test picks devbox from Machines… (base red from #28999)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30948,
+      "title": "test(grid-lines): the action-row scene measures the turn footer, and the inline Summary column has no title (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30944,
+      "title": "test(changelog): the Updated card's one-line and wrap cases use top changes that clearly fit or not (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30897,
+      "title": "fix(acpmux): an ending agent host answers a daemon's hello once the exit is logged, not once the leader is reaped (orphan_exit red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30912,
+      "title": "base red: nightly.yml under its 490,000-byte budget (30 run blocks move to scripts/ci/nightly-steps/)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30970,
+      "title": "Cloud VM image: pin cmux-tui a11123e6 (the root-owned Native receiver, #28947)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30572,
+      "title": "cmux NEXT composer: a send waits for its uploading files; a failed upload retries on its own",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
