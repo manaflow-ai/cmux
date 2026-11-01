@@ -26,8 +26,9 @@ export function AppearanceBar() {
     if (state.readable) store.noteAppearanceOpened();
   }, [store, state.readable]);
   const live = state.connected && state.readable && !busy;
-  const undo = history.nextUndo;
-  const redo = history.nextRedo;
+  // A step whose targets another writer changed since is not offered (#29881).
+  const undo = store.appearanceUndoStep();
+  const redo = store.appearanceRedoStep();
   const undoLabel = undo ? t("settingsPage.history.undoNamed", undo.label) : t("settingsPage.history.undo");
   const redoLabel = redo ? t("settingsPage.history.redoNamed", redo.label) : t("settingsPage.history.redo");
   const canRestore = store.appearanceChangedSinceOpened();

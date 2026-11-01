@@ -7,13 +7,15 @@
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
-import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
+import { AppearanceHistory, diff, targetId, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import {
   appearanceKeys,
   captureAppearance,
   captureKeys,
   captureThemes,
   changeLabel,
+  currentState,
+  showsStates,
   tracksAppearance,
   withLinked,
 } from "./appearanceUndo";
@@ -162,8 +164,13 @@ export class SettingsStore {
   readonly appearance = new AppearanceHistory();
   /** Every appearance target as it was when Appearance first showed in this visit. */
   private appearanceOpened: TargetState[] | null = null;
+  /** Each appearance target as this page last left or found it (the opened-with snapshot, then
+   * its own steps). A target showing anything else was changed by another writer (#29881). */
+  private appearanceSeen = new Map<string, TargetState>();
   /** How many appearance steps are running (`trackAppearance`); inner ones record nothing. */
   private tracking = 0;
+  /** Undo, Redo or a restore writing its states (`applyAppearance`). */
+  private applying = 0;
 
   constructor(
     private readonly client: SettingsClient,
@@ -192,7 +199,12 @@ export class SettingsStore {
         new Map((await this.native("cmux.settings.theme.colors")).themes.map((theme) => [theme.name, theme])),
     });
     // Any cache change (a read, an optimistic write, a rollback) is a new page state.
-    this.unsubscribers.push(this.queryClient.getQueryCache().subscribe(() => this.emit()));
+    this.unsubscribers.push(
+      this.queryClient.getQueryCache().subscribe(() => {
+        this.pruneStaleAppearanceSteps();
+        this.emit();
+      }),
+    );
   }
 
   /** Subscribes to changes and the connection, then reads everything once. */
@@ -780,6 +792,8 @@ export class SettingsStore {
       this.tracking -= 1;
     }
     const changes = diff(before, read());
+    // Only what the step changed: a target it merely read may have been changed by another writer.
+    this.noteSeen(changes.map((change) => change.after));
     if (changes.length > 0)
       this.appearance.record({ label: options.label ?? changeLabel(this.getSnapshot(), changes[0]!.after), changes });
     return result;
@@ -787,12 +801,54 @@ export class SettingsStore {
 
   /** Records an appearance step its caller applied itself (states it read before and after). */
   recordAppearanceChange(entry: HistoryEntry): boolean {
+    this.noteSeen(entry.changes.map((change) => change.after));
     return this.appearance.record(entry);
   }
 
-  /** Undo: puts the last appearance step's earlier states back. False when there was none or the
-   * owner refused (the step stays where it was). */
+  private noteSeen(states: readonly TargetState[]): void {
+    for (const state of states) this.appearanceSeen.set(targetId(state), state);
+  }
+
+  /** Drops the Undo and Redo steps another writer made stale (#29881), so the next valid step is
+   * offered. Not while the page's own step is landing: its targets show in-between states then. */
+  private pruneStaleAppearanceSteps(): void {
+    if (this.tracking > 0 || this.applying > 0) return;
+    while (this.appearance.nextUndo && !this.appearanceUndoStep()) this.appearance.discard("undo");
+    while (this.appearance.nextRedo && !this.appearanceRedoStep()) this.appearance.discard("redo");
+  }
+
+  /** The step Undo would take back, while its targets still show what it left; null otherwise. */
+  appearanceUndoStep(): HistoryEntry | null {
+    const entry = this.appearance.nextUndo;
+    return entry &&
+      showsStates(
+        this.getSnapshot(),
+        entry.changes.map((change) => change.after),
+      )
+      ? entry
+      : null;
+  }
+
+  /** The step Redo would put back, while its targets still show what Undo left; null otherwise. */
+  appearanceRedoStep(): HistoryEntry | null {
+    const entry = this.appearance.nextRedo;
+    return entry &&
+      showsStates(
+        this.getSnapshot(),
+        entry.changes.map((change) => change.before),
+      )
+      ? entry
+      : null;
+  }
+
+  /** Undo: puts the last appearance step's earlier states back. False when there was none, when
+   * another writer changed one of its targets since (the step is dropped: putting it back would
+   * overwrite that newer value, #29881), or the owner refused (the step stays where it was). */
   async undoAppearance(): Promise<boolean> {
+    if (this.appearance.nextUndo && !this.appearanceUndoStep()) {
+      this.appearance.discard("undo");
+      return false;
+    }
     const step = this.appearance.takeUndo();
     if (!step) return false;
     const ok = await this.applyAppearance(step.apply);
@@ -800,8 +856,12 @@ export class SettingsStore {
     return ok;
   }
 
-  /** Redo: puts the last undone step's states back. */
+  /** Redo: puts the last undone step's states back, under Undo's rule for another writer. */
   async redoAppearance(): Promise<boolean> {
+    if (this.appearance.nextRedo && !this.appearanceRedoStep()) {
+      this.appearance.discard("redo");
+      return false;
+    }
     const step = this.appearance.takeRedo();
     if (!step) return false;
     const ok = await this.applyAppearance(step.apply);
@@ -815,19 +875,30 @@ export class SettingsStore {
     const state = this.getSnapshot();
     if (this.appearanceOpened || !state.readable) return;
     this.appearanceOpened = captureAppearance(state);
+    this.noteSeen(this.appearanceOpened);
+  }
+
+  /** The opened-with states Restore How It Was may put back: every target but those another
+   * writer changed since this page last left or found them, whose newer value stays (#29881). */
+  private restorableOpened(): TargetState[] {
+    if (!this.appearanceOpened) return [];
+    const state = this.getSnapshot();
+    return this.appearanceOpened.filter((target) => {
+      const seen = this.appearanceSeen.get(targetId(target));
+      return seen === undefined || showsStates(state, [seen]);
+    });
   }
 
   /** Whether Restore How It Was would change anything. */
   appearanceChangedSinceOpened(): boolean {
-    return (
-      this.appearanceOpened !== null && diff(captureAppearance(this.getSnapshot()), this.appearanceOpened).length > 0
-    );
+    return diff(captureAppearance(this.getSnapshot()), this.restorableOpened()).length > 0;
   }
 
-  /** Puts every appearance target back as it was when Appearance first showed: one undoable step. */
+  /** Puts every appearance target this page changed back as it was when Appearance first showed:
+   * one undoable step. */
   async restoreAppearanceOpened(): Promise<boolean> {
     if (!this.appearanceOpened) return false;
-    return this.applyAppearanceStep(t("settingsPage.history.restoreOpened"), this.appearanceOpened);
+    return this.applyAppearanceStep(t("settingsPage.history.restoreOpened"), this.restorableOpened());
   }
 
   /** Whether Reset to Defaults would change anything (an appearance key the person set). */
@@ -861,6 +932,15 @@ export class SettingsStore {
 
   /** Writes each state (outside the undo stack): a set, a reset or a theme level. */
   private async applyAppearance(states: readonly TargetState[]): Promise<boolean> {
+    this.applying += 1;
+    try {
+      return await this.applyAppearanceStates(states);
+    } finally {
+      this.applying -= 1;
+    }
+  }
+
+  private async applyAppearanceStates(states: readonly TargetState[]): Promise<boolean> {
     let ok = true;
     let themes = false;
     for (const state of states) {
@@ -876,11 +956,16 @@ export class SettingsStore {
       }
     }
     if (themes) await this.refreshHost();
+    const state = this.getSnapshot();
+    this.noteSeen(states.flatMap((target) => currentState(state, target) ?? []));
     return ok;
   }
 
-  resetAll(): Promise<WriteResult> {
-    return this.write({ kind: "resetAll" });
+  async resetAll(): Promise<WriteResult> {
+    const result = await this.write({ kind: "resetAll" });
+    // The page's own change: Restore How It Was may put these keys back.
+    if (result.ok) this.noteSeen(captureAppearance(this.getSnapshot()));
+    return result;
   }
 
   /** The host holds one live preview at a time, whatever its key: its latest owner. */

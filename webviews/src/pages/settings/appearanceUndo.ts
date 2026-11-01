@@ -1,6 +1,6 @@
 // What Settings > Appearance's undo stack records: which keys a change touches, their states read
 // from the page's settings, and the label the Undo and Redo buttons name.
-import type { KeyState, TargetState, ThemeState } from "./appearanceHistory";
+import { sameState, type KeyState, type TargetState, type ThemeState } from "./appearanceHistory";
 import { categoryRows } from "./categories";
 import { displayNumber, unitLabel } from "./format";
 import { rowsByKey } from "./schema";
@@ -65,6 +65,20 @@ export function captureThemes(state: SettingsState): ThemeState[] {
 /** The state of every appearance target: the opened-with snapshot and Reset's starting point. */
 export function captureAppearance(state: SettingsState): TargetState[] {
   return [...captureKeys(state, appearanceKeys()), ...captureThemes(state)];
+}
+
+/** The state `target`'s setting or theme level shows now; undefined when the page has no such row. */
+export function currentState(state: SettingsState, target: TargetState): TargetState | undefined {
+  if (target.kind === "setting") return captureKeys(state, [target.key])[0];
+  return captureThemes(state).find((theme) => theme.level === target.level);
+}
+
+/** Whether every target still shows the state given for it (`sameState`). */
+export function showsStates(state: SettingsState, targets: readonly TargetState[]): boolean {
+  return targets.every((target) => {
+    const now = currentState(state, target);
+    return now !== undefined && sameState(now, target);
+  });
 }
 
 /** What a target's state shows, in the page's language ("Shuffle Paintings", "45 %", "Default"). */
