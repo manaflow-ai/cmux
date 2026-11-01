@@ -10744,6 +10744,8 @@ struct CMUXCLI {
         return value == "com.cmuxterm.app" || value.hasPrefix("com.cmuxterm.app.")
     }
 
+    private static let restoreSessionTransferTimeoutSeconds: TimeInterval = 120
+
     /// Sends a session transfer request (`session.import` / `session.export`)
     /// to the running app. Unlike plain `restore-session`, these never launch
     /// cmux: importing into an app that is still starting would race its own
@@ -10769,7 +10771,13 @@ struct CMUXCLI {
             explicitPassword: explicitPassword,
             socketPath: socketPath
         )
-        let response = try client.sendV2(method: method, params: params)
+        // The app replies once every window is open or written, and a timeout
+        // here would report a failure while that work still finishes.
+        let response = try client.sendV2(
+            method: method,
+            params: params,
+            responseTimeout: Self.restoreSessionTransferTimeoutSeconds
+        )
         if jsonOutput {
             print(jsonString(response))
             return
