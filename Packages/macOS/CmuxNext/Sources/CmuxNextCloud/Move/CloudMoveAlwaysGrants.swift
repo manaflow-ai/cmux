@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// An agent's persistent "Always move to Cloud" approval. A grant belongs to the
 /// signed-in user, selected team, Cloud API origin and canonical sync folder.
@@ -7,13 +7,13 @@ import Foundation
 /// The old "cmux.cloud.moveAlwaysFolders" array contains only paths. Deliberately
 /// do not read or migrate it: the account and team that approved those paths
 /// cannot be recovered, so migration would silently restore ambiguous authority.
-struct CloudMoveAlwaysGrants {
-    struct Scope: Hashable {
-        let userID: String
-        let teamID: String
-        let cloudOrigin: String
+public struct CloudMoveAlwaysGrants {
+    public struct Scope: Hashable {
+        public let userID: String
+        public let teamID: String
+        public let cloudOrigin: String
 
-        init?(userID: String?, teamID: String?, cloudOrigin: String) {
+        public init?(userID: String?, teamID: String?, cloudOrigin: String) {
             guard let userID, !userID.isEmpty, let teamID, !teamID.isEmpty, !cloudOrigin.isEmpty else { return nil }
             self.userID = userID
             self.teamID = teamID
@@ -21,14 +21,14 @@ struct CloudMoveAlwaysGrants {
         }
     }
 
-    /// One stored grant. Internal for ``DebugCloudMove``'s read and seed only.
-    struct Grant: Codable, Hashable {
-        let userID: String
-        let teamID: String
-        let cloudOrigin: String
-        let folder: String
+    /// One stored grant. Public for the App's ``DebugCloudMove`` read and seed only.
+    public struct Grant: Codable, Hashable {
+        public let userID: String
+        public let teamID: String
+        public let cloudOrigin: String
+        public let folder: String
 
-        init(scope: Scope, folder: String) {
+        public init(scope: Scope, folder: String) {
             userID = scope.userID
             teamID = scope.teamID
             cloudOrigin = scope.cloudOrigin
@@ -36,15 +36,17 @@ struct CloudMoveAlwaysGrants {
         }
     }
 
-    static let defaultsKey = "cmux.cloud.moveAlwaysGrants.v2"
+    public static let defaultsKey = "cmux.cloud.moveAlwaysGrants.v2"
     private var memory: Set<Grant> = []
 
-    func contains(_ folder: String, scope: Scope?, defaults: UserDefaults?) -> Bool {
+    public init() {}
+
+    public func contains(_ folder: String, scope: Scope?, defaults: UserDefaults?) -> Bool {
         guard let scope else { return false }
         return grants(in: defaults).contains(Grant(scope: scope, folder: folder))
     }
 
-    mutating func remember(_ folder: String, scope: Scope?, always: Bool, defaults: UserDefaults?) {
+    public mutating func remember(_ folder: String, scope: Scope?, always: Bool, defaults: UserDefaults?) {
         guard let scope else { return }
         let grant = Grant(scope: scope, folder: folder)
         var entries = grants(in: defaults)
@@ -57,14 +59,14 @@ struct CloudMoveAlwaysGrants {
     }
 
     /// Every grant kept in `defaults`; a missing or damaged preference reads as none.
-    static func stored(in defaults: UserDefaults) -> [Grant] {
+    public static func stored(in defaults: UserDefaults) -> [Grant] {
         guard let data = defaults.data(forKey: defaultsKey),
               let entries = try? JSONDecoder().decode([Grant].self, from: data) else { return [] }
         return entries
     }
 
     /// Replaces the grants kept in `defaults`, in a stable order.
-    static func store(_ entries: [Grant], in defaults: UserDefaults) {
+    public static func store(_ entries: [Grant], in defaults: UserDefaults) {
         let sorted = Set(entries).sorted { ($0.userID, $0.teamID, $0.cloudOrigin, $0.folder) <
             ($1.userID, $1.teamID, $1.cloudOrigin, $1.folder) }
         if let data = try? JSONEncoder().encode(sorted) {

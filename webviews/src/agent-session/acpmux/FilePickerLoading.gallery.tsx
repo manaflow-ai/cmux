@@ -1,3 +1,4 @@
+// l10n-allow-file: gallery fixture (an entry title and sample file rows), not shipped UI.
 // Made-up files and unresolved requests keep the initial loading state reproducible.
 import { useEffect, useRef } from "react";
 import { componentEntry } from "../../gallery/format";

@@ -300,8 +300,12 @@ async fn forward_inner(
         let held = m == method::SESSION_PROMPT
             && crate::author::author(params)?.is_some_and(|a| a.awaits_owner);
         let approval = held || matches!(m, method::MUX_QUEUE_APPROVE | method::MUX_QUEUE_DECLINE);
-        let approval_link = peer.lists_on(crate::author::QUEUE_APPROVAL_FEATURE);
-        if approval && approval_link.is_none() {
+        let feature = match m {
+            method::MUX_QUEUE_GET => Some(crate::author::QUEUE_GET_FEATURE),
+            _ => approval.then_some(crate::author::QUEUE_APPROVAL_FEATURE),
+        };
+        let bound = feature.map(|f| peer.lists_on(f));
+        if bound.is_some_and(|link| link.is_none()) {
             return Err(crate::author::approval_unsupported(&peer));
         }
         // So do a message's attachments, under their caps (`attach.rs`).
@@ -386,6 +390,14 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        // A held prompt names its hold to the peer: a link guest's waits with `approval` left
+        // off here, which a peer that reads only `approval` would run unapproved.
+        if held
+            && let Some(author) =
+                p.pointer_mut("/_meta/acpmux/author").and_then(Value::as_object_mut)
+        {
+            author.insert("approval".into(), json!(crate::author::APPROVAL_OWNER));
+        }
         if m == method::SESSION_CANCEL {
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
@@ -590,10 +602,9 @@ async fn forward_inner(
         // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
         // request keeps its deadline and always goes out: an attach the marker above stands for
         // must reach the peer even when its client is gone.
-        // A page goes on the link it is labelled with, or fails; so does a held prompt or an
-        // answer to one, on the link that listed `queueApproval`.
-        let on =
-            if approval { approval_link } else { pages.then_some(link).or(resume_link.flatten()) };
+        // A page goes on the link it is labelled with, or fails; so does a held prompt, an
+        // answer to one or a read of one, on the link that listed its feature.
+        let on = bound.unwrap_or_else(|| pages.then_some(link).or(resume_link.flatten()));
         let result = if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,

@@ -713,7 +713,9 @@ class DaemonBesideTheApp(unittest.TestCase):
         self.assertIn('${GITHUB_RUN_ID}$(printf \'%02d\' "${GITHUB_RUN_ATTEMPT:-1}")', step['run'])
         source = '${{ needs.resolve-nightly-cmux-tui-client.outputs.daemon_build }}'
         metadata = next(step for step in jobs['build-nightly-app']['steps'] if step.get('id') == 'remote_daemon')
-        self.assertIn(f'build="{source}"', metadata['run'])
+        # The step passes the resolver's build to its script (scripts/ci/nightly-steps/) through env.
+        self.assertEqual(metadata['env']['RESOLVED_DAEMON_BUILD'], source)
+        self.assertIn('build="${RESOLVED_DAEMON_BUILD}"', metadata['run'])
         self.assertNotIn('GITHUB_RUN_ATTEMPT', metadata['run'])
         build = next(step for step in jobs['build-nightly-remote-daemon']['steps']
                      if step['name'] == 'Build immutable SSH daemon assets once for every app variant')

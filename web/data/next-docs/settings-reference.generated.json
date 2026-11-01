@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 541,
+  "count": 542,
   "sections": [
     {
       "id": "general",
@@ -5123,6 +5123,14 @@
       "id": "home",
       "title": "Home",
       "rows": [
+        {
+          "key": "chief.autoRouteSubagents",
+          "title": "Route Subagents to the Best Agent",
+          "help": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Subagents"
+        },
         {
           "key": "chief.reactionClassifier.harness",
           "title": "Reaction Classifier Harness",

@@ -44,7 +44,8 @@ struct AcpmuxSlowDaemonTests {
     /// asks again and again (each attempt waits for its answer). The old watch stopped it after
     /// three missed 2 s status calls spanning 20 s and a 5 s confirm, about 27 s in; this test
     /// watches for 45 s of wall clock because that watch ran on the real clock.
-    @Test func aDaemonThatDoesNotAnswerIsNeverStopped() async throws {
+    @Test(.enabled(if: CopiedListenerProbe.runs, "Needs a copied nc listener, which this Mac ends at exec: https://github.com/manaflow-ai/cmux/issues/30978"))
+    func aDaemonThatDoesNotAnswerIsNeverStopped() async throws {
         let fixture = try OwnedFixture()
         let silent = try await fixture.silentDaemon()
         defer { fixture.remove(silent) }

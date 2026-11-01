@@ -818,6 +818,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/queue_get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/draft_get",
       "params": true,
       "result": true

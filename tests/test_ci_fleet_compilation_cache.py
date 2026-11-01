@@ -16,6 +16,17 @@ ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / "scripts/ci/fleet-compilation-cache.sh"
 
 
+
+COLD_CACHE = "${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}"
+
+
+def warm_cache(step, command):
+    """The Release step with a warm cache (cold_cache false): the step's env passes the switch as
+    DECIDE_COLD_CACHE_DISABLE (scripts/ci/nightly-steps/app-build-release.sh), which is '' then."""
+    assert f"          DECIDE_COLD_CACHE_DISABLE: {COLD_CACHE}\n" in step, "the Release step lost its cold-cache env"
+    assert "${DECIDE_COLD_CACHE_DISABLE}" in command, "the Release command no longer reads the cold-cache env"
+    return command.replace("${DECIDE_COLD_CACHE_DISABLE}", "")
+
 class FleetCacheTests(unittest.TestCase):
     def setUp(self):
         # Runner TMPDIR may exceed sockaddr_un's ~100-byte pathname limit.
@@ -80,7 +91,7 @@ class FleetCacheTests(unittest.TestCase):
         step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
         command = step[step.index("          fleet_cache_settings=()") :]
         command = "\n".join(line[10:] for line in command.splitlines() if line.startswith("          "))
-        command = command.replace("${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}", "")
+        command = warm_cache(step, command)
         scripts = self.root / "scripts/ci"
         scripts.mkdir(parents=True)
         shutil.copyfile(SETTINGS, scripts / SETTINGS.name)
@@ -121,7 +132,7 @@ class FleetCacheTests(unittest.TestCase):
         step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
         command = step[step.index("          fleet_cache_settings=()") :]
         command = "\n".join(line[10:] for line in command.splitlines() if line.startswith("          "))
-        return command.replace("${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}", "")
+        return warm_cache(step, command)
 
     def _run_nightly_release_stub(self, diagnostic):
         scripts = self.root / "scripts/ci"
