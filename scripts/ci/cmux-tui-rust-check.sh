@@ -13,8 +13,9 @@
 # against scripts/cmux-next/rust-panic-baseline.json before it lands. Linux only: the baseline holds
 # Linux counts, and on macOS clippy also sees the macOS-only code and misses the Linux-only code (a
 # false red or a false green), so off Linux it refuses (exit 2, no cargo). No TEST_FILTER. The clippy
-# JSON is .build/artifacts/panic-clippy.jsonl, which the workflow uploads (a Mac-pinned or rbx run can
-# fetch it with --artifact; a Linux-routed fleet step takes none, so a failed clippy prints its errors);
+# JSON is .build/artifacts/panic-clippy.jsonl, which the workflow uploads; a fleet step fetches it with
+# `--os linux --artifact .build/artifacts/panic-clippy.jsonl` (the Linux route returns that one file, hq#5957),
+# and a failed clippy also prints its errors;
 # optchat-chief [FILTER]: tests, clippy -D warnings and fmt --check of
 # Native/OptChat/optchat-chief (its own workspace and lockfile), tests first so
 # a red run still reports them; without --locked, so a new dependency resolves
