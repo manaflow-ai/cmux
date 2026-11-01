@@ -490,6 +490,7 @@ impl Hub {
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
             no_queue: opts.no_queue,
+            admitted: opts.admitted,
             after_turn: after_turn.is_some(),
         };
         let (turn_id, waiting, mut guard, run) =
