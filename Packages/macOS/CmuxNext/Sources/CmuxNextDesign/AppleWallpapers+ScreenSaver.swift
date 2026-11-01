@@ -11,7 +11,7 @@ public import Foundation
 /// ```
 extension AppleWallpapers {
     /// The wallpaper store's index macOS writes when a wallpaper or screen saver is chosen.
-    public static var storeIndex: URL {
+    public nonisolated static var storeIndex: URL {
         let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library", isDirectory: true)
         return library.appendingPathComponent("Application Support/com.apple.wallpaper/Store/Index.plist")
@@ -43,7 +43,7 @@ extension AppleWallpapers {
     /// choice is `Idle` of `AllSpacesAndDisplays`, else its `Linked` one (the screen saver follows
     /// the wallpaper), else the same in the first display that has one. A choice's
     /// `Configuration` is itself a property list, read too.
-    static func screenSaverStrings(in data: Data) -> [String] {
+    nonisolated static func screenSaverStrings(in data: Data) -> [String] {
         guard let root = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return [] }
         var scopes: [[String: Any]] = []
         if let all = root["AllSpacesAndDisplays"] as? [String: Any] { scopes.append(all) }
@@ -61,7 +61,7 @@ extension AppleWallpapers {
     }
 
     /// The strings in a property list value, nested data decoded as one; at most 8 levels deep.
-    private static func collectStrings(_ value: Any, into found: inout [String], depth: Int) {
+    private nonisolated static func collectStrings(_ value: Any, into found: inout [String], depth: Int) {
         guard depth < 8 else { return }
         switch value {
         case let text as String:
