@@ -1697,7 +1697,14 @@ class Journey:
                 finally:
                     record["seconds"] = round(now() - t, 3)
                     self.steps.append(record)
-                if record.get("ok") and (index == 0 or step["do"] == "relaunch"):
+                if record.get("ok") and step["do"] == "relaunch":
+                    # Not now: the next expect measures from the relaunch's own mark (review at 1548fb29ce5), so the
+                    # post-relaunch sample waits until the step after the relaunch has finished.
+                    self.relaunch_sample_due = f"after the relaunch at step {index + 1}"
+                elif getattr(self, "relaunch_sample_due", None) and record.get("ok") is not False:
+                    self.sample_daemons(f"{self.relaunch_sample_due}, after step {index + 1} ({step['do']})")
+                    self.relaunch_sample_due = None
+                if record.get("ok") and index == 0:
                     # Between steps, never inside one: no step's own timing includes the sample (review S1).
                     self.sample_daemons(f"after step {index + 1} ({step['do']})")
             if not_judged:

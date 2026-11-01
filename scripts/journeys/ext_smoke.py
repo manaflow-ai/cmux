@@ -411,6 +411,18 @@ def cond_smoke_omnibar_drawn(j, want, cache):
                              "text": lines[-6:], "matched": hit}
 
 
+def cond_smoke_frame_any(j, want, cache):
+    """A fresh window snapshot (kept as check-NN.png) shows ANY of TEXTS to text recognition. example.com writes its
+    text in 6 languages and centers it (its s.js, 2026-11-01): in a short pane the part on screen can be any of them,
+    or "Learn more" (bench run 6d639a72684a round 4: the page drawn, scrolled to its Spanish line)."""
+    j.checks += 1
+    image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
+    lines = j.app.read_text(image)
+    texts = j.sub(want["texts"])
+    hit = next((t for t in texts if D.ocr_contains(lines, t)), None)
+    return hit is not None, {"image": image.name, "matched": hit, "text": lines[-10:], "lines": len(lines)}
+
+
 def cond_smoke_tabs(j, want, cache):
     """The topology has NEW more tabs (all panes, all workspaces) than at the smoke_snapshot SINCE (NEW may be 0:
     back to that count, e.g. after Cmd-T then Cmd-W)."""
@@ -1486,7 +1498,7 @@ STEPS = {"smoke_key": step_smoke_key, "smoke_type": step_smoke_type, "smoke_burs
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}
-CONDITIONS = {"smoke_omnibar_drawn": ("frame", cond_smoke_omnibar_drawn), "smoke_tabs": ("app", cond_smoke_tabs), "smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
+CONDITIONS = {"smoke_frame_any": ("frame", cond_smoke_frame_any), "smoke_omnibar_drawn": ("frame", cond_smoke_omnibar_drawn), "smoke_tabs": ("app", cond_smoke_tabs), "smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
               "smoke_app_lines": ("app", cond_smoke_app_lines), "smoke_daemon_lines": ("daemon", cond_smoke_daemon_lines),
               "smoke_new_terminals": ("daemon", cond_smoke_new_terminals), "smoke_frame": ("frame", cond_smoke_frame),
               "smoke_panes": ("app", cond_smoke_panes), "smoke_r3": ("daemon", cond_smoke_r3),

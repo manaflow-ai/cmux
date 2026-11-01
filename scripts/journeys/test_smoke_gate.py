@@ -1496,6 +1496,53 @@ class SettleThroughTheDriver(unittest.TestCase):
             driver.EXT_CONDITIONS.update(orig)
             del driver.Journey.step_t_mark
 
+    def test_the_post_relaunch_daemon_sample_waits_for_the_step_after_the_relaunch(self):
+        """Review at 1548fb29ce5: the expect after a relaunch measures from its mark; the sample must not run inside."""
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver
+        order = []
+
+        class App:
+            snapshot_window = None
+            bundle = "/stand-in/cmux DEV t.app"
+
+            def rpc(self_, method, params=None):
+                return {}
+
+            def daemon_facts(self_):
+                order.append("sample")
+                own = self_.bundle + "/Contents/Resources/bin/cmux"
+                return {"expected_build": "abc", "cmux_tui": {"pid": 1, "exe": own, "build_id": "abc"}, "acpmux": None}
+        driver.Journey.step_t_step = lambda self, step: order.append(step["n"]) or {}
+        real_relaunch = driver.Journey.step_relaunch
+        driver.Journey.step_relaunch = lambda self, step: order.append("relaunch") or {}
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                steps = [{"do": "t_step", "n": 1}, {"do": "relaunch"}, {"do": "t_step", "n": 3}, {"do": "t_step", "n": 4}]
+                driver.Journey({"id": "rs", "steps": steps}, App(), tmp, driver.now() + 30, 1.0).run()
+        finally:
+            del driver.Journey.step_t_step
+            driver.Journey.step_relaunch = real_relaunch
+        self.assertEqual(order, [1, "sample", "relaunch", 3, "sample", 4, "sample"])
+
+    def test_the_page_check_accepts_any_language_of_example_com(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+        D = type("D", (), {"ocr_contains": staticmethod(lambda lines, t: any(t in l for l in lines))})
+        ext_smoke.install(D)
+        j = type("J", (), {})()
+        j.checks, j.out = 0, Path("/tmp")
+        j.sub = lambda x: x
+        j.app = type("A", (), {"snapshot": staticmethod(lambda p: Path(p)),
+                               "read_text": staticmethod(lambda image: ["Este dominio está destinado al uso en",
+                                                                         "ejemplos de documentación sin"])})()
+        ok, detail = ext_smoke.cond_smoke_frame_any(j, {"texts": ["documentation examples", "ejemplos de documentaci"]}, {})
+        self.assertTrue(ok)
+        self.assertEqual(detail["matched"], "ejemplos de documentaci")
+        j.app.read_text = staticmethod(lambda image: ["Ask anything"])
+        self.assertFalse(ext_smoke.cond_smoke_frame_any(j, {"texts": ["documentation examples"]}, {})[0])
+
     def test_a_frame_never_lost_passes(self):
         result, _driver = self.run_step(None)
         self.assertTrue(result)

@@ -144,7 +144,7 @@
      "all": [{"smoke_tabs": {"since": "before_cmdt", "new": 1}}, {"smoke_key_window": {"page": true}}]},
     {"do": "smoke_key", "key": "w", "modifiers": ["cmd"], "mark": "cmdw"},
     {"do": "expect", "title": "Cmd-W closes that tab: the tab count is back, and the browser page shows again", "since": "cmdw", "timeout": 15,
-     "all": [{"smoke_tabs": {"since": "before_cmdt", "new": 0}}, {"frame_text": "documentation examples"}]},
+     "all": [{"smoke_tabs": {"since": "before_cmdt", "new": 0}}, {"smoke_frame_any": {"texts": ["documentation examples", "Learn more", "ejemplos de documentaci", "exemples de documentation", "примерах документации", "文档示例", "أمثلة التوثيق"]}}]},
     {"do": "relaunch", "how": "quit", "mark": "reopened"},
     {"do": "expect", "title": "after the reopen: one window, a clean launch, no blank pane, the same three workspaces with their output, and the browser page", "since": "reopened", "timeout": 60,
      "all": [
