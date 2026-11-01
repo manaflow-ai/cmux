@@ -140,9 +140,15 @@ extension AgentPaneView {
         // The files the person picked in the file input's open panel (+ > Attach files): only their
         // own metadata can say where they came from, so the record holds their URLs and no claim.
         // WebKit opens the panel only for a user-activated file input, and the person picks the
-        // files, so page script can't fill it either.
+        // files, so page script can't fill it either. Where they are is kept as for a drop (a chat
+        // on this Mac links them in place), and the pick is the person's gesture, as a drop is: the
+        // click that opened the panel may be long past its lifetime once they choose, which refused
+        // the upload of every picked file (Retry on each tile).
         let chosen: @MainActor ([URL]) -> Void = { [weak self] urls in
-            self?.model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
+            guard let self else { return }
+            AgentPanePersonInput.record(model.transport.gestures)
+            model.droppedPaths.stash(urls, kind: .choose)
+            model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
         }
         let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }
         if let page {

@@ -201,20 +201,16 @@ test("single and grouped disclosures keep independent choices across virtualized
   expect(toggles().map((button) => button.getAttribute("aria-expanded"))).toEqual(["false", "false", "false"]);
 });
 
-test("started labels preserve the localized space and name position", async () => {
+test("a started sub-session's row is its name, with no narration in front of it, in every language", async () => {
+  // Transcript audit (cmuxterm-hq#5154): the harness mark names the type; "Started sub-session" was narration.
   const container = installDom();
   root = createRoot(container);
-  for (const [language, expected] of [
-    ["en", "Started sub-session tests"],
-    ["de", "Untersitzung tests gestartet"],
-    ["ja", "サブセッション tests を開始"],
-    ["tr", "tests alt oturumu başlatıldı"],
-  ]) {
+  for (const language of ["en", "de", "ja", "tr"]) {
     await act(async () => {
-      setPaneLanguage(language!);
+      setPaneLanguage(language);
       root!.render(<SubsessionCallCard call={start("tests")} tool={tool("tests")} />);
     });
-    expect(container.querySelector(".cv-disclosure__label")?.textContent).toBe(expected!);
+    expect(container.querySelector(".cv-disclosure__label")?.textContent).toBe("tests");
   }
 });
 
