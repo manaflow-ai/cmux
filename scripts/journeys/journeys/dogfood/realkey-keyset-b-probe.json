@@ -1,7 +1,7 @@
 {
   "id": "realkey-keyset-b-probe",
   "priority": "P1",
-  "title": "Proof per key: each new default key of Set B (PR #29867, head e2c792659f48) reaches cmux's key router and runs its action with default macOS settings (real HID keys; Ctrl-Cmd-D as the control)",
+  "title": "Proof per key: each new default key of Set B (PR #29867, head 27ea2eea6a82) reaches cmux's key router and runs its action with default macOS settings (real HID keys; Ctrl-Cmd-D as the control)",
   "why": "Lawrence asked for one cohesive key set for New Column, New Row and Split Browser (New Column key lead aef4f4e6f83f36107); cmux-ad: every new key needs a real-key check on a fleet screen mini. Each probe starts in a new workspace whose terminal has the keyboard, sends one real HID key (CuaDriver, cmux frontmost, com.apple.symbolichotkeys unchanged), and records the key router's count before and after, its last action and ran, the app's action log, all apps' on-screen windows and a full-display screenshot. Pass for a key: the router count rose, its last action is the key's action with ran true, and no other app's window appeared. Records only; the journey judges the set-up and the typed-line control. Needs a whole-host lease on a CuaDriver-granted mini.",
   "source": "journeys/dogfood/realkey-ctrl-cmd-d-probe.json (STATUS 1712, 1724, 1824)",
   "budget_seconds": 250,
@@ -109,11 +109,11 @@
       "key": "l",
       "modifiers": [
         "ctrl",
-        "shift",
+        "option",
         "cmd"
       ],
       "expect": "newColumn",
-      "title": "a real Ctrl-Shift-Cmd-L (newColumn)"
+      "title": "a real Ctrl-Option-Cmd-L (newColumn)"
     },
     {
       "do": "smoke_key",
@@ -159,11 +159,11 @@
       "key": "j",
       "modifiers": [
         "ctrl",
-        "shift",
+        "option",
         "cmd"
       ],
       "expect": "newRow",
-      "title": "a real Ctrl-Shift-Cmd-J (newRow)"
+      "title": "a real Ctrl-Option-Cmd-J (newRow)"
     },
     {
       "do": "smoke_key",
