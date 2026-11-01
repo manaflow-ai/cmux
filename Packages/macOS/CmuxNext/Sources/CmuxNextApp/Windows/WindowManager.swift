@@ -74,9 +74,8 @@ final class WindowManager {
     private var restacking: Set<String> = [], keepsOrder = false
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
-    /// Sidebar slots for new workspaces, applied once the daemon reports
-    /// them (`applyPendingPlacements`).
-    var pendingPlacements: [String: PendingPlacement] = [:]
+    /// Sidebar slots for new workspaces, applied once the daemon reports them (`applyPendingPlacements`).
+    var pendingPlacements: [String: PendingPlacement] = [:] { didSet { PendingWorkspaceRows.shared.placements(from: oldValue.keys, to: pendingPlacements.keys) } }
     /// Registration order survives a daemon snapshot that reports several creates together.
     var pendingPlacementOrder: [String] = []
     /// Retries the placements whose wait for the window's current row ran out (`applyPendingPlacements`).
