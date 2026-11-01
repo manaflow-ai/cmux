@@ -74,6 +74,11 @@ public final class CmuxToastButton: ClickableButton {
         return NSSize(width: ceil(text.width) + chevron + Self.titlePadding * 2, height: Self.closeSide + 2)
     }
 
+    /// The frame is the alignment rect: the toast's row centres the frames, so Details (22 pt) and
+    /// close (20 pt) sit on one centre line. AppKit's own insets for a borderless button put them a
+    /// point apart.
+    nonisolated public override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets() }
+
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private func applyStyle() {
