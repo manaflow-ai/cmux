@@ -3,7 +3,7 @@ import Testing
 
 /// Speed triage only (a measurement branch, never landed): prints how long each phase of a
 /// live fixture takes, per test, as `phase-timing LABEL TEST PHASE SECONDS` on stderr.
-struct PhaseTimer: Sendable {
+nonisolated struct PhaseTimer: Sendable {
     let label: String
     let start: ContinuousClock.Instant
 
