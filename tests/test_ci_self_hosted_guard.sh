@@ -1396,6 +1396,10 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # Explicit all-nightly reservation, enabled only after managed enrollment.
+  # Never exempt a bare label, another track, or an unguarded variable.
+  local nightly_only_selector="github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER"
+  local nightly_only_bootstrap="github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER"
   # Nightly native build selectors are pooled: main cache-writing builds use
   # the trusted pool, and NEXT build/prepare jobs use the controller-managed
   # side pool on attempt 1. Both are guarded by repository, event, ref, and
@@ -1433,6 +1437,8 @@ check_no_self_hosted_fleet_runners() {
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
+      content="${content/"$nightly_only_selector"/}"
+      content="${content/"$nightly_only_bootstrap"/}"
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"

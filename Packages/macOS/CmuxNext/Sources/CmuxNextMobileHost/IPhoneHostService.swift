@@ -65,6 +65,7 @@ public final class IPhoneHostService {
         var browserHosts: (any MobileHostBrowserHosting)?
         /// The app's simulator surface sources for the phone's streamed phone tabs; nil when it cannot stream simulators.
         var surfaceHosts: (any MobileHostSurfaceHosting)?
+        var cloudLinks: @Sendable () async -> [MobileHostCloudLink] = { [] }
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
         /// This app's own Chief owner: its session (from the app's `ChiefHome`, always known)
@@ -131,7 +132,20 @@ public final class IPhoneHostService {
     /// the setting off and on, or signing in again. Then it registers as a new device.
     public private(set) var removed = false
     @ObservationIgnored private var signedOutSinceRemoval = false
-    @ObservationIgnored var dependencies: Dependencies?
+    @ObservationIgnored var dependencies: Dependencies? {
+        didSet {
+            if let directory = dependencies?.stateDirectory { configurePairedFile(directory) }
+        }
+    }
+    /// The paired list's one file for the state directory (``MobileHostPairedStore/configure(directory:lastQuitCutOff:cutOffSettled:)``):
+    /// its queue keeps every transport's reads and saves in order.
+    @ObservationIgnored var pairedFile: MobileHostPairedDevicesFile?
+    /// The app's record of the state files the last quit cut off (set by the app before `wire`): asked,
+    /// off the main thread on the paired file's queue, whether it names the paired file, and told when
+    /// that fact is safe without it.
+    @ObservationIgnored public var pairedQuitRecord: AgentPaneStateLoss?
+    /// That file for a quit deadline's end, on its own thread: a save it cuts off is marked.
+    @ObservationIgnored public let pairedQuitWatch = MobileHostPairedQuitWatch()
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
@@ -394,7 +408,7 @@ public final class IPhoneHostService {
     }
 
     /// App quit: hostd ends with the app (closing its stdin ends it too). Called only from
-    /// `applicationWillTerminate`.
+    /// `applicationWillTerminate`; the quit awaited the paired list's saves before it (``pairedSavesDrained()``).
     public func stop() {
         wakeObserver = nil
         KeepAwakeService.shared.setIPhoneServing(false)
@@ -406,13 +420,21 @@ public final class IPhoneHostService {
         followingFolders?.cancel()
         followingPicks?.cancel()
         approverSync?.stop()
-        // The paired list's queued saves (a removal's new list among them) finish before the app
-        // ends: a bounded wait during termination, the threading model's `terminate` allowance.
-        allowBlocking(.terminate) { MobileHostPairedDevicesFile.flush() }
         quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
         Task { await supervisor.stop() }
+    }
+
+    /// Whether this launch cleared the paired list's seal for a save the last quit cut off.
+    public func pairedSealClearedForCutOff() async -> Bool {
+        await pairedFile?.sealClearedForCutOff() ?? false
+    }
+
+    /// The app's quit: awaits, holding no thread, the paired list's queued saves (a removal's new list
+    /// among them), under the quit's deadline.
+    public func pairedSavesDrained() async {
+        await pairedFile?.drained()
     }
 
     private func reconcile() {
@@ -465,7 +487,7 @@ public final class IPhoneHostService {
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
-                    surfaceHosts: dependencies.surfaceHosts))
+                    surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))

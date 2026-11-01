@@ -165,6 +165,10 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
+      // Capture runs before a child menu's outside-press handler. Let that layer consume this
+      // dismissal; its trigger belongs to this card even though its popup is portalled.
+      if (panel.current?.querySelector('[data-menu][data-popup-open], [aria-haspopup="menu"][aria-expanded="true"]'))
+        return;
       // The card's own menus (Sources' +, SourcesAddMenu.tsx) draw in the page's portal, outside it.
       if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-summary-menu")) return;
       close();
