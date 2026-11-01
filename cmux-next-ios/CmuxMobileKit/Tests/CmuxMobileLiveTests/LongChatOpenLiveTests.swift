@@ -43,7 +43,9 @@ import Testing
     /// `_acpmux/events` answer the newest `limit` records before `beforeSeq` (the log's end when
     /// none), filtered to `user_message` when `kinds` asks for only that; `hasMore` says older
     /// ones exist. `maxBytes` is honoured as acpmux does (whole records, at least one).
-    nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests) -> MockMacLink {
+    /// `pageLimit`: the most records any page holds, whatever the request's `limit` (pages that
+    /// start inside a turn).
+    nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max) -> MockMacLink {
         MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -52,7 +54,7 @@ import Testing
             func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
             func page() -> String {
                 let before = (params["beforeSeq"] as? NSNumber)?.intValue ?? Int.max
-                let limit = (params["limit"] as? NSNumber)?.intValue ?? 400
+                let limit = min((params["limit"] as? NSNumber)?.intValue ?? 400, pageLimit)
                 let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? Int.max
                 let kinds = params["kinds"] as? [String] ?? []
                 let promptsOnly = kinds == ["user_message"]
@@ -90,9 +92,9 @@ import Testing
         }
     }
 
-    static func open(_ log: [(seq: Int, json: String)], _ requests: Requests) async throws -> (AcpmuxHub, AgentChatStore) {
+    static func open(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max) async throws -> (AcpmuxHub, AgentChatStore) {
         let hub = AcpmuxHub()
-        await hub.bind(try await fakeAcpmux(log, requests).openChannel(service: "acpmux", args: [:]))
+        await hub.bind(try await fakeAcpmux(log, requests, pageLimit: pageLimit).openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: summary))
         return (hub, store)
     }
@@ -143,5 +145,60 @@ import Testing
         let reads = requests.all.filter { $0.method == "_acpmux/events" }
         #expect(reads.count == 1)
         #expect(reads.first?.params["kinds"] as? [String] == ["user_message"])
+    }
+
+    /// Scrolling up reads the page before the oldest turn shown and puts whole turns in front,
+    /// in order and drawn in place. Pages that start inside a turn are cut at their first
+    /// prompt: the part before it comes, whole, with the page that holds its prompt.
+    @Test func scrollingUpPutsWholeOlderTurnsInFront() async throws {
+        let requests = Requests()
+        let log = (0..<1000).flatMap(Self.turnRecords)
+        // 398 records a page: each starts two records into a turn.
+        let (hub, store) = try await Self.open(log, requests, pageLimit: 398)
+        _ = hub
+        await Self.waitUntil { store.turns.last?.id == "t999" }
+        let opened = store.turns.map(\.id)
+        // The open page starts inside turn 920: its first whole turn is 921.
+        #expect(opened.first == "t921")
+
+        store.loadEarlier()
+        #expect(store.isLoadingEarlier)
+        await Self.waitUntil { store.turns.count > opened.count }
+
+        let ids = store.turns.map(\.id)
+        #expect(ids == (1000 - ids.count..<1000).map { "t\($0)" }, "turns missing, repeated or out of order: \(ids.prefix(4))")
+        #expect(ids.first == "t842")
+        // Turn 920, split across the two reads, is whole.
+        let split = store.turns.first { $0.id == "t920" }
+        let answer = split?.items.compactMap { item -> String? in
+            if case .message(_, let markdown) = item { markdown } else { nil }
+        }.joined()
+        #expect(answer == "answer 920")
+        #expect(split?.status == .completed)
+        #expect(store.isReplayed("t842"))
+        #expect(store.hasEarlierHistory)
+        #expect(!store.isLoadingEarlier)
+        let older = requests.all.last
+        #expect(older?.method == "_acpmux/events")
+        #expect((older?.params["maxBytes"] as? NSNumber)?.intValue == 256 * 1024)
+        #expect((older?.params["beforeSeq"] as? NSNumber)?.intValue == 921 * 5 + 1)
+    }
+
+    /// Scrolling to the start: the last page says nothing older remains.
+    @Test func scrollingToTheStartEndsEarlierHistory() async throws {
+        let requests = Requests()
+        let log = (0..<100).flatMap(Self.turnRecords)
+        let (hub, store) = try await Self.open(log, requests, pageLimit: 398)
+        _ = hub
+        await Self.waitUntil { store.turns.last?.id == "t99" }
+        #expect(store.hasEarlierHistory)
+        store.loadEarlier()
+        await Self.waitUntil { store.turns.first?.id == "t0" }
+        #expect(store.turns.map(\.id) == (0..<100).map { "t\($0)" })
+        #expect(!store.hasEarlierHistory)
+        let reads = requests.count("_acpmux/events")
+        store.loadEarlier()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(requests.count("_acpmux/events") == reads, "read again past the start")
     }
 }
