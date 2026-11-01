@@ -76,8 +76,15 @@ public struct CloudChatRPCTransport: CloudChatTransport {
         let data = try await request("mobile.chat.send", ["session_id": sessionID, "text": text])
         if let message = try? JSONDecoder.cloud.decode(CloudChatMessage.self, from: data) { return message }
         let object = try object(data)
-        guard let value = object["message"] else { throw CloudChatError.invalidResponse }
-        return try JSONDecoder.cloud.decode(CloudChatMessage.self, from: JSONSerialization.data(withJSONObject: value))
+        if let value = object["message"] {
+            return try JSONDecoder.cloud.decode(CloudChatMessage.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        // The relay may acknowledge an accepted prompt before the assistant
+        // response exists. Keep the local transcript truthful and let the
+        // next history refresh fill in the eventual assistant message.
+        guard object["accepted"] as? Bool == true else { throw CloudChatError.invalidResponse }
+        let id = object["prompt_id"] as? String ?? UUID().uuidString
+        return CloudChatMessage(id: id, role: .user, text: text)
     }
 
     private func decodeEnvelope<T: Decodable>(_ data: Data, key: String) throws -> T {

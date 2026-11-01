@@ -41,3 +41,17 @@ func cloudAttentionPayload() {
     #expect(attention?.sessionID == "s1")
     #expect(CloudChatAttention(userInfo: ["session_id": "s1"]) == nil)
 }
+
+@Test("Cloud relay accepts an acknowledgement before the assistant reply exists")
+func cloudRelayAcceptedSendEnvelope() async throws {
+    let transport = CloudChatRPCTransport { method, params in
+        #expect(method == "mobile.chat.send")
+        #expect(params["session_id"] as? String == "s1")
+        #expect(params["text"] as? String == "hello")
+        return Data(#"{"accepted":true,"prompt_id":"p1"}"#.utf8)
+    }
+    let message = try await transport.send(sessionID: "s1", text: "hello")
+    #expect(message.id == "p1")
+    #expect(message.role == .user)
+    #expect(message.text == "hello")
+}
