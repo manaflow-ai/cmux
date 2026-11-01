@@ -7,12 +7,12 @@
 # scripts/ci/lib/signing-runtime-guard.sh and fail while it exists.
 #
 # Usage:
-#   signing-keychain.sh create [--keychain NAME]
-#       Needs APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD. Decodes
-#       the certificate into a private temporary file, imports it with the
-#       Developer ID intermediates, deletes the file, and leaves the keychain
-#       unlocked with a short idle lock (CMUX_SIGNING_KEYCHAIN_TIMEOUT seconds,
-#       default 600).
+#   signing-keychain.sh create [--keychain NAME] [--empty]
+#       Needs APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD. Streams
+#       the certificate through an inherited fd, imports it with the Developer
+#       ID intermediates, and leaves the keychain unlocked with a short idle
+#       lock (CMUX_SIGNING_KEYCHAIN_TIMEOUT seconds, default 600). `--empty`
+#       creates only the temporary keychain for a notarytool profile job.
 #   signing-keychain.sh unlock
 #       Unlock every keychain this job created, after a long wait (Apple
 #       notarization) let the idle lock close it. No-op when none exists.
@@ -48,12 +48,17 @@ usage() {
 command="$1"
 shift
 keychain=""
+empty=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --keychain)
       [ "$#" -ge 2 ] || usage
       keychain="$2"
       shift 2
+      ;;
+    --empty)
+      empty=1
+      shift
       ;;
     *) usage ;;
   esac
@@ -81,6 +86,35 @@ password_file() {
 # must stay in it for the jobs that run there next.
 search_list_file() {
   printf '%s/search-list\n' "$state_dir"
+}
+
+default_keychain_file() {
+  printf '%s/default-keychain\n' "$state_dir"
+}
+
+save_default_keychain() {
+  local file
+  file="$(default_keychain_file)"
+  [ -e "$file" ] && return 0
+  if "$SECURITY_TOOL" default-keychain -d user \
+      | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' > "$file.tmp" \
+      && [ -s "$file.tmp" ]; then
+    mv -f "$file.tmp" "$file"
+  else
+    rm -f "$file.tmp"
+    : > "$file.failed"
+  fi
+}
+
+restore_default_keychain() {
+  local file entry
+  file="$(default_keychain_file)"
+  [ -n "$state_dir" ] || return 0
+  if [ -s "$file" ]; then
+    IFS= read -r entry < "$file" || true
+    [ -n "$entry" ] && [ -e "$entry" ] && "$SECURITY_TOOL" default-keychain -d user -s "$entry" || true
+  fi
+  rm -f "$file" "$file.tmp" "$file.failed"
 }
 
 save_search_list() {
@@ -135,35 +169,43 @@ create_keychain() {
       exit 2
       ;;
   esac
-  [ -n "${APPLE_CERTIFICATE_BASE64:-}" ] || { echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2; exit 1; }
-  [ -n "${APPLE_CERTIFICATE_PASSWORD:-}" ] || { echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2; exit 1; }
+  if [ "$empty" -eq 0 ]; then
+    [ -n "${APPLE_CERTIFICATE_BASE64:-}" ] || { echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2; exit 1; }
+    [ -n "${APPLE_CERTIFICATE_PASSWORD:-}" ] || { echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2; exit 1; }
+  fi
 
   umask 077
   mkdir -p "$state_dir"
   chmod 700 "$state_dir"
-  # Global, not local: the EXIT trap runs after this function returns.
-  # security import infers the format from the file name, so the file is a
-  # .p12 in a private directory, and the import also names the format.
-  certificate_dir="$(mktemp -d "$state_dir/certificate.XXXXXX")"
-  certificate="$certificate_dir/certificate.p12"
-  trap 'rm -rf "${certificate_dir:-}"' EXIT
+  # Keep the certificate in a pipe all the way into security. The explicit
+  # format is required because /dev/fd/3 has no .p12 suffix (a prior attempt
+  # silently produced "Unknown format in import" on owned Macs).
   password="$(uuidgen)"
   save_search_list
-
-  printf '%s\n' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+  save_default_keychain
   "$SECURITY_TOOL" delete-keychain "$name" >/dev/null 2>&1 || true
   "$SECURITY_TOOL" create-keychain -p "$password" "$name"
   # Written before the import, so a failed import is still found and deleted.
   printf '%s' "$password" > "$(password_file "$name")"
   "$SECURITY_TOOL" set-keychain-settings -lut "$TIMEOUT_SECONDS" "$name"
   "$SECURITY_TOOL" unlock-keychain -p "$password" "$name"
-  "$SECURITY_TOOL" import "$certificate" -k "$name" -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-  rm -rf "$certificate_dir"
-  "$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh" "$name"
-  "$SECURITY_TOOL" set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$name" >/dev/null
+  if [ "$empty" -eq 0 ]; then
+    exec 3< <(printf '%s\n' "$APPLE_CERTIFICATE_BASE64" | base64 --decode)
+    "$SECURITY_TOOL" import /dev/fd/3 -k "$name" -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+    exec 3<&-
+    "$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh" "$name"
+    "$SECURITY_TOOL" set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$name" >/dev/null
+  fi
   "$SECURITY_TOOL" list-keychains -d user -s "$name"
+  # notarytool store-credentials writes its profile to the default keychain;
+  # make this job's temporary keychain the default and restore it on delete.
+  "$SECURITY_TOOL" default-keychain -d user -s "$name"
   refresh_trust_agent
-  echo "Signing keychain $name is ready; it locks after ${TIMEOUT_SECONDS}s idle."
+  if [ "$empty" -eq 1 ]; then
+    echo "Empty signing keychain $name is ready; it locks after ${TIMEOUT_SECONDS}s idle."
+  else
+    echo "Signing keychain $name is ready; it locks after ${TIMEOUT_SECONDS}s idle."
+  fi
 }
 
 # codesign asks the user's trustd agent for the signer's chain, and that agent
@@ -238,6 +280,7 @@ delete_keychains() {
   done
   if [ -n "$state_dir" ]; then
     rm -rf "$state_dir"/certificate.* 2>/dev/null || true
+    restore_default_keychain
     restore_search_list
   fi
   if [ "${#names[@]}" -gt 0 ]; then
