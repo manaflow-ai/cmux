@@ -222,6 +222,16 @@ const folderButton = () =>
   host.querySelector<HTMLButtonElement>(`.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`);
 const rows = () => $$(".acpmux-env-popover .acpmux-menu-item");
 const row = (text: string) => rows().find((item) => item.querySelector(".acpmux-menu-label")?.textContent === text);
+/// The environment control's right-click menu (Create and Edit environment, the setup actions).
+const moreMenu = async () => {
+  await act(async () =>
+    environmentButton()!.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  return $$('[role="menu"] [role="menuitem"]');
+};
+const moreItem = async (text: string) => (await moreMenu()).find((item) => item.textContent === text);
 /// The New Tab prompt (the composer's Markdown field), once its editor is made.
 const prompt = async () => {
   const field = host.querySelector<MarkdownFieldElement>(".nt-field");
@@ -255,7 +265,7 @@ test("previews off: no saved environments and the host is not asked", async () =
   expect(environmentButton()).toBeUndefined();
 });
 
-test("the picker lists the saved environments in a Saved section over the machines", async () => {
+test("the picker lists the saved environments with the machines, under This Mac and Cloud", async () => {
   const calls = await mount();
   expect(calls.filter((call) => call.method === "environment.list")).toEqual([
     { method: "environment.list", params: {} },
@@ -267,13 +277,17 @@ test("the picker lists the saved environments in a Saved section over the machin
     "API worktree",
     "Web",
   ]);
-  expect(saved[0]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.envSaved"));
-  // The machines follow, still numbered from ⌥⌘1, and Create environment heads New environment.
-  expect(rows()[3]!.querySelector(".acpmux-env-key")?.textContent).toBe("⌥⌘1");
-  const created = row(t("environment.create"));
-  expect(created?.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.newEnvironment"));
+  // No header over them: the hairline under This Mac and Cloud, which keeps ⌥⌘1.
+  expect(saved[0]!.querySelector(".acpmux-env-row")!.hasAttribute("data-divider")).toBe(true);
+  expect(doc().querySelectorAll(".acpmux-env-popover [data-section]")).toHaveLength(0);
+  expect(rows()[0]!.querySelector(".acpmux-env-key")?.textContent).toBe("⌥⌘1");
+  // Create environment is the control's right-click menu's, not a row of the list.
+  expect(row(t("environment.create"))).toBeUndefined();
+  await click(environmentButton());
+  const more = (await moreMenu()).map((item) => item.textContent);
+  expect(more).toContain(t("environment.create"));
   // No Edit environment until one is picked.
-  expect(row(t("environment.edit"))).toBeUndefined();
+  expect(more).not.toContain(t("environment.edit"));
 });
 
 test("a saved SSH environment names the strip and asks on its machine, in its folder there", async () => {
@@ -414,8 +428,7 @@ test("picking this Mac again after another machine starts the chat here", async 
 
 test("Create environment saves where the page would start and picks it", async () => {
   const calls = await mount();
-  await click(environmentButton());
-  await click(row(t("environment.create")));
+  await click(await moreItem(t("environment.create")));
   expect($(".acpmux-env-panel")).not.toBeNull();
   await type($<HTMLInputElement>(".acpmux-env-panel input"), "  Sandbox  ");
   // Use worktree is offered for a folder on this computer.
@@ -430,8 +443,7 @@ test("Create environment saves where the page would start and picks it", async (
   expect($(".acpmux-env-panel")).toBeNull();
   expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Sandbox`);
   // Picked: Edit environment opens it again, with Remove.
-  await click(environmentButton());
-  await click(row(t("environment.edit")));
+  await click(await moreItem(t("environment.edit")));
   expect($<HTMLInputElement>(".acpmux-env-panel input")?.value).toBe("Sandbox");
   await click($$(".acpmux-env-panel button").find((button) => button.textContent === t("environment.remove")));
   expect(calls.find((call) => call.method === "environment.remove")?.params).toEqual({

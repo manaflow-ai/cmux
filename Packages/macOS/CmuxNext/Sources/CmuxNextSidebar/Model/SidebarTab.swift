@@ -42,6 +42,11 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var state: StatusIndicatorState = .idle
     /// The tab's folder, shortened as the row's is ("~", "~/src/cmux").
     public var folder: String?
+    /// What the tab's agent chat runs below its turn now (acpmux's `subagentsRunning` and
+    /// `commandsRunning`): the hover card's tab row counts them (Leo 2026-11-01: "this hover
+    /// preview being able to see the # of associated subagents and whatnot").
+    public var subagentsRunning = 0
+    public var commandsRunning = 0
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
                 favicon: SidebarFavicon? = nil, folder: String? = nil, state: StatusIndicatorState = .idle) {

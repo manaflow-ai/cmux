@@ -205,6 +205,14 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   are the same account, so an app started from a terminal pane joins the
   session bus of the screen a person is watching; root gets `DISPLAY` but not
   that bus (it admits only its owner).
+- `agent-desktop` (vercel-labs, pinned release archive in `/opt/agent-desktop`,
+  linked as `/usr/local/bin/agent-desktop`) drives the desktop's apps through
+  that accessibility bus: `agent-desktop snapshot --app thunar -i`, `click`,
+  `type`, `launch`, `list-windows`, `screenshot`. Upstream targets GNOME; on
+  this openbox session the accessibility tree, launch, semantic actions and
+  window listing work. It needs the session bus, so it runs as `cmux` (root:
+  `sudo -u cmux -i agent-desktop …`). The verifier launches Thunar and
+  snapshots it (`DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE`).
 - Readiness is signalled by its owners, never inferred from elapsed time:
   Xvnc reports its display on `-displayfd` once it accepts connections, the
   accessibility bus is awaited by name (`gdbus wait org.a11y.Bus`), the

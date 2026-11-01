@@ -437,7 +437,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     // A provider refusal is final for that attempt; the next call starts a new one at the new revision.
     const next = { vcpu: 8, memGiB: 16, diskGiB: 64 }
     await stub.fakeControl({ resize_refuse: 1 } as never)
-    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, retryable: false, message: expect.stringContaining("resize refused") })
+    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "cloud.provider.refused", retryable: false, message: expect.stringContaining("resize refused") })
     expect(await rpc.shape(c, machine)).toEqual({ ok: true, value: target })
     // A provider call that did not answer stays pending: retries answer indeterminate, never a second intent.
     // Two misses: the shape read before the intent, then the resize call itself.
@@ -449,6 +449,14 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await stub.fakeControl({})).toMatchObject({ resizes: 2 })
     expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: true, value: { state: "running", shape: next } })
     expect(await stub.fakeControl({})).toMatchObject({ resizes: 2 })
+  })
+
+  it("asks the caller to retry a resize while a booted machine is still provisioning", async () => {
+    const c = caller()
+    const booted = await rpc.boot(c, nameOf())
+    expect(booted).toMatchObject({ ok: true })
+    expect(await rpc.resize(c, booted.value.id, { vcpu: 4, memGiB: 8, diskGiB: 32 })).toMatchObject({ ok: false, code: "mutation.indeterminate", retryable: true })
+    expect(await cloudStub(c.team).fakeControl({})).toMatchObject({ resizes: 0 })
   })
 
   it("resizes only the caller's own platform machines, and only while the caller may use the team", async () => {

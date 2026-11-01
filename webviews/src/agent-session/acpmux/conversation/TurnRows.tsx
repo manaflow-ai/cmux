@@ -4,7 +4,7 @@
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
-import { copyText } from "./clipboard";
+import { copyTextResult } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
@@ -625,8 +625,8 @@ function TurnFailure({
                 type="button"
                 className="cv-turn-auth-action"
                 onClick={() =>
-                  void copyText(message).then(
-                    () => setCopied(true),
+                  void copyTextResult(message).then(
+                    (accepted) => setCopied(accepted),
                     () => setCopied(false),
                   )
                 }

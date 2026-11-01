@@ -108,8 +108,7 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     await page.goto(url(session));
     await page.getByText("The review is in.").waitFor({ timeout: 25_000 });
     // The line the subagent left where it ended opens its view (subagents/SubagentDoneLine.tsx). A
-    // finished turn folds its work, that line with it (turns.ts foldSegments), so open the fold first.
-    await page.locator("button.cv-worked").click();
+    // finished Claude turn has no Worked for to open (turns.ts claudeGroups): the line is in sight.
     await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).click();
     await page.locator(".cv-subagent-of").waitFor({ timeout: 5_000 });
     const parent = (await page.locator(".cv-subagent-of__parent").textContent())?.trim();
