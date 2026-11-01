@@ -4,7 +4,7 @@
 The controller owns the 180-second lease and dispatches the existing HQ JIT
 provisioner. A fleet receipt names an unconsumed runner for each requested job;
 the controller gives the fleet 180 seconds before overflow. If admission is
-unavailable, use measured overflow instead of queueing on an unregistered pool.
+unavailable, use declared hosted-light or measured overflow instead of an unregistered pool.
 This client never cancels a job or workflow.
 """
 from __future__ import annotations
@@ -126,7 +126,11 @@ def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[
     fallback = env.get("OVERFLOW_LINUX", "")
     if fallback not in OVERFLOW:
         raise ValueError("overflow runner is outside the declared set")
-    result = {job: fallback for job in request["jobs"]}
+    # The central table is the only authority for hosted-light eligibility.
+    table = json.loads((Path(__file__).resolve().parents[2] / ".github/runners.json").read_text())
+    light = table.get("hosted_light_jobs", {})
+    result = {job: "ubuntu-24.04" if request["run_attempt"] == 1 and f"nightly.yml#{job}" in light else fallback
+              for job in request["jobs"]}
     for job in placed.mini_jobs:
         result[job] = placed.mini_runner
     return result

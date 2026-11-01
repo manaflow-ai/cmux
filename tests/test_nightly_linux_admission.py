@@ -42,6 +42,10 @@ def receipt(status="pending"):
     return value
 
 
+def expected_fallback(job):
+    return ENV["OVERFLOW_LINUX"] if job == "build-nightly-inputs" else "ubuntu-24.04"
+
+
 class Receipts(unittest.TestCase):
     def test_future_receipt_cannot_authorize_overflow(self):
         value = receipt("overflow")
@@ -108,16 +112,26 @@ class Receipts(unittest.TestCase):
     def test_missing_admission_uses_measured_overflow_without_live_capacity(self):
         selected = admission.routes(ENV, REQUEST, None)
         for job in admission.JOBS:
-            self.assertEqual(selected[job], ENV["OVERFLOW_LINUX"])
+            self.assertEqual(selected[job], expected_fallback(job))
 
     def test_unconfigured_mini_and_reruns_use_measured_overflow(self):
         for config in ({**ENV, "SIDE_LABEL": ""}, {**ENV, "GITHUB_RUN_ATTEMPT": "3"}):
             self.assertEqual(set(admission.routes(config, admission.identity(config), None).values()),
-                             {ENV["OVERFLOW_LINUX"]})
+                             {ENV["OVERFLOW_LINUX"], "ubuntu-24.04"} if config.get("GITHUB_RUN_ATTEMPT") == "1"
+                             else {ENV["OVERFLOW_LINUX"]})
+
+    def test_live_mini_precedes_hosted_light_fallback(self):
+        job = "resolve-nightly-cmux-tui-client"
+        placed = admission.portable.Placement(mini_runner=ENV["SIDE_LABEL"], mini_jobs=(job,))
+        with mock.patch.object(admission.portable, "decide", return_value=placed):
+            selected = admission.routes(ENV, REQUEST, receipt("overflow"), [], {})
+        self.assertEqual(selected[job], ENV["SIDE_LABEL"])
+        self.assertEqual(selected["find-nightly-next-recovery"], "ubuntu-24.04")
+        self.assertEqual(selected["build-nightly-inputs"], ENV["OVERFLOW_LINUX"])
 
     def test_recorded_overflow_only_uses_declared_paid_set(self):
         selected = admission.routes({**ENV, "SIDE_LABEL": ""}, REQUEST, receipt("overflow"))
-        self.assertEqual(set(selected.values()), {ENV["OVERFLOW_LINUX"]})
+        self.assertEqual(set(selected.values()), {ENV["OVERFLOW_LINUX"], "ubuntu-24.04"})
         for label in ("ubuntu-24.04", "untrusted", "glaeda-side-std-xcode-26.6"):
             with self.subTest(label=label), self.assertRaises(ValueError):
                 admission.routes({**ENV, "OVERFLOW_LINUX": label}, REQUEST, receipt("overflow"))
@@ -225,6 +239,10 @@ class Workflow(unittest.TestCase):
                       if step.get("id") == "place-early-mac")
         self.assertEqual(legacy["env"]["JOBS"], "pick-nightly-build-runner")
         self.assertEqual(legacy["env"]["FLEET_LINUX"], "")
+        self.assertEqual(legacy["env"]["REQUIRE_LIVE_CAPACITY"], "1")
+        sparse = next(step for step in self.jobs["decide"]["steps"]
+                      if step.get("name") == "Check out NEXT decision and placement helpers")
+        self.assertIn("/.github/runners.json", sparse["with"]["sparse-checkout"])
 
     def test_missing_stale_or_quota_failed_picker_uses_measured_overflow(self):
         for name in admission.JOBS:
@@ -237,9 +255,10 @@ class Workflow(unittest.TestCase):
                                "needs.decide.outputs.early_attempt": "0", key: overflow,
                                "vars.LINUX_RUNNER": overflow}
                     with self.subTest(job=name, attempt=attempt, overflow=overflow):
-                        self.assertEqual(evaluate(parse_expression(source), context), overflow)
+                        self.assertEqual(evaluate(parse_expression(source), context),
+                                         overflow if name == "build-nightly-inputs" or attempt != 1 else "ubuntu-24.04")
 
-    def test_other_tracks_keep_their_existing_linux_route(self):
+    def test_light_resolvers_on_other_tracks_use_hosted_linux(self):
         for name in ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper"):
             source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
             for track in ("nightly", "rc"):
@@ -247,13 +266,13 @@ class Workflow(unittest.TestCase):
                     context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
                                "needs.decide.outputs.track": track,
                                "vars.LINUX_RUNNER": ENV["OVERFLOW_LINUX"]}
-                    self.assertEqual(evaluate(parse_expression(source), context), ENV["OVERFLOW_LINUX"])
+                    self.assertEqual(evaluate(parse_expression(source), context), "ubuntu-24.04")
 
     def test_each_job_consumes_only_its_current_attempt_receipt(self):
         for name in admission.JOBS:
             source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
             key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
-            for label in (receipt("fleet")["runners"][name], ENV["OVERFLOW_LINUX"]):
+            for label in (receipt("fleet")["runners"][name], expected_fallback(name)):
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2,
                            "needs.decide.outputs.track": "nightly-next",
                            "needs.decide.outputs.early_attempt": "2", key: label}

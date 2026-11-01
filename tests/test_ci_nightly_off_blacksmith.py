@@ -91,12 +91,12 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                "needs.decide.outputs.early_attempt": placement_attempt,
                                "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}
                     with self.subTest(job=name, attempt=attempt, placement=placement_attempt):
-                        self.assertEqual(evaluate(expression, context), "blacksmith-16vcpu-ubuntu-2404")
+                        self.assertEqual(evaluate(expression, context), "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404")
                         context["needs.decide.outputs.track"] = "nightly"
-                        self.assertEqual(evaluate(expression, context), "blacksmith-16vcpu-ubuntu-2404")
+                        self.assertEqual(evaluate(expression, context), "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404")
                         context["github.repository_owner"] = "fork-owner"
                         self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
-            for runner in ("cmux-fleet-linux-x64", "glaeda-side-std-xcode-26.6"):
+            for runner in ("cmux-nightly-reservation-control", "glaeda-side-std-xcode-26.6"):
                 output = name.replace("cmux-", "").replace("-", "_")
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
                            "needs.decide.outputs.track": "nightly-next",
@@ -302,9 +302,13 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         blacksmith-32vcpu-ubuntu-2404 pin passed it. This ratchets BLACKSMITH_LINUX_ONLY_DEBT down."""
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        import json
+        light = json.loads((ROOT / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
         alone = {name for name, job in jobs.items()
                  if re.search(r"blacksmith-\d+vcpu-ubuntu", str((job or {}).get("runs-on") or ""))
-                 and not FLEET_ROUTE.search(str(job.get("runs-on")))}
+                 and not FLEET_ROUTE.search(str(job.get("runs-on")))
+                 and not (f"nightly.yml#{name}" in light
+                          and "github.run_attempt == 1 && 'ubuntu-24.04'" in str(job.get("runs-on")))}
         self.assertEqual(sorted(alone - BLACKSMITH_LINUX_ONLY_DEBT), [],
                          "these nightly jobs can only take Blacksmith Linux: give them a fleet route first")
         self.assertEqual(sorted(BLACKSMITH_LINUX_ONLY_DEBT - alone), [],

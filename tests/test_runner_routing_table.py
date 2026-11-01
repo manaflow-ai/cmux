@@ -86,6 +86,38 @@ class RoutingTableTests(unittest.TestCase):
             with self.subTest(expression=changed):
                 self.assertTrue(table.portable_order(changed, nightly=True))
 
+    def test_hosted_light_policy_is_central_and_rejects_release_and_hosted_mac(self):
+        route = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflows = root / "workflows"
+            workflows.mkdir()
+            policy = root / "runners.json"
+            policy.write_text(json.dumps({"job_classes": {"portable-checks": {"needs": "any"}},
+                "hosted_light_jobs": {"nightly.yml#decide": {"class": "portable-checks", "reason": "routing"}}}))
+            path = workflows / "nightly.yml"
+            baseline = {"runs-on": route, "environment": "ci-routing-agent", "steps": [{"run": "python3 decide.py"}]}
+            for change, error in (({}, False), ({"environment": "release"}, True),
+                                  ({"environment": {"name": "ci-routing-agent"}}, True),
+                                  ({"env": {"KEY": "${{ secrets.CMUX_RELEASE_APP_KEY }}"}}, True),
+                                  ({"steps": [{"run": "codesign app"}]}, True),
+                                  ({"runs-on": route.replace("github.run_attempt == 1 && 'ubuntu-24.04'", "'macos-26'")}, True),
+                                  ({"runs-on": route.replace("github.run_attempt == 1 &&", "github.run_attempt > 0 &&")}, True),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu-ubuntu-2404'", " || 'unserved-fleet' || 'blacksmith-16vcpu-ubuntu-2404'")}, True)):
+                import yaml
+                # The identical line on undeclared signing work must not inherit the exception.
+                path.write_text(yaml.safe_dump({"jobs": {"decide": {**baseline, **change},
+                    "undeclared": {"runs-on": route}}}, sort_keys=False, width=10000))
+                problems, allowed = table.hosted_light_policy(policy, workflows)
+                with self.subTest(change=change):
+                    self.assertEqual(bool(problems), error, problems)
+                    self.assertEqual(len(allowed), 0 if error else 1)
+                    if not error:
+                        number = int(allowed[0].rsplit(":", 1)[1])
+                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + route)
+            policy.write_text(json.dumps({"job_classes": {}, "hosted_light_jobs": {}}))
+            self.assertEqual(table.hosted_light_policy(policy, workflows), ([], []))
+
     def test_the_tree_classifies_every_macos_job(self) -> None:
         self.assertEqual(table.check(), [])
 

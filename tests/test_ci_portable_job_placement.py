@@ -79,6 +79,22 @@ class Decide(unittest.TestCase):
                 self.assertEqual(placed.linux_jobs, ())
                 self.assertIn("capacity unknown", placed.why)
 
+    def test_live_only_nightly_picker_waits_without_emitting_an_unverified_pool(self):
+        config = env(JOBS="pick-nightly-build-runner", NIGHTLY="1",
+                     NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        for runners, snap in ((None, None), (idle(2), None),
+                              (idle(2), snapshot(age_minutes=120)), ([], snapshot())):
+            with self.subTest(runners=runners, snapshot=snap):
+                placed = placement.decide(config, runners, snap, NOW)
+                self.assertEqual((placed.mini_runner, placed.mini_jobs), ("", ()))
+        with mock.patch.object(placement, "read", return_value=(None, None)), \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 180]), \
+             mock.patch.object(placement, "write") as write:
+            self.assertEqual(placement.main(config), 0)
+        self.assertEqual(write.call_args.args[0].mini_runner, "")
+        placed = placement.decide(config, idle(1), snapshot(), NOW)
+        self.assertEqual(placed.mini_jobs, ("pick-nightly-build-runner",))
+
     def test_unknown_nightly_capacity_does_not_bypass_runner_eligibility(self):
         for overrides in ({"SIDE_LABEL": ""}, {"SIDE_LABEL": "blacksmith-16vcpu-ubuntu-2404"},
                           {"SIDE_LABEL": "glaeda-aws-side-std-xcode-26.6"},
