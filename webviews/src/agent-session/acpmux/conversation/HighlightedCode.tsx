@@ -109,19 +109,19 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
     <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>
       <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} />
-          <button
-            type="button"
-            className="cv-codeblock__action"
-            aria-pressed={wrap}
-            data-fold-toggle=""
-            aria-label={t("changes.wrapLines")}
-            title={t("changes.wrapLines")}
-            onClick={() => setWrap((value) => !value)}
-          >
-            <WrapLines />
-          </button>
-          <CopyButton text={code} label={t("code.copy")} />
-          {actions}
+        <button
+          type="button"
+          className="cv-codeblock__action"
+          aria-pressed={wrap}
+          data-fold-toggle=""
+          aria-label={t("changes.wrapLines")}
+          title={t("changes.wrapLines")}
+          onClick={() => setWrap((value) => !value)}
+        >
+          <WrapLines />
+        </button>
+        <CopyButton text={code} label={t("code.copy")} />
+        {actions}
       </CodeHeader>
       {/* Pierre paints the lines once the highlight worker answers; until then the body keeps the
           plain card's height, so the text under the card does not move up and back (cx-wdenv). */}

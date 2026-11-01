@@ -166,7 +166,9 @@ await requireBrowserLane("code-block-diagram-browser.test.tsx", async () => {
       const html = renderToStaticMarkup(<Markdown>{"```python\nprint('│')\n```\n"}</Markdown>);
       const page = await browser.newPage({ viewport: { width: 900, height: 400 } });
       try {
-        await page.setContent(`<html><head><style>${css}</style></head><body><div id="column">${html}</div></body></html>`);
+        await page.setContent(
+          `<html><head><style>${css}</style></head><body><div id="column">${html}</div></body></html>`,
+        );
         const header = await page.evaluate(() => {
           const header = document.querySelector<HTMLElement>(".cv-codeblock__header")!;
           const label = header.querySelector(":scope > span:not(.cv-codeblock__actions)");
