@@ -676,11 +676,11 @@ impl ConnectionStats {
     ///
     /// `client`: the terminal the connection comes from (its process session).
     /// A terminal's first connection gets in whenever the lane has room; a
-    /// further one only while that terminal then holds fewer than the lane has
-    /// left free. One terminal (an agent's hooks in a loop, a script running
-    /// `cmux`) stops near half the lane, and every other terminal still finds
-    /// room for its first connection. A connection whose terminal is unknown
-    /// is bounded by the lane alone.
+    /// further one only while that terminal then holds no more than the lane
+    /// has left free. One terminal (an agent's hooks in a loop, a script
+    /// running `cmux`) stops at half the lane, so a second terminal still finds
+    /// room; several terminals in a loop together can still fill the lane. A
+    /// connection whose terminal is unknown is bounded by the lane alone.
     pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64, client: Option<u32>) -> bool {
         let mut claimed = self.claim_terminal_slot(limit, client);
         if !claimed && self.reclaim_hung_up(pool_limit) > 0 {

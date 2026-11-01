@@ -308,7 +308,7 @@ fn terminal_connections_leave_slots_for_the_app() {
 /// One terminal opening connections in a loop (an agent's hooks, a script
 /// running `cmux` in a pane) cannot take the terminal lane from the others: a
 /// terminal's first connection gets in whenever the lane has room, a further
-/// one only while that terminal then holds fewer than the lane has left free.
+/// one only while that terminal then holds no more than the lane has left free.
 #[test]
 fn one_terminal_cannot_take_the_terminal_lane_from_the_others() {
     let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
@@ -328,12 +328,13 @@ fn one_terminal_cannot_take_the_terminal_lane_from_the_others() {
         claim_connection(&connections).is_some(),
         "the app's slots are untouched by the terminal lane"
     );
+    let taken = first.len();
     drop((first, second, third));
     assert_eq!(connections.active(), 0);
-    assert!(
-        claim_terminal_connection_from(&connections, 101).is_some(),
-        "a terminal's released connections count no more against it"
-    );
+    let again: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert_eq!(again.len(), taken, "a terminal's released connections count no more against it");
 }
 
 /// #27669: connection threads parked on the registry lock outlived their CLI
