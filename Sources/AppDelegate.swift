@@ -10986,6 +10986,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // when unset. See DevWindowDisplayDefault.
         DevWindowDisplayDefault.applyToNewWindow(window)
 #endif
+        window.whenInitialDisplayCompletes {
+            // Deliver the completed display event after the AppKit call stack unwinds.
+            Task { @MainActor in
+                _ = TerminalNotificationStore.shared.markWindowSetupComplete()
+            }
+        }
         return windowId
     }
 
