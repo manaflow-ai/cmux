@@ -59,6 +59,17 @@ struct SpareSessionAdoptionTests {
         #expect(!spare.model.clientReady, "a new handshake kept the old connection's ready")
     }
 
+    /// HQ#5914 finding 1: every sidebar open refused the spare as "touched by dictation": the
+    /// composer's mount reports whether its harness takes audio, which is no touch of the person's.
+    @Test func theComposersAudioReportLeavesTheSpareUntouched() async throws {
+        let tabs = Self.run(records: [:])
+        let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "dictation.audio", "params": ["enabled": true]]))
+        #expect(!spare.model.userTouched, "touched by \(spare.model.touchedBy ?? "?")")
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "dictation.toggle"]))
+        #expect(spare.model.userTouched, "starting dictation is the person's touch")
+    }
+
     /// HQ#5914 finding 1, review of #27759: a spare whose client is still connecting is not taken
     /// for an existing chat (the open would wait behind its chat list), nor in Low Power Mode or
     /// at serious thermal state (each open would make another page).
