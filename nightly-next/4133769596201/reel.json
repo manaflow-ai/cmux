@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4133769596201",
+  "notes": "notes/4133769596201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31189,
+      "title": "fix: bootstrap scoped identity on bound guests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28665,
+      "title": "cmux NEXT Settings: a group title never repeats its page's title (Updates, Advanced)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30309,
+      "title": "test(tabs): check chooser reveal with motion settled",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30933,
+      "title": "test(popup): read the slider label's themed tooltip, not AppKit's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30983,
+      "title": "test(sidebar): gutter, footer Search and edge hit map follow #27954's resize clearance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30993,
+      "title": "test(cmux-next): TabLookupGuard allowance matches the header's openTool lookup and the Diff page's migration",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30995,
+      "title": "test(cmux-next): the ten suites that open windows without .closesItsWindows carry it and close what they open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31022,
+      "title": "cmux NEXT chat: an attached video's frames come at its scene changes, at 1280 px, each labelled with its time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31129,
+      "title": "Cloud start: produce setup script checklist state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31191,
+      "title": "Chief spawn: an automatic harness picker per task (grokbot-style), only when routing is on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31204,
+      "title": "Move to Cloud: Retry when the machine could not take the chat yet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31214,
+      "title": "acpmux: test that a session mid-tool-call survives an update and its queued prompt runs once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31207,
+      "title": "ci(cmux-tui artifacts): no Windows build on pushes; dispatch with include_windows only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31167,
+      "title": "fix(diff): find folds İ so match offsets after it stay on the right character",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31198,
+      "title": "cmux-tui: a chat moved to a Cloud machine starts its acpmux there",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31202,
+      "title": "cmux-api: log why a personal VM API tenant ensure is not ready",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31201,
+      "title": "ci: run the nightly static capability guard in its own cmux-next-guards job",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31199,
+      "title": "ci(perf bench): gate, tabswitch and palette are dispatch inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31179,
+      "title": "Agent chat: an unlabeled code card's first line keeps room for its corner actions; its height estimate follows the drawn card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30956,
+      "title": "cmux-tui: a crashed app's incognito workspaces close instead of coming back",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
