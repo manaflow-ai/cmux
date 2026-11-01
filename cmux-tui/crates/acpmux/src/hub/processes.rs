@@ -253,7 +253,7 @@ fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<
     processes
         .into_iter()
         .filter_map(|mut process| {
-            process.output_bytes = process.output_file.as_deref().map(|path| length(path));
+            process.output_bytes = process.output_file.as_deref().map(&length);
             serde_json::to_value(process).ok()
         })
         .collect()
