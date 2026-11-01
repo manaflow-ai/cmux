@@ -39,6 +39,10 @@ struct CmdNThenCreateKeysTests {
             let before = Set(store.workspaces.map(\.id))
             let router = services.keyRouter
             let coordinator = router.creationInputCoordinator
+            // The page's hold keeps its keys as long as the page is opening, as for a person: their New Tab page reports
+            // its field ready and takes the keys (smoke step 16). This harness's page never reports ready, so its 4 s
+            // bound would hand the keys on and hide the loss (red 808acd14 passed on the base for that reason).
+            router.newTabInputCoordinator.incomingHoldLimit = .seconds(120)
 
             #expect(kill(pid, SIGSTOP) == 0)
             var resumed = false
