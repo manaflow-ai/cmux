@@ -8,7 +8,7 @@
 // default are inboxNoticeLook.ts's (`theme.inboxNoticeLook`). Names and messages are made up.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
+import { SESSION_ID, activity, assistant, chat, session, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
 
@@ -158,6 +158,55 @@ function snapshot(notices: Thread[][], before = false) {
   );
 }
 
+/// A sender no chat here lists, named like another harness (a Codex lane called `claude-…`): its
+/// line draws the neutral agent glyph, never a mark guessed from the name.
+const UNLISTED: Thread = {
+  threadId: "from:claude-mesh-lane/pr:5805",
+  label: "#5805",
+  messages: [{ from: "claude-mesh-lane", text: "HQ#5805 at b070cf5 opened its verification issue." }],
+};
+
+/// Inbox rows among tool rows, as a coordinator's chat draws them: a run of commands, one thread's
+/// line, a group of one sender's threads and a group of several senders' (Leo, 2026-11-01: "i
+/// wanted this to be left aligned with the other tool calls" and "let's just make this look
+/// better"). inbox-row-icon-column.test.ts measures it.
+function amongTools() {
+  const run = (minutes: number) =>
+    activity(
+      [
+        tool("Run", "execute", "completed", {
+          command: "gh pr checks 2210",
+          output: "web / react-apps-base-check pass\n",
+        }),
+        tool("Run", "execute", "completed", { command: "git log --oneline -1", output: "6d9ae71 base autofix\n" }),
+      ],
+      minutes,
+    );
+  return chat(
+    [
+      user("Hand the three polish lanes their briefs and land what comes back reviewed.", 12),
+      run(11),
+      notice([BLOAT], 10),
+      run(9),
+      notice([UNLISTED], 8.5),
+      run(8),
+      notice([GRID, FYI], 7),
+      run(6),
+      notice([PLAN, REVIEW, RAIL], 5),
+    ],
+    {
+      title: "polish-coordinator",
+      sessions: [
+        session({ sessionId: SESSION_ID, title: "polish-coordinator", name: "polish-coordinator" }),
+        session({ sessionId: "s-log-bloat", title: "ao-log-bloat", name: "ao-log-bloat", harness: "codex" }),
+        session({ sessionId: "s-grid", title: "grid-lane", name: "grid-lane", harness: "claude" }),
+        session({ sessionId: "s-picker", title: "picker-lane", name: "picker-lane", harness: "codex" }),
+        session({ sessionId: "s-review", title: "review-box", name: "review-box", harness: "codex" }),
+      ],
+    },
+  );
+}
+
 const ONE = [[BLOAT]];
 const THREE = [[BLOAT, PLAN, GRID]];
 // Leo's case: notices in a row, each its own prompt; six threads in all.
@@ -169,7 +218,7 @@ const SIX = [
 
 /// Opens the group (when there is one) and the first thread's line.
 const openFirst: Play = async (ctx) => {
-  const head = ctx.document.querySelector<HTMLButtonElement>(".cv-inbox .cv-pending__toggle");
+  const head = ctx.document.querySelector<HTMLButtonElement>(".cv-inbox__head");
   if (head) {
     head.click();
     await ctx.waitFor(() => ctx.document.querySelector(".cv-inbox__thread"));
@@ -179,7 +228,7 @@ const openFirst: Play = async (ctx) => {
 };
 /// Opens the group and its thread of three messages.
 const openRail: Play = async (ctx) => {
-  ctx.document.querySelector<HTMLButtonElement>(".cv-inbox .cv-pending__toggle")?.click();
+  ctx.document.querySelector<HTMLButtonElement>(".cv-inbox__head")?.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__thread").length >= 6);
   ctx.document.querySelectorAll<HTMLButtonElement>(".cv-inbox__thread .cv-disclosure__toggle")[5]?.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__message").length >= 3);
@@ -197,6 +246,28 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/incomingMessage.ts",
   ],
   variants: {
+    "icon-column": {
+      note: "Inbox rows among tool rows: one thread's line, a group of one sender (\"3 messages from 1 session\", its harness mark) and a group of several (the messages glyph). Every row's glyph sits in the tool rows' icon column, its words start where theirs do, and a group's row has their height and gap, its chevron shown on hover. A sender no chat lists draws the neutral agent glyph.",
+      snapshot: amongTools(),
+    },
+    "icon-column-look-chevron": {
+      note: "Gallery version (theme inboxNoticeLook group-chevron): the group's chevron always shown.",
+      theme: { inboxNoticeLook: "group-chevron" },
+      snapshot: amongTools(),
+    },
+    "icon-column-look-count": {
+      note: "Gallery version (theme inboxNoticeLook group-count): the count alone; the senders in its tooltip.",
+      theme: { inboxNoticeLook: "group-count" },
+      snapshot: amongTools(),
+    },
+    "icon-column-open": {
+      note: "The same, the group of several opened: its threads' lines under it.",
+      snapshot: amongTools(),
+      play: async (ctx) => {
+        ctx.document.querySelectorAll<HTMLButtonElement>(".cv-inbox__head")[1]?.click();
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__thread").length >= 5);
+      },
+    },
     "before-six": {
       note: "Before: three notices in a row, as acpmux wrote them and the pane drew them: each its text for the agent in the person's bubble.",
       snapshot: snapshot(SIX, true),

@@ -8,27 +8,27 @@
 // (`_acpmux/inbox_thread`, through `chat.inbox.thread`) when the line first opens, without marking
 // them read (the person reading is not the agent). Nothing of the notice's text for the agent shows.
 // Two or more threads (a notice of several, or notices next to each other, mergeInboxNotices) draw
-// as one group in the look of the waiting messages' group (PendingMessagesCard.tsx): one line, "N
-// messages from M sessions" and the senders muted, that opens to the threads' lines; the versions
+// as one group: one line, "N messages from M sessions" and the senders muted, a sibling of the tool rows (the tool row's box, its
+// glyph the sender's mark in their icon column), that opens to the threads' lines; the versions
 // beside it are inboxNoticeLook.ts's. Whether a line or the group is open lasts while the page does
 // (incomingOpened.ts), and the row estimator (model.ts) reads it. Everything opens on the click,
 // with no fade in.
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { ChevronRight } from "./icons";
 import { rowIconSize } from "../icons/iconSize";
 import { DisclosureRow } from "../subagents/DisclosureRow";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { FindReveal } from "./chatFind";
-import { SenderName } from "./IncomingMessageCard";
+import { SenderMark, SenderName } from "./IncomingMessageCard";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
 import { inboxCounts, inboxThreadKey, type InboxMessage, type InboxNotice, type InboxThread } from "./inboxNotice";
-import { useInboxNoticeLook } from "./inboxNoticeLook";
+import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { Markdown } from "./Markdown";
-import "./PendingMessagesCard.css";
 import "./InboxNoticeCard.css";
 
 const ROW_ICON = rowIconSize(12);
@@ -94,8 +94,14 @@ function InboxThreadLine({
   }, [open, own, fetched, readFor, readThread, thread]);
   const name = newestSender(thread);
   const sender = useMemo<IncomingMessage>(
-    () => ({ name, text: "", raw: "", ...(thread.fromSession && { sessionId: thread.fromSession }) }),
-    [name, thread.fromSession],
+    () => ({
+      name,
+      text: "",
+      raw: "",
+      ...(thread.fromSession && { sessionId: thread.fromSession }),
+      ...(thread.fromHarness && { harness: thread.fromHarness }),
+    }),
+    [name, thread.fromSession, thread.fromHarness],
   );
   const whole = messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
   const repository = githubRepository ?? mentionedRepository(whole);
@@ -180,7 +186,7 @@ export function InboxNoticeCard({
     setOpen(next);
   };
   const bodyId = useId();
-  const grouped = notice.threads.length > 1 && look === "group";
+  const grouped = notice.threads.length > 1 && foldsThreads(look);
   // Find opens the group for a match in one of its threads; the thread's line opens itself.
   const reveal = useContext(FindReveal);
   const holdsMatch = grouped && Boolean(reveal && reveal.rowId === rowId);
@@ -210,27 +216,49 @@ export function InboxNoticeCard({
     senders.length === 1
       ? t("message.waitingFromOne", { n: messages })
       : t("message.waitingFrom", { n: messages, sessions: senders.length });
+  // One sender: its mark, from its newest thread (its session and bound harness); several: the
+  // messages glyph.
+  const lead = [...notice.threads].reverse().find((thread) => newestSender(thread) === senders[0]);
   return (
-    <div className="cv-pending cv-inbox" data-open={open || undefined}>
-      {/* Find counts the messages' words, not the head's names. */}
-      <div className="cv-pending__line" data-find-skip="">
-        <button
-          type="button"
-          className="cv-pending__toggle"
-          aria-expanded={open}
-          aria-controls={open ? bodyId : undefined}
-          title={senders.join(", ")}
-          onClick={() => show(!open)}
-        >
-          <span className="cv-pending__icon">
-            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
-          </span>
-          <span className="cv-pending__count">{count}</span>
-          <span className="cv-pending__senders">{senders.join(", ")}</span>
-        </button>
-      </div>
+    <div className="cv-inbox cv-inbox--group" data-look={look} data-open={open || undefined}>
+      {/* A sibling of the tool rows (Leo, 2026-11-01, on this line: "let's just make this look
+          better"): the tool row's own box (conversation.css .cv-tool), its glyph in their icon column,
+          the count as the summary and the senders muted after it, the chevron after them, shown on
+          hover. Find counts the messages' words, not the head's names. */}
+      <button
+        type="button"
+        className="cv-tool cv-inbox__head"
+        data-find-skip=""
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
+        title={senders.join(", ")}
+        onClick={() => show(!open)}
+      >
+        <span className="cv-tool__icon" aria-hidden="true">
+          {senders.length === 1 && lead ? (
+            <SenderMark
+              message={{
+                name: senders[0]!,
+                text: "",
+                raw: "",
+                ...(lead.fromSession && { sessionId: lead.fromSession }),
+                ...(lead.fromHarness && { harness: lead.fromHarness }),
+              }}
+            />
+          ) : (
+            <Icon name="agent.chat" size={ROW_ICON} row />
+          )}
+        </span>
+        <span className="cv-tool__text">
+          <span className="cv-inbox__count">{count}</span>
+          <span className="cv-inbox__senders">{senders.join(", ")}</span>
+        </span>
+        <span className="cv-tool__chevron" aria-hidden="true">
+          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+        </span>
+      </button>
       {open && (
-        <div id={bodyId} className="cv-pending__body">
+        <div id={bodyId} className="cv-inbox__body">
           {lines}
         </div>
       )}

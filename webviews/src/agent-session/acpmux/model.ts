@@ -1654,11 +1654,13 @@ function measuredRowHeight(
     // an opened message does, its text read from the notice (else its preview).
     const { threads } = row.incoming.notice;
     const line = 2 + 26 + 2;
-    const grouped = threads.length > 1 && inboxNoticeLook() === "group";
-    if (grouped && !messageOpened(sessionId, row.id)) return finish(line + MESSAGE_GAP);
+    // The group's head is a tool row (22px) in 2px margins (InboxNoticeCard.css .cv-inbox--group).
+    const head = 2 + 22 + 2;
+    const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
+    if (grouped && !messageOpened(sessionId, row.id)) return finish(head + MESSAGE_GAP);
     const { lineHeight } = metrics();
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    let height = (grouped ? line : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
+    let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
       height += line;
       if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) continue;
@@ -1933,7 +1935,7 @@ import { chatColumn, type ChatColumn } from "./chatWidth";
 import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
-import { inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that
