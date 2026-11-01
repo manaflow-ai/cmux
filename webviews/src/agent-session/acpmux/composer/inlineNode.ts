@@ -238,6 +238,19 @@ export function inlinePlugin(views: InlineViews) {
             if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
             const { selection } = view.state;
             if (!selection.empty || !(selection instanceof TextSelection)) return false;
+            // Left and Right step over a placed attachment as over one character, never selecting it
+            // (Leo, 2026-11-01: "i dont want left arrow to be selecting them??? just jump over them
+            // treat them like it's one character"). ProseMirror's own Shift+arrow already extends
+            // over it as one unit.
+            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+              const left = event.key === "ArrowLeft";
+              const { $head } = selection;
+              const adjacent = $head.textOffset ? null : left ? $head.nodeBefore : $head.nodeAfter;
+              if (adjacent?.type.name !== INLINE_NODE) return false;
+              const to = $head.pos + (left ? -adjacent.nodeSize : adjacent.nodeSize);
+              view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to)).scrollIntoView());
+              return true;
+            }
             const backward = event.key === "Backspace";
             if (!backward && event.key !== "Delete") return false;
             const adjacent = backward ? selection.$from.nodeBefore : selection.$from.nodeAfter;

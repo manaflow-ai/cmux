@@ -66,9 +66,7 @@ await requireBrowserLane("composer-inline-arrows.browser.test.ts", async () => {
           await page.keyboard.press("Shift+ArrowLeft");
           await page.keyboard.press("Backspace");
           expect(await chip.count(), engine.name()).toBe(0);
-          expect(await page.locator(".acpmux-md").textContent(), engine.name()).toBe(
-            `${start.before}LR${start.after}`,
-          );
+          expect(await page.locator(".acpmux-md").textContent(), engine.name()).toBe(`${start.before}LR${start.after}`);
           await page.close();
         } finally {
           await browser.close();
