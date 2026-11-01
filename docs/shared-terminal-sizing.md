@@ -91,7 +91,8 @@ keys.
   participants, so every attached device sees the whole grid.
 - `latest` (tmux 3.1+ `window-size latest`): the counting participant with
   the newest activity. Activity is attach, explicit focus-click, and keyboard,
-  paste or mouse input. Hover and background tabs are not activity.
+  paste or mouse input. Hover and background tabs are not activity. Input
+  waits for the typing hold (below).
 - `largest`: component-wise max over counting participants.
 - `priority`: the first key in `priority` that matches a counting participant
   (newest activity breaks ties inside one key). No match falls back to `latest`
@@ -104,6 +105,26 @@ viewport is clamped to at least 2 × 1.
 With no counting participant the grid keeps its last size (reason `held`). An
 owner detach selects the next owner in the same step. The grid never freezes
 waiting for a departed owner.
+
+**Typing hold.** Where activity picks the owner (`latest`, and the newest
+activity inside one priority key or under `priority-fallback`), input from a
+participant other than the owner takes the grid only once the owner has had
+no activity for 2000 ms. Two devices typing at once therefore keep the grid
+where it is instead of flipping it on every keystroke. Input that would not
+move the grid is recorded as usual. For input that would move it inside the
+hold, the keystrokes still reach the terminal and only the activity update is
+dropped, so the other device takes the grid with its next keystroke after the
+hold. The owner's own activity always refreshes the hold. Attach and an
+explicit focus-click (and Size to My Window) take the grid at once, and an
+owner detach picks the next owner at once. The hold constant lives in
+`TerminalSizingEngine.activityHoldMilliseconds` and `ACTIVITY_HOLD_MS`.
+
+The reducers never read a clock. Each attach and activity carries `at`, the
+host's monotonic clock in milliseconds, and activity carries `kind` (`input`
+or `focus`): Swift `attach(_:at:)` and `noteActivity(_:kind:at:)`, Rust
+`attach(participant, at)` and `note_activity(id, kind, at)`. The Mac host
+takes `at` from an injected `TerminalSizingClock`, the cmux-tui mux from its
+sizing clock. Fixture steps carry the same `at` and `kind`.
 
 Policy scope is a workspace default plus an optional per-terminal override. Any
 workspace member with write access can change it. Every host emits the change to
@@ -361,8 +382,12 @@ keeps the legacy claim and resize path, and phones behind it are not forwarded.
   | participant?, counts: true | false | null}`; `get-size-state {surface}`
   answers `{state}`.
 - Event `size-state {surface, state}`.
-- `note-size-activity {surface, view?}` records explicit activity for this
-  connection's participant, or for a relay sub-view with `view`.
+- `note-size-activity {surface, view?, kind?}` records explicit activity for
+  this connection's participant, or for a relay sub-view with `view`. `kind`
+  is `input` (default; waits for the typing hold) or `focus` (immediate). A
+  Mac sends `focus` for a pane focus and Size to My Window and `input` for
+  keys and for a phone's forwarded input; the cmux-tui frontend sends `focus`
+  when its pane takes focus. `send` and `send-key` count as input.
 - A client opts in by listing `shared-sizing-v1` in `set-client-info`
   `capabilities`; without it the daemon sends no `size-state` events.
 - `detach-client {client, surface?, by}` takes a numeric client id or a

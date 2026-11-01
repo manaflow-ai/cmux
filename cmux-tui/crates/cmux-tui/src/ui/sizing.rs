@@ -166,8 +166,8 @@ mod tests {
             TerminalGridSize::new(80, 24),
             TerminalSizingPolicy::new(mode, Vec::new(), None),
         );
-        for row in rows {
-            engine.attach(row.clone());
+        for (at, row) in (0u64..).step_by(10_000).zip(rows) {
+            engine.attach(row.clone(), at);
         }
         engine.state().clone()
     }
