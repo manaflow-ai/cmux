@@ -234,7 +234,7 @@ function horizontalStep(view: EditorView, event: KeyboardEvent): -1 | 0 | 1 {
   if (event.isComposing || event.metaKey || event.altKey || event.shiftKey) return 0;
   if (event.ctrlKey) {
     if (!/Mac|iPhone|iPad/.test(view.dom.ownerDocument.defaultView?.navigator.platform ?? "")) return 0;
-    return event.key === "b" ? -1 : event.key === "f" ? 1 : 0;
+    return event.code === "KeyB" ? -1 : event.code === "KeyF" ? 1 : 0;
   }
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return 0;
   const { node } = view.domAtPos(view.state.selection.head);
