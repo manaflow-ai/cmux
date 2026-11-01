@@ -35,6 +35,7 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
                          r"|needs\.[\w-]+\.outputs\.(?:owned|owned_pool|sign_owned|sign_owned_pool|early_[a-z_]+_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
+                         r"|!startsWith\(vars\.LINUX_RUNNER\b"
                          r"|matrix\.")
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
@@ -44,7 +45,7 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
     "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
     "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
-    "signer-dmg", "route-visual-gate-nightly", "keep-published-dsyms", "legacy-identity-target",
+    "signer-dmg", "route-visual-gate-nightly", "keep-published-dsyms",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
 })
@@ -291,6 +292,22 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertTrue(steps["Put llvm-lipo on PATH as lipo"]["if"].startswith("runner.os == 'Linux' && "))
                 restore = steps["Restore unsigned nightly products"]["run"]
                 self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
+
+    def test_legacy_identity_target_uses_fleet_first_linux_with_overflow(self) -> None:
+        """The short compatibility check must not pin a nightly to Blacksmith."""
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        runs_on = jobs["legacy-identity-target"]["runs-on"]
+        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && !startsWith(vars.LINUX_RUNNER, 'ubuntu-') && vars.LINUX_RUNNER", runs_on)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404'", runs_on)
+        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertNotIn("macos", runs_on)
+        linux = linux_runner_values()
+        labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
+                                                     "LINUX_RUNNER": sorted(linux)})
+        self.assertTrue(labels)
+        self.assertTrue(all(isinstance(label, str) and (label in linux or LINUX_LABEL.fullmatch(label))
+                            for label in labels))
 
     def test_nightly_never_queues_on_unverified_generic_fleet_label(self) -> None:
         """Fleet admission supplies unique reservations, never an unserved pool label."""
