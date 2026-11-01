@@ -111,7 +111,7 @@
 }
 /* Nothing matched: the count reads as an answer, in the danger ink. */
 .find-pill__count[data-none] {
-  color: var(--agent-danger, var(--cmux-diff-deletion-fg, #d70015));
+  color: var(--agent-danger, var(--cmux-app-danger, var(--cmux-text, CanvasText)));
 }
 
 .find-pill__separator {
@@ -155,6 +155,16 @@
 .find-pill__button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 20%, transparent);
   color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent))));
+}
+
+/* Held feedback is immediate and never moves the search controls. Selected toggles keep their hue. */
+.find-pill__button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
+  color: inherit;
+}
+.find-pill__button[aria-pressed="true"]:active:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
+  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent)))) !important;
 }
 
 /* The replace row (the code editor's Replace): the capsule grows into a rounded panel of two rows. */
