@@ -7,6 +7,7 @@ import Testing
 @MainActor struct EmptyWorkspaceRepairTests {
     struct Refused: Error {}
     final class Count { var value = 0 }
+    final class Holder { var repair: EmptyWorkspaceRepair? }
 
     let key = WorkspaceKey(rawValue: "w1")
 
@@ -90,6 +91,7 @@ import Testing
         let closes = Count(), epoch = Count()
         epoch.value = 1
         let first = WorkspaceKey(rawValue: "ws-1")
+        let holder = Holder()
         let repair = EmptyWorkspaceRepair(store: store, create: { _ in nil },
                                           close: { key in
                                               guard key == first else { return }
@@ -103,11 +105,12 @@ import Testing
                                               // returning the refused close. A fixed yield count can let the
                                               // close task clear its claim first, losing the new epoch's
                                               // evidence as a test scheduling artifact.
-                                              await Fixture.settle { repair.visited >= 3 }
+                                              await Fixture.settle { (holder.repair?.visited ?? 0) >= 3 }
                                               throw Refused()
                                           },
                                           cause: { _ in .tabClosed }, canCreate: { true }, epoch: { epoch.value },
                                           isLive: { true })
+        holder.repair = repair
         await Fixture.settle { repair.visited >= 1 }
 
         store.apply(try Fixture.paneClosed(workspace: 1))
@@ -133,6 +136,7 @@ import Testing
         let closes = Count(), epoch = Count()
         epoch.value = 1
         let first = WorkspaceKey(rawValue: "ws-1")
+        let holder = Holder()
         let repair = EmptyWorkspaceRepair(store: store, create: { _ in nil },
                                           close: { key in
                                               guard key == first else { return }
@@ -142,13 +146,14 @@ import Testing
                                               // again, then the first close fails.
                                               epoch.value = 2
                                               store.apply(snapshot: tree(11))
-                                              await Fixture.settle { repair.visited >= 4 }
+                                              await Fixture.settle { (holder.repair?.visited ?? 0) >= 4 }
                                               store.apply(try Fixture.paneClosed(workspace: 1))
-                                              await Fixture.settle { repair.visited >= 5 }
+                                              await Fixture.settle { (holder.repair?.visited ?? 0) >= 5 }
                                               throw Refused()
                                           },
                                           cause: { _ in .tabClosed }, canCreate: { true }, epoch: { epoch.value },
                                           isLive: { true })
+        holder.repair = repair
         await Fixture.settle { repair.visited >= 2 }
 
         store.apply(try Fixture.paneClosed(workspace: 1))
