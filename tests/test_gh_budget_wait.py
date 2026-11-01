@@ -405,8 +405,7 @@ class WorkflowTests(unittest.TestCase):
         # (test_nightly_trusted_routing).
         self.assertNotIn("macos", job["runs-on"])
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", job["runs-on"])
-        # decide only for its fleet_linux route (test_ci_nightly_off_blacksmith); it is upstream already.
-        self.assertEqual(job["needs"], ["decide", "build-nightly-remote-daemon"])
+        self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
         # No consumer can put this advisory job back on the publication path,
         # directly or transitively. A budget wait must not delay the feed.

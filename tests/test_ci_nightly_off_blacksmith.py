@@ -28,14 +28,14 @@ LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d{4}|ubuntu-24\.04")
 # The nightly jobs that hold no release secrets and need no Mac.
 LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                       "pick-nightly-build-runner", "prepare-nightly-variant-primary",
-                      "prepare-nightly-variant", "pick-nightly-sign-runner",
+                      "prepare-nightly-variant",
                       "find-nightly-next-recovery")
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
                          r"|vars\.CI_CONTROL_RUNNER"
-                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_linux_runner|early_mini_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated"
+                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_[a-z_]+_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated"
                          r"|fleet_linux)\b"
                          r"|matrix\.")
 # The ephemeral GCP runners (HQ build-fleet/swift-linux-builder/gha-runners/README.md). decide's `fleet_linux` output
@@ -51,8 +51,16 @@ FLEET_LINUX_EXCEPTIONS = {
     "signer-app-notary": "hosted signer route",
     "signer-dmg": "hosted signer route",
     "pick-nightly-sign-runner": "hosted signer route",
+    "signer-build": "hosted signer route",
     # A signing job's runner comes only from the signing pickers (test_ci_signing_owned_mac).
     "publish-nightly-identity-legacy": "signing job, signing pickers only",
+    # Jobs holding release or production credentials stay on the validated ephemeral set (#30158) until the GCP
+    # runners are on the signing trust list; fleet_linux goes only to secret-free jobs.
+    **{name: "credentialed, validated ephemeral set" for name in (
+        "attest-nightly-remote-daemon", "published-in", "route-visual-gate-nightly", "publish-nightly",
+        "publish-nightly-next-github", "publish-nightly-next-github-names", "keep-published-dsyms",
+        "legacy-identity-target", "republish-nightly-deltas", "sign-release-notes", "publish-release-notes",
+        "publish-nightly-reel")},
     # main's promotion dispatch: decide is skipped on that path, so there is no fleet_linux to read.
     "promote-nightly-next": "promotion dispatch, no decide",
     # `if: false`: these never run.
@@ -92,6 +100,50 @@ def code_lines(path: Path):
 
 
 class NightlyPooledRoutingTests(unittest.TestCase):
+    def test_resolver_and_recovery_default_to_fleet_without_current_placement(self) -> None:
+        import yaml
+        from test_nightly_trusted_routing import evaluate, parse_expression
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
+        for name in ("resolve-nightly-cmux-tui-client", "find-nightly-next-recovery"):
+            expression = parse_expression(jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
+            for attempt in (1, 2, 3):
+                for placement_attempt in ("", str(attempt - 1), str(attempt)):
+                    context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
+                               "needs.decide.outputs.track": "nightly-next",
+                               "needs.decide.outputs.early_attempt": placement_attempt,
+                               "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}
+                    with self.subTest(job=name, attempt=attempt, placement=placement_attempt):
+                        self.assertEqual(evaluate(expression, context), "cmux-fleet-linux-x64")
+                        context["needs.decide.outputs.track"] = "nightly"
+                        self.assertEqual(evaluate(expression, context), "blacksmith-16vcpu-ubuntu-2404")
+                        context["github.repository_owner"] = "fork-owner"
+                        self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
+            for runner in ("cmux-fleet-linux-x64", "glaeda-side-std-xcode-26.6"):
+                output = name.replace("cmux-", "").replace("-", "_")
+                context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
+                           "needs.decide.outputs.track": "nightly-next",
+                           "needs.decide.outputs.early_attempt": "1",
+                           f"needs.decide.outputs.early_{output}_runner": runner}
+                self.assertEqual(evaluate(expression, context), runner)
+
+    def test_fleet_linux_fallback_jobs_install_gh_before_their_gh_calls(self) -> None:
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
+        for name, first_gh_step in (("resolve-nightly-cmux-tui-client", "Wait through GitHub API rate limits in this job's gh calls"),
+                                    ("find-nightly-next-recovery", "List newer pending nightly-next notarizations")):
+            steps = jobs[name]["steps"]
+            names = [step.get("name") for step in steps]
+            with self.subTest(job=name):
+                ensure = next(i for i, step in enumerate(steps)
+                              if step.get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh")
+                self.assertEqual(steps[ensure].get("if"), "runner.os == 'Linux'")
+                self.assertLess(ensure, names.index("Wait through GitHub API rate limits in this job's gh calls"))
+                self.assertLess(ensure, names.index(first_gh_step))
+        script = (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text()
+        self.assertIn("apt-get install -y -q gh", script)
+        self.assertIn("https://cli.github.com/packages", script)
+        self.assertIn("::error", script)
+
     def test_nightly_workflows_are_discovered(self) -> None:
         names = {path.name for path in nightly_workflows()}
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):
@@ -234,7 +286,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 # holding a secret takes the literal (the signing-keychain guard).
                 # The sign pick takes GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run
                 # (tests/test_nightly_trusted_routing.py, the signer route).
-                self.assertTrue("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || " in runs_on
+                self.assertTrue("needs.decide.outputs.early_" in runs_on
+                                and runs_on.endswith("|| 'cmux-fleet-linux-x64' }}")
+                                or "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || " in runs_on
                                 or runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}") and "LINUX_RUNNER" not in runs_on
                                 or name == "pick-nightly-sign-runner"
                                 and runs_on.endswith("github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"),
@@ -246,7 +300,11 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertTrue(labels)
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")
-                    self.assertTrue(label in linux or LINUX_LABEL.fullmatch(label), f"{name} can take {label!r}")
+                    fleet_fallback = (name in {"resolve-nightly-cmux-tui-client", "find-nightly-next-recovery",
+                                                "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs"}
+                                      and label == "cmux-fleet-linux-x64")
+                    self.assertTrue(label in linux or LINUX_LABEL.fullmatch(label) or fleet_fallback,
+                                    f"{name} can take {label!r}")
                 self.assertNotIn("secrets.APPLE", yaml.dump(jobs[name]))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.dump(jobs[name]))
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
@@ -297,19 +355,23 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertEqual(sorted(set(FLEET_LINUX_EXCEPTIONS) - set(jobs)), [], "an exception names no job")
         for name, job in jobs.items():
             runs_on = str(job.get("runs-on"))
-            if name in linux_jobs and name not in FLEET_LINUX_EXCEPTIONS and "early_linux_jobs" not in runs_on \
+            if name in linux_jobs and name not in FLEET_LINUX_EXCEPTIONS and "needs.decide.outputs.early_" not in runs_on \
                     and name != "decide":
                 needs = job.get("needs") or []
                 with self.subTest(job=name):
                     self.assertIn(FLEET_LINUX_TERM, runs_on)
+                    self.assertNotIn("secrets.", yaml.dump(job))
+                    self.assertFalse(job.get("environment"))
                     self.assertIn("decide", [needs] if isinstance(needs, str) else needs)
 
     def test_decide_offers_the_gcp_label_only_from_the_stall_aware_placement(self) -> None:
         """decide's fleet_linux comes only from place-early's group check (portable_job_placement.py)."""
         import yaml
         decide = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]["decide"]
-        self.assertEqual(decide["outputs"]["fleet_linux"], "${{ steps.place-early.outputs.fleet_linux }}")
-        place = next(step for step in decide["steps"] if step.get("id") == "place-early")
+        self.assertEqual(decide["outputs"]["fleet_linux"], "${{ steps.place-early-mac.outputs.fleet_linux }}")
+        place = next(step for step in decide["steps"] if step.get("id") == "place-early-mac")
+        # The credentialed picker it places never takes the GCP label itself.
+        self.assertEqual(place["env"]["MAC_FIRST"], place["env"]["JOBS"])
         self.assertTrue(place["continue-on-error"])
         self.assertEqual(place["run"], "python3 scripts/ci/portable_job_placement.py")
         self.assertEqual(place["env"]["FLEET_GROUP_LABEL"], FLEET_LINUX_LABEL)
