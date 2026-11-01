@@ -47,10 +47,6 @@ final class SidebarBridge {
     let groupEditor = PersonalGroupEditorState()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
-    /// Restored New Tab pages depend only on the tab topology and the explicit
-    /// pages opened by this app. Reuse the set across structural observations
-    /// that fire for unrelated row state changes.
-    private var newTabPagesCache: (revision: UInt64, explicit: Set<String>, ids: Set<String>)?
     /// Each listed row's content, observed per row: a status change patches one row, not the sidebar (rows lane).
     /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together.
     let rowFeed: SidebarRowFeed = {
@@ -149,7 +145,7 @@ final class SidebarBridge {
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, {
             // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
-            let pages = cachedNewTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
+            let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
             feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
             let (listed, launching, failed) = Self.liveSections(
                 machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
@@ -359,15 +355,6 @@ final class SidebarBridge {
     /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
     static func newTabPages(_ tabs: AgentTabStore, in store: DaemonStore?) -> Set<String> {
         RestoredNewTabPages.ids(in: store, tabs: tabs)
-    }
-
-    private func cachedNewTabPages(_ tabs: AgentTabStore, in store: DaemonStore?) -> Set<String> {
-        let explicit = tabs.pageTabs.ids
-        let revision = store?.tabListRevision ?? 0
-        if let cache = newTabPagesCache, cache.revision == revision, cache.explicit == explicit { return cache.ids }
-        let ids = Self.newTabPages(tabs, in: store)
-        newTabPagesCache = (revision, explicit, ids)
-        return ids
     }
 
     /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab names.
