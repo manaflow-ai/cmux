@@ -87,6 +87,8 @@ OPEN_KEYS = {"terminal": ("`", ["control"]), "newtab": ("t", ["command"]), "spli
              "window": ("n", ["command", "shift"]),
              # Ctrl-2 onto the pane's second tab, made just before by a script without focus (its surface is not built).
              "coldtab": ("2", ["control"])}
+# The action each scenario's open key must run (a round whose open key ran another action is not run).
+OPEN_ACTIONS = {"terminal": "newSurface", "coldtab": "selectSurfaceByNumber"}
 # How each scenario's round ends: what it opened goes (a workspace, a window), else the focused tab closes.
 CLOSE_ACTIONS = {"workspace": "closeWorkspace", "window": "closeWindow"}
 CLASSIC_OPEN_KEYS = {"terminal": ("t", ["command"]), "split": ("d", ["command"]), "browser": ("l", ["command", "shift"])}
@@ -292,8 +294,14 @@ class NextApp:
         time.sleep(6)
         note(f"first5s: activate {self.bench.activate()}")
         self.pid = self.bench.process.pid
-        reply = self.control.action("newSurface", focus=True)  # the base terminal, from Home's dock
-        note(f"first5s: base terminal {json.dumps(reply)[:160]}")
+        # The base terminal, from Home's dock. A refused create (seen on cmux21: "new-tab: the daemon refused the new
+        # tab") left no terminal, and Ctrl-2 then selected a Home conversation: try again, and say so.
+        for attempt in range(3):
+            reply = self.control.action("newSurface", focus=True)
+            note(f"first5s: base terminal (try {attempt + 1}) {json.dumps(reply)[:220]}")
+            if not (isinstance(reply, dict) and reply.get("error")):
+                break
+            time.sleep(3)
         time.sleep(4)
 
     def key(self, name, modifiers=(), stamp=None):
@@ -908,6 +916,11 @@ def run_round(app, scenario, index, sampled):
          + "; ".join(f"pid {d['pid']} start {d['start']} build {d['identify'].get('build_id')} commit {d['identify'].get('build_commit')}"
                      for d in daemon.get("daemons") or []))
     rec_extra_rows = len(rows) - (nkeys + 1)
+    want = OPEN_ACTIONS.get(scenario)
+    ran = open_reply.get("action") if isinstance(open_reply, dict) else None
+    if want and daemon.get("ok") and ran != want:
+        daemon = dict(daemon, ok=False, why=f"the open key ran {ran!r}, not {want!r}")
+        note(f"KEYS-HELD-DAEMON {scenario} {index}: NOT RUN: {daemon['why']}")
     rec = {"daemon": daemon, "extra_probe_rows": rec_extra_rows,
            "scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms,
            "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok, "typed_in_order": in_order,
