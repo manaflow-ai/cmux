@@ -56,8 +56,7 @@ enum ChildPageGeometry {
             let devTools = (page as? CEFTab)?.devToolsDiagnosticFrames
             hosts += expectedHosts(pane: pane.paneKey, contentRect: contentRect, devTools: devTools)
         }
-        // A page window parked off every screen (the New Tab spare) covers nothing; one at its host's rect is kept (a pane past the display edge).
-        let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame).filter { page in NSScreen.screens.contains { $0.frame.intersects(page) } || hosts.contains { distance(page, $0.screenRect) <= tolerance } } : []
+        let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame).filter { page in NSScreen.screens.contains { $0.frame.intersects(page) } || hosts.contains { distance(page, $0.screenRect) <= tolerance } } : [] // off every screen (the New Tab spare): covers nothing; at its host's rect (a pane past the display edge): kept
         return (hosts, pages)
     }
 }
