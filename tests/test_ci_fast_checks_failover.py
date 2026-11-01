@@ -12,6 +12,7 @@ workers, owned minis, or Blacksmith.
 from __future__ import annotations
 
 import re
+import shutil
 import json
 import os
 import subprocess
@@ -67,6 +68,41 @@ class FastChecksFailoverTests(unittest.TestCase):
             receipt_path = Path(temp) / "fast-checks.json"
             receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
         return result, receipt
+
+    def run_hosted_guard(self, extra_job: str = "", admission_change: tuple[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        root = WORKFLOW.parents[2]
+        guard = (root / "tests/test_ci_self_hosted_guard.sh").read_text()
+        function = guard.split("check_no_github_hosted_runners() {", 1)[1].split(
+            "\ncheck_no_self_hosted_fleet_runners() {", 1)[0]
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp)
+            shutil.copytree(root / ".github/workflows", target / ".github/workflows")
+            shutil.copy(root / ".github/runners.json", target / ".github/runners.json")
+            workflow = target / ".github/workflows/fast-checks.yml"
+            text = workflow.read_text()
+            if admission_change:
+                before, after = admission_change
+                text = text.replace(before, after, 1)
+            workflow.write_text(text + extra_job)
+            env = os.environ.copy()
+            env["ROOT_DIR"] = str(target)
+            return subprocess.run(["bash", "-c", "set -euo pipefail\ncheck_no_github_hosted_runners() {"
+                                   + function + "\ncheck_no_github_hosted_runners"],
+                                  env=env, capture_output=True, text=True)
+
+    def test_main_hosted_guard_accepts_light_admission(self) -> None:
+        result = self.run_hosted_guard()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_main_hosted_guard_rejects_copied_admission_exception(self) -> None:
+        result = self.run_hosted_guard(extra_job="\n  unrelated:\n    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission\n    steps: []\n")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("FAIL:", result.stdout)
+
+    def test_main_hosted_guard_rejects_release_admission(self) -> None:
+        result = self.run_hosted_guard(admission_change=("  admit:\n", "  admit:\n    environment: release\n"))
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("FAIL:", result.stdout)
 
     def test_the_label_comes_from_the_linux_pool(self) -> None:
         line = checks_runs_on().rstrip()
