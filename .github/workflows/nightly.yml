@@ -4897,7 +4897,21 @@ jobs:
       - name: Build the unsigned DMG
         id: dmg
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-dmg-image.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      # A mini's CreateArtifact can time out (ETIMEDOUT, run 41328689573), and a
+      # failed signer sends the run to the full re-sign and re-notarize (+10 min).
+      # Try the upload once more before that.
+      - id: upload-unsigned-dmg
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+      - if: steps.upload-unsigned-dmg.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
