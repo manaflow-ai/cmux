@@ -1,3 +1,4 @@
+import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Testing
