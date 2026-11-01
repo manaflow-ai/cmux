@@ -180,6 +180,12 @@ impl Syncer {
             let (write, moved) = self.state.saved(&local, entry);
             changed |= moved;
             let Some(content) = write else { continue };
+            // A saved login is held to the same checks as one read here: never a CodeRouter, an
+            // API-key-only or a malformed file, whatever the platform answered.
+            if let Err(why) = harness.check(&content) {
+                (self.log)(&format!("harness login: {} saved login refused: {why:?}", harness.id));
+                continue;
+            }
             // Written only while the file is still the one just read: a sign-in or token refresh in
             // between wins, and the next scan sends it.
             match self.as_user(|| write_login(&self.setup.home, harness, &content, read_key)) {
@@ -446,23 +452,89 @@ fn write_at(
         out.set_permissions(fs::Permissions::from_mode(mode))?;
         out.sync_all()?;
         drop(out);
-        if let Some(expect) = expect
-            && key_at(dir, name)? != expect
-        {
-            return Err(io::Error::other(CHANGED_SINCE_READ));
-        }
-        // SAFETY: both names are NUL-terminated and `dir` is an open descriptor.
-        if unsafe { libc::renameat(dir.as_raw_fd(), tmp.as_ptr(), dir.as_raw_fd(), name.as_ptr()) }
-            != 0
-        {
-            return Err(io::Error::last_os_error());
+        match expect {
+            Some(expect) => replace_if(dir, &tmp, name, expect)?,
+            None => rename_at(dir, &tmp, name, 0)?,
         }
         File::from(dir.try_clone()?).sync_all()
     })();
-    if result.is_err() {
-        unlink();
-    }
+    // On success after a swap `tmp` names the replaced login; on an error it names ours.
+    unlink();
     result
+}
+
+/// Whether two keys are the same file with the same content: the inode, the
+/// size and the modification time. Not the change time, which a rename moves.
+fn same_file(a: &FileKey, b: &FileKey) -> bool {
+    a.ino == b.ino && a.len == b.len && a.mtime == b.mtime
+}
+
+/// `renameat`, or Linux `renameat2` with `flags`.
+fn rename_at(dir: &OwnedFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    let fd = dir.as_raw_fd();
+    #[cfg(target_os = "linux")]
+    // SAFETY: both names are NUL-terminated and `dir` is an open descriptor.
+    let done = unsafe { libc::renameat2(fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    #[cfg(not(target_os = "linux"))]
+    let done = {
+        let _ = flags;
+        // SAFETY: both names are NUL-terminated and `dir` is an open descriptor.
+        unsafe { libc::renameat(fd, from.as_ptr(), fd, to.as_ptr()) }
+    };
+    if done != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Puts `tmp` in place of `name` only while `name` is still the file read
+/// (`expect`; `None`: it was absent). On Linux the check is atomic: an
+/// absent login is created with `RENAME_NOREPLACE`, and a present one is
+/// swapped in with `RENAME_EXCHANGE`, the file it displaced (now at `tmp`)
+/// compared with `expect`, and swapped back when it is not the one read.
+/// Elsewhere, or on a filesystem without those flags, a check right before
+/// the rename.
+fn replace_if(dir: &OwnedFd, tmp: &CStr, name: &CStr, expect: Option<FileKey>) -> io::Result<()> {
+    let changed = || io::Error::other(CHANGED_SINCE_READ);
+    #[cfg(target_os = "linux")]
+    {
+        let unsupported = |e: &io::Error| e.raw_os_error() == Some(libc::EINVAL);
+        match expect {
+            None => match rename_at(dir, tmp, name, libc::RENAME_NOREPLACE) {
+                Ok(()) => return Ok(()),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(changed()),
+                Err(e) if !unsupported(&e) => return Err(e),
+                Err(_) => {}
+            },
+            Some(want) => match rename_at(dir, tmp, name, libc::RENAME_EXCHANGE) {
+                Ok(()) => {
+                    let displaced = key_at(dir, tmp);
+                    if matches!(&displaced, Ok(Some(got)) if same_file(got, &want)) {
+                        return Ok(());
+                    }
+                    // Not the file read: it goes back, and the newer login stays. Should the swap
+                    // back fail, a plain rename still puts it back over ours, never deleting it.
+                    if rename_at(dir, tmp, name, libc::RENAME_EXCHANGE).is_err() {
+                        rename_at(dir, tmp, name, 0)?;
+                    }
+                    return Err(changed());
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(changed()),
+                Err(e) if !unsupported(&e) => return Err(e),
+                Err(_) => {}
+            },
+        }
+    }
+    let now = key_at(dir, name)?;
+    let same = match (&now, &expect) {
+        (None, None) => true,
+        (Some(a), Some(b)) => same_file(a, b),
+        _ => false,
+    };
+    if !same {
+        return Err(changed());
+    }
+    rename_at(dir, tmp, name, 0)
 }
 
 fn own_identity() -> (u32, u32) {
