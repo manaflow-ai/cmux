@@ -436,32 +436,26 @@ body {
   overscroll-behavior-x: contain;
 }
 
-/* A wide table fades out at each edge with more table past it (tables.ts sets `data-overflow`
-   to "start", "end" or both), so it shows that it scrolls sideways even while macOS hides the
-   overlay scrollbar (user 2026-10-20: tables must scroll "such that it's intuitive"). A table
-   that fits has no attribute and no fade. */
-.md-prose .tableWrapper[data-overflow] {
-  --cmux-md-table-fade: 2.5em;
-  -webkit-mask-image: var(--cmux-md-table-mask);
-  mask-image: var(--cmux-md-table-mask);
+/* A table uses the pane, not only the reading column (user 2026-10-31: "the markdown viewer can't
+   expand?"). A top-level table's box reaches from the pane's left padding to its right padding:
+   the box starts `--md-table-breakout` left of the column and keeps that much padding, so the
+   table itself starts where the text does and grows right up to the pane's padding before it
+   scrolls. When the column fills the pane (a narrow pane, Full Width) the breakout is 0. The pane
+   is the size container (`.md-scroll`), so 100cqw is its width without its scrollbar.
+   No edge of a table is faded out (user 2026-10-31: "it blurs the edges of the tables? why
+   blur?"): the box's thin sideways scrollbar (scrollers.ts SIDEWAYS_SCROLLER_ATTRIBUTE, set by
+   tables.ts) shows that it scrolls, with the overlay scrollbar hidden too. */
+.md-scroll {
+  container-type: inline-size;
 }
 
-.md-prose .tableWrapper[data-overflow="end"] {
-  --cmux-md-table-mask: linear-gradient(to right, black calc(100% - var(--cmux-md-table-fade)), transparent);
-}
-
-.md-prose .tableWrapper[data-overflow="start"] {
-  --cmux-md-table-mask: linear-gradient(to left, black calc(100% - var(--cmux-md-table-fade)), transparent);
-}
-
-.md-prose .tableWrapper[data-overflow="start end"] {
-  --cmux-md-table-mask: linear-gradient(
-    to right,
-    transparent,
-    black var(--cmux-md-table-fade),
-    black calc(100% - var(--cmux-md-table-fade)),
-    transparent
-  );
+.md-prose > .tableWrapper {
+  --md-table-breakout: max(0px, (100cqw - 2 * var(--cmux-md-page-padding) - 100%) / 2);
+  box-sizing: border-box;
+  width: calc(100% + 2 * var(--md-table-breakout));
+  max-width: none;
+  margin-left: calc(-1 * var(--md-table-breakout));
+  padding-left: var(--md-table-breakout);
 }
 
 /* Table borders (MARKDOWN-OBSIDIAN-PARITY, user 2026-10-19: in transparency mode "when the border
@@ -480,7 +474,11 @@ body {
   white-space: normal;
 }
 
-/* `markdown.tables: "wrap"`: tables fit the column and their cells wrap instead. */
+/* `markdown.tables: "wrap"`: tables fit the column and their cells wrap instead (no breakout). */
+:root[data-cmux-md-tables="wrap"] .md-prose > .tableWrapper {
+  --md-table-breakout: 0px;
+}
+
 :root[data-cmux-md-tables="wrap"] .md-prose table {
   width: 100%;
   min-width: 0 !important;

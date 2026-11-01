@@ -135,7 +135,14 @@ export class FilesStore {
       if (!this.writeClipboard) throw new Error("no page clipboard");
       await this.writeClipboard(text);
     } catch {
-      await this.client?.call(CLIPBOARD_WRITE, { text }).catch(() => {});
+      // The page's clipboard refused (or is not there): the host writes it. When it cannot either,
+      // the person is told, not left to paste what was never copied.
+      try {
+        await this.client?.call(CLIPBOARD_WRITE, { text });
+      } catch (error) {
+        this.notice = isPageError(error) ? error.message : String(error);
+        this.emit();
+      }
     }
   }
 
