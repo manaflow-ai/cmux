@@ -241,6 +241,20 @@ describe("the overlay drawn", () => {
     await act(async () => root.unmount());
   });
 
+  test("the ring takes the box's own corners", async () => {
+    const card = dom.window.document.createElement("div");
+    card.style.borderTopLeftRadius = "22px";
+    card.getBoundingClientRect = () => ({ left: 0, top: 0, right: 300, bottom: 60, width: 300, height: 60 }) as DOMRect;
+    const { doc, root } = await render(
+      { phase: "over", summary: { count: 1, kind: "files", refused: false } },
+      () => {},
+      () => card,
+    );
+    const overlay = doc.querySelector<HTMLElement>(".acpmux-drop-overlay")!;
+    expect(overlay.style.getPropertyValue("--acpmux-drop-ring-radius")).toBe("22px");
+    await act(async () => root.unmount());
+  });
+
   test("refused: a clear refusal, not the drop prompt", async () => {
     const { doc, root } = await render({ phase: "refused", summary: { count: 2, kind: "photos", refused: true } });
     const sheet = doc.querySelector(".acpmux-drop-overlay")!;

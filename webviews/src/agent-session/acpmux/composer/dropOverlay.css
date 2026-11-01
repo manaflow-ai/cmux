@@ -6,7 +6,8 @@
    is over the pane, not the chat: a faint ring), over (the full ring and a soft glow), refused (the
    danger color, and one plain line with the reason over the composer), landing (the ring fades as
    the chips land, then hides on animationend). DropOverlay.tsx measures the composer's box into
-   --acpmux-drop-ring-x/y/w/h and sets data-target="composer"; without a box the ring goes around the
+   --acpmux-drop-ring-x/y/w/h (and its corner radius into --acpmux-drop-ring-radius) and sets
+   data-target="composer"; without a box the ring goes around the
    chat column. Only opacity animates, so a drag never relayouts the transcript. */
 .acpmux-drop-overlay {
   --acpmux-drop-accent: var(--cmux-accent, var(--agent-accent));
@@ -25,7 +26,7 @@
 .acpmux-drop-sheet {
   position: absolute;
   inset: var(--ds-space-2);
-  border-radius: var(--ds-radius-composer);
+  border-radius: var(--acpmux-drop-ring-radius, var(--ds-radius-composer));
   animation: acpmux-drop-in var(--acpmux-drop-in) var(--cmux-ease-out, ease-out) backwards;
 }
 .acpmux-drop-overlay[data-target="composer"] .acpmux-drop-sheet {
@@ -40,7 +41,7 @@
 .acpmux-drop-ring {
   position: absolute;
   inset: -2px;
-  border-radius: calc(var(--ds-radius-composer) + 2px);
+  border-radius: calc(var(--acpmux-drop-ring-radius, var(--ds-radius-composer)) + 2px);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--acpmux-drop-tone) 35%, transparent);
   transition: box-shadow var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
 }

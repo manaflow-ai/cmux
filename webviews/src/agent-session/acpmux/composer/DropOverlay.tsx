@@ -58,8 +58,9 @@ export function DropOverlay({
     const overlay = overlayRef.current;
     if (!shown || !overlay) return;
     const from = overlay.getBoundingClientRect();
-    const to = landingTarget?.()?.getBoundingClientRect();
-    if (!to || to.width === 0 || to.height === 0) {
+    const target = landingTarget?.();
+    const to = target?.getBoundingClientRect();
+    if (!target || !to || to.width === 0 || to.height === 0) {
       overlay.removeAttribute("data-target");
       return;
     }
@@ -68,6 +69,10 @@ export function DropOverlay({
     overlay.style.setProperty("--acpmux-drop-ring-y", `${to.top - from.top}px`);
     overlay.style.setProperty("--acpmux-drop-ring-w", `${to.width}px`);
     overlay.style.setProperty("--acpmux-drop-ring-h", `${to.height}px`);
+    // The ring follows the box's own corners (the chat's composer and New Tab's card differ).
+    const radius = target.ownerDocument.defaultView?.getComputedStyle(target).borderTopLeftRadius;
+    if (radius && Number.parseFloat(radius) > 0) overlay.style.setProperty("--acpmux-drop-ring-radius", radius);
+    else overlay.style.removeProperty("--acpmux-drop-ring-radius");
   }, [shown, landingTarget]);
   // The landing ends on the ring's fade, never on a timer.
   useLayoutEffect(() => {

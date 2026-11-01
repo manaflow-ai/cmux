@@ -155,7 +155,7 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
   /// A file dropped on the page: the overlay mounted in `over` turns `landing` (attachmentIntake.tsx
   /// landDropOverlay), and the ring fades. What runs on the sheet and the refusal line
   /// once it lands, by animation name.
-  async function landing(page: Page): Promise<{ sheet: string[]; pill: string[] }> {
+  async function landing(page: Page): Promise<{ sheet: string[]; refusal: string[] }> {
     return page.evaluate(async () => {
       const root = document.getElementById("root")!;
       root.innerHTML = `<div class="acpmux-drop-overlay" data-phase="over"><div class="acpmux-drop-sheet"><div class="acpmux-drop-ring"></div></div><div class="acpmux-drop-refusal"><span class="acpmux-drop-mark"></span></div></div>`;
@@ -175,7 +175,7 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
           )
           .map((animation) => (animation as CSSAnimation).animationName ?? "transition")
           .sort();
-      return { sheet: running(".acpmux-drop-sheet"), pill: running(".acpmux-drop-refusal") };
+      return { sheet: running(".acpmux-drop-sheet"), refusal: running(".acpmux-drop-refusal") };
     });
   }
 
@@ -188,7 +188,7 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
       try {
         const page = await landing(unmarked);
         if (reducedMotion === "no-preference") expect(page.sheet).toEqual(["acpmux-drop-land"]);
-        expect(await landing(marked)).toEqual({ sheet: page.sheet, pill: [] });
+        expect(await landing(marked)).toEqual({ sheet: page.sheet, refusal: [] });
       } finally {
         await marked.close();
         await unmarked.close();
