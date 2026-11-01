@@ -26,6 +26,11 @@ SCRIPT_SCHEMES = {"javascript", "data", "vbscript"}
 WEB_UNREACHABLE = SCRIPT_SCHEMES | {"file"} | AGENT_REFUSED_SCHEMES
 
 STALL_MS = 100.0
+# The longest text the fuzz types into the omnibar. debug.omnibar_type types one character at a time
+# (AddressBarView.debugType: one insertText per character, on the main actor), so a 200,015-character URL was 200,015
+# keystrokes in one call (job 4509405d8be4, seed 368488420: no answer in 30 s). A person pastes a long URL as one insert;
+# huge URLs still reach the app through navigate and open, which take the whole string at once.
+OMNIBAR_TYPE_MAX = 2048
 
 
 def scheme_of(url: str) -> str:
@@ -181,6 +186,9 @@ def generate(seed: int, count: int, origin: str = "{origin}", run: str = "fz") -
         if name == "omnibar" and rng.random() < 0.15:
             # A person types a Chromium crash page (user origin: allowed; it must show a crashed page).
             op["url"], op["category"] = "chrome://crash", "crash"
+        if name == "omnibar" and len(op["url"]) > OMNIBAR_TYPE_MAX:
+            # No random call here: every seed's stream of ops stays the one it was.
+            op["url"] = op["url"][:OMNIBAR_TYPE_MAX]
         ops.append(op)
     return ops
 
