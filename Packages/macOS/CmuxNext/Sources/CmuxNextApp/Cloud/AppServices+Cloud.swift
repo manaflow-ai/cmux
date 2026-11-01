@@ -107,6 +107,7 @@ extension AppServices {
                     newChatPicks: { [weak self] in NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks) },
                     chief: { [weak self] in if let owner = self?.home.chief { IPhoneHostService.ChiefPlacement(session: owner.home.session, socket: await owner.socketPath()) } else { nil } },
                     surfaceHosts: phoneSurfaceHosts(),
+                    cloudLinks: { [weak self] in await self?.phoneCloudLinks() ?? [] },
                     settings: { [weak self] in self?.settings },
                     bundleID: environment.launch.bundleID, computerName: { await MacName().computerName() })
         iphone.pairWindow = { [weak self] in self?.windows.active?.window }
