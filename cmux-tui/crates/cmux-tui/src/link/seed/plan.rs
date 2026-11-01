@@ -58,8 +58,13 @@ pub struct SeedParams {
 /// An untracked file left out of the work commit, and why in plain words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Skipped {
+    /// For display: a name that is not UTF-8 is shown lossily.
     pub path: String,
     pub why: String,
+    /// git's raw name, which is what the plan leaves out (a lossy spelling
+    /// of a name that is not UTF-8 would match nothing).
+    #[serde(skip)]
+    pub raw: Vec<u8>,
 }
 
 /// A submodule and the commit checked out in it (the recorded one when it
@@ -571,7 +576,7 @@ fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
         let list = scratch.0.join("left-out");
         let mut paths = Vec::new();
         for item in &skipped {
-            paths.extend_from_slice(item.path.trim_end_matches('/').as_bytes());
+            paths.extend_from_slice(item.raw.strip_suffix(b"/").unwrap_or(&item.raw));
             paths.push(0);
         }
         write(&list, paths)?;
@@ -657,7 +662,7 @@ fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
             secrets::reason(&repo.top, raw)
         };
         if let Some(why) = why {
-            skipped.push(Skipped { path, why: why.to_string() });
+            skipped.push(Skipped { path, why: why.to_string(), raw: raw.to_vec() });
         }
     }
     Ok(skipped)
