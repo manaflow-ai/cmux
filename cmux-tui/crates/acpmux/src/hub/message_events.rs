@@ -239,10 +239,6 @@ pub(super) fn message_context(
     })
 }
 
-/// The acceptance `_acpmux/prompt_accepted` carries names the message this journal kept and its
-/// sender's session, so a peer forwarding the prompt records its sender's copy only for that
-/// message: every send of one prompt id to one chat (a direct send and its `send_queue` retry,
-/// or two sessions' sends) hears the one acceptance (`server/peer_forward.rs`).
 /// Remembers which message `prompt_id`'s acceptance named on `session` (`Session::kept_messages`).
 pub(super) fn keep_message(session: &Session, prompt_id: &str, message: &MessageContext) {
     let mut kept = session.kept_messages.lock().unwrap_or_else(|e| e.into_inner());
@@ -271,6 +267,10 @@ pub(super) fn name_kept_message(accepted: &mut Value, session: &Session, prompt_
     }
 }
 
+/// The acceptance `_acpmux/prompt_accepted` carries names the message this journal kept and its
+/// sender's session, so a peer forwarding the prompt records its sender's copy only for that
+/// message: every send of one prompt id to one chat (a direct send and its `send_queue` retry,
+/// or two sessions' sends) hears the one acceptance (`server/peer_forward.rs`).
 pub(super) fn name_message(accepted: &mut Value, message: &MessageContext) {
     if let Some(fields) = accepted.as_object_mut() {
         fields.insert("messageId".to_owned(), Value::String(message.message_id.clone()));

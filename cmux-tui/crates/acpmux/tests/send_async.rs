@@ -451,12 +451,16 @@ async fn overlapping_direct_and_queued_sends_of_one_prompt_id_record_one_outgoin
         queued.call(SEND_QUEUE, json!({"request": request})),
     );
     let delivery = delivery.unwrap()["deliveryId"].as_str().expect("a delivery id").to_owned();
+    // The acceptance that names the kept message. When the queued copy is in the receiver's
+    // ledger but not yet accepted, the direct copy's first notice is the duplicate's provisional
+    // one, unnamed; the named acceptance follows. When the queued copy was already accepted, the
+    // duplicate notice names it (`hub/message_events.rs` `name_kept_message`).
     let accepted = direct
         .notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
-            p["promptId"] == "p-overlap"
+            p["promptId"] == "p-overlap" && p["messageId"].is_string()
         })
         .await
-        .expect("the receiver accepted the prompt id");
+        .expect("the receiver accepted the prompt id, naming the kept message");
     let status =
         queued.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
     assert_eq!(status["status"], "delivered", "{status}");
