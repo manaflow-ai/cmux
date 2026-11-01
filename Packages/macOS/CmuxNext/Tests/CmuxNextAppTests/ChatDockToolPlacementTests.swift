@@ -4,12 +4,13 @@ import CmuxNextBridge
 import CmuxNextLayout
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Terminal and browser commands share the dock's tool opener; its target is the right column,
 /// including when the person most recently used its upper pane or links are set to Same Pane.
-@MainActor @Suite(.serialized) struct ChatDockToolPlacementTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ChatDockToolPlacementTests {
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
     private struct Shown {
@@ -65,7 +66,7 @@ import Testing
             services.linkOpener.placement = { .samePane }
         }
 
-        func close() { window.orderOut(nil) }
+        func close() { window.closeAfterTest() }
     }
 
     @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })

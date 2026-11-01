@@ -26,6 +26,9 @@ final class RowBadgeView: NSView {
     private(set) var look = Look.corner
     /// The glyph's side: the static glyphs' 10 pt box, so their 1x pixel art draws as drawn.
     static let glyphSide: CGFloat = 10
+    /// Leo 2026-11-01: "a bigger red warn symbol", like ChatGPT. The 14 pt box draws
+    /// the default info ring at about 13 pt; its existing cell and center stay fixed.
+    static let errorGlyphSide: CGFloat = 14
     static let ringWidth: CGFloat = 1.5
     /// The unscaled dot artwork (non-unread statuses keep this size).
     static let dotSide: CGFloat = 6
@@ -114,7 +117,7 @@ final class RowBadgeView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let side = Self.glyphSide, ring = Self.ringWidth, pad = cellPad
+        let ring = Self.ringWidth
         func disc(_ layer: CALayer, around center: CGPoint, side: CGFloat, z: CGFloat) {
             layer.frame = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
             layer.cornerRadius = side / 2
@@ -123,8 +126,9 @@ final class RowBadgeView: NSView {
         for index in glyphs.indices {
             // Whole points: the cell, so the glyph inside it, sits on the pixel grid.
             let cell = CGRect(x: CGFloat(index) * step, y: ((bounds.height - cellSide) / 2).rounded(), width: cellSide, height: cellSide)
-            let glyph = cell.insetBy(dx: pad, dy: pad)
-            let center = CGPoint(x: glyph.midX, y: glyph.midY)
+            let side = glyphs[index].state == .error ? Self.errorGlyphSide : Self.glyphSide
+            let center = CGPoint(x: cell.midX, y: cell.midY)
+            let glyph = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
             // Earlier items stack in front: each cell covers the one after it.
             let z = CGFloat(glyphs.count - index) * 3
             if look == .plain {

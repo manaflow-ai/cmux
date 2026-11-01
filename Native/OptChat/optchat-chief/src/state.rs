@@ -693,6 +693,10 @@ pub struct Item {
     /// that is cut again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cut: Vec<String>,
+    /// A host note (a watch that fired, a wake, another Chief's message): a
+    /// turn it woke and a restart cut runs again, as for a human message.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub note: bool,
 }
 
 /// A cut turn to run again (`HostState::resumes`).
