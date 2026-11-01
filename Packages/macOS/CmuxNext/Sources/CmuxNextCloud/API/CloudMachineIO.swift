@@ -80,7 +80,7 @@ public struct CloudMachineIO: Sendable {
     /// `route: none` without doing anything; an older cmux prints no such line. Asked once per binary
     /// (path and modification date, so an app update asks again); a probe that itself fails is not kept.
     func speaksMachineIO() async throws -> Bool {
-        let modified = (try? binary.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let modified = (try? binary.blockingResourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         let key = "\(binary.path)@\(modified?.timeIntervalSince1970 ?? 0)"
         if let known = probes[key] { return known }
         let output: Data
@@ -135,11 +135,15 @@ public struct CloudMachineIO: Sendable {
                     try? await Task.sleep(for: timeout)
                     return Int32.min
                 }
-                // The request goes in after launch, off this task: the child reads it while it is written.
-                Thread.detachNewThread {
+                // The request goes in after launch, on its own thread (threading-model.md): the child reads it
+                // while it is written, and the write blocks only that thread. It ends when the child has read it all
+                // or closed its stdin (EPIPE, never SIGPIPE), which a kill at the deadline or a cancel also does.
+                let feeder = Thread {
                     try? writer.write(contentsOf: stdin)
                     try? writer.close()
                 }
+                feeder.name = "cmux.cloud.machine-io.stdin"
+                feeder.start()
                 defer { group.cancelAll() }
                 let first = await group.next() ?? nil
                 if first == Int32.min { child.kill() }
@@ -214,6 +218,6 @@ private struct TemporaryOutput {
 
     func contents() -> Data {
         // concurrency-allow: a local temp file read once after the child exited, from a nonisolated async caller (never the main actor)
-        (try? handle.seek(toOffset: 0)).flatMap { _ in try? handle.readToEnd() } ?? Data()
+        (try? handle.seek(toOffset: 0)).flatMap { _ in try? handle.blockingReadToEnd() } ?? Data()
     }
 }
