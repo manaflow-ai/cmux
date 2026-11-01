@@ -56,12 +56,14 @@ import { projectOverlayPeers } from "../mesh/overlay-policy.ts";
 import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
+import { MESH_CREATION_LABEL } from "../proofs/mesh-creation.ts";
 import { ownedDeviceAddressRules, ownedMeshRules, sameMeshDevice, sameMeshVm } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamMesh, type TunnelInfo } from "../upstream/mesh.ts";
 import { audited, dependencyDown, rateLimit } from "./common.ts";
+import { createMeshWithKey } from "./mesh-creation.ts";
 
 const experimentOff = () => new NotFound({ message: "Not found" });
 const meshNotFound = () => new NotFound({ message: "Mesh not found" });
@@ -794,7 +796,7 @@ export const meshEnrollHandlers = HttpApiBuilder.group(CmuxVmApi, "meshEnroll", 
 
 export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =>
   handlers
-    .handle("createMesh", ({ payload }) =>
+    .handle("createMesh", ({ payload, headers }) =>
       withMeshCaller("mesh:write", "write", (caller, scope) =>
         audited(
           "mesh.create",
@@ -802,6 +804,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           Effect.gen(function* () {
             const principal = caller.value;
             yield* requireAdmin(principal, "mesh:write");
+            if (headers["idempotency-key"] !== undefined) return yield* createMeshWithKey(caller, scope, headers["idempotency-key"], payload);
             const store = yield* MeshStore;
             const ownership = yield* OwnershipStore;
             const upstream = yield* UpstreamMesh;
@@ -899,6 +902,13 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             if (devices.length > 0 || members.length > 0 || servers.length > 0) {
               return yield* Effect.fail(new Conflict({ message: "Remove the mesh's devices and VMs first" }));
             }
+            const creationKey = proofs.owns.labels[MESH_CREATION_LABEL];
+            const limits = yield* TenantLimits;
+            const fence = (op: "cancel" | "cancelled") => creationKey === undefined ? Effect.void :
+              limits.meshCreation(principal.tenantId, { op, key: creationKey, meshId: mesh.value }).pipe(
+                Effect.mapError(() => unavailable()), Effect.flatMap((result) => result.state === "record" ? Effect.void : Effect.fail(unavailable())),
+              );
+            yield* fence("cancel");
             yield* upstream.deleteNetwork(mesh, proofs).pipe(
               Effect.catchIf((error) => error.status === 404, () => Effect.void),
               Effect.mapError((error) => (error.status === 409 ? new Conflict({ message: "The mesh still has members; retry shortly" }) : unavailable())),
@@ -906,6 +916,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const at = yield* now;
             yield* (yield* OwnershipStore).markDeleted(principal.tenantId, "mesh", mesh.value, at).pipe(Effect.catchAll(dependencyDown("ownership.delete")));
             yield* store.releaseSlot(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.releaseSlot")));
+            yield* fence("cancelled");
           })),
         ),
       ),

@@ -5,6 +5,7 @@
  * requests with the same idempotency key cannot both start.
  */
 import type { SnapshotCaptureCommand, SnapshotCaptureResult } from "./snapshot-capture.ts";
+import type { MeshCreationCommand, MeshCreationResult } from "./mesh-creation.ts";
 import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { DurableObject } from "cloudflare:workers";
 import {
@@ -28,6 +29,8 @@ const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): Ledg
 
 export class TenantLimitsObject extends DurableObject {
   private readonly ledger = new TenantLedger(storageOf(this.ctx.storage));
+
+  meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return this.ledger.meshCreation(command, nowMs); }
 
   snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult> { return this.ledger.snapshotCapture(command, nowMs); }
 

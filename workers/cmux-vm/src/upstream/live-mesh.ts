@@ -14,6 +14,7 @@ import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { upstreamName } from "./naming.ts";
+import { makeDurableMeshCreate } from "./live-mesh-create.ts";
 import { type CreatedNetwork, type CreatedRule, type CreatedTunnel, type TunnelInfo, UpstreamMesh, type UpstreamMeshService } from "./mesh.ts";
 
 const NetworkBody = Schema.Struct({ id: UpstreamId, cidr: Schema.optional(Schema.NullOr(Schema.String)) });
@@ -111,6 +112,7 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
     http.json(operation, "DELETE", `/v5/tunnels/${path(id)}`).pipe(Effect.asVoid);
 
   return {
+    ...makeDurableMeshCreate(config, (created) => networks.add(created)),
     createNetwork: (mesh, _proofs, options) =>
       http
         .json("createNetwork", "POST", "/v5/vpcs", { displayName: upstreamName(config.environment, options.tenantId, mesh.value), cidr: options.cidr })
