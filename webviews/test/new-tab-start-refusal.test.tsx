@@ -215,7 +215,7 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       await act(async () => remote.click());
     };
     if (remoteStart) await pickRemote();
-    const { editor } = await writePrompt("inspect the failed build");
+    const { field, editor } = await writePrompt("inspect the failed build");
     await act(async () =>
       editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
