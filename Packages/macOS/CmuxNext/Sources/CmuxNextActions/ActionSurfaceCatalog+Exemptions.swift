@@ -67,7 +67,7 @@ nonisolated extension ActionSurfaceCatalog {
         "renameTab", "palette.clearTabName", "tab.restart",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-        "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute", "tab.muteAudio", "tab.unmuteAudio", "tab.muteOtherAudio",
+        "palette.moveTabToNewWorkspace", "tab.moveToSpace", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute", "tab.muteAudio", "tab.unmuteAudio", "tab.muteOtherAudio",
         "workspace.toggleAudioMute", "duplicateTab",
         "tab.setIcon", "tab.clearIcon",
         "reloadTab", "reopenClosedBrowserPanel", "tabGroup.create",

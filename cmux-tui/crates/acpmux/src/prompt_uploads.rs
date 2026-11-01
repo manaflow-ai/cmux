@@ -7,7 +7,7 @@
 //! sent: no answer from acpmux", and so did its Retry; "fix it so 20 screenshots send in seconds:
 //! attachments go as blobs or files referenced from the prompt, not inlined base64 in one frame".
 //! The app's page host drops a call over 4 MiB unanswered (`ChromiumPageHostBridge`), and every
-//! acpmux hop takes one message of at most `rpc::MAX_MESSAGE_BYTES` (31 MiB), so screenshots
+//! acpmux hop takes one message of at most `rpc::MAX_MESSAGE_BYTES` (15 MiB), so screenshots
 //! inline in one `session/prompt` cannot pass. Uploaded first, in chunks, they go in a prompt of a
 //! few hundred bytes.
 //!
@@ -44,7 +44,7 @@ pub const URI_SCHEME: &str = "acpmux-upload:";
 /// over 5 MiB, which this is the decoded size of. A larger one goes by its path.
 pub const INLINE_IMAGE_BYTES: usize = (5 << 20) / 4 * 3;
 /// The most image bytes one prompt carries inline: as base64, with its text, one JSON-RPC
-/// message on every hop (`rpc::MAX_MESSAGE_BYTES`, 31 MiB). The images past it go by path.
+/// message on every hop (`rpc::MAX_MESSAGE_BYTES`, 15 MiB). The images past it go by path.
 pub const INLINE_PROMPT_BYTES: usize = 10 << 20;
 
 /// The upload a block names: its `_meta.acpmux.upload`, or (refused as invalid by [`resolve`])

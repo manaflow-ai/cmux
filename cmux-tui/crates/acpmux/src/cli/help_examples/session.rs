@@ -93,7 +93,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Rename a session after the PR it works on",
                 "acpmux session rename review review-27310",
             ),
-            ("Rename a session on another machine", "acpmux session rename mini-3/scratch sidebar-fix"),
+            (
+                "Rename a session on another machine",
+                "acpmux session rename mini-3/scratch sidebar-fix",
+            ),
         ],
     ),
     (
@@ -113,7 +116,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Say where coord would go, changing nothing",
                 "acpmux session move coord --machine mini-3 --dry-run",
             ),
-            ("Move coord and its history to another machine", "acpmux session move coord --machine mini-3"),
+            (
+                "Move coord and its history to another machine",
+                "acpmux session move coord --machine mini-3",
+            ),
             (
                 "Move every idle chat to the placement's pick",
                 "acpmux session move --all-idle --machine auto",
@@ -159,7 +165,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session deny",
         &[
             ("Reject coord's pending permission request", "acpmux session deny coord"),
-            ("Reject a request on another machine's session", "acpmux session deny mini-3/review-27"),
+            (
+                "Reject a request on another machine's session",
+                "acpmux session deny mini-3/review-27",
+            ),
         ],
     ),
     (
@@ -173,7 +182,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session export",
         &[
             ("Export a session bundle to the default folder", "acpmux session export coord"),
-            ("Fetch another machine's session bundle here", "acpmux session export mini-3/review-27"),
+            (
+                "Fetch another machine's session bundle here",
+                "acpmux session export mini-3/review-27",
+            ),
             (
                 "Export a bundle into a chosen folder",
                 "acpmux session export coord --dest ~/bundles",

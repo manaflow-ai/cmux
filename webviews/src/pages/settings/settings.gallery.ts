@@ -206,7 +206,8 @@ const input = (selector: string, value: string): PageFixtureStep => ({ selector,
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
 const focusComputerUse: PageFixtureStep = {
-  selector: '[data-card="computer-use"] [data-action="palette.computerUse.accessibility"]',
+  // Guided Setup's button (Restart Helper when the helper failed): it shows in every phase.
+  selector: '[data-card="computer-use"] [data-action-row] button',
   action: "focus",
 };
 const customValues: Record<string, unknown> = Object.fromEntries(
@@ -870,7 +871,7 @@ Object.assign(variants, {
   "computer-use-off": variant("agents", {
     host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Computer Use off: both grants Unknown, the card says to turn it on.",
+    note: "Computer Use off: the switch, then Guided Setup offering to turn it on; no grant rows.",
   }),
   "computer-use-failed": variant("agents", {
     host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },

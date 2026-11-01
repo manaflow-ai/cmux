@@ -396,3 +396,19 @@ async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() 
         assert_eq!(hub.notice_reader_has_tools(&session).await, has, "{case}");
     }
 }
+
+/// Only the person's own prompt makes a turn theirs (`persons_prompt`): never another agent's
+/// message, nor acpmux's own prompts (a notice, a digest, the turn cap's notice, a subagent's
+/// retry, a cut turn's continuation), whose turns take notices as before.
+#[test]
+fn only_the_persons_own_prompt_makes_a_turn_theirs() {
+    assert!(persons_prompt(None, None));
+    assert!(persons_prompt(None, Some(&json!({"kind": "something_else"}))));
+    assert!(!persons_prompt(Some("lane-a"), None));
+    let retry = super::super::subagent_retry::PROVENANCE_KIND;
+    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry] {
+        assert!(!persons_prompt(None, Some(&json!({"kind": kind}))), "{kind}");
+    }
+    let cap = json!({"kind": super::super::turn_cap::NOTICE_KIND});
+    assert!(!persons_prompt(None, Some(&cap)), "{cap}");
+}

@@ -1581,12 +1581,15 @@ async fn serve_connection_from(
                 // on this connection sees the person decided.
                 if m == method::INITIALIZE
                     && conn.origin == Origin::Local
-                    && let Some(id) = params
-                        .as_ref()
-                        .and_then(|p| p.pointer("/_meta/acpmux/callerSession/sessionId"))
-                        .and_then(Value::as_str)
+                    && let Some(caller) =
+                        params.as_ref().and_then(|p| p.pointer("/_meta/acpmux/callerSession"))
+                    && let Some(id) = caller.get("sessionId").and_then(Value::as_str)
                 {
                     hub.session_meta(id).await;
+                    // Known once adoption has read the earlier run's token (`settle_caller`).
+                    if let Some(token) = caller.get("token").and_then(Value::as_str) {
+                        hub.settle_caller(id, token).await;
+                    }
                 }
                 conn.bind_person(&hub, &m, &mut params);
                 // Before its reply is built: the reply says whether large messages go compressed.
@@ -1903,6 +1906,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
+mod agent_login;
 mod agent_messages;
 mod app_reply;
 mod client_request;

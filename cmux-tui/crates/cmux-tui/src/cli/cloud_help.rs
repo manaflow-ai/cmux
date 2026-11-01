@@ -97,6 +97,12 @@ const GROUPS: &[Group] = &[
                 "Text that hands the machine to someone else",
                 "マシンを他の人に引き継ぐためのテキスト",
             ),
+            verb(
+                "share-machine",
+                "{target} [--teammate USER_ID] [--revoke]",
+                "Share a team machine's chats with a teammate (no --teammate lists them)",
+                "チームのマシンのチャットをチームメイトと共有（--teammate なしで一覧表示）",
+            ),
         ],
     },
     Group {
@@ -480,6 +486,11 @@ pub(super) fn overview(japanese: bool) -> String {
             text.push_str(&format!("  {:width$}  {description}{marker}\n", verb.name));
         }
     }
+    text.push_str(if japanese {
+        "\nチャットのリポジトリ\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
+    } else {
+        "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
+    });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
     text
