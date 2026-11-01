@@ -6,8 +6,6 @@ import datetime as dt
 import json
 import io
 import sys
-import subprocess
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -78,12 +76,12 @@ class Receipts(unittest.TestCase):
     def test_invalid_or_stale_receipts_never_authorize_routing(self):
         mutations = [
             {"run_id": 124}, {"run_attempt": 2}, {"source_sha": "c" * 40},
-            {"repository": "another/repo"}, {"jobs": ["signer-build"]},
+            {"repository": "another/repo"}, {"jobs": ["unknown-control"]},
             {"lease_id": "../bad"}, {"no_start_seconds": 999}, {"no_start_seconds": True}, {"no_start_seconds": float("nan")},
             {"created_at": "2026-11-01T00:00:00"},
             {"expires_at": (CREATED + dt.timedelta(seconds=179)).isoformat()},
             {"decided_at": (CREATED + dt.timedelta(seconds=179)).isoformat()},
-            {"status": "unknown"}, {"runners": {"signer-build": admission.FLEET_LINUX}},
+            {"status": "unknown"}, {"runners": {"unknown-control": admission.FLEET_LINUX}},
         ]
         for mutation in mutations:
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
@@ -109,8 +107,7 @@ class Receipts(unittest.TestCase):
 
     def test_missing_admission_keeps_controls_on_existing_owned_routes(self):
         selected = admission.routes(ENV, REQUEST, None)
-        self.assertEqual(selected["signer-build"], admission.FLEET_LINUX)
-        for job in admission.JOBS - {"signer-build"}:
+        for job in admission.JOBS:
             self.assertEqual(selected[job], ENV["SIDE_LABEL"])
 
     def test_unconfigured_mini_and_reruns_still_default_to_fleet_linux(self):
@@ -118,9 +115,9 @@ class Receipts(unittest.TestCase):
             self.assertEqual(set(admission.routes(config, admission.identity(config), None).values()),
                              {admission.FLEET_LINUX})
 
-    def test_recorded_overflow_preserves_linux_signer_and_only_uses_declared_paid_set(self):
-        selected = admission.routes(ENV, REQUEST, receipt("overflow"))
-        self.assertEqual(selected["signer-build"], ENV["OVERFLOW_LINUX"])
+    def test_recorded_overflow_only_uses_declared_paid_set(self):
+        selected = admission.routes({**ENV, "SIDE_LABEL": ""}, REQUEST, receipt("overflow"))
+        self.assertEqual(set(selected.values()), {ENV["OVERFLOW_LINUX"]})
         for label in ("ubuntu-24.04", "untrusted", "glaeda-side-std-xcode-26.6"):
             with self.subTest(label=label), self.assertRaises(ValueError):
                 admission.routes({**ENV, "OVERFLOW_LINUX": label}, REQUEST, receipt("overflow"))
@@ -161,7 +158,7 @@ class Receipts(unittest.TestCase):
             with mock.patch.object(admission, "admit", side_effect=TimeoutError):
                 self.assertEqual(admission.main(config), 0)
             self.assertNotIn("blacksmith", output.read_text())
-            self.assertIn(f"signer_build_runner={admission.FLEET_LINUX}", output.read_text())
+            self.assertNotIn("signer_build_runner", output.read_text())
             self.assertIsNone(json.loads(record.read_text())["receipt"])
 
 
@@ -241,22 +238,6 @@ class Workflow(unittest.TestCase):
                                "needs.decide.outputs.track": track,
                                "vars.LINUX_RUNNER": ENV["OVERFLOW_LINUX"]}
                     self.assertEqual(evaluate(parse_expression(source), context), ENV["OVERFLOW_LINUX"])
-
-    def test_signer_rejects_a_cached_macho_or_wrong_architecture(self):
-        script = next(s["run"] for s in self.jobs["signer-build"]["steps"]
-                      if s.get("name") == "Verify the signer is a Linux x64 executable")
-        elf = bytearray(20)
-        elf[:6] = b"\x7fELF\x02\x01"
-        elf[18:20] = b"\x3e\x00"
-        for header, good in ((bytes(elf), True), (b"\xcf\xfa\xed\xfe" + bytes(16), False),
-                             (bytes(elf[:18]) + b"\xb7\x00", False), (b"", False)):
-            with self.subTest(header=header), tempfile.TemporaryDirectory() as scratch:
-                target = Path(scratch) / "signer"
-                target.mkdir()
-                (target / "rcodesign").write_bytes(header)
-                result = subprocess.run(["bash", "-c", script], env={**os.environ, "RUNNER_TEMP": scratch},
-                                        capture_output=True, text=True)
-                self.assertEqual(result.returncode == 0, good, result.stderr)
 
     def test_each_job_consumes_only_its_current_attempt_receipt(self):
         for name in admission.JOBS:

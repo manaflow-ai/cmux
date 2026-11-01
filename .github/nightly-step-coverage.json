@@ -210,7 +210,7 @@
         "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
         "Apple's checks of a pool-signed DMG and the app in it": {"nightly_only": "Apple's tools on the notarized release-pool DMG and its app; only a release run has one"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
-      "signer-build": {"Verify the signer is a Linux x64 executable": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "test_nightly_linux_admission.py executes this check against ELF, Mach-O, wrong architecture and truncated fixtures"}, "Set up Rust": {"plumbing": true},
+      "signer-build": {"Set up Rust": {"plumbing": true},
         "Build the signer": {"nightly_only": "builds the pinned release signer; the build script's pins are tested by tests/test_release_signer_scripts.py"}},
       "signer-app": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Prepare the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
         "Sign the app, the Computer Use helper notarized first": {"nightly_only": "signs with the release environment's Developer ID; the signer's rules are tested by its script tests"},

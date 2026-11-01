@@ -26,7 +26,7 @@ FLEET_LINUX = "cmux-fleet-linux-x64"
 OVERFLOW = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
 JOBS = frozenset({"resolve-nightly-cmux-tui-client",
                   "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs",
-                  "find-nightly-next-recovery", "signer-build"})
+                  "find-nightly-next-recovery"})
 WAIT_SECONDS = 180
 CLIENT_DEADLINE = 200
 
@@ -119,7 +119,7 @@ def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[
         return dict(receipt["runners"])
     # A configured label is not an admission receipt. Only owned-mini placement
     # is used here; the Linux choice comes from the lease or the declared JIT pool.
-    placement_env = {**env, "FLEET_LINUX": "", "LINUX_ONLY": "signer-build",
+    placement_env = {**env, "FLEET_LINUX": "", "LINUX_ONLY": "",
                      "NIGHTLY": "1", "NIGHTLY_WAIT_FOR_FLEET": "1"}
     placed = portable.decide(placement_env, runners, snapshot, dt.datetime.now(dt.timezone.utc))
     fallback = FLEET_LINUX

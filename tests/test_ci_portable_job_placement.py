@@ -255,7 +255,7 @@ class Wiring(unittest.TestCase):
         nightly = jobs("nightly.yml")
         step = next(s for s in nightly["decide"]["steps"] if s.get("id") == "place-early")
         self.assertEqual(step["env"]["NIGHTLY_WAIT_FOR_FLEET"], "1")
-        self.assertEqual(step["env"]["LINUX_ONLY"], "signer-build")
+        self.assertNotIn("signer-build", step["env"]["JOBS"].split())
         for name in step["env"]["JOBS"].split():
             with self.subTest(job=name):
                 job = nightly[name]
