@@ -988,26 +988,28 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn a_timeout_leaves_nothing_the_command_started_running() {
+        use std::os::fd::AsRawFd;
         use std::os::unix::process::CommandExt;
         // The command and its child hold the write end of a pipe as fd 3; the test holds the
         // read end. It reads end of file only once every holder has exited. A process that has
         // exited and not yet been reaped by its new parent (a zombie, which `kill(pid, 0)` still
         // finds) holds no file, so this checks that they ended, not when they were reaped: on a
         // loaded host init reaps the orphaned `sleep` later (full suites, 2026-11-01).
-        let mut fds = [-1i32; 2];
-        // SAFETY: a fresh pipe; both ends are owned here.
-        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-        let (read_end, write_end) = (fds[0], fds[1]);
-        for fd in fds {
-            // SAFETY: both ends are this test's own open descriptors.
-            unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
-        }
+        // `std::io::pipe` makes both ends close-on-exec at once, so a process another test
+        // starts at the same moment never holds the write end (`tests/person_auto_start.rs`).
+        let (reader, writer) = std::io::pipe().unwrap();
+        let write_end = writer.as_raw_fd();
         let mut cmd = Command::new("/bin/sh");
         cmd.args(["-c", "sleep 60 >&2 & wait"]);
-        // SAFETY: only dup2 between fork and exec (async-signal-safe); dup2 clears close-on-exec.
+        // SAFETY: only dup2 and fcntl between fork and exec (async-signal-safe).
         unsafe {
             cmd.pre_exec(move || {
-                if libc::dup2(write_end, 3) < 0 {
+                if write_end == 3 {
+                    // dup2 onto itself keeps close-on-exec: clear it.
+                    if libc::fcntl(3, libc::F_SETFD, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                } else if libc::dup2(write_end, 3) < 0 {
                     return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
@@ -1017,17 +1019,16 @@ mod tests {
         let why = bounded_ok(&mut cmd, std::time::Duration::from_secs(1)).unwrap_err();
         assert_eq!(why, "no answer within 1 s");
         assert!(started.elapsed() < std::time::Duration::from_secs(10));
-        // SAFETY: this test's own write end; only the command's processes hold it now.
-        unsafe { libc::close(write_end) };
-        // SAFETY: this test's own read end.
-        unsafe { libc::fcntl(read_end, libc::F_SETFL, libc::O_NONBLOCK) };
-        let mut byte = 0u8;
-        // SAFETY: reads at most one byte into `byte`.
-        let n = unsafe { libc::read(read_end, (&raw mut byte).cast(), 1) };
-        let err = std::io::Error::last_os_error();
-        // SAFETY: closing this test's own read end.
-        unsafe { libc::close(read_end) };
-        assert_eq!(n, 0, "something the command started still runs (read {n}: {err})");
+        drop(writer);
+        // The killed processes close their files as they exit; wait for that (bounded), then
+        // read: end of file, or a holder still runs.
+        let mut ready = libc::pollfd { fd: reader.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd for the duration of the call.
+        let polled = unsafe { libc::poll(&raw mut ready, 1, 5_000) };
+        assert_eq!(polled, 1, "something the command started still runs after 5 s");
+        let mut byte = [0u8; 1];
+        let n = std::io::Read::read(&mut &reader, &mut byte).unwrap();
+        assert_eq!(n, 0, "something the command started wrote to the pipe");
     }
 
     /// A command that exits while something it started still holds its
