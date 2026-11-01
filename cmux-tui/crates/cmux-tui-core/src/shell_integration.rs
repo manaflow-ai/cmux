@@ -232,37 +232,67 @@ fn is_incognito(lookup: &dyn Fn(&str) -> Option<String>) -> bool {
     lookup(INCOGNITO_ENV).is_some_and(|value| !value.is_empty())
 }
 
-/// The keys of a shell some frontend already integrated (the app's
-/// `GhosttyShellIntegration` and `BundledCLIEnvironment`).
-const FRONTEND_INTEGRATION_KEYS: [&str; 6] = [
-    "GHOSTTY_ZSH_ZDOTDIR",
-    "GHOSTTY_BASH_INJECT",
-    "GHOSTTY_SHELL_INTEGRATION_XDG_DIR",
-    "CMUX_CLI_ZSH_ZDOTDIR",
-    "CMUX_CLI_BASH_ENV",
-    "CMUX_CLI_FISH_XDG_DIR",
-];
+/// Whether a startup file the bare interactive `shell` reads first under
+/// `lookup` runs the incognito history hook: the app's cmux-cli-path layer
+/// or the daemon's own scripts, which name `CMUX_TUI_INCOGNITO`. A launch
+/// key alone proves nothing (a caller may set any), so the files are read.
+/// A bare bash never reads `ENV` (only `--posix` does), so it never has one.
+fn runs_incognito_hook(shell: Shell, lookup: &dyn Fn(&str) -> Option<String>) -> bool {
+    let carries =
+        |path: &Path| fs::read_to_string(path).is_ok_and(|text| text.contains(INCOGNITO_ENV));
+    match shell {
+        Shell::Zsh => lookup("ZDOTDIR").is_some_and(|dir| {
+            let dir = Path::new(&dir);
+            carries(&dir.join(".zshenv")) || carries(&dir.join("ghostty-integration"))
+        }),
+        Shell::Bash => false,
+        Shell::Fish => lookup("XDG_DATA_DIRS").is_some_and(|dirs| {
+            dirs.split(':').filter(|dir| !dir.is_empty()).any(|dir| {
+                fs::read_dir(Path::new(dir).join("fish").join("vendor_conf.d")).is_ok_and(
+                    |entries| {
+                        entries.flatten().any(|entry| {
+                            let path = entry.path();
+                            path.extension() == Some(OsStr::new("fish")) && carries(&path)
+                        })
+                    },
+                )
+            })
+        }),
+    }
+}
+
+/// Whether every argument after the program is a login or interactive flag.
+fn is_bare(command: &[String]) -> bool {
+    command.iter().skip(1).all(|arg| matches!(arg.as_str(), "-l" | "--login" | "-i"))
+}
 
 /// An explicit `command` of an incognito terminal that is a bare
-/// interactive zsh, bash or fish (login and interactive flags only) and
-/// that no frontend integrated.
+/// interactive zsh, bash or fish (login and interactive flags only) whose
+/// startup files do not already run the incognito history hook.
 fn needs_incognito_integration(command: &[String], env: &[(String, String)]) -> bool {
     let lookup =
         |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone());
     is_incognito(&lookup)
-        && detect_shell(command).is_some()
-        && command.iter().skip(1).all(|arg| matches!(arg.as_str(), "-l" | "--login" | "-i"))
-        && !FRONTEND_INTEGRATION_KEYS.iter().any(|key| lookup(key).is_some())
-        && !lookup("ZDOTDIR").is_some_and(|dir| is_daemon_zsh_dir(Path::new(&dir)))
+        && is_bare(command)
+        && detect_shell(command).is_some_and(|shell| !runs_incognito_hook(shell, &lookup))
 }
 
-/// Whether `dir` is the daemon's own zsh integration directory
-/// (`<shell-integration>/<digest>/zsh`, [`apply`]): a zsh it already
-/// integrated, which sets no other key when the user had no `ZDOTDIR`.
-fn is_daemon_zsh_dir(dir: &Path) -> bool {
-    dir.file_name() == Some(OsStr::new("zsh"))
-        && dir.parent().and_then(Path::parent).and_then(Path::file_name)
-            == Some(OsStr::new("shell-integration"))
+/// A bare incognito `command` of `shell` with no integration scripts to
+/// run: started without the startup files that could turn its history back
+/// on (fish also in private mode). Any other command is left alone.
+fn without_startup_files(shell: Shell, mut command: Vec<String>) -> Vec<String> {
+    if command.is_empty() || !is_bare(&command) {
+        return command;
+    }
+    let flags: &[&str] = match shell {
+        Shell::Zsh => &["-f"],
+        Shell::Bash => &["--noprofile", "--norc"],
+        Shell::Fish => &["--private", "--no-config"],
+    };
+    for (offset, flag) in flags.iter().enumerate() {
+        command.insert(offset.saturating_add(1), (*flag).to_string());
+    }
+    command
 }
 
 pub fn integrate_default_shell(
@@ -308,6 +338,9 @@ fn integrate_with(
         return ShellLaunch { env: features_only(extra_env), command };
     };
     let Some(root) = scripts_root().and_then(|root| materialize(&root).ok()) else {
+        // Fail closed: an incognito shell whose history hook cannot run
+        // reads no startup files.
+        let command = if incognito { without_startup_files(shell, command) } else { command };
         return ShellLaunch { env: features_only(extra_env), command };
     };
     apply(shell, &root, command, extra_env, &lookup, &user)
@@ -356,7 +389,16 @@ fn apply(
     let root_str = root.to_string_lossy().into_owned();
     match shell {
         Shell::Zsh => {
-            if let Some(previous) = lookup("ZDOTDIR") {
+            // A `ZDOTDIR` that is already a shell integration's own
+            // directory is not the user's: the one it saved is. Recording it
+            // would make the integration source itself.
+            let previous = match lookup("ZDOTDIR") {
+                Some(dir) if Path::new(&dir).join("ghostty-integration").is_file() => {
+                    lookup("GHOSTTY_ZSH_ZDOTDIR")
+                }
+                other => other,
+            };
+            if let Some(previous) = previous {
                 env.push(("GHOSTTY_ZSH_ZDOTDIR".into(), previous));
             }
             env.push(("ZDOTDIR".into(), format!("{root_str}/zsh")));
