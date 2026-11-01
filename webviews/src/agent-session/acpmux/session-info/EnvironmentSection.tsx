@@ -283,11 +283,13 @@ export function EnvironmentSection({
               onAttached={(repo) => setAttachedRepos((current) => [...current, repo])}
             />
           </li>
-          {attachedRepos.filter((attached) => attached.repo !== repository).map((attached) => (
-            <Row key={`${attached.repo}:${attached.folder ?? ""}`} icon="brand.github">
-              <span className="acpmux-session-info-row__name">{attached.repo}</span>
-            </Row>
-          ))}
+          {attachedRepos
+            .filter((attached) => attached.repo !== repository)
+            .map((attached) => (
+              <Row key={`${attached.repo}:${attached.folder ?? ""}`} icon="brand.github">
+                <span className="acpmux-session-info-row__name">{attached.repo}</span>
+              </Row>
+            ))}
           {pendingRepos.map((pending) => (
             <li key={`pending:${pending.repo}`} className="acpmux-session-info-row acpmux-cloud-repository-pending">
               <Icon name="git.branch" size={ROW_ICON} row />
