@@ -369,12 +369,12 @@ struct Burst {
 /// while the parent is missing too), and each of its hints arms every folder
 /// again. Its identity cannot tell whether its watch is still on: a folder
 /// deleted and made again at once often gets the freed inode number back,
-/// with no watch on it. On macOS the folder watch is FSEvents, which watches
-/// a path, so it already reported the new folder; there the entry watch is
-/// FSEvents on the parent or kqueue on a missing parent's ancestor. Arming
-/// again restarts notify's FSEvents stream (once for the unwatch and once
-/// for the watch, per folder) on this thread, and the read after it covers
-/// what changed while the stream was down.
+/// with no watch on it. On macOS the folder watch is notify's FSEvents,
+/// which watches a path, so it already reported the new folder; there the
+/// entry watch is cmux_config's kqueue vnode watch. Arming again restarts
+/// the FSEvents stream (once for the unwatch and once for the watch, per
+/// folder) on this thread, and the read after it covers what changed while
+/// the stream was down.
 #[derive(Default)]
 struct Folders(HashSet<PathBuf>);
 
