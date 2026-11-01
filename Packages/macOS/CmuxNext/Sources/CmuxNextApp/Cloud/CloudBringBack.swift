@@ -149,8 +149,10 @@ struct CloudBringBack {
         }
         let moved: CloudMoveCLI.Answer
         do {
+            // A running turn goes on here, with what it wrote on the machine since the pull above.
+            let sync = CloudMoveCLI.FrozenSync(pull: true, socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
             moved = try await cli.agentMove(from: machineSocket, surface: tab.surface.rawValue, to: localSocket, cwd: entry.localChat,
-                                            askFirst: askFirst)
+                                            sync: sync, askFirst: askFirst)
         } catch {
             services.cloud.logger.error("cloud bring back: link agent move: \(String(describing: error), privacy: .public)")
             throw Failure(message: CloudBringBackStrings.unresolved, retry: again)
@@ -240,6 +242,8 @@ struct CloudBringBack {
         }
         if detail.contains("transfer.family") { return Failure(message: CloudBringBackStrings.familyBlocks) }
         switch answer.errorCode {
+        // The turn's last changes conflicted: the chat went back to the machine and goes on there.
+        case "sync_conflict": return Failure(message: CloudBringBackStrings.conflict(answer.conflicts), retry: retry)
         case "move_unresolved", CloudMoveCLI.badAnswer: return Failure(message: CloudBringBackStrings.unresolved, retry: retry)
         case "move_in_progress": return Failure(message: CloudMoveStrings.inProgress, retry: retry)
         case "source_unreachable", "target_unreachable": return Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)

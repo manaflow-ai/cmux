@@ -170,15 +170,28 @@ fn names_and_destinations_refuse_option_like_values() {
 #[test]
 fn the_probe_is_a_fixed_script_with_the_destination_quoted() {
     let argv = probe_argv("huge-blue", "leo@cosmic-gray.tail9.ts.net").unwrap();
-    assert_eq!(&argv[..5], ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--"]);
-    assert_eq!(argv[5], "huge-blue");
     assert_eq!(
-        crate::cli::hosts::script_of(&argv[6]).unwrap(),
+        &argv[..9],
+        [
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ServerAliveInterval=10",
+            "-o",
+            "ServerAliveCountMax=3",
+            "-o",
+            "ConnectTimeout=15",
+            "--"
+        ]
+    );
+    assert_eq!(argv[9], "huge-blue");
+    assert_eq!(
+        crate::cli::hosts::script_of(&argv[10]).unwrap(),
         format!(
             "if ssh -o BatchMode=yes -o ConnectTimeout=8 -- 'leo@cosmic-gray.tail9.ts.net' true </dev/null; then echo {BACK_OK}; else echo {BACK_FAILED}; fi"
         )
     );
-    assert_eq!(argv.len(), 7);
+    assert_eq!(argv.len(), 11);
     let add = remote_add_script("cosmic", "leo@100.64.0.1").unwrap();
     assert!(add.starts_with(REMOTE_CLI));
     assert!(add.ends_with("\"$@\" --json host add 'cosmic' 'ssh://leo@100.64.0.1'"));

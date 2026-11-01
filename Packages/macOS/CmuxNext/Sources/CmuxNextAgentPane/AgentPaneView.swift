@@ -45,7 +45,7 @@ public final class AgentPaneView: NSView {
     let dictation: AgentPaneDictation
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
-    /// Shown when the page's web content ends (it never reloads by itself).
+    /// Shown when the page's web content kept ending (``AgentPageCrashRetry`` gave up retrying).
     var crashNotice: NSView?
     /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
     public var showsCrashNotice: Bool { crashNotice != nil }
@@ -54,6 +54,8 @@ public final class AgentPaneView: NSView {
     var knownWebContentPid: Int32 = 0
     /// Reloads the person asked for with a crash notice's Reload (this pane's or a sibling's).
     var crashReloadCount = 0
+    /// The automatic retries after the page's web content ended.
+    let crashRetry = AgentPageCrashRetry()
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
@@ -100,6 +102,14 @@ public final class AgentPaneView: NSView {
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
+    /// The frame pacer's state, and the transport's delivery counts (`debug.agent_pane pacer`).
+    public var debugPacerState: [String: Any] {
+        var state: [String: Any] = transportPacer?.debugState ?? [:]
+        state["calls"] = transportPacer?.calls ?? -1
+        state["usesPageHost"] = pageEvents != nil
+        if let pageEvents { state["provider"] = pageEvents.debugState }
+        return state
+    }
     struct QuestionKeyBinding: Equatable {
         let connection: Int
         let session: String
@@ -348,7 +358,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -421,6 +431,7 @@ public final class AgentPaneView: NSView {
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
         terminations.forget(self)
+        crashRetry.cancel()
         popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
@@ -449,7 +460,8 @@ public final class AgentPaneView: NSView {
         removeContextMenu()
         if let page {
             webView.stopLoading()
-            webView.loadHTMLString("", baseURL: nil)
+            // A Chromium chat's WebKit view never loaded: a blank load would start a process to close.
+            if webView.url != nil { webView.loadHTMLString("", baseURL: nil) }
             // The page host retires its web view (WebViewRetirement).
             page.close()
         } else {

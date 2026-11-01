@@ -1,0 +1,63 @@
+{
+ "id": "found-r3b-new-column-narrows",
+ "priority": "P0",
+ "title": "fuzz repro (r3b): Cmd-N, Ctrl-`, New Column (Ctrl-Cmd-D): the old column must keep its exact width",
+ "why": "Action fuzz, corpus round, build feat-tip-fixes-v2 (job f2f3083bac80ab71101d03ac, c6d35671018 = feat acfd69382dc + bench config) on cmux20, 2026-10-31T08:2xZ: New Column alone narrowed the existing column from 872 to 291 pt (R3b, Lawrence 05:3xZ: creating new columns must never resize existing columns). Red on that build; owner a03ef38e4dc40283d.",
+ "source": "scripts/journeys/fuzz.py (ext_fuzz), shrunk by hand from the ddmin result to the 3 actions of the failing burst and its set-up",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "fuzz_run",
+   "sequence": [
+    {
+     "a": "new_workspace",
+     "t": "slow"
+    },
+    {
+     "a": "new_terminal",
+     "t": "slow"
+    },
+    {
+     "a": "new_column",
+     "t": "slow"
+    }
+   ],
+   "set": "layout",
+   "shrink": false,
+   "budget_s": 120
+  },
+  {
+   "do": "expect",
+   "title": "the fuzz found no failure, the daemon agrees with the app, and the window is not blank",
+   "timeout": 20,
+   "all": [
+    {
+     "fuzz_clean": {}
+    },
+    {
+     "fuzz_daemon_agrees": {}
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ]
+}

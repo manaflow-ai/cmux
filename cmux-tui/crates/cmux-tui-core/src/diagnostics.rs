@@ -10,8 +10,8 @@
 
 use std::collections::HashMap;
 use std::panic::Location;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -171,7 +171,7 @@ const DETAIL_SITES: usize = 20;
 /// Power-of-two histogram of one site: 256 bytes, updated under the
 /// `sites` table lock that the release already takes, so a site costs no
 /// allocation after its first acquisition.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct OctaveHistogram {
     counts: [u64; SITE_OCTAVES],
     total_us: u64,
@@ -211,7 +211,7 @@ impl OctaveHistogram {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct SiteStats {
     acquisitions: u64,
     hold_total_us: u64,
@@ -319,10 +319,16 @@ impl LockStats {
     /// section: the [`DETAIL_SITES`] sites with the most total hold time,
     /// and the [`DETAIL_SITES`] with the longest 99th percentile hold.
     pub fn detail(&self) -> LockDetailSnapshot {
-        let all: Vec<LockSiteDetail> = self
+        // Copy the raw records out, then format the labels after the unlock:
+        // every release of this lock takes the `sites` mutex.
+        let raw: Vec<(LockSite, SiteStats)> = self
             .sites
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(site, stats)| (*site, *stats))
+            .collect();
+        let all: Vec<LockSiteDetail> = raw
             .iter()
             .map(|(site, stats)| LockSiteDetail {
                 site: site_label(site),
@@ -646,12 +652,82 @@ pub struct ConnectionStats {
     reclaimed: AtomicU64,
     /// The admitted connections whose client can be watched for a hang-up.
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    /// Of `active`, the connections from processes inside this session's
+    /// terminals (agents, their hooks, `cmux` run in a pane). A hung-up
+    /// terminal connection gives this slot back with its main one
+    /// (`connection_leases`).
+    terminal_active: AtomicU64,
+    /// Of `terminal_active`, the connections each terminal holds (by its
+    /// process session), for the terminal lane's fair share
+    /// (`try_claim_terminal`). A terminal with none is not listed.
+    terminal_clients: Mutex<HashMap<u32, u64>>,
     /// The socket these connections come in on, once a server attached the
     /// session to it.
     socket: std::sync::OnceLock<std::path::PathBuf>,
 }
 
 impl ConnectionStats {
+    /// Counts one connection that already holds a slot as terminal-bound, if
+    /// fewer than `limit` terminal-bound connections are active. A refusal
+    /// moves the connection from `accepted` to `refused`; the caller gives
+    /// the slot back.
+    /// At `limit` it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
+    ///
+    /// `client`: the terminal the connection comes from (its process session).
+    /// A terminal's first connection gets in whenever the lane has room; a
+    /// further one only while that terminal then holds no more than the lane
+    /// has left free. One terminal (an agent's hooks in a loop, a script
+    /// running `cmux`) stops at half the lane, so a second terminal still finds
+    /// room; several terminals in a loop together can still fill the lane. A
+    /// connection whose terminal is unknown is bounded by the lane alone.
+    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64, client: Option<u32>) -> bool {
+        let mut claimed = self.claim_terminal_slot(limit, client);
+        if !claimed && self.reclaim_hung_up(pool_limit) > 0 {
+            claimed = self.claim_terminal_slot(limit, client);
+        }
+        if !claimed {
+            self.accepted.fetch_sub(1, Ordering::Relaxed);
+            self.refused.fetch_add(1, Ordering::Relaxed);
+        }
+        claimed
+    }
+
+    /// One terminal slot under `limit`, within `client`'s fair share. The
+    /// share and the count change together under `terminal_clients`, so two
+    /// claims never both take the last place a share allows.
+    fn claim_terminal_slot(&self, limit: u64, client: Option<u32>) -> bool {
+        let mut clients = self.terminal_clients.lock().unwrap_or_else(PoisonError::into_inner);
+        let active = self.terminal_active.load(Ordering::Acquire);
+        if active >= limit {
+            return false;
+        }
+        if let Some(client) = client {
+            let held = clients.get(&client).copied().unwrap_or(0);
+            let free_after = limit.saturating_sub(active.saturating_add(1));
+            if held > 0 && held.saturating_add(1) > free_after {
+                return false;
+            }
+            let held = clients.entry(client).or_insert(0);
+            *held = held.saturating_add(1);
+        }
+        self.terminal_active.fetch_add(1, Ordering::AcqRel);
+        true
+    }
+
+    pub fn release_terminal(&self, client: Option<u32>) {
+        if let Some(client) = client {
+            let mut clients = self.terminal_clients.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(held) = clients.get_mut(&client) {
+                *held = held.saturating_sub(1);
+                if *held == 0 {
+                    clients.remove(&client);
+                }
+            }
+        }
+        self.terminal_active.fetch_sub(1, Ordering::AcqRel);
+    }
+
     /// Claims a slot if fewer than `limit` connections are active.
     /// At the limit it first takes back the slots of clients that hung up
     /// (`reclaim_hung_up`): a connection thread parked on the registry lock

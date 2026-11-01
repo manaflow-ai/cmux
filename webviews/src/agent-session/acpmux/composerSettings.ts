@@ -5,9 +5,12 @@
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
 // `agentPane.attachmentView` rides the same event as `attachmentView`: how pictures and files show
-// in every composer and in sent messages, "inline" (in the text where each was added, the default)
-// or "strip" (in a row). It is only a look: a draft's text, its attachment marks and their order
-// are the same in both, so switching never changes what is sent. Anything else reads as "inline".
+// in every composer and in sent messages, "inline" (in the text where each was added, the default),
+// "strip" (in a row) or "both" (in the text and in the row, so every attachment shows in one place
+// with its remove; Leo 2026-10-24: "ALSO show the top displayed attachments alongside the inline
+// attachments ... so you can see it all and close aka delete"). Sent messages draw "both" as
+// "inline". It is only a look: a draft's text, its attachment marks and their order are the same
+// in every view, so switching never changes what is sent. Anything else reads as "inline".
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
 // behavior. When off, an up-scrolled reader stays anchored while new rows arrive below; a reader at
 // the bottom continues following streaming output.
@@ -26,11 +29,17 @@
 // AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
+// `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
+// new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
 import { useSyncExternalStore } from "react";
 
-export type HarnessPlacement = "left" | "top" | "compact";
+// `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
+// 2026-10-30: "honestly we had a pretty good thing going with teh symbols of the harneses at the
+// top :("). The others stay as choices.
+export type HarnessPlacement = "symbols" | "left" | "top" | "compact";
 export type ReasoningSliderStyle = "accent" | "minimal";
-export type AttachmentView = "inline" | "strip";
+export type AttachmentView = "inline" | "strip" | "both";
+export type NewChatPlace = "local" | "cloud";
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
@@ -44,6 +53,7 @@ export type ComposerSettings = {
   harnessSwitch: boolean;
   escapeDoublePress: boolean;
   showMachineLoadWarnings: boolean;
+  newChatsIn: NewChatPlace;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -55,10 +65,11 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
-  harnessPlacement: "left",
+  harnessPlacement: "symbols",
   harnessSwitch: false,
   escapeDoublePress: true,
   showMachineLoadWarnings: true,
+  newChatsIn: "local",
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -77,7 +88,8 @@ export function readComposerSettings(value: unknown): ComposerSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const flag = (key: ComposerFlag) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
   const reasoningSliderStyle: ReasoningSliderStyle = raw.reasoningSliderStyle === "minimal" ? "minimal" : "accent";
-  const attachmentView: AttachmentView = raw.attachmentView === "strip" ? "strip" : "inline";
+  const attachmentView: AttachmentView =
+    raw.attachmentView === "strip" || raw.attachmentView === "both" ? raw.attachmentView : "inline";
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
@@ -88,10 +100,13 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
     harnessPlacement:
-      raw.harnessPlacement === "top" || raw.harnessPlacement === "compact" ? raw.harnessPlacement : "left",
+      raw.harnessPlacement === "left" || raw.harnessPlacement === "top" || raw.harnessPlacement === "compact"
+        ? raw.harnessPlacement
+        : "symbols",
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
+    newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
   };
 }
 

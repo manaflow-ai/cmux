@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextPalette
 import CmuxNextSidebar
 import CmuxNextWakeups
 
@@ -166,12 +167,46 @@ extension CloudHandlers {
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
         }
+        // Share Machine… (CloudMachineShare): `--teammate` shares or (`--revoke`) takes back; without
+        // it a person's run opens the teammates page and a CLI or agent run answers the list.
+        bind("cloudShareMachine", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            if let teammate = invocation["teammate"]?.stringValue?.trimmingCharacters(in: .whitespaces), !teammate.isEmpty {
+                let shared = invocation["revoke"]?.boolValue != true
+                return result("share machine", context) {
+                    do { try await CloudMachineShare.set(shared, teammate: teammate, on: session, cloud: cloud) } catch {
+                        throw ActionFailure(message: CloudMachineShare.message(error))
+                    }
+                    return machineFields(session.machineID, ["teammate": .string(teammate), "shared": .bool(shared)])
+                }
+            }
+            if origin(of: invocation) == .user {
+                return context.services.palette.show(page: CloudMachineShare.page(session, services: context.services),
+                                                     relativeTo: context.activeWindow?.window)
+            }
+            answer("machine shares", invocation, context) {
+                let roster: CloudMachineShareRoster
+                do { roster = try await CloudMachineShare.roster(session, cloud: cloud) } catch {
+                    throw ActionFailure(message: CloudMachineShare.message(error))
+                }
+                let lines = roster.rows.map { "\($0.shared ? "shared" : "-") \($0.name) (\($0.userID))" }
+                let teammates = roster.rows.map { row in
+                    ActionResultValue.object(["user_id": .string(row.userID), "name": .string(row.name), "shared": .bool(row.shared)])
+                }
+                return CloudAnswer(title: CloudShareStrings.listTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"),
+                                   fields: machineFields(session.machineID, ["teammates": .array(teammates), "can_share": .bool(roster.canShare)]))
+            }
+        }
+        // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
+        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { invocation in
+            (try? machine(invocation, context))?.link == nil
+        }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             result("kill machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
                 try await cloud.deleteMachine(session.machineID)
-                return machineFields(session.machineID, ["status": .string("deleted")])
+                return deletionPending(session.machineID)
             }
         }
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
@@ -206,12 +241,13 @@ extension CloudHandlers {
         }
         bind("cloudResizeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.sizing) else { throw operationUnavailable }
-            guard let size = invocation["size"]?.stringValue, let (cpu, memory) = sizes[size] else {
-                throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
-            }
-            result("resize machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["size": .string(size)])) {
-                try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory)
-                return machineFields(session.machineID, ["size": .string(size)])
+            // A menu or palette run with neither still asks for the size, as when --size was required.
+            if invocation["size"] == nil, invocation["disk"] == nil, origin(of: invocation) == .user,
+               registry.ask("cloudResizeMachine", invocation, ActionArgumentAsk(argument: "size")) { return }
+            let request = try CloudResizeRequest(invocation), fields = machineFields(session.machineID, request.fields)
+            result("resize machine", context, pendingAfter: machineAnswerWait, pending: fields) {
+                try await cloud.api.resize(session.machineID, cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
+                return fields
             }
         }
         // The idle auto-pause (web/services/vms/idlePause.ts): cmux Cloud pauses the machine
@@ -261,6 +297,9 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            if session.appLink != nil, cloud.previewAPI != nil {
+                return livePreviewPorts(session, invocation, context)
+            }
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
             answer("machine ports", invocation, context) {
                 let table = try await connection.request(MachineListeningTCPRequest()).stdout
@@ -341,6 +380,10 @@ extension CloudHandlers {
     static let terminalAnswerWait: Duration = .seconds(30)
 
     /// The `pending` answer of a terminal run that outlasted ``terminalAnswerWait``.
+    static func deletionPending(_ machineID: String) -> [String: ActionResultValue] {
+        machineFields(machineID, ["pending": .bool(true), "status": .string("deleting")])
+    }
+
     static func terminalPending(_ session: CloudMachineSession) -> [String: ActionResultValue] {
         session.machine.status == .paused
             ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]
@@ -577,9 +620,6 @@ extension CloudHandlers {
     static func templateName(_ machineID: String, at date: Date) -> String {
         "template-\(machineID.prefix(12))-\(Int(date.timeIntervalSince1970))"
     }
-
-    /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.
-    static let sizes: [String: (Int, Int)] = ["small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (16, 24576)]
 
     static func filePath(_ invocation: ActionInvocation) throws -> String {
         guard let path = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),

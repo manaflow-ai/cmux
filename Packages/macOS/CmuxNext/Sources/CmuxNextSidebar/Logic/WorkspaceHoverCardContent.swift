@@ -65,6 +65,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// How long ago the workspace was last active ("4w"); nil without activity.
     var age: String?
     var facts: [Fact]
+    /// Cloud/remote identity stays visible above the optional details; local has none.
+    var host: Fact? = nil
     /// The workspace's merged status and its style hint (the row's indicator).
     var activity: StatusIndicatorState = .idle
     var activityStyle: StatusIndicatorStyle?
@@ -117,8 +119,11 @@ struct WorkspaceHoverCardContent: Equatable {
             card.activitySince = nil
             for index in card.facts.indices { card.facts[index].since = nil }
         }
+        // The History lists what was asked and what happened, never acpmux's inbox notices
+        // ("[inbox] New messages from other agents…"); the stats still count their work.
         let shown = timeline.filter { entry in
-            switch entry.kind {
+            if entry.isNotice { return false }
+            return switch entry.kind {
             case .prompt, .started: options.showsPrompts
             case .waiting, .finished, .failed: options.showsWaiting
             }
@@ -215,6 +220,9 @@ struct WorkspaceHoverCardContent: Equatable {
             facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · "), kind: "agent"))
         }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
+        // What its agents run below their turns now: how many subagents and commands, and which
+        // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
+        facts += WorkspaceHoverCardWork.facts(detail)
         for presence in workspace.presence.prefix(2) {
             facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence), kind: "presence"))
         }
@@ -225,9 +233,9 @@ struct WorkspaceHoverCardContent: Equatable {
         if let remote {
             // The machine and whether it is reachable, as a dot (Codex's sidebar card); a machine
             // that is not connected says how, in its color, under it.
-            let own = ownIcon(remote.icon)
             let tone = connectionTone(remote.status)
-            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine",
+            facts.append(Fact(icon: hostIcon(remote), text: remote.kind == .cloud ? Strings.hoverCloud : remote.name,
+                              mark: remote.kind == .cloud ? nil : "globe", kind: "machine",
                               accessory: .dot(tone), machine: remote.name))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
@@ -267,7 +275,7 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
-            age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts,
+            age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts, host: facts.first { $0.kind == "machine" },
             activity: workspace.activity, activityStyle: workspace.activityStyle, activitySince: detail.activitySince)
     }
 
@@ -376,7 +384,7 @@ struct WorkspaceHoverCardContent: Equatable {
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
         case .connected, .updateAvailable: .success
-        case .connecting, .reconnecting, .installing, .updateRequired, .installRequired, .disconnected: .attention
+        case .connecting, .reconnecting, .installing, .updateRequired, .installRequired, .pausing, .resuming, .deleting, .disconnected: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
         case .paused, .pausedIdle: .secondary
         }
@@ -466,17 +474,7 @@ struct WorkspaceHoverCardContent: Equatable {
         }
     }
 
-    /// A machine's own icon (`SidebarMachine.icon`) as a fact's mark (an emoji or SF Symbol
-    /// name) or image (a stored asset); neither without one, so the kind's symbol draws.
-    private static func ownIcon(_ icon: WorkspaceIcon?) -> (mark: String?, image: SidebarFavicon?) {
-        switch icon {
-        case .symbol(let name, _)?: (name, nil)
-        case .emoji(let text, _)?: (text, nil)
-        case .favicon(let image)?: (nil, image)
-        case .swatch?, nil: (nil, nil)
-        }
-    }
-
+    /// The title's existing kind glyph; the remote identity row uses a globe.
     private static func hostIcon(_ machine: SidebarMachine) -> IconName {
         switch machine.kind {
         case .local: .machineLocal

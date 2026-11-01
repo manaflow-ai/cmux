@@ -3,7 +3,7 @@
 // (subsessions.ts), from acpmux's session summaries as the pane cuts them (sessionList.ts).
 import { expect, test } from "bun:test";
 import { sessionEntry } from "../sessionList";
-import { SubsessionStore, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
+import { SubsessionStore, subsessionDisplayName, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
 import { translate } from "../i18n";
 
 /// A session summary as acpmux sends it, with the fields the sub-session rows read.
@@ -49,6 +49,17 @@ test("a summary's sub-session fields: its parent, short name, lane, queue and wh
   });
   expect(summary("e", { waitingOn: "permission" }).waitingOn).toEqual({ on: "permission" });
   expect(summary("f", { waitingOn: "nothing" }).waitingOn).toBeUndefined();
+});
+
+test("an unnamed sub-session gets a localized display name instead of its opaque id", () => {
+  const t = translate;
+  const session = { name: "optchat-123456789", sessionId: "optchat-123456789" };
+  expect(subsessionDisplayName(t, session)).toBe("Subagent");
+  expect(subsessionDisplayName(t, { name: "claude/optchat-a1b2c3d4", sessionId: "session-123" })).toBe("Subagent");
+  expect(subsessionDisplayName(t, { name: "Review /optchat-logs", sessionId: "session-456" })).toBe(
+    "Review /optchat-logs",
+  );
+  expect(subsessionDisplayName(t, { ...session, name: "Reviewer" })).toBe("Reviewer");
 });
 
 test("a sub-session's state: working, needs input, failed (or lost) or done, with its unread mark when done", () => {
@@ -128,6 +139,53 @@ test("the store follows sub-sessions only, and tells its readers only when one's
   store.set([]);
   expect(calls).toBe(3);
   expect(store.get("a")).toBeUndefined();
+});
+
+
+test("a sender name shared by live chats never chooses the first one arbitrarily", () => {
+  const store = new SubsessionStore();
+  let changes = 0;
+  store.subscribeNames(() => changes++);
+  const local = summary("local", { name: "reviewer", shortName: "reviewer" });
+  const remote = summary("remote", { name: "gpu/reviewer", shortName: "reviewer", peer: "gpu" });
+  store.set([local, remote]);
+  expect(store.find("reviewer")).toBeUndefined();
+  expect(store.find("gpu/reviewer")).toBe("remote");
+  expect(store.has("local")).toBe(true);
+  expect(store.has("remote")).toBe(true);
+  const before = changes;
+  // Merely changing list order cannot make a colliding sender name actionable or
+  // notify subscribers: the set of identities and hosts has not changed.
+  store.set([remote, local]);
+  expect(store.find("reviewer")).toBeUndefined();
+  expect(changes).toBe(before);
+  // The ambiguous alias becomes actionable when its other live owner leaves.
+  store.set([remote]);
+  expect(store.find("reviewer")).toBe("remote");
+  expect(changes).toBeGreaterThan(before);
+});
+
+test("two peer chats with the same bare sender retain distinct qualified names", () => {
+  const store = new SubsessionStore();
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp" }),
+    summary("aws-session", { name: "aws/audit", peer: "aws" }),
+  ]);
+  expect(store.find("audit")).toBeUndefined();
+  expect(store.find("gcp/audit")).toBe("gcp-session");
+  expect(store.find("aws/audit")).toBe("aws-session");
+  // An archived chat never hides a unique active sender.
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp" }),
+    summary("aws-session", { name: "aws/audit", peer: "aws", tags: ["archived"] }),
+  ]);
+  expect(store.find("audit")).toBe("gcp-session");
+  // When all matches are archived and ambiguous, a name alone stays unresolved.
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp", tags: ["archived"] }),
+    summary("aws-session", { name: "aws/audit", peer: "aws", tags: ["archived"] }),
+  ]);
+  expect(store.find("audit")).toBeUndefined();
 });
 
 test("another agent's message finds its sender's chat by name, and that chat's harness", () => {

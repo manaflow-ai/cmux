@@ -2,7 +2,7 @@ public import CmuxNextDesign
 public import CmuxNextIcons
 import Foundation
 
-/// The kind icon used by an optional sidebar tab row.
+/// What a workspace's tab is (`SidebarTab.kind`).
 public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
     case terminal
     case browser
@@ -27,7 +27,7 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
     }
 }
 
-/// A tab that can optionally be listed below its workspace.
+/// One of a workspace's tabs, as the sidebar knows it (its row's title, tab count and hover card).
 public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var id: TabID
     public var title: String
@@ -40,28 +40,23 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var favicon: SidebarFavicon?
     /// The tab's own merged status (its OSC 7501 records, agent turn, page load): the tab bar's dot.
     public var state: StatusIndicatorState = .idle
-    /// The program's own status words (OSC 7501), when it reports any.
-    public var words: String?
-    /// The agent running in the tab ("Claude Code"), when cmux lists it.
-    public var agent: String?
-    /// A page's host, without `www.`.
-    public var host: String?
     /// The tab's folder, shortened as the row's is ("~", "~/src/cmux").
     public var folder: String?
-    /// The folder is the workspace's own: the line's detail leaves it out (every tab would repeat it); a
-    /// title that only names it still reads as untitled.
-    public var sharesWorkspaceFolder = false
-    /// Its workspace's own name (the user's title, else the daemon's name), which the tab's line does not
-    /// repeat. Not the row's shown title, which may follow a page or the selected tab.
-    public var workspaceName: String?
+    /// What the tab's agent chat runs below its turn now (acpmux's `subagentsRunning` and
+    /// `commandsRunning`): the hover card's tab row counts them (Leo 2026-11-01: "this hover
+    /// preview being able to see the # of associated subagents and whatnot").
+    public var subagentsRunning = 0
+    public var commandsRunning = 0
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
-                favicon: SidebarFavicon? = nil) {
+                favicon: SidebarFavicon? = nil, folder: String? = nil, state: StatusIndicatorState = .idle) {
         self.id = id
         self.title = title
         self.kind = kind
         self.isUnread = isUnread
         self.brand = brand
         self.favicon = favicon
+        self.folder = folder
+        self.state = state
     }
 }

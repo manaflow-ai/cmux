@@ -53,6 +53,11 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     queue: [],
     turn,
     updatedAt: Date.now(),
+    // Claude Code's commands, as acpmux keeps the newest list: a skill (/loop) among them.
+    availableCommands: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "loop", description: "Run a prompt or slash command on a recurring interval" }],
+    },
   };
   const opening = [
     {
@@ -406,6 +411,28 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
           summary.steering = false;
         }
       });
+
+    // Claude Code holds a command until the command it runs ends, so a steered `/loop` sat as an
+    // unread steer with Send now (Leo, 2026-10-31: "the commands don't work!"). It queues instead
+    // and runs as its own turn; text that only starts with a slash still steers.
+    test("Enter queues one of the agent's slash commands even to an agent that steers", async () => {
+      summary.steering = true;
+      try {
+        const page = await openChat();
+        await page.locator(".acpmux-composer-prompt").click();
+        await page.keyboard.type("/loop keep launching new dev builds");
+        expect(await page.locator(".acpmux-steer-now").count()).toBe(0);
+        await page.keyboard.press("Enter");
+        await page.locator(".acpmux-queued", { hasText: "/loop keep launching new dev builds" }).waitFor();
+        await page.keyboard.type("/tmp is full, clean it");
+        await page.keyboard.press("Enter");
+        await until(() => prompts.length === 2, "the second prompt");
+        expect(prompts.map((p) => Boolean(p._meta?.acpmux?.steer))).toEqual([false, true]);
+        await page.close();
+      } finally {
+        summary.steering = false;
+      }
+    });
 
     test("acpmux's end of a turn whose agent ignored Stop says so", async () => {
       const page = await openChat();

@@ -151,6 +151,21 @@ fi; fi; fi
 /// What [`probe_script`] prints on a cmux Cloud VM ([`CLOUD_VM_MARK`]).
 const CLOUD_VM: &str = "ACPMUX_CLOUD_VM";
 
+/// Starts [`APP_MANAGED_CHECK`]'s line, then why the host's acpmux is a cmux app's.
+const APP_MANAGED: &str = "ACPMUX_APP_MANAGED=";
+
+/// Shell that prints [`APP_MANAGED`] on a host whose acpmux the cmux app
+/// installs and runs: `~/.local/bin/acpmux` is a link into an app bundle,
+/// or the app's LaunchAgent (`com.cmux.acpmux.daemon.<hash>`) is there and
+/// acpmux's own `com.acpmux.daemon` is not. The app replaces that binary and
+/// restarts that daemon when it updates; `host update` would replace the
+/// app's link with a file and then find no job of its own to restart
+/// (cosmic-gray, 2026-10-31), so it changes nothing there.
+const APP_MANAGED_CHECK: &str = r#"acpmux_app=; acpmux_l=$(readlink "$HOME/.local/bin/acpmux" 2>/dev/null) && case "$acpmux_l" in *.app/*) acpmux_app="~/.local/bin/acpmux links into $acpmux_l";; esac
+if [ -z "$acpmux_app" ] && [ ! -e "$HOME/Library/LaunchAgents/com.acpmux.daemon.plist" ]; then for acpmux_f in "$HOME"/Library/LaunchAgents/com.cmux.acpmux.daemon.*.plist; do [ -e "$acpmux_f" ] && { acpmux_app="launchd runs the daemon as ${acpmux_f##*/}"; break; }; done; fi
+[ -z "$acpmux_app" ] || echo "ACPMUX_APP_MANAGED=$acpmux_app"
+"#;
+
 /// Starts [`probe_script`]'s `uname -sm` line, so a login banner is not read as one.
 const UNAME: &str = "ACPMUX_UNAME=";
 
@@ -165,7 +180,7 @@ fn probe_script(if_idle: bool) -> String {
         ":"
     };
     format!(
-        "echo \"{UNAME}$(uname -sm)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}; echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{DAEMON_UNIT}{}",
+        "echo \"{UNAME}$(uname -sm)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{DAEMON_UNIT}{}",
         cloud_vm_check(),
         migrate(true)
     )
@@ -178,6 +193,8 @@ struct Probe {
     uname: String,
     /// The host is a cmux Cloud VM ([`CLOUD_VM_MARK`]).
     cloud_vm: bool,
+    /// Why the cmux app owns the host's acpmux ([`APP_MANAGED_CHECK`]).
+    app_managed: Option<String>,
     /// The running daemon's build; None when none answers.
     build: Option<String>,
     /// Its own sessions that run a turn or wait on a permission (asked
@@ -224,9 +241,11 @@ impl Probe {
             (code.to_owned(), why.trim().to_owned())
         });
         let cloud_vm = parts[0].lines().any(|l| l == CLOUD_VM);
+        let app_managed =
+            parts[0].lines().find_map(|l| l.strip_prefix(APP_MANAGED)).map(str::to_owned);
         let uname = parts[0].lines().find_map(|l| l.strip_prefix(UNAME)).unwrap_or_default();
         let uname = uname.trim().to_owned();
-        Some(Probe { uname, cloud_vm, build, busy, refused })
+        Some(Probe { uname, cloud_vm, app_managed, build, busy, refused })
     }
 }
 
@@ -287,7 +306,7 @@ fn local_target() -> Option<&'static str> {
     target_triple(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// The commit of a build id (`<hash>[+dirty.<fp>] <date>`, `hub::BUILD`):
+/// The commit of a build id (`<hash>[+dirty.<fp>] <date>`, `hub::build()`):
 /// two builds of one commit on different days, or with local edits, are the
 /// same code to an update. `nogit` names no commit.
 fn build_commit(build: &str) -> Option<&str> {
@@ -529,12 +548,19 @@ pub(crate) struct Caller {
     pub daemon: String,
 }
 
-/// [`update_peer`] holding the host's update lock ([`lock_updates`]), so
+/// [`update_peer`] holding the host's update lock ([`lock_updates`]), once
+/// the host answers ([`Remote::reachable`]), so
 /// another update of the host (its self-update timer, or a `host update`,
 /// `host setup` or `host enroll --fix` from another machine) does not change
 /// the binary or `acpmux.prev` under it; `updateRunning` (nothing changed)
 /// while one does.
 fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
+    // A host that is down, or behind a hop that stalls, fails here in
+    // seconds: the lock's ssh and the probe's have no bound of their own
+    // past the connect.
+    if let Err(e) = remote.reachable() {
+        return PeerUpdate::new().end(Outcome::Failed, "unreachable", format!("{e:#}"));
+    }
     match lock_updates(remote) {
         Ok(Some(lock)) => update_peer(&lock.fence(remote), opts),
         Ok(None) => {
@@ -604,6 +630,13 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         );
         return up.end(Outcome::Failed, "cloudMachine", why);
     }
+    if let Some(owner) = &probe.app_managed {
+        let why = format!(
+            "{}'s acpmux belongs to the cmux app ({owner}): the app updates it, so nothing was changed",
+            remote.host()
+        );
+        return up.end(Outcome::Failed, "appManaged", why);
+    }
     let Some(target) = up.target else {
         let why = format!("no acpmux build runs on {} ({})", remote.host(), probe.uname);
         return up.end(Outcome::Failed, "unsupportedPlatform", why);
@@ -628,7 +661,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             return up.end(Outcome::NeedsBinary, "wrongPlatform", why);
         }
         None => match crate::self_command::SelfCommand::current() {
-            Ok(own) => (own.exe, Some(crate::hub::BUILD.to_owned())),
+            Ok(own) => (own.exe, Some(crate::hub::build().to_owned())),
             Err(e) => return up.end(Outcome::Failed, "noBinary", e.to_string()),
         },
     };
@@ -883,7 +916,8 @@ fn cut(mut text: String, max: usize) -> String {
 /// - `reason` and `error`, on every outcome but `updated` and `current`: a
 ///   code (`busy`, `unknown`, `held`, `holdsUnreadable` (`host hold`'s
 ///   file could not be read, so the peer was not reached), `noBinary`,
-///   `wrongPlatform`, `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
+///   `wrongPlatform`, `unsupportedPlatform`, `cloudMachine`, `appManaged` (the cmux app
+///   installs and runs the host's acpmux: nothing changed), `unreachable`, `updateRunning`
 ///   (another update of the host, such as its self-update timer, holds its
 ///   update lock), `lockLost` (this update's hold on that lock ended, its
 ///   connection dropped: it changed nothing more), `pushFailed`, `pushMismatch`,

@@ -149,6 +149,9 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     assert_eq!(bound["env"], "dev");
     assert_eq!(store.read(BIND_FILE), None);
     assert_eq!(store.mode_of(BOUND_FILE), Some(0o600));
+    let identity = crate::identity::enrolled(&store, "i-aaa").unwrap();
+    assert_eq!(identity.machine, MACHINE);
+    assert_eq!(identity.instance_id, "i-aaa");
 }
 
 #[test]

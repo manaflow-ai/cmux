@@ -22,6 +22,7 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
     "pages/shared/desktop.css",
     "agent-session/shared/styles.css",
     "agent-session/acpmux/styles.css",
+    "agent-session/acpmux/conversation/spinner.css",
     "agent-session/acpmux/conversation/conversation.css",
   ]
     .map((file) => readFileSync(path.join(src, file), "utf8"))
@@ -30,7 +31,13 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
   const markup = renderToStaticMarkup(
     <div>
       <div id="thinking">
-        <Thinking since={START} now={() => START + 18_000} below />
+        <Thinking
+          since={START}
+          doing="Read the Freestyle lanes note; check dispatcher"
+          doingAt={START}
+          now={() => START + 50_000}
+          below
+        />
       </div>
       <span id="ring">
         <Spinner loading />
@@ -136,7 +143,68 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
             clone.querySelectorAll("[aria-hidden='true']").forEach((node) => node.remove());
             return { text: clone.textContent };
           });
-          expect(read.text).toBe("Thinking");
+          expect(read.text).toBe("Read the Freestyle lanes note; check dispatcher");
+        } finally {
+          await page.close();
+        }
+      });
+
+      test("the shimmer band spans the running label and timer row", async () => {
+        if (!browser) return;
+        const page = await open("no-preference");
+        try {
+          const measure = await page.evaluate(() => {
+            const row = document.querySelector<HTMLElement>("#thinking .cv-shimmer__row")!;
+            const band = row.querySelector<HTMLElement>(".cv-shimmer__band")!;
+            const label = row.querySelector<HTMLElement>(".cv-thinking")!;
+            const timer = row.querySelector<HTMLElement>(".cv-worked__time")!;
+            const lit = row.querySelector<HTMLElement>(".cv-shimmer__lit")!;
+            const litLabel = row.querySelector<HTMLElement>(".cv-shimmer__lit-label")!;
+            const litTimer = row.querySelector<HTMLElement>(".cv-shimmer__lit-time")!;
+            const animation = [...document.getAnimations()].find(
+              (entry) => (entry as CSSAnimation).animationName === "cmux-shimmer-band",
+            );
+            band.style.animation = "none";
+            lit.style.animation = "none";
+            band.style.transform = "none";
+            lit.style.transform = "none";
+            const slots = (width: number) => {
+              row.style.width = `${width}px`;
+              row.style.maxWidth = `${width}px`;
+              const actualLabel = label.getBoundingClientRect();
+              const actualTimer = timer.getBoundingClientRect();
+              const shimmerLabel = litLabel.getBoundingClientRect();
+              const shimmerTimer = litTimer.getBoundingClientRect();
+              return {
+                actualTimerOffset: actualTimer.left - actualLabel.right,
+                shimmerTimerOffset: shimmerTimer.left - shimmerLabel.right,
+                actualTimerRight: actualTimer.right,
+                shimmerTimerRight: shimmerTimer.right,
+              };
+            };
+            const wide = slots(600);
+            const narrow = slots(180);
+            return {
+              row: row.getBoundingClientRect().toJSON(),
+              bandWidth: Number.parseFloat(getComputedStyle(band).width),
+              label: label.getBoundingClientRect().toJSON(),
+              timer: timer.getBoundingClientRect().toJSON(),
+              text: lit.textContent,
+              timerText: litTimer.getAttribute("data-text"),
+              wide,
+              narrow,
+              duration: animation?.effect?.getTiming().duration,
+            };
+          });
+          expect(measure.text).toBe("");
+          expect(measure.timerText).toBe("50s");
+          expect(measure.bandWidth).toBeCloseTo(measure.row.width, 1);
+          for (const slots of [measure.wide, measure.narrow]) {
+            expect(slots.actualTimerOffset).toBeCloseTo(6, 1);
+            expect(slots.shimmerTimerOffset).toBeCloseTo(6, 1);
+            expect(slots.shimmerTimerRight).toBeCloseTo(slots.actualTimerRight, 1);
+          }
+          expect(measure.duration).toBe(2_800);
         } finally {
           await page.close();
         }

@@ -171,6 +171,7 @@ export function DrillList<T>(props: DrillListProps<T>) {
       count={rows.length}
       estimateSize={() => ROW_HEIGHT}
       activeIndex={current}
+      activeScrollKey={`${props.listLabel}\0${query}\0${rows.length}\0${current >= 0 ? getKey(rows[current]) : ""}`}
       renderRow={(index, style) => row(rows[index], index, style)}
     />
   ) : (
