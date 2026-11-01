@@ -295,15 +295,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     pool_signer = RELEASE_POOL_SIGNERS.get(tuple(name.split(" ", 1)))
     if pool_signer:
         runner = str(job.get("runs-on", ""))
-        owned_mac_release = tuple(name.split(" ", 1)) == ("nightly.yml", "signer-dmg")
-        valid_runner = ("needs.pick-nightly-sign-runner.outputs.sign_owned" in runner
-                        and "needs.pick-nightly-sign-runner.outputs.runner" in runner
-                        and "macos" in runner) if owned_mac_release else ("ubuntu" in runner and "macos" not in runner)
-        if "keychain" in text or pool_signer not in text or not valid_runner:
-            if owned_mac_release:
-                failures.append(f"{name}: the release-pool DMG signer must use the owned signing pick then Blacksmith macOS, call {pool_signer}, and make no keychain")
-            else:
-                failures.append(f"{name}: a release-pool signer runs on a literal ubuntu label, calls {pool_signer} and makes no keychain")
+        if "keychain" in text or pool_signer not in text or "ubuntu" not in runner or "macos" in runner:
+            failures.append(f"{name}: a release-pool signer runs on a literal ubuntu label, calls {pool_signer} and makes no keychain")
         certificate_steps = [step for step in steps if isinstance(step, dict) and "secrets.APPLE_CERTIFICATE_BASE64" in json.dumps(step)]
         if not certificate_steps or any(pool_signer not in str(step.get("run", "")) for step in certificate_steps):
             failures.append(f"{name}: only the step that runs {pool_signer} may hold the Developer ID certificate")
