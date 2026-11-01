@@ -398,3 +398,27 @@ test("a call that takes no input keeps its row in an ended turn", () => {
   });
   expect(callIds(ended)).toEqual(["mcp"]);
 });
+
+test("a run a short note joined to an earlier one still gives its last call to the line", () => {
+  const shaped = codex([
+    row("u", "user"),
+    row("r1", "activity", { items: [call("git log")] }),
+    row("n", "assistant", { text: "Now the diff." }),
+    row("r2", "activity", { items: [call("git diff")] }),
+  ]);
+  expect(shaped.at(-1)).toMatchObject({ kind: THINKING, doing: "git diff", doingDone: true });
+  expect(callIds(shaped)).toEqual(["git log"]);
+});
+
+test("with a todo list the activity line names the plan's step and no call leaves its run", () => {
+  const shaped = turnView(
+    [
+      row("u", "user"),
+      row("p", "plan", { plan: [{ content: "Step one", status: "in_progress" }] }),
+      row("run", "activity", { items: [call("a"), call("b")] }),
+    ],
+    new Set(),
+    { working: true, liveRuns: true, lineBelow: true, sessionStatus: true },
+  );
+  expect(callIds(shaped)).toEqual(["a", "b"]);
+});

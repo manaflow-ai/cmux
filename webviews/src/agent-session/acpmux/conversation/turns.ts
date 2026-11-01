@@ -987,7 +987,11 @@ function codexLiveTurn(
     Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
-  else {
+  const answering = last.kind === "assistant";
+  const plan = sessionStatus ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
+  // With a todo list and no answer streaming, the activity line under the list is the live line
+  // (below), which names the plan's step, so no call leaves its run for it.
+  if (!named && !answering && !plan) {
     // Between calls the line keeps the latest finished step ("Ran grep …") instead of a separate
     // "Thinking" under it, shimmering and timed from the prompt like any step: the line is the
     // turn's current activity and just keeps going (Leo, 2026-11-01: "this should be replacing
@@ -1001,8 +1005,6 @@ function codexLiveTurn(
       line.doingDone = true;
     }
   }
-  const answering = last.kind === "assistant";
-  const plan = sessionStatus ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
   if (!plan) return [...rows, line];
   const work = rows.filter((row) => row !== plan);
   // The answer streams under the list, the line under both.
@@ -1032,7 +1034,8 @@ function liftedStep(
   last: AcpmuxRow,
 ): { rows: AcpmuxRow[]; doing: string; shell: boolean } | undefined {
   if (last.kind !== "activity") return undefined;
-  const at = rows.findIndex((row) => row.id === last.id);
+  // A run that a short note joined to an earlier one keeps the earlier one's id (mergeShortNotes).
+  const at = rows.findIndex((row) => row.id === last.id || row.joined?.includes(last.id));
   const run = rows[at];
   if (!run?.foldRun) return undefined;
   const items = run.items ?? [];
@@ -1059,12 +1062,13 @@ function liftedStep(
   const doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, item!.text);
   const kept = items.filter((_, position) => position !== index);
   const next = rows.slice();
-  if (kept.length) next[at] = { ...run, items: kept, version: run.version * LIFTED_STATES + 1 };
+  if (kept.length) next[at] = { ...run, items: kept, version: run.version * RUN_STATES + LIFTED };
   else next.splice(at, 1);
   return { rows: next, doing, shell };
 }
-/// A run with its last call on the live line differs from the same run whole.
-const LIFTED_STATES = 2;
+/// A run with its last call on the live line: a state of its own (`RUN_STATES`), never the version
+/// of another drawn state of that run, the ended turn's open fold included.
+const LIFTED = 5;
 
 /// The newest call still running in a live turn's latest row.
 function runningCall(
@@ -1228,7 +1232,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
 /// The drawn states of one Codex-style run, each its own version offset so a memoized row redraws
 /// on every change between them (App.tsx compares versions): 1 the live latest run, 2 an earlier
 /// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds.
-const RUN_STATES = 5;
+const RUN_STATES = 6;
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
 /// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
