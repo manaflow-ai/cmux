@@ -21,7 +21,7 @@ fail. A run is stuck here only when all of these hold, read twice (the second re
 cancel, so a runner taking the job or a gate appearing in between keeps the run):
   - the run is `queued` or `in_progress` and has no pending deployment (a run waiting on an
     environment or a concurrency group is gated, not stuck);
-  - a job has waited STUCK_MINUTES (20) `queued` with no runner, counted no earlier than the
+  - a job has waited STUCK_MINUTES (3) `queued` with no runner, counted no earlier than the
     latest executed job's completion (job records can predate their dependencies), on labels none of which is owned
     (glaeda-* jobs belong to the owned-pool rescue, owned_pool_rescue.py);
   - every other job is `completed` or also `queued` with no runner.
@@ -55,7 +55,7 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
-STUCK_MINUTES = float(os.environ.get("STUCK_MINUTES", "20"))
+STUCK_MINUTES = float(os.environ.get("STUCK_MINUTES", "3"))
 MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "3"))  # nightly_next_cancelled_tip.sh's bound
 SETTLE_SECONDS = float(os.environ.get("SETTLE_SECONDS", "15"))
 FORCE_AFTER = int(os.environ.get("FORCE_AFTER", "6"))
