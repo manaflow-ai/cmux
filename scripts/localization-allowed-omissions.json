@@ -1,4 +1,8 @@
 {
+  "argument.value.dev": {
+    "class": "brand",
+    "source": "DEV"
+  },
   "cloud.workspaceSetup.setupClaude": {
     "class": "brand",
     "source": "Claude"

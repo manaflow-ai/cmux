@@ -31,61 +31,51 @@ extension CloudStartChat {
         return AgentPaneCloudCredentialTransferRequest.Provider(harnessID: harness).flatMap { CloudCredentialTransfer.Provider(rawValue: $0.rawValue) }
     }
 
-    /// What the start does about the login: nothing, install with no prompt, or ask once first.
-    enum LoginStep: Equatable { case skip, install, confirmThenInstall }
-
-    /// `ownerGuest`: the guest is an owner machine (`/etc/cmux/vm-kind`). A team guest, a creator's
-    /// included, is skipped before any confirm: every member's terminal there runs as the same Unix
-    /// user, so the transfer's preflight refuses it (``CloudCredentialInstaller``), and asking first
-    /// would only end in that refusal. Team machines are cmux#29774.
-    nonisolated static func loginStep(enabled: Bool, provider: CloudCredentialTransfer.Provider?, signedInUser: Bool,
-                                      callerOwns: Bool, ownerGuest: Bool, machineHasLogin: Bool, cachedLogin: Bool) -> LoginStep {
-        // Codex logins are per machine (its refresh token is VM-bound): its broker flow stays the
-        // turn card's recovery until it gets the same treatment.
-        guard enabled, provider == .claude, signedInUser, callerOwns, ownerGuest, !machineHasLogin else { return .skip }
-        return cachedLogin ? .install : .confirmThenInstall
-    }
-
-    /// The guest's own kind, as the transfer's preflight reads it. Exits 0 on an owner machine.
-    static let ownerGuestProbe = #"[ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]"#
-
-    /// The probe for a login already on the machine: the image's own detection, with its config
-    /// sourced as the launcher does. Exits 0 when Claude has its own sign-in there.
-    static let machineLoginProbe = ". /etc/cmux/agent-config.sh >/dev/null 2>&1; . /etc/cmux/agent-auth.sh && cmux_agent_has_own_login claude"
-
     /// Gives the start's machine the person's Claude login when this build passes it. Returns
     /// whether a login was installed; never throws.
     func passHarnessLogin(_ start: AgentPaneCloudStart, machine: CloudMachineSession) async -> Bool {
-        let cloud = services.cloud
-        let enabled = Self.passesHarnessLoginHere
-        guard enabled, let provider = Self.loginProvider(harness: start.harness), provider == .claude,
-              let userID = cloud.auth.user?.id else { return false }
+        let cloud = services.cloud, provider = Self.loginProvider(harness: start.harness), userID = cloud.auth.user?.id
         let teamID = cloud.auth.teamID, machineID = machine.machineID
         let api = cloud.machineAPI.pinningTeam(teamID)
+        var decision = CloudHarnessLoginDecision(gate: Self.passesHarnessLoginHere, provider: provider, signedIn: userID != nil)
+        // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
+        defer {
+            machine.harnessLogin = decision
+            cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)")
+        }
         do {
-            let owns = try await cloud.callerOwnsVM(machineID)
-            var ownerGuest = false, hasLogin = false, cached = false
-            if owns { ownerGuest = (try? await api.exec(machineID, command: Self.ownerGuestProbe, timeoutMs: 20_000).exitCode) == 0 }
-            if ownerGuest {
-                hasLogin = (try? await api.exec(machineID, command: Self.machineLoginProbe, timeoutMs: 20_000).exitCode) == 0
-                if !hasLogin { cached = await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID) }
+            if decision.gate, provider == .claude, let userID {
+                decision.callerOwns = try await cloud.callerOwnsVM(machineID)
+                if decision.readsMachine {
+                    let kind = try? await api.exec(machineID, command: CloudHarnessLoginDecision.guestKindProbe, timeoutMs: 20_000)
+                    decision.guestKind = kind.flatMap { CloudHarnessLoginDecision.guestKind(stdout: $0.stdout) }
+                }
+                // A login the provider rejects (a reused machine's expired token) is replaced like a missing one.
+                if decision.guestKind == "owner" {
+                    let read = await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID)
+                    (decision.machineLogin, decision.cached) = (read.login, read.cached)
+                }
             }
-            switch Self.loginStep(enabled: enabled, provider: provider, signedInUser: true, callerOwns: owns,
-                                  ownerGuest: ownerGuest, machineHasLogin: hasLogin, cachedLogin: cached) {
+            guard let provider, let userID else { return false }
+            switch decision.step {
             case .skip: return false
             case .install: break
             case .confirmThenInstall:
-                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { return false }
+                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else {
+                    decision.outcome = "declined"
+                    return false
+                }
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
             let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
                 openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
             try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                    confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) })
+            decision.outcome = "installed"
             return true
         } catch {
             // The message is the transfer's fixed text, never provider output.
-            cloud.logger.error("cloud start chat: passing the harness login failed: \((error as? LocalizedError)?.errorDescription ?? "error", privacy: .public)")
+            decision.outcome = "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
             return false
         }
     }

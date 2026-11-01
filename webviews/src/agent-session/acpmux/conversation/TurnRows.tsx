@@ -2,7 +2,7 @@
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
-import { useContext, useMemo, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { copyTextResult } from "./clipboard";
 import { MessageCard } from "./MessageCard";
@@ -35,8 +35,17 @@ import {
   ROW_ICON,
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
+import { CloudSignIn } from "./CloudSignIn";
+import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
+import {
+  failureCopy,
+  failureKind,
+  failureRecovery,
+  isCloudRejectedCredential,
+  isTeamMachineSignIn,
+  type FailureRoute,
+} from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
@@ -263,6 +272,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     retryWith,
     reauthenticate,
     transferCloudCredentials,
+    cloudSignIn,
     resume,
     compact,
     route,
@@ -279,7 +289,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const kind = failed ? failureKind(row.error, route, row.errorCode) : undefined;
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a);
   // its Sign in again is on the card (TurnFailure), and a Cloud chat's credential transfer stays here.
-  const authenticationFailed = kind === "subscription-login" || kind === "auth";
+  // A team Cloud machine refuses a personal login transfer: no Set up credentials, and no automatic one.
+  const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
+  const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   const label = footerLabel(t, row);
   // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
   // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
@@ -292,6 +304,27 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
   const [retryNote, setRetryNote] = useState<RetryNote>();
+  const automaticRecoveryAttempted = useRef<string | undefined>(undefined);
+  const automaticRecoveryRow =
+    failed &&
+    !teamMachine &&
+    row.retryable === true &&
+    row.retryRowId &&
+    prompt &&
+    isCloudRejectedCredential(row.error, route)
+      ? row.retryRowId
+      : undefined;
+  useEffect(() => {
+    if (
+      !automaticRecoveryRow ||
+      !transferCloudCredentials ||
+      !prompt ||
+      automaticRecoveryAttempted.current === automaticRecoveryRow
+    )
+      return;
+    automaticRecoveryAttempted.current = automaticRecoveryRow;
+    void transferCloudCredentials(automaticRecoveryRow, prompt, true).catch(() => undefined);
+  }, [automaticRecoveryRow, prompt, transferCloudCredentials]);
   // acpmux's retry needs no prompt: an attempt it sent (a hidden prompt row) that failed again
   // still offers Retry. Without it, Retry sends the turn's prompt again, so it needs one.
   const failedRetry = !failed
@@ -337,6 +370,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           switchModel={switchModel}
           compact={compact}
           reauthenticate={reauthenticate}
+          cloudSignIn={cloudSignIn}
+          retryRowId={row.retryRowId}
+          prompt={prompt}
           retry={failedRetry}
           goOn={goOn}
           goOnLabel={recovery?.label}
@@ -443,6 +479,9 @@ function TurnFailure({
   switchModel,
   compact,
   reauthenticate,
+  cloudSignIn,
+  retryRowId,
+  prompt,
   retry,
   goOn,
   goOnLabel,
@@ -457,6 +496,11 @@ function TurnFailure({
   /// Runs the chat harness's login (only the CLI's own login, or an unexplained 401 on a direct
   /// route, asks to sign in; cx-w10a).
   reauthenticate?: () => void;
+  /// A Cloud chat's own sign-in on its machine (cloudAgentLogin.ts, CloudSignIn.tsx).
+  cloudSignIn?: CloudSignInActions;
+  /// The failed prompt's row and text, which the Cloud sign-in sends again once signed in.
+  retryRowId?: string;
+  prompt?: string;
   /// Sends the prompt again; CodeRouter's move runs it once the chat is on the new route.
   retry?: () => void;
   /// The way on (errorRecovery.ts): Continue or Retry, the card's lead and its Return.
@@ -504,6 +548,13 @@ function TurnFailure({
   // is done. Where the chat has no login to run (a Cloud chat, a harness that names none), the card
   // is as it was: Switch model or CodeRouter, and no Retry, which would fail the same way.
   const signInFirst = recovery === "sign-in" && reauthenticate !== undefined;
+  // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01, on the one-click sign-in:
+  // "yes those are important"): Sign in to Claude or Codex leads the card, Use an API key beside it,
+  // and Switch model follows them outlined.
+  // A team Cloud machine takes no personal login (isTeamMachineSignIn): Switch model leads, and the
+  // card keeps only Use an API key of the sign-in, never Sign in to Claude, which would dead-end.
+  const teamMachine = isTeamMachineSignIn(kind, route);
+  const cloudSignInLeads = recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine;
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure, or after Sign in again; never for trust (errorRecovery.ts).
   const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
@@ -512,7 +563,8 @@ function TurnFailure({
   const compactFirst = recovery === "compact" && compact !== undefined;
   // The way out goes first and reads as the card's one filled button.
   // Sign in again leads whenever the chat has a login to run, with or without a Retry beside it.
-  const switchFirst = offersSwitch && !signInFirst && (recovery === "switch-model" || !offersRetry);
+  const switchFirst =
+    offersSwitch && !signInFirst && !cloudSignInLeads && (recovery === "switch-model" || !offersRetry);
   // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
   // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
   // only way out; the card keeps exactly one.
@@ -520,8 +572,10 @@ function TurnFailure({
   const offerArm = experimentArm(codeRouterOffer);
   // Never ahead of Sign in again: moving the chat (and retrying it there) before the person has signed
   // in is not the way out the card leads with; in that case it follows the others, outlined.
-  const offerLeads = codeRouter !== undefined && offerArm === "primary" && !signInFirst;
-  const offerTrails = codeRouter !== undefined && (offerArm === "button" || (offerArm === "primary" && signInFirst));
+  const offerLeads = codeRouter !== undefined && offerArm === "primary" && !signInFirst && !cloudSignInLeads;
+  const offerTrails =
+    codeRouter !== undefined &&
+    (offerArm === "button" || (offerArm === "primary" && (signInFirst || cloudSignInLeads)));
   // CodeRouter's button fills only when it is the card's only way out: not beside Switch model, Retry,
   // Sign in again or Compact, which each lead.
   const offerFilled =
@@ -531,6 +585,7 @@ function TurnFailure({
       !offersSwitch &&
       !offersRetry &&
       !signInFirst &&
+      !cloudSignInLeads &&
       !compactFirst);
   const switchButton = offersSwitch && (
     <button
@@ -547,7 +602,7 @@ function TurnFailure({
       data-failure-kind={kind}
     >
       <span className="cv-turn-error__cause">
-        {arm !== "note" && <AlertCircle size={14} className="cv-turn-error__icon" />}
+        {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">
           {sentence}
           {codeRouter && offerArm === "link" && (
@@ -576,6 +631,9 @@ function TurnFailure({
           >
             {t("context.compact")}
           </button>
+        )}
+        {(cloudSignInLeads || (teamMachine && cloudSignIn)) && (
+          <CloudSignIn signIn={cloudSignIn} rowId={retryRowId} prompt={prompt} keyOnly={teamMachine} />
         )}
         {signInFirst && (
           <button

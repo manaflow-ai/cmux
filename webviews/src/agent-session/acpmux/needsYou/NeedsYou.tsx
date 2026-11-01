@@ -17,6 +17,7 @@ import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
+import { messagePreview } from "../conversation/incomingMessage";
 import "./needsYou.css";
 
 /// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
@@ -233,6 +234,11 @@ function NeedsYouRow({
     if (focused) row.current?.scrollIntoView({ block: "nearest" });
   }, [focused]);
   const answer = (choice: NeedsYouAnswer) => {
+    // Review opens a guest's held message on its card, where the owner reads it whole and answers.
+    if (choice.id === "review") {
+      actions.goTo(item);
+      return;
+    }
     if (sending) return;
     setSending(choice.id);
     setFailed(false);
@@ -301,7 +307,13 @@ function NeedsYouRow({
                 onClick={() => answer(choice)}
               >
                 <span className="acpmux-needs-you-answer-label">
-                  {choice.id === "resume" && item.kind === "held" ? t("needsYou.resume") : choice.label}
+                  {item.kind !== "held"
+                    ? choice.label
+                    : item.promptId
+                      ? t("queue.held.review")
+                      : choice.id === "resume"
+                        ? t("needsYou.resume")
+                        : choice.label}
                 </span>
               </button>
             ))}
@@ -386,6 +398,8 @@ function Avatar({ item }: { item: NeedsYouItem }) {
 /// The ask's line: its own text, else what its kind says (a permission asks to allow, anything
 /// else for an answer).
 export function askText(item: NeedsYouItem, t: Translate): string {
+  // A guest's held prompt reads as its text, as a question reads as its prompt.
+  if (item.kind === "held" && item.promptId) return messagePreview(item.ask);
   if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
   return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
 }

@@ -150,8 +150,10 @@
         "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCompat",
+        "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
         "CmuxNextPages",
@@ -754,6 +756,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -771,6 +774,15 @@
         "CmuxNextDaemon"
       ],
       "packages": []
+    },
+    "CmuxNextCloudTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
+      "targets": [
+        "CmuxNextCloud"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextCloudUI": {
       "kind": "regular",
@@ -1254,7 +1266,8 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDaemon",
-        "CmuxNextHomeEngine"
+        "CmuxNextHomeEngine",
+        "CmuxNextRemote"
       ],
       "packages": []
     },
@@ -1806,7 +1819,9 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebarActions",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextDesign",
         "CmuxNextDesignTokens",
+        "CmuxNextSettings",
         "CmuxNextSidebar"
       ],
       "packages": []

@@ -66,8 +66,12 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// A new chat's Sandboxed send (`sandbox.run`, hq#3367): the App runs one task on a throwaway
     /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
-    /// sandboxes in this app.
-    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String) async -> [String: Any])?
+    /// sandboxes in this app. `incognito` is ``sendIsIncognito``'s answer as the send was issued.
+    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String, _ incognito: Bool) async -> [String: Any])?
+    /// Whether this pane's tab is in an incognito window now, as the App knows it. Read when a
+    /// Sandboxed send is issued, before its send line drains: the tab may close during that wait
+    /// (#31109). Nil: taken as incognito.
+    @ObservationIgnored public var sendIsIncognito: (@MainActor () -> Bool)?
     /// A Cloud chat's hand-off turn (`cloud.handoffTurn`, ``AgentPaneHandoffPrompt``): the App opens
     /// it and answers `{turn}` or a refusal. Nil: no hand-offs in this app.
     @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
@@ -79,7 +83,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
     /// For a Cloud chat, forwards machine actions through its tab host even while the page's
     /// ACP transport is a local connection.
-    @ObservationIgnored public var onCloudRepositoryRemote: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)?
     /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
     @ObservationIgnored public let sandboxRuns = AgentPaneSandboxRuns()
     /// Agent session avatars (the app's ``ChiefAvatarUploads``, keyed per session): the avatar as a
@@ -482,7 +485,9 @@ public final class AgentPaneModel {
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
         case .cloudRepository(let request):
             return await request.reply(remoteChat: remoteChat, sessionID: sessionId,
-                                       request: transport.cloudRepository ?? onCloudRepositoryRemote,
+                                       request: transport.cloudRepository ?? { [host] method, params, timeout in
+                                           try await host.cloudRepository(method: method, params: params, timeout: timeout)
+                                       },
                                        localRequest: onCloudRepositoryLocal)
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
