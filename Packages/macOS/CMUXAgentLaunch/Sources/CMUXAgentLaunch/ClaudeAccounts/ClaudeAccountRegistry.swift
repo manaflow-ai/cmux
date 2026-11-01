@@ -51,14 +51,15 @@ public struct ClaudeAccountRegistry: Equatable, Sendable {
         self.accounts = accounts
     }
 
-    /// Decodes `agents.claudeAccounts` from comment-stripped `cmux.json` bytes. Malformed input
-    /// yields no declarations.
+    /// Decodes `agents.claudeAccounts` from comment-stripped `cmux.json` bytes. A file that does
+    /// not parse yields no declarations; an entry with a missing or wrong-type field, or one that
+    /// is not an object, is skipped and the other entries are kept.
     public static func declarations(sanitizedConfigJSON: Data) -> [ClaudeAccountDeclaration] {
         guard !sanitizedConfigJSON.isEmpty,
               let file = try? JSONDecoder().decode(ConfigFile.self, from: sanitizedConfigJSON) else {
             return []
         }
-        return file.agents?.claudeAccounts ?? []
+        return file.agents?.claudeAccounts?.compactMap(\.declaration) ?? []
     }
 
     /// Loads declarations from the user-level then project config files; later files override
@@ -145,7 +146,16 @@ public struct ClaudeAccountRegistry: Equatable, Sendable {
         let agents: AgentsSection?
 
         struct AgentsSection: Decodable {
-            let claudeAccounts: [ClaudeAccountDeclaration]?
+            let claudeAccounts: [LossyDeclaration]?
+        }
+
+        /// One array element. Decoding never throws, so the array keeps going past a bad entry.
+        struct LossyDeclaration: Decodable {
+            let declaration: ClaudeAccountDeclaration?
+
+            init(from decoder: any Decoder) {
+                declaration = try? ClaudeAccountDeclaration(from: decoder)
+            }
         }
     }
 }

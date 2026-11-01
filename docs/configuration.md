@@ -583,7 +583,7 @@ Register several Claude Code accounts, each a separate config directory (`CLAUDE
 Behavior notes:
 
 - The default `~/.claude` account is always available, listed first, and never sets `CLAUDE_CONFIG_DIR`. Declare `~/.claude` yourself only to give it another name.
-- Entries with an invalid name or a `configDir` that is neither absolute nor `~/`-relative are ignored. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
+- Entries with an invalid name, a `configDir` that is neither absolute nor `~/`-relative, or a missing or wrong-type field are ignored; the other entries still apply. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
 - A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `name`.
 - Switch a Claude terminal from its context menu (Switch Claude Account), the command palette, or `cmux claude-account switch <name>`. `cmux claude-account list` prints the accounts cmux sees.
 - Log in to each account once before switching to it: run `CLAUDE_CONFIG_DIR=<configDir> claude` in any terminal and use `/login`. cmux never reads, copies or stores Claude credentials.
