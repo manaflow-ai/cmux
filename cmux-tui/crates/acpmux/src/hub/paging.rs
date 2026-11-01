@@ -39,6 +39,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "turn_silent",
     "turn_heard",
     "turn_result",
+    // A turn the person did not start, around its rows (`background_turn.rs`).
+    "background_turn",
     "permission_request",
     "permission_auto",
     "permission_decision",
