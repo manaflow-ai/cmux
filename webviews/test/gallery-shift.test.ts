@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { judgeStep } from "../src/gallery/play";
 import { REST_FRAMES, scoreBoxFrames, type BoxFrame, type BoxSample } from "../src/gallery/shift";
 
 const viewport = { width: 800, height: 600 };
@@ -55,4 +56,22 @@ test("a resize lets each box move once; a second move is a bounce", () => {
 test("half-pixel rounding and boxes outside the viewport are not shift", () => {
   expect(scoreBoxFrames(frames(...rested(1, 100), [[1, row(100.4)]]), viewport).score).toBe(0);
   expect(scoreBoxFrames(frames(...rested(1, 700), [[1, row(760)]]), viewport).score).toBe(0);
+});
+
+// A wait is the page loading what it waits for (a header button arriving, a mention list opening):
+// the play does not fail on it. Gallery health scores it against the state's shift baseline.
+test("a wait step's shift and anchor moves do not fail the play; an action step's do", () => {
+  const measured = {
+    step: "s",
+    settleMs: 10,
+    anchorMoves: [{ anchor: "a", before: null, after: null, delta: 40 }],
+    layoutShift: 0.01,
+    shifts: [],
+    boxShift: 0.01,
+    boxMoves: [{ label: "div.ui-popup", frame: 3, dx: 0, dy: -32 }],
+    longFrames: [],
+    frameSource: "raf" as const,
+  };
+  expect(judgeStep({ ...measured, action: "wait" }).status).toBe("pass");
+  expect(judgeStep({ ...measured, action: "click" }).status).toBe("fail");
 });
