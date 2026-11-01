@@ -191,7 +191,7 @@ fn serve(
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "initialize" if fixture.turn_initialize_malformed => Some(json!({})),
             "initialize" => Some(json!({"_meta":{"acpmux":{"capabilities":
-                if fixture.turn_unsupported { vec![] } else { vec!["cloud-turn-prepare-v1"] }}}})),
+                if fixture.turn_unsupported { vec![] } else { vec!["agent-session-turn-rewind-v1"] }}}})),
             "agent-session-turn-prepare" => {
                 let answer = json!({"session":SESSION,"turn":"turn_1"});
                 if let Some(gate) = fixture.turn_prepare_gate.clone() {

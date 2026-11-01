@@ -59,7 +59,7 @@ pub(super) fn support(link: &AcpmuxLink) -> Result<bool, Refusal> {
         .and_then(Value::as_array)
         .filter(|caps| caps.iter().all(Value::is_string))
         .ok_or(Refusal::Unavailable)?;
-    Ok(capabilities.iter().any(|cap| cap.as_str() == Some("cloud-turn-prepare-v1")))
+    Ok(capabilities.iter().any(|cap| cap.as_str() == Some(CAPABILITY)))
 }
 
 #[derive(Deserialize)]
