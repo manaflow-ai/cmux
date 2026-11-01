@@ -67,7 +67,9 @@ final class VirtualDisplay120 {
         guard let made = Self.make(displayType, initializer: "initWithDescriptor:", argument: descriptor) else {
             throw Failure(description: "CGVirtualDisplay initWithDescriptor: gave nil (no window server session?)")
         }
-        guard let mode = Self.makeMode(modeType, width: width, height: height, hz: Self.hz) else {
+        // A HiDPI display's mode is its size in PIXELS; macOS offers it at half that in points (2x).
+        // A mode in points made the "2x" display 1x (green6 8a83669d: "virtual display 122 is 1.0x, not 2x").
+        guard let mode = Self.makeMode(modeType, width: width * factor, height: height * factor, hz: Self.hz) else {
             throw Failure(description: "CGVirtualDisplayMode initWithWidth:height:refreshRate: gave nil")
         }
         let settings = settingsType.init()
