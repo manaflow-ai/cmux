@@ -11,9 +11,6 @@ public nonisolated struct CreationHoldLog: Equatable, Sendable {
     /// A creation of `window`'s current hold failed.
     public mutating func creationFailed(in window: Int) { failedCreation.insert(window) }
 
-    /// Whether a creation of `window`'s current hold failed, whatever ends the hold (a forced end does not say so).
-    public func hasFailedCreation(in window: Int) -> Bool { failedCreation.contains(window) }
-
     /// `window` is gone, and its hold with it.
     public mutating func windowClosed(_ window: Int) {
         failedCreation.remove(window)

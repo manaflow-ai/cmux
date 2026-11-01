@@ -338,13 +338,13 @@ final class CreationInputCoordinator {
             guard Self.responderTakesKeys(controller, window: window) else { return }
         }
         buffers[window.windowNumber] = nil
-        let failed = holdEnds.hasFailedCreation(in: window.windowNumber), end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
+        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
         // A forced end drops the keys of a new workspace the window does not show, and the window's focus applies again;
         // the claim stays until the person's next intent, so a primary input (Home's message box) does not take the keys.
         let unshown = buffer.waitsForWorkspace(other: shown)
         buffer.dropKeys(ofWorkspacesOtherThan: shown)
         let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
-        if unshown || failed, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
+        if unshown || end == .creationFailed, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, each to the terminal it was typed for.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
